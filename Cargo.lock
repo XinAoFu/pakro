@@ -6767,10 +6767,13 @@ dependencies = [
 name = "mise-store"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "hex",
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "tar",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 
