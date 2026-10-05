@@ -7,3 +7,9 @@ license = "MIT"
 publish = false
 
 [dependencies]
+petgraph = "0.8"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+[dev-dependencies]
+serde_json = "1"

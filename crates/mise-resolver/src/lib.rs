@@ -4,3 +4,9 @@
 //! Ecosystem identifiers are strings ("python", "node") so this crate carries no
 //! business dependencies; typed ecosystem enums live in mise-store and are
 //! converted at the glue layer.
+
+pub mod error;
+pub mod graph;
+
+pub use error::ResolverError;
+pub use graph::{DependencyRequest, ResolvedGraph, ResolvedNode};
