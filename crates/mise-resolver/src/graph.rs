@@ -23,7 +23,9 @@ pub struct ResolvedNode {
     pub eco: String,
     pub name: String,
     pub version: String,
-    pub digest: String,
+    /// Artifact digest; filled by artifact selection after solving, never by
+    /// the solver itself.
+    pub digest: Option<String>,
     pub deps: Vec<DependencyRequest>,
 }
 

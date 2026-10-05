@@ -5,7 +5,7 @@ fn node(eco: &str, name: &str, version: &str, deps: &[(&str, &str, &str)]) -> Re
         eco: eco.into(),
         name: name.into(),
         version: version.into(),
-        digest: format!("sha256-{name}"),
+        digest: Some(format!("sha256-{name}")),
         deps: deps
             .iter()
             .map(|(eco, name, constraint)| DependencyRequest {

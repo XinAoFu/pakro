@@ -7,7 +7,9 @@ license = "MIT"
 publish = false
 
 [dependencies]
+pep440_rs = "0.7.3"
 petgraph = "0.8"
+pubgrub = "0.4.0"
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 
