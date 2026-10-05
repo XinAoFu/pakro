@@ -1,0 +1,234 @@
+//! venv materialization: build a standard-venv-shaped directory per project
+//! runtime whose site-packages holds symlinks into the global store. The
+//! interpreter itself stays the mise-installed one; only the surrounding
+//! environment is generated, so IDEs can point at `.mise/venvs/<runtime>/bin/python`.
+
+use std::os::unix::fs::symlink;
+use std::path::{Path, PathBuf};
+
+use eyre::{Context, bail};
+use mise_resolver::{ResolvedGraph, ResolvedNode};
+use mise_store::{Digest, Eco, PackageIdentity, Platform, RuntimeId, Store};
+
+pub(crate) struct VenvSpec<'a> {
+    pub project_root: &'a Path,
+    pub runtime_name: &'a str,
+    pub runtime_version: &'a str,
+    /// directory containing the mise-installed `bin/pythonX.Y`
+    pub interpreter_home: &'a Path,
+}
+
+/// Materializes the venv and returns its path. Idempotent: existing links are
+/// replaced, refcounts are refreshed.
+pub(crate) fn materialize_venv(
+    spec: &VenvSpec<'_>,
+    graph: &ResolvedGraph,
+    store: &Store,
+) -> eyre::Result<PathBuf> {
+    let venv = spec
+        .project_root
+        .join(".mise/venvs")
+        .join(format!("{}-{}", spec.runtime_name, spec.runtime_version));
+    let (major, minor) = split_minor(spec.runtime_version)?;
+    let site_packages = venv.join(format!("lib/python{major}.{minor}/site-packages"));
+    std::fs::create_dir_all(&site_packages)
+        .with_context(|| format!("creating {}", site_packages.display()))?;
+    write_pyvenv_cfg(&venv, spec)?;
+    link_interpreters(&venv, spec)?;
+    let mut identities = vec![];
+    for node in &graph.nodes {
+        let identity = identity_of(node, spec)?;
+        let entry = store.entry_path(&identity);
+        link_entry_into_site(&entry, &site_packages, node)?;
+        store.add_ref(&identity, &spec.project_root.to_string_lossy())?;
+        identities.push((identity, entry));
+    }
+    Ok(venv)
+}
+
+fn split_minor(version: &str) -> eyre::Result<(u32, u32)> {
+    let mut parts = version.split('.');
+    let (Some(major), Some(minor)) = (parts.next(), parts.next()) else {
+        bail!("runtime version {version:?} must be at least major.minor");
+    };
+    Ok((major.parse()?, minor.parse()?))
+}
+
+fn write_pyvenv_cfg(venv: &Path, spec: &VenvSpec<'_>) -> eyre::Result<()> {
+    let cfg = format!(
+        "home = {}\ninclude-system-site-packages = false\nversion = {}\n",
+        spec.interpreter_home.display(),
+        spec.runtime_version
+    );
+    std::fs::write(venv.join("pyvenv.cfg"), cfg)?;
+    Ok(())
+}
+
+fn link_interpreters(venv: &Path, spec: &VenvSpec<'_>) -> eyre::Result<()> {
+    let bin = venv.join("bin");
+    std::fs::create_dir_all(&bin)?;
+    let target = spec.interpreter_home.join("bin/python3");
+    for name in ["python", "python3"] {
+        let link = bin.join(name);
+        replace_symlink(&target, &link)?;
+    }
+    Ok(())
+}
+
+fn identity_of(node: &ResolvedNode, spec: &VenvSpec<'_>) -> eyre::Result<PackageIdentity> {
+    let Some(digest) = &node.digest else {
+        bail!(
+            "node {}@{} has no artifact digest yet",
+            node.name,
+            node.version
+        );
+    };
+    Ok(PackageIdentity {
+        eco: Eco::Python,
+        name: node.name.clone(),
+        version: node.version.clone(),
+        runtime: Some(RuntimeId {
+            eco: Eco::Python,
+            version: spec.runtime_version.to_string(),
+        }),
+        platform: Platform::detect(),
+        digest: digest.parse::<Digest>()?,
+    })
+}
+
+/// Links every top-level child of a store entry (package dirs, dist-info,
+/// loose modules) into site-packages, skipping the store's own marker files.
+fn link_entry_into_site(
+    entry: &Path,
+    site_packages: &Path,
+    node: &ResolvedNode,
+) -> eyre::Result<()> {
+    let children = std::fs::read_dir(entry)
+        .with_context(|| format!("store entry {} is missing", entry.display()))?;
+    for child in children.flatten() {
+        let name = child.file_name().to_string_lossy().to_string();
+        if name.starts_with(".mise") {
+            continue;
+        }
+        replace_symlink(&child.path(), &site_packages.join(&name))
+            .with_context(|| format!("linking {} for {}", name, node.name))?;
+    }
+    Ok(())
+}
+
+fn replace_symlink(target: &Path, link: &Path) -> std::io::Result<()> {
+    if std::fs::symlink_metadata(link).is_ok() {
+        std::fs::remove_file(link)?;
+    }
+    symlink(target, link)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mise_resolver::DependencyRequest;
+    use std::io::Write;
+
+    fn fixture_store_with_entry(store_root: &Path, name: &str, version: &str) -> PackageIdentity {
+        let store = Store::open(store_root).unwrap();
+        let mut buf = std::io::Cursor::new(Vec::new());
+        {
+            let mut writer = zip::ZipWriter::new(&mut buf);
+            writer
+                .start_file(
+                    format!("{name}/__init__.py"),
+                    zip::write::SimpleFileOptions::default(),
+                )
+                .unwrap();
+            writer.write_all(b"").unwrap();
+            writer.finish().unwrap();
+        }
+        let bytes = buf.into_inner();
+        let identity = PackageIdentity {
+            eco: Eco::Python,
+            name: name.to_string(),
+            version: version.to_string(),
+            runtime: Some(RuntimeId {
+                eco: Eco::Python,
+                version: "3.10.14".to_string(),
+            }),
+            platform: Platform::detect(),
+            digest: Digest::from_sha256_bytes(&bytes),
+        };
+        store.unpack(&identity, &bytes).unwrap();
+        identity
+    }
+
+    fn node(name: &str, version: &str, digest: Option<String>) -> ResolvedNode {
+        ResolvedNode {
+            eco: "python".into(),
+            name: name.into(),
+            version: version.into(),
+            digest,
+            deps: vec![DependencyRequest {
+                eco: "python".into(),
+                name: "x".into(),
+                constraint: "1".into(),
+            }],
+        }
+    }
+
+    #[test]
+    fn materializes_venv_shape_and_refs() {
+        let root = tempfile::tempdir().unwrap();
+        let store_root = tempfile::tempdir().unwrap();
+        // fake installed interpreter
+        let interp_home = root.path().join("installs/python/3.10.14");
+        std::fs::create_dir_all(interp_home.join("bin")).unwrap();
+        std::fs::write(interp_home.join("bin/python3"), b"#!/bin/sh\n").unwrap();
+
+        let identity = fixture_store_with_entry(store_root.path(), "numpy", "4.2.2");
+        let graph = ResolvedGraph {
+            nodes: vec![node("numpy", "4.2.2", Some(identity.digest.to_string()))],
+        };
+        let store = Store::open(&store_root).unwrap();
+        let spec = VenvSpec {
+            project_root: root.path(),
+            runtime_name: "python",
+            runtime_version: "3.10.14",
+            interpreter_home: &interp_home,
+        };
+        let venv = materialize_venv(&spec, &graph, &store).unwrap();
+
+        let cfg = std::fs::read_to_string(venv.join("pyvenv.cfg")).unwrap();
+        assert!(cfg.contains("home = "));
+        assert!(cfg.contains("version = 3.10.14"));
+        let python = venv.join("bin/python");
+        assert!(python.is_symlink());
+        let site = venv.join("lib/python3.10/site-packages/numpy");
+        assert!(site.is_symlink());
+        assert!(site.join("__init__.py").is_file());
+        let refs = store.refs(&identity).unwrap();
+        assert_eq!(
+            refs.projects,
+            vec![root.path().to_string_lossy().to_string()]
+        );
+
+        // idempotent re-materialization
+        materialize_venv(&spec, &graph, &store).unwrap();
+        assert!(site.join("__init__.py").is_file());
+    }
+
+    #[test]
+    fn rejects_node_without_digest() {
+        let root = tempfile::tempdir().unwrap();
+        let store_root = tempfile::tempdir().unwrap();
+        let graph = ResolvedGraph {
+            nodes: vec![node("numpy", "4.2.2", None)],
+        };
+        let store = Store::open(&store_root).unwrap();
+        let spec = VenvSpec {
+            project_root: root.path(),
+            runtime_name: "python",
+            runtime_version: "3.10.14",
+            interpreter_home: root.path(),
+        };
+        let err = materialize_venv(&spec, &graph, &store).unwrap_err();
+        assert!(err.to_string().contains("digest"), "{err}");
+    }
+}

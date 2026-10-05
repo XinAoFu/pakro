@@ -38,6 +38,25 @@ impl Index {
         self
     }
 
+    /// All released versions of a package (the `/pypi/{name}/json` listing),
+    /// cached under a reserved pseudo-version key.
+    pub async fn versions(&self, name: &str) -> Result<Vec<String>> {
+        const VERSIONS_KEY: &str = "__versions__";
+        if let Some(bytes) = self
+            .cache
+            .read_with_ttl("python", name, VERSIONS_KEY, DEFAULT_TTL)?
+        {
+            let value: Value = serde_json::from_slice(&bytes)?;
+            return parse_pypi_versions(&value);
+        }
+        let url = format!("{}/{}/json", self.base_url, normalize_py_name(name));
+        let response = self.client.get(url).send().await?.error_for_status()?;
+        let bytes = response.bytes().await?;
+        let value: Value = serde_json::from_slice(&bytes)?;
+        self.cache.write("python", name, VERSIONS_KEY, &bytes)?;
+        parse_pypi_versions(&value)
+    }
+
     pub async fn metadata(
         &self,
         name: &str,
@@ -158,6 +177,30 @@ pub fn parse_pypi_response(value: &Value, runtime: &RuntimeInfo) -> Result<Packa
     })
 }
 
+/// Version keys of a `/pypi/{name}/json` listing, keeping only releases that
+/// actually carry files.
+pub fn parse_pypi_versions(value: &Value) -> Result<Vec<String>> {
+    let bad = |reason: &str| IndexError::BadResponse {
+        package: value
+            .pointer("/info/name")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string(),
+        reason: reason.to_string(),
+    };
+    let releases = value
+        .get("releases")
+        .and_then(Value::as_object)
+        .ok_or_else(|| bad("missing releases map"))?;
+    let mut versions = releases
+        .iter()
+        .filter(|(_, files)| files.as_array().is_some_and(|files| !files.is_empty()))
+        .map(|(version, _)| version.clone())
+        .collect::<Vec<_>>();
+    versions.sort();
+    Ok(versions)
+}
+
 fn marker_environment(
     runtime: &RuntimeInfo,
 ) -> std::result::Result<MarkerEnvironment, pep440_rs::VersionParseError> {
@@ -188,4 +231,18 @@ fn marker_environment(
             "linux"
         },
     })
+}
+
+/// Whether a package's `requires-python` admits the given runtime. An
+/// unparseable spec is treated as permissive rather than blocking installs.
+pub fn python_requires_matches(spec: &str, runtime: &RuntimeInfo) -> bool {
+    use std::str::FromStr;
+    let Ok(specs) = pep440_rs::VersionSpecifiers::from_str(spec) else {
+        return true;
+    };
+    let Ok(version) = pep440_rs::Version::from_str(&format!("{}.{}", runtime.major, runtime.minor))
+    else {
+        return true;
+    };
+    specs.contains(&version)
 }

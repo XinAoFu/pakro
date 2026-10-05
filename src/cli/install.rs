@@ -167,12 +167,37 @@ impl Install {
             Some(runtime) => {
                 let original_tool_args = env::TOOL_ARGS.read().unwrap().clone();
                 env::TOOL_ARGS.write().unwrap().clone_from(runtime);
-                self.install_runtimes(config, runtime, original_tool_args, task_requests)
+                self.install_runtimes(config.clone(), runtime, original_tool_args, task_requests)
                     .await?
             }
-            None => self.install_missing_runtimes(config, task_requests).await?,
+            None => {
+                self.install_missing_runtimes(config.clone(), task_requests)
+                    .await?
+            }
         };
+        self.install_config_packages(&config).await?;
         self.hint_missing_system_packages().await;
+        Ok(())
+    }
+
+    async fn install_config_packages(&self, config: &Arc<Config>) -> Result<()> {
+        if self.is_dry_run() {
+            return Ok(());
+        }
+        let requests = config.package_requests();
+        if requests.is_empty() {
+            return Ok(());
+        }
+        let project_root = config
+            .project_root
+            .clone()
+            .or_else(|| std::env::current_dir().ok())
+            .ok_or_else(|| eyre::eyre!("could not locate project root"))?;
+        let locations = crate::packages::install::Locations::from_config(&project_root)?;
+        let downloaded = crate::packages::install::install_packages(&requests, &locations).await?;
+        if downloaded > 0 {
+            info!("installed {downloaded} package artifact(s) into the mise store");
+        }
         Ok(())
     }
 

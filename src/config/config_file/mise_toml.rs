@@ -468,6 +468,11 @@ pub struct MiseToml {
     /// Configuration for monorepo and workspace discovery
     #[serde(default)]
     monorepo: Option<MonorepoConfig>,
+    /// Exact-pinned packages grouped by runtime identity:
+    /// `[packages."python@3.10.14"]` with `numpy = "4.2.2"`. Serialized only
+    /// when non-empty so config rewrites neither drop nor pad it.
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub(crate) packages: IndexMap<String, IndexMap<String, String>>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -1380,6 +1385,13 @@ impl MiseToml {
 }
 
 impl ConfigFile for MiseToml {
+    fn to_package_requests(&self) -> Vec<crate::packages::PackageInstallRequest> {
+        crate::packages::requests_from_config(&self.packages).unwrap_or_else(|err| {
+            warn!("[packages] in {} is ignored: {err}", self.path.display());
+            Vec::new()
+        })
+    }
+
     fn get_path(&self) -> &Path {
         self.path.as_path()
     }
@@ -2174,6 +2186,7 @@ impl Clone for MiseToml {
             monorepo_root: self.monorepo_root,
             experimental_monorepo_root: self.experimental_monorepo_root,
             monorepo: self.monorepo.clone(),
+            packages: self.packages.clone(),
         }
     }
 }

@@ -137,6 +137,12 @@ pub trait ConfigFile: Debug + Send + Sync {
         Ok(self.to_tool_request_set()?.into())
     }
     fn to_tool_request_set(&self) -> eyre::Result<ToolRequestSet>;
+
+    /// Native package requests declared by this file. Config formats without
+    /// a `[packages]` table keep the empty default.
+    fn to_package_requests(&self) -> Vec<crate::packages::PackageInstallRequest> {
+        Vec::new()
+    }
     fn aliases(&self) -> eyre::Result<AliasMap> {
         Ok(Default::default())
     }

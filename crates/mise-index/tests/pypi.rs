@@ -89,3 +89,18 @@ fn empty_requires_dist_is_ok() {
     let md = parse_pypi_response(&f, &rt(3, 10)).unwrap();
     assert!(md.deps.is_empty());
 }
+
+#[test]
+fn parses_version_listing() {
+    use mise_index::pypi::parse_pypi_versions;
+    let value = serde_json::json!({
+        "info": {"name": "numpy", "version": "4.2.2"},
+        "releases": {
+            "4.2.1": [{"filename": "numpy-4.2.1.tar.gz"}],
+            "4.2.2": [{"filename": "numpy-4.2.2-cp310-cp310-any.whl"}],
+            "0.1.0-broken": []
+        }
+    });
+    let versions = parse_pypi_versions(&value).unwrap();
+    assert_eq!(versions, vec!["4.2.1".to_string(), "4.2.2".to_string()]);
+}

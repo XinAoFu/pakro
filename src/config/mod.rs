@@ -658,6 +658,22 @@ impl Config {
         let _ = self.daemons.set(set);
     }
 
+    /// Native `[packages]` requests across all config files; later files win
+    /// per (group, package).
+    pub fn package_requests(&self) -> Vec<crate::packages::PackageInstallRequest> {
+        let mut merged: indexmap::IndexMap<String, indexmap::IndexMap<String, String>> =
+            Default::default();
+        for cf in self.config_files.values() {
+            for req in cf.to_package_requests() {
+                merged
+                    .entry(req.group_key())
+                    .or_default()
+                    .insert(req.name.clone(), req.version.clone());
+            }
+        }
+        crate::packages::requests_from_config(&merged).unwrap_or_default()
+    }
+
     pub async fn get_tool_request_set(self: &Arc<Self>) -> eyre::Result<&ToolRequestSet> {
         self.tool_request_set
             .get_or_try_init(async || ToolRequestSetBuilder::new().build(self).await)
