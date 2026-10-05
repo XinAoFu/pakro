@@ -16,6 +16,7 @@ members = [
   "crates/mise-dotenv",
   "crates/mise-store",
   "crates/mise-resolver",
+  "crates/mise-index",
 ]
 
 [package]
