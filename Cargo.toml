@@ -14,6 +14,8 @@ members = [
   "crates/mise-settings",
   "crates/mise-util",
   "crates/mise-dotenv",
+  "crates/mise-store",
+  "crates/mise-resolver",
 ]
 
 [package]

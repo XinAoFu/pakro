@@ -6718,6 +6718,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "mise-resolver"
+version = "0.1.0"
+
+[[package]]
 name = "mise-settings"
 version = "2026.9.0"
 dependencies = [
@@ -6758,6 +6762,10 @@ dependencies = [
  "tokio",
  "x509-cert 0.3.0",
 ]
+
+[[package]]
+name = "mise-store"
+version = "0.1.0"
 
 [[package]]
 name = "mise-util"

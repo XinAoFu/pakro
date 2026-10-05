@@ -1,0 +1,9 @@
+[package]
+name = "mise-resolver"
+version = "0.1.0"
+edition = "2024"
+description = "Dependency resolution for mise packages: pure logic, no network or disk"
+license = "MIT"
+publish = false
+
+[dependencies]
