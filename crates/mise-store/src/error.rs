@@ -8,6 +8,8 @@ pub enum StoreError {
     InvalidIdentity(String),
     #[error("invalid digest: {0}")]
     InvalidDigest(String),
+    #[error("unsupported archive format (expected zip or gzip magic bytes)")]
+    InvalidArchive,
     #[error("digest mismatch for {identity}: expected sha256-{expected}, got sha256-{actual}")]
     DigestMismatch {
         identity: String,
@@ -16,6 +18,8 @@ pub enum StoreError {
     },
     #[error(transparent)]
     Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Zip(#[from] zip::result::ZipError),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
 }

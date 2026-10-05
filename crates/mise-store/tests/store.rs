@@ -47,3 +47,34 @@ fn unpack_rejects_digest_mismatch() {
     assert!(!store.contains(&id));
     assert!(!store.entry_path(&id).exists());
 }
+
+#[test]
+fn unpack_zip_archive() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir).unwrap();
+    let mut buf = std::io::Cursor::new(Vec::new());
+    {
+        let mut writer = zip::ZipWriter::new(&mut buf);
+        let options = zip::write::SimpleFileOptions::default();
+        writer.start_file("pkg/wheel.txt", options).unwrap();
+        writer.write_all(b"wheel").unwrap();
+        writer.finish().unwrap();
+    }
+    let buf = buf.into_inner();
+    let id = identity_for("numpy", "4.2.2", Digest::from_sha256_bytes(&buf));
+    let unpacked = store.unpack(&id, &buf).unwrap();
+    assert!(unpacked.join("pkg/wheel.txt").is_file());
+    assert!(store.contains(&id));
+    assert_eq!(store.unpack(&id, &buf).unwrap(), unpacked);
+}
+
+#[test]
+fn unpack_rejects_unknown_archive_format() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir).unwrap();
+    let bytes = b"definitely not an archive";
+    let id = identity_for("numpy", "4.2.2", Digest::from_sha256_bytes(bytes));
+    let err = store.unpack(&id, bytes).unwrap_err();
+    assert!(err.to_string().contains("archive"));
+}

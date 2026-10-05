@@ -51,7 +51,7 @@ impl Store {
         ));
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp)?;
-        extract_tar_gz(&tmp, bytes)?;
+        extract(&tmp, bytes)?;
         fs::write(tmp.join(".mise-complete"), b"")?;
         fs::write(tmp.join(".mise-meta.json"), serde_json::to_vec(id)?)?;
         match fs::rename(&tmp, &dst) {
@@ -64,6 +64,24 @@ impl Store {
             }
         }
     }
+}
+
+/// Dispatches on magic bytes: wheels are zip archives, npm tarballs and other
+/// sources are gzipped tar.
+fn extract(dir: &Path, bytes: &[u8]) -> Result<()> {
+    if bytes.starts_with(&[0x50, 0x4b, 0x03, 0x04]) {
+        extract_zip(dir, bytes)
+    } else if bytes.starts_with(&[0x1f, 0x8b]) {
+        extract_tar_gz(dir, bytes)
+    } else {
+        Err(StoreError::InvalidArchive)
+    }
+}
+
+fn extract_zip(dir: &Path, bytes: &[u8]) -> Result<()> {
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))?;
+    archive.extract(dir)?;
+    Ok(())
 }
 
 fn extract_tar_gz(dir: &Path, bytes: &[u8]) -> Result<()> {
