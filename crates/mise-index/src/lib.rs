@@ -5,4 +5,4 @@
 
 pub mod wheel;
 
-pub use wheel::{WheelFile, WheelTags, parse_wheel_filename};
+pub use wheel::{RuntimeInfo, WheelFile, WheelTags, parse_wheel_filename, wheel_matches};

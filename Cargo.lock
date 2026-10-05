@@ -6705,6 +6705,9 @@ dependencies = [
 [[package]]
 name = "mise-index"
 version = "0.1.0"
+dependencies = [
+ "mise-store",
+]
 
 [[package]]
 name = "mise-interactive-config"
