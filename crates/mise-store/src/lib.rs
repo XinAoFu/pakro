@@ -8,8 +8,10 @@
 pub mod error;
 pub mod identity;
 pub mod path;
+pub mod refcount;
 pub mod store;
 
 pub use error::{Result, StoreError};
 pub use identity::{Arch, Digest, Eco, Libc, Os, PackageIdentity, Platform, RuntimeId};
+pub use refcount::{GcReport, Refs, gc};
 pub use store::Store;
