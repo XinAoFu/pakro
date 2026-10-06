@@ -71,7 +71,7 @@ fn artifacts_split_into_wheel_and_sdist() {
         .unwrap();
     assert_eq!(
         wheel.digest.as_deref(),
-        Some("abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd")
+        Some("sha256-abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd")
     );
     assert!(wheel.kind.is_wheel());
     let sdist = md

@@ -167,7 +167,7 @@ pub fn parse_pypi_response(value: &Value, runtime: &RuntimeInfo) -> Result<Packa
                 digest: url_entry
                     .pointer("/digests/sha256")
                     .and_then(Value::as_str)
-                    .map(str::to_string),
+                    .map(|hex| format!("sha256-{hex}")),
                 kind,
             });
         }

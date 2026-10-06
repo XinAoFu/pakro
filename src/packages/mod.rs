@@ -7,7 +7,42 @@ pub(crate) mod lockfile;
 pub(crate) mod materialize;
 pub(crate) mod materialize_node;
 
+use std::sync::OnceLock;
+
 use indexmap::IndexMap;
+
+/// Package pins lifted out of `mise install python@3.10.14+numpy@4.2.2`
+/// style arguments, consumed by the install command after the runtime tools
+/// themselves install.
+pub static CLI_PACKAGE_ARGS: OnceLock<Vec<PackageInstallRequest>> = OnceLock::new();
+
+/// Rewrites bound arguments (`runtime@ver+pkg@ver[+…]`) in place to their
+/// runtime-only form and records the package pins. Plain tool arguments are
+/// left untouched; returns whether any pins were recorded.
+pub fn extract_bound_package_args(args: &mut [String]) -> bool {
+    let mut requests = vec![];
+    for arg in args.iter_mut() {
+        if !arg.contains('+') || !arg.contains('@') {
+            continue;
+        }
+        if let Ok(InstallArg::Bound {
+            tool,
+            tool_version: Some(version),
+            packages,
+        }) = parse_install_arg(arg)
+            && let Ok(bound) = requests_from_bound(&tool, Some(&version), &packages)
+        {
+            requests.extend(bound);
+            *arg = format!("{tool}@{version}");
+        }
+    }
+    if requests.is_empty() {
+        false
+    } else {
+        let _ = CLI_PACKAGE_ARGS.set(requests);
+        true
+    }
+}
 
 /// One exact-pinned package bound to an exact runtime, the unit the install
 /// pipeline works on.
@@ -203,6 +238,22 @@ mod tests {
         )
         .unwrap();
         assert_eq!(reqs[0].group_key(), "python@3.10.14");
+    }
+
+    #[test]
+    fn bound_args_are_rewritten_in_place() {
+        let mut args = vec![
+            "install".to_string(),
+            "python@3.10.14+numpy@4.2.2+scipy@1.11.4".to_string(),
+            "node@22.14.0".to_string(),
+        ];
+        assert!(extract_bound_package_args(&mut args));
+        assert_eq!(args[1], "python@3.10.14");
+        assert_eq!(args[2], "node@22.14.0");
+
+        let mut plain = vec!["install".to_string(), "node@22.14.0".to_string()];
+        assert!(!extract_bound_package_args(&mut plain));
+        assert_eq!(plain[1], "node@22.14.0");
     }
 
     #[test]

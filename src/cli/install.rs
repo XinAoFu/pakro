@@ -184,7 +184,10 @@ impl Install {
         if self.is_dry_run() {
             return Ok(());
         }
-        let requests = config.package_requests();
+        let mut requests = config.package_requests();
+        if let Some(cli_pins) = crate::packages::CLI_PACKAGE_ARGS.get() {
+            requests.extend(cli_pins.iter().cloned());
+        }
         if requests.is_empty() {
             return Ok(());
         }

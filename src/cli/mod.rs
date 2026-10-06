@@ -1071,7 +1071,16 @@ impl Cli {
         let cmd = measure!("build_cli_command", { Cli::command() });
         let processed_args = preprocess_args_for_naked_run(cmd, args);
         // Escape flags after task names so they go to tasks, not mise
-        let processed_args = escape_task_args(cmd, &processed_args);
+        let mut processed_args = escape_task_args(cmd, &processed_args);
+        // `mise install python@3.10.14+numpy@4.2.2`: keep the runtime in the
+        // argv for a normal tool install, lift the package pins out for the
+        // packages hook
+        if matches!(
+            args.get(1).map(String::as_str),
+            Some("install" | "i" | "use" | "u")
+        ) {
+            crate::packages::extract_bound_package_args(&mut processed_args);
+        }
         let deprecated_backends_alias = uses_deprecated_backends_alias(cmd, args);
 
         let parsed_argv: Vec<&std::ffi::OsStr> =

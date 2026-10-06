@@ -56,13 +56,17 @@ impl log::Log for Logger {
 
     fn log(&self, record: &Record) {
         // Drop Debug/Trace spam from noisy third-party crates (e.g. h2 logging
-        // every received DATA frame) regardless of terminal/file level. Opt
-        // back in with MISE_LOG_VERBOSE_DEPS=1.
-        if matches!(record.level(), Level::Debug | Level::Trace)
-            && !*env::MISE_LOG_VERBOSE_DEPS
-            && is_noisy_dep_target(record.target())
-        {
-            return;
+        // every received DATA frame) regardless of terminal/file level, and
+        // the solver's per-step info narration, which is never terminal
+        // material. Opt back in with MISE_LOG_VERBOSE_DEPS=1.
+        if !*env::MISE_LOG_VERBOSE_DEPS {
+            let noisy_dep = matches!(record.level(), Level::Debug | Level::Trace)
+                && is_noisy_dep_target(record.target());
+            let solver_chatter =
+                record.level() == Level::Info && record.target().starts_with("pubgrub");
+            if noisy_dep || solver_chatter {
+                return;
+            }
         }
 
         let term_level = *self.term_level.lock().unwrap();
