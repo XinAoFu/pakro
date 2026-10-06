@@ -26,7 +26,8 @@ impl ArtifactKind {
 pub struct ArtifactDescriptor {
     pub filename: String,
     pub url: String,
-    pub sha256: Option<String>,
+    /// digest string as "<algorithm>-<hex>"; sha256 for wheels, sha512 for npm tarballs
+    pub digest: Option<String>,
     pub kind: ArtifactKind,
 }
 

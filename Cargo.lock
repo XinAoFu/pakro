@@ -6715,6 +6715,7 @@ dependencies = [
 name = "mise-index"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "mise-store",
  "pep440_rs",
  "pep508_rs",

@@ -19,9 +19,10 @@ const DEFAULT_BASE_URL: &str = "https://pypi.org/pypi";
 const DEFAULT_TTL: Duration = Duration::from_secs(60 * 60 * 24);
 
 pub struct Index {
-    cache: MetadataCache,
-    client: reqwest::Client,
+    pub(crate) cache: MetadataCache,
+    pub(crate) client: reqwest::Client,
     base_url: String,
+    pub(crate) npm_registry: String,
 }
 
 impl Index {
@@ -30,11 +31,17 @@ impl Index {
             cache: MetadataCache::new(cache_root),
             client: reqwest::Client::new(),
             base_url: DEFAULT_BASE_URL.to_string(),
+            npm_registry: crate::npm::DEFAULT_NPM_REGISTRY.to_string(),
         }
     }
 
     pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
         self.base_url = url.into();
+        self
+    }
+
+    pub fn with_npm_registry(mut self, url: impl Into<String>) -> Self {
+        self.npm_registry = url.into();
         self
     }
 
@@ -157,7 +164,7 @@ pub fn parse_pypi_response(value: &Value, runtime: &RuntimeInfo) -> Result<Packa
             artifacts.push(ArtifactDescriptor {
                 filename: filename.to_string(),
                 url: url.to_string(),
-                sha256: url_entry
+                digest: url_entry
                     .pointer("/digests/sha256")
                     .and_then(Value::as_str)
                     .map(str::to_string),

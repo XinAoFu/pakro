@@ -5,6 +5,7 @@
 
 pub mod cache;
 pub mod error;
+pub mod npm;
 pub mod pypi;
 pub mod types;
 pub mod wheel;

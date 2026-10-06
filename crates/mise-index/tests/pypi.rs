@@ -70,7 +70,7 @@ fn artifacts_split_into_wheel_and_sdist() {
         .find(|a| a.filename.ends_with(".whl"))
         .unwrap();
     assert_eq!(
-        wheel.sha256.as_deref(),
+        wheel.digest.as_deref(),
         Some("abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd")
     );
     assert!(wheel.kind.is_wheel());
