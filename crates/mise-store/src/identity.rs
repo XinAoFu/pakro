@@ -2,8 +2,8 @@ use std::fmt;
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
-use sha2::Digest as Sha256Digest;
-use sha2::Sha256;
+use sha2::Digest as Sha2Digest;
+use sha2::{Sha256, Sha512};
 
 use crate::error::StoreError;
 
@@ -203,23 +203,54 @@ impl FromStr for RuntimeId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Digest([u8; 32]);
+pub enum Digest {
+    Sha256([u8; 32]),
+    Sha512([u8; 64]),
+}
 
 impl Digest {
     pub fn from_sha256_bytes(bytes: &[u8]) -> Self {
         let mut out = [0u8; 32];
         out.copy_from_slice(&Sha256::digest(bytes));
-        Self(out)
+        Digest::Sha256(out)
+    }
+
+    pub fn from_sha512_bytes(bytes: &[u8]) -> Self {
+        let mut out = [0u8; 64];
+        out.copy_from_slice(&Sha512::digest(bytes));
+        Digest::Sha512(out)
     }
 
     pub fn hex(&self) -> String {
-        hex::encode(self.0)
+        match self {
+            Digest::Sha256(bytes) => hex::encode(bytes),
+            Digest::Sha512(bytes) => hex::encode(bytes),
+        }
+    }
+
+    /// Recomputes the digest of `bytes` and compares. The algorithm comes
+    /// from the prefix, so a sha512 identity can never verify against
+    /// sha256 content.
+    pub fn verify(&self, bytes: &[u8]) -> bool {
+        *self
+            == match self {
+                Digest::Sha256(_) => Digest::from_sha256_bytes(bytes),
+                Digest::Sha512(_) => Digest::from_sha512_bytes(bytes),
+            }
     }
 }
 
 impl fmt::Display for Digest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "sha256-{}", self.hex())
+        write!(
+            f,
+            "{}-{}",
+            match self {
+                Digest::Sha256(_) => "sha256",
+                Digest::Sha512(_) => "sha512",
+            },
+            self.hex()
+        )
     }
 }
 
@@ -228,14 +259,25 @@ impl FromStr for Digest {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let invalid = |reason: &str| StoreError::InvalidDigest(format!("{s}: {reason}"));
-        let Some(hex_part) = s.strip_prefix("sha256-") else {
-            return Err(invalid("missing sha256- prefix"));
-        };
+        let (algorithm, hex_part) = s
+            .split_once('-')
+            .ok_or_else(|| invalid("expected <algorithm>-<hex>"))?;
+        if !matches!(algorithm, "sha256" | "sha512") {
+            return Err(invalid("unsupported algorithm"));
+        }
         let bytes = hex::decode(hex_part).map_err(|_| invalid("not hexadecimal"))?;
-        let arr: [u8; 32] = bytes
-            .try_into()
-            .map_err(|_| invalid("expected 64 hex characters"))?;
-        Ok(Self(arr))
+        match algorithm {
+            "sha256" => Ok(Digest::Sha256(
+                bytes
+                    .try_into()
+                    .map_err(|_| invalid("expected 64 hex characters"))?,
+            )),
+            _ => Ok(Digest::Sha512(
+                bytes
+                    .try_into()
+                    .map_err(|_| invalid("expected 128 hex characters"))?,
+            )),
+        }
     }
 }
 

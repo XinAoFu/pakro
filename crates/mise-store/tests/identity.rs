@@ -111,3 +111,19 @@ fn identity_dir_name_rewrites_scoped_separator() {
     .unwrap();
     assert_eq!(id.dir_name(), "@types+node");
 }
+
+#[test]
+fn sha512_digest_roundtrip_and_verify() {
+    use mise_store::Digest;
+    let d = Digest::from_sha512_bytes(b"hello");
+    let text = d.to_string();
+    assert!(text.starts_with("sha512-"));
+    assert_eq!(text.len(), "sha512-".len() + 128);
+    assert_eq!(d, text.parse().unwrap());
+    assert!(d.verify(b"hello"));
+    assert!(!d.verify(b"world"));
+    // sha256 and sha512 prefixes cannot be confused
+    assert!(Digest::from_sha256_bytes(b"hello").verify(b"hello"));
+    assert_ne!(Digest::from_sha256_bytes(b"hello"), d);
+    assert!("sha512-short".parse::<Digest>().is_err());
+}

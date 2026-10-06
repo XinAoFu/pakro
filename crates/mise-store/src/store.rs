@@ -31,12 +31,14 @@ impl Store {
     /// store, and returns the entry path. Unpacking an identity that is
     /// already present returns its path without writing anything.
     pub fn unpack(&self, id: &PackageIdentity, bytes: &[u8]) -> Result<PathBuf> {
-        let actual = Digest::from_sha256_bytes(bytes);
-        if actual != id.digest {
+        if !id.digest.verify(bytes) {
             return Err(StoreError::DigestMismatch {
                 identity: id.to_string(),
                 expected: id.digest.hex(),
-                actual: actual.hex(),
+                actual: match id.digest {
+                    Digest::Sha256(_) => Digest::from_sha256_bytes(bytes).hex(),
+                    Digest::Sha512(_) => Digest::from_sha512_bytes(bytes).hex(),
+                },
             });
         }
         let dst = self.entry_path(id);
