@@ -115,6 +115,7 @@ fn run_solve<A: VersionAdapter>(
         locked,
         versions_cache: RefCell::new(HashMap::new()),
         deps_cache: RefCell::new(HashMap::new()),
+        first_error: RefCell::new(None),
     };
     // the synthetic root carries the user's exact pins as its dependency set
     let mut root_deps: Vec<(String, Ranges<A::V>, String)> = vec![];
@@ -132,7 +133,22 @@ fn run_solve<A: VersionAdapter>(
         .deps_cache
         .borrow_mut()
         .insert((ROOT.to_string(), root_v.to_string()), Arc::new(root_deps));
-    let selected = resolve(&provider, ROOT.to_string(), root_v).map_err(map_error)?;
+    let selected = match resolve(&provider, ROOT.to_string(), root_v) {
+        Ok(selected) => selected,
+        Err(err) => {
+            // surface the provider's first real failure (network, registry)
+            // instead of the bare "no version" pubgrub report
+            let pubgrub_report = match map_error::<Provider<A>>(err) {
+                ResolveFailure::NoSolution { report } => report,
+                other => other.to_string(),
+            };
+            let report = match provider.first_error.borrow().as_ref() {
+                Some(source_error) => format!("{source_error}\n(pubgrub: {pubgrub_report})"),
+                None => pubgrub_report,
+            };
+            return Err(ResolveFailure::NoSolution { report });
+        }
+    };
     let mut nodes = vec![];
     for (name, version) in selected.iter() {
         if name == ROOT {
@@ -185,6 +201,7 @@ struct Provider<'a, A: VersionAdapter> {
     locked: HashMap<String, String>,
     versions_cache: RefCell<HashMap<String, Arc<Vec<String>>>>,
     deps_cache: RefCell<DepsCache<A::V>>,
+    first_error: RefCell<Option<String>>,
 }
 
 impl<A: VersionAdapter> Provider<'_, A> {
@@ -192,7 +209,16 @@ impl<A: VersionAdapter> Provider<'_, A> {
         if let Some(cached) = self.versions_cache.borrow().get(name) {
             return cached.clone();
         }
-        let raw = self.source.versions(name).unwrap_or_default();
+        let raw = match self.source.versions(name) {
+            Ok(raw) => raw,
+            Err(err) => {
+                if self.first_error.borrow().is_none() {
+                    *self.first_error.borrow_mut() =
+                        Some(format!("listing versions of {name} failed: {err}"));
+                }
+                vec![]
+            }
+        };
         // versions the adapter cannot parse are invisible to the solver
         let parsed = raw
             .into_iter()

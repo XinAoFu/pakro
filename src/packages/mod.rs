@@ -180,6 +180,60 @@ pub fn requests_from_config(
     Ok(out)
 }
 
+/// Splits CLI tool arguments into real tools and bare package pins. An
+/// argument naming something mise cannot resolve as a backend is a package
+/// candidate; it binds to the single package-capable runtime
+/// (`python`/`node`) among the given runtimes. No runtime → instructions;
+/// several → the bound `+` syntax is required.
+pub fn split_bare_packages(
+    tools: Vec<crate::args::ToolArg>,
+    runtimes: &[(String, String)],
+    is_tool: impl Fn(&str) -> bool,
+) -> Result<(Vec<crate::args::ToolArg>, Vec<PackageInstallRequest>), String> {
+    let mut kept = vec![];
+    let mut pins = vec![];
+    for tool in tools {
+        if is_tool(&tool.ba.short) {
+            kept.push(tool);
+            continue;
+        }
+        let Some(request) = &tool.tvr else {
+            // no version at all: keep it so the normal tool error explains
+            kept.push(tool);
+            continue;
+        };
+        match runtimes {
+            [] => {
+                return Err(format!(
+                    "{:?} looks like a package but no package-capable runtime (python/node) is declared; run e.g. `mise use python@3.10.14` first",
+                    tool.ba.short
+                ));
+            }
+            [(name, version)] => pins.push(PackageInstallRequest {
+                runtime_name: name.clone(),
+                runtime_version: version.clone(),
+                name: tool.ba.short.clone(),
+                version: request.version().to_string(),
+            }),
+            many => {
+                return Err(format!(
+                    "{:?} is ambiguous between multiple runtimes ({}); use the bound syntax like `{}@{}+{}@{}`",
+                    tool.ba.short,
+                    many.iter()
+                        .map(|(n, v)| format!("{n}@{v}"))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    many[0].0,
+                    many[0].1,
+                    tool.ba.short,
+                    request.version(),
+                ));
+            }
+        }
+    }
+    Ok((kept, pins))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,6 +308,48 @@ mod tests {
         let mut plain = vec!["install".to_string(), "node@22.14.0".to_string()];
         assert!(!extract_bound_package_args(&mut plain));
         assert_eq!(plain[1], "node@22.14.0");
+    }
+
+    #[test]
+    fn bare_names_split_by_known_backend_and_runtime() {
+        use crate::args::ToolArg;
+        use std::str::FromStr;
+        let tools = vec![
+            ToolArg::from_str("node@22.14.0").unwrap(),
+            ToolArg::from_str("numpy@1.26.4").unwrap(),
+        ];
+        let (kept, pins) =
+            split_bare_packages(tools, &[("python".into(), "3.10.14".into())], |short| {
+                short == "node"
+            })
+            .unwrap();
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].ba.short, "node");
+        assert_eq!(pins.len(), 1);
+        assert_eq!(pins[0].name, "numpy");
+        assert_eq!(pins[0].version, "1.26.4");
+        assert_eq!(pins[0].group_key(), "python@3.10.14");
+    }
+
+    #[test]
+    fn bare_names_need_exactly_one_runtime() {
+        use crate::args::ToolArg;
+        use std::str::FromStr;
+        let tools = vec![ToolArg::from_str("numpy@1.26.4").unwrap()];
+        let err = split_bare_packages(tools, &[], |_| false).unwrap_err();
+        assert!(err.contains("no package-capable runtime"), "{err}");
+
+        let tools = vec![ToolArg::from_str("numpy@1.26.4").unwrap()];
+        let err = split_bare_packages(
+            tools,
+            &[
+                ("python".into(), "3.10.14".into()),
+                ("node".into(), "22.14.0".into()),
+            ],
+            |_| false,
+        )
+        .unwrap_err();
+        assert!(err.contains("bound syntax"), "{err}");
     }
 
     #[test]

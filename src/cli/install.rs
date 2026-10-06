@@ -156,8 +156,11 @@ impl Install {
     }
 
     #[async_backtrace::framed]
-    pub async fn run(self) -> Result<()> {
+    pub async fn run(mut self) -> Result<()> {
         let config = Config::get().await?;
+        // bare package names (`mise install numpy@1.26.4`) bind to the sole
+        // package-capable runtime declared in config
+        let bare_pins = self.split_bare_packages(&config).await?;
         if !self.is_dry_run() && !Settings::get().generate_lockfiles() {
             crate::lockfile::migrate_monorepo_lockfiles(&config, false)?;
         }
@@ -175,16 +178,21 @@ impl Install {
                     .await?
             }
         };
-        self.install_config_packages(&config).await?;
+        self.install_config_packages(&config, bare_pins).await?;
         self.hint_missing_system_packages().await;
         Ok(())
     }
 
-    async fn install_config_packages(&self, config: &Arc<Config>) -> Result<()> {
+    async fn install_config_packages(
+        &self,
+        config: &Arc<Config>,
+        bare_pins: Vec<crate::packages::PackageInstallRequest>,
+    ) -> Result<()> {
         if self.is_dry_run() {
             return Ok(());
         }
         let mut requests = config.package_requests();
+        requests.extend(bare_pins);
         if let Some(cli_pins) = crate::packages::CLI_PACKAGE_ARGS.get() {
             requests.extend(cli_pins.iter().cloned());
         }
@@ -202,6 +210,42 @@ impl Install {
             info!("installed {downloaded} package artifact(s) into the mise store");
         }
         Ok(())
+    }
+
+    /// Moves unknown-as-tool arguments out of `self.tool`, turning them into
+    /// package pins bound to the single package-capable runtime in config.
+    async fn split_bare_packages(
+        &mut self,
+        config: &Arc<Config>,
+    ) -> Result<Vec<crate::packages::PackageInstallRequest>> {
+        let Some(tools) = self.tool.take() else {
+            return Ok(vec![]);
+        };
+        let runtimes: Vec<(String, String)> = config
+            .get_tool_request_set()
+            .await?
+            .iter()
+            .filter_map(|(ba, requests, _source)| {
+                if !matches!(ba.short.as_str(), "python" | "node") {
+                    return None;
+                }
+                // only exact runtime versions can host package groups
+                requests
+                    .first()
+                    .map(|r| r.version().to_string())
+                    .filter(|v| !v.contains(['<', '>', '=', '^', '~', ':']))
+                    .map(|v| (ba.short.clone(), v))
+            })
+            .collect();
+        let (kept, pins) = crate::packages::split_bare_packages(tools, &runtimes, |short| {
+            crate::args::BackendArg::from_str(short)
+                .ok()
+                .and_then(|ba| ba.backend().ok())
+                .is_some()
+        })
+        .map_err(|e| eyre::eyre!("{e}"))?;
+        self.tool = (!kept.is_empty()).then_some(kept);
+        Ok(pins)
     }
 
     async fn collect_task_tool_requests(&self, config: &Arc<Config>) -> Result<Vec<ToolRequest>> {
