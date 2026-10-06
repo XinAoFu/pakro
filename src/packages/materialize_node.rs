@@ -78,6 +78,51 @@ pub(crate) fn materialize_node_modules(
         }
         replace_symlink(&target, &link)
             .with_context(|| format!("linking {} at the top level", node.name))?;
+        link_bins(&node_modules.join(".bin"), &target, &node.name)?;
+    }
+    Ok(())
+}
+
+/// Creates `node_modules/.bin/<name>` links for a package's declared `bin`
+/// entries (string form names the entry after the package). Packages without
+/// `bin` are a no-op; a broken manifest is left alone — the package itself
+/// still installed correctly.
+fn link_bins(bin_dir: &Path, package_target: &Path, package_name: &str) -> eyre::Result<()> {
+    let manifest_path = package_target.join("package.json");
+    let Ok(body) = std::fs::read_to_string(&manifest_path) else {
+        return Ok(());
+    };
+    let manifest = match serde_json::from_str::<serde_json::Value>(&body) {
+        Ok(manifest) => manifest,
+        // a corrupt manifest means the store entry itself is damaged; a
+        // silent skip would hide that behind a missing .bin entry
+        Err(err) => bail!(
+            "{} is damaged ({err}); remove the store entry and reinstall",
+            manifest_path.display()
+        ),
+    };
+    let mut bins: Vec<(String, String)> = vec![];
+    match manifest.get("bin") {
+        Some(serde_json::Value::String(path)) => {
+            if !package_name.is_empty() {
+                bins.push((package_name.to_string(), path.clone()));
+            }
+        }
+        Some(serde_json::Value::Object(map)) => {
+            bins.extend(
+                map.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|p| (k.clone(), p.to_string()))),
+            );
+        }
+        _ => {}
+    }
+    if bins.is_empty() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(bin_dir)?;
+    for (bin_name, rel) in bins {
+        replace_symlink(&package_target.join(&rel), &bin_dir.join(&bin_name))
+            .with_context(|| format!("linking bin {bin_name} of {package_name}"))?;
     }
     Ok(())
 }
@@ -113,12 +158,30 @@ mod tests {
     use mise_resolver::DependencyRequest;
 
     fn store_with_tgz(store_root: &Path, name: &str, version: &str) -> PackageIdentity {
+        store_with_tgz_and_bins(store_root, name, version, &[])
+    }
+
+    fn store_with_tgz_and_bins(
+        store_root: &Path,
+        name: &str,
+        version: &str,
+        bins: &[(&str, &str)],
+    ) -> PackageIdentity {
         let store = Store::open(store_root).unwrap();
         let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         {
             let mut builder = tar::Builder::new(&mut enc);
             let mut header = tar::Header::new_gnu();
-            let body = format!("{{\"name\":\"{name}\",\"version\":\"{version}\"}}");
+            let bin_json = if bins.is_empty() {
+                String::new()
+            } else {
+                let entries: Vec<String> = bins
+                    .iter()
+                    .map(|(n, p)| format!("\"{n}\":\"{p}\""))
+                    .collect();
+                format!(",\"bin\":{{{}}}", entries.join(","))
+            };
+            let body = format!("{{\"name\":\"{name}\",\"version\":\"{version}\"{bin_json}}}");
             header.set_size(body.len() as u64);
             header.set_mode(0o644);
             header.set_cksum();
@@ -161,7 +224,12 @@ mod tests {
     fn materializes_pnpm_shape() {
         let root = tempfile::tempdir().unwrap();
         let store_root = tempfile::tempdir().unwrap();
-        let direct = store_with_tgz(store_root.path(), "typescript", "5.8.2");
+        let direct = store_with_tgz_and_bins(
+            store_root.path(),
+            "typescript",
+            "5.8.2",
+            &[("tsc", "./bin/tsc"), ("tsserver", "./bin/tsserver")],
+        );
         let dep = store_with_tgz(store_root.path(), "commander", "2.0.0");
         let graph = ResolvedGraph {
             nodes: vec![
@@ -183,6 +251,13 @@ mod tests {
         // the transitive dep resolves from inside typescript's virtual dir
         let dep_link = nm.join(".mise-store/typescript@5.8.2/node_modules/commander");
         assert!(dep_link.is_symlink());
+        // declared bin entries land in node_modules/.bin
+        let tsc = nm.join(".bin/tsc");
+        assert!(tsc.is_symlink());
+        assert_eq!(
+            std::fs::read_link(&tsc).unwrap(),
+            nm.join(".mise-store/typescript@5.8.2/node_modules/typescript/bin/tsc")
+        );
         assert_eq!(
             std::fs::read_link(&dep_link).unwrap(),
             nm.join(".mise-store/commander@2.0.0/node_modules/commander")
