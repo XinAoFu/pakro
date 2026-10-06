@@ -7,10 +7,10 @@ license = "MIT"
 publish = false
 
 [dependencies]
-node-semver = "2.2.0"
-pep440_rs = "0.7.3"
+node-semver = "2"
+pep440_rs = "0.7"
 petgraph = "0.8"
-pubgrub = "0.4.0"
+pubgrub = "0.4"
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 

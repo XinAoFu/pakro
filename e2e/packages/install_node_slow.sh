@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# End-to-end: node runtime + native typescript package from the npm
+# registry, no npm/npx in the process tree. Verifies pnpm-style
+# materialization and store sharing across two projects.
+
+cat >mise.toml <<'EOF'
+[tools]
+node = "22.14.0"
+
+[packages."node@22.14.0"]
+typescript = "5.8.2"
+EOF
+
+mise i
+
+# require() resolves through the materialized node_modules
+assert "node -e \"console.log(require('typescript').version)\"" "5.8.2"
+
+# the graph lockfile records the pin with a sha512 digest
+test -f mise.packages.lock
+assert_contains "cat mise.packages.lock" 'name = "typescript"'
+assert_contains "cat mise.packages.lock" 'sha512-'
+
+# the top level only holds direct dependencies; the virtual store holds
+# the hardlinked package content
+test -f node_modules/typescript/package.json
+test -d node_modules/.mise-store/typescript@5.8.2/node_modules/typescript
+
+# a second project with the same pins downloads nothing new
+mkdir -p proj2
+cp mise.toml proj2/mise.toml
+(
+  cd proj2
+  mise i
+  assert "node -e \"console.log(require('typescript').version)\"" "5.8.2"
+)
+
+# the store holds exactly one typescript entry shared by both projects
+TS_ENTRIES=$(find "${MISE_DATA_DIR}/store/node/typescript" -name .mise-complete | wc -l | tr -d ' ')
+assert "echo $TS_ENTRIES" "1"
