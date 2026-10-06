@@ -6567,6 +6567,7 @@ dependencies = [
  "mise-util",
  "mockito",
  "nix 0.31.3",
+ "node-semver",
  "nodejs-semver",
  "notify",
  "notify-debouncer-full",

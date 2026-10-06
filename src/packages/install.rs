@@ -65,8 +65,8 @@ pub async fn install_packages(
     let mut lock = PackageLock::read(&lock_path)?.unwrap_or_default();
     let mut downloaded = 0;
     for ((runtime_name, runtime_version), group_requests) in groups {
-        if runtime_name != "python" {
-            bail!("native packages currently support python only, got {runtime_name}");
+        if !matches!(runtime_name.as_str(), "python" | "node") {
+            bail!("native packages currently support python and node, got {runtime_name}");
         }
         let group_key = format!("{runtime_name}@{runtime_version}");
         let runtime = runtime_info(&runtime_version)?;
@@ -82,21 +82,27 @@ pub async fn install_packages(
         }) {
             Some(locked) => locked,
             None => {
-                let source = IndexSource {
-                    index: Index::new(&locs.index_cache),
-                    runtime,
-                };
                 let solve_requests: Vec<DependencyRequest> = group_requests
                     .iter()
                     .map(|r| DependencyRequest {
-                        eco: "python".into(),
+                        eco: runtime_name.clone(),
                         name: r.name.clone(),
                         constraint: r.version.clone(),
                     })
                     .collect();
                 let locked_bias = lock.graph_for(&group_key).unwrap_or_default();
-                mise_resolver::solve(&solve_requests, &locked_bias, &source, "python")
-                    .map_err(|e| eyre::eyre!("resolving {group_key}: {e}"))?
+                let index = Index::new(&locs.index_cache);
+                match runtime_name.as_str() {
+                    "node" => {
+                        let source = NodeSource { index };
+                        mise_resolver::solve(&solve_requests, &locked_bias, &source, "node")
+                    }
+                    _ => {
+                        let source = PythonSource { index, runtime };
+                        mise_resolver::solve(&solve_requests, &locked_bias, &source, "python")
+                    }
+                }
+                .map_err(|e| eyre::eyre!("resolving {group_key}: {e}"))?
             }
         };
 
@@ -107,31 +113,49 @@ pub async fn install_packages(
             if node.digest.as_deref().is_some_and(|d| !d.is_empty()) {
                 continue;
             }
-            let metadata = index
-                .metadata(&node.name, &node.version, &runtime)
-                .await
-                .with_context(|| format!("fetching metadata for {} {}", node.name, node.version))?;
-            if let Some(requires) = &metadata.requires_python
-                && !python_requires_matches(requires, &runtime)
-            {
-                bail!(
-                    "{} {} requires python {requires}, runtime is {runtime_version}",
-                    node.name,
-                    node.version
-                );
-            }
-            let artifact = select_wheel(&metadata.artifacts, &runtime, &platform)
+            let metadata = match runtime_name.as_str() {
+                "node" => index
+                    .npm_metadata(&node.name, &node.version, &runtime)
+                    .await
+                    .with_context(|| {
+                        format!("fetching metadata for {} {}", node.name, node.version)
+                    })?,
+                _ => {
+                    let metadata = index
+                        .metadata(&node.name, &node.version, &runtime)
+                        .await
+                        .with_context(|| {
+                            format!("fetching metadata for {} {}", node.name, node.version)
+                        })?;
+                    if let Some(requires) = &metadata.requires_python
+                        && !python_requires_matches(requires, &runtime)
+                    {
+                        bail!(
+                            "{} {} requires python {requires}, runtime is {runtime_version}",
+                            node.name,
+                            node.version
+                        );
+                    }
+                    metadata
+                }
+            };
+            let artifact = select_artifact(
+                &metadata.artifacts,
+                &runtime,
+                &platform,
+                runtime_name == "node",
+            )
                 .with_context(|| {
                     format!(
-                        "no compatible wheel for {} {} on {platform} (source builds are not installed in this version)",
+                        "no installable artifact for {} {} on {platform} (source builds are not installed in this version)",
                         node.name, node.version
                     )
                 })?;
-            let sha256 = artifact
-                .sha256
+            let digest_str = artifact
+                .digest
                 .clone()
-                .expect("select_wheel requires a digest");
-            let digest = format!("sha256-{sha256}")
+                .expect("artifact selection requires a digest");
+            let digest = digest_str
                 .parse::<Digest>()
                 .context("registry digest is malformed")?;
             let identity = PackageIdentity {
@@ -145,6 +169,19 @@ pub async fn install_packages(
                 platform,
                 digest,
             };
+            let identity = match runtime_name.as_str() {
+                // npm packages bind to the node major at most; the identity
+                // keeps them runtime-free so one entry serves every project
+                "node" => PackageIdentity {
+                    eco: Eco::Node,
+                    name: node.name.clone(),
+                    version: node.version.clone(),
+                    runtime: None,
+                    platform,
+                    digest,
+                },
+                _ => identity,
+            };
             if !store.contains(&identity) {
                 let bytes = http::HTTP
                     .get_bytes(artifact.url.as_str())
@@ -153,24 +190,34 @@ pub async fn install_packages(
                 store.unpack(&identity, bytes.as_ref())?;
                 downloaded += 1;
             }
-            node.digest = Some(format!("sha256-{sha256}"));
+            node.digest = Some(digest_str);
         }
         let graph = ResolvedGraph { nodes }.sorted();
 
-        let interpreter_home = dirs::INSTALLS.join(&runtime_name).join(&runtime_version);
-        if !interpreter_home.join("bin/python3").exists() {
-            bail!("runtime {group_key} is not installed; run `mise install {group_key}` first");
+        if runtime_name == "python" {
+            let interpreter_home = dirs::INSTALLS.join(&runtime_name).join(&runtime_version);
+            if !interpreter_home.join("bin/python3").exists() {
+                bail!("runtime {group_key} is not installed; run `mise install {group_key}` first");
+            }
+            materialize_venv(
+                &VenvSpec {
+                    project_root: &locs.project_root,
+                    runtime_name: &runtime_name,
+                    runtime_version: &runtime_version,
+                    interpreter_home: &interpreter_home,
+                },
+                &graph,
+                &store,
+            )?;
+        } else {
+            // node materialization lands with its own module; installs and
+            // locking already work end to end
+            crate::packages::materialize_node::materialize_node_modules(
+                &locs.project_root,
+                &graph,
+                &store,
+            )?;
         }
-        materialize_venv(
-            &VenvSpec {
-                project_root: &locs.project_root,
-                runtime_name: &runtime_name,
-                runtime_version: &runtime_version,
-                interpreter_home: &interpreter_home,
-            },
-            &graph,
-            &store,
-        )?;
         if let Some(packages) = PackageLock::from_graph(&group_key, &graph)
             .groups
             .remove(&group_key)
@@ -196,18 +243,21 @@ fn runtime_info(version: &str) -> eyre::Result<RuntimeInfo> {
 /// Picks the wheel to install: platform-compatible, carrying a digest, with
 /// the longest filename last as a stable tie-break (more specific tags sort
 /// later in practice).
-fn select_wheel<'a>(
+fn select_artifact<'a>(
     artifacts: &'a [mise_index::ArtifactDescriptor],
     runtime: &RuntimeInfo,
     platform: &Platform,
+    node: bool,
 ) -> Option<&'a mise_index::ArtifactDescriptor> {
     let mut candidates: Vec<_> = artifacts
         .iter()
         .filter(|a| match &a.kind {
-            ArtifactKind::Wheel(tags) => wheel_matches(tags, runtime, platform),
+            // npm ships one platform-independent tarball per version
+            ArtifactKind::Sdist if node => true,
+            ArtifactKind::Wheel(tags) => !node && wheel_matches(tags, runtime, platform),
             ArtifactKind::Sdist => false,
         })
-        .filter(|a| a.sha256.is_some())
+        .filter(|a| a.digest.is_some())
         .collect();
     candidates.sort_by(|a, b| a.filename.cmp(&b.filename));
     candidates.into_iter().next_back()
@@ -231,12 +281,12 @@ fn top_level_matches<'a>(
 /// Bridges the sync solver against the async index client. `block_in_place`
 /// is safe here because mise runs a multi-thread tokio runtime and solving
 /// happens on a worker thread.
-struct IndexSource {
+struct PythonSource {
     index: Index,
     runtime: RuntimeInfo,
 }
 
-impl MetadataSource for IndexSource {
+impl MetadataSource for PythonSource {
     fn versions(&self, name: &str) -> Result<Vec<String>, String> {
         let index = &self.index;
         block_in_place(|| Handle::current().block_on(index.versions(name)))
@@ -254,6 +304,47 @@ impl MetadataSource for IndexSource {
             .into_iter()
             .map(|dep| DependencyRequest {
                 eco: "python".into(),
+                name: dep.name,
+                constraint: dep.constraint,
+            })
+            .collect())
+    }
+}
+
+/// npm metadata for the solver. Prerelease versions are filtered out of the
+/// candidate list (npm's own default); exact prerelease pins are not
+/// supported for node in this version.
+struct NodeSource {
+    index: Index,
+}
+
+impl MetadataSource for NodeSource {
+    fn versions(&self, name: &str) -> Result<Vec<String>, String> {
+        let index = &self.index;
+        let versions = block_in_place(|| Handle::current().block_on(index.npm_versions(name)))
+            .map_err(|e| e.to_string())?;
+        // a '-' after the core version introduces a prerelease
+        Ok(versions
+            .into_iter()
+            .filter(|v| !v.split('+').next().unwrap_or_default().contains('-'))
+            .collect())
+    }
+
+    fn dependencies(&self, name: &str, version: &str) -> Result<Vec<DependencyRequest>, String> {
+        let index = &self.index;
+        let runtime = RuntimeInfo {
+            major: 22,
+            minor: 0,
+        };
+        let metadata = block_in_place(|| {
+            Handle::current().block_on(index.npm_metadata(name, version, &runtime))
+        })
+        .map_err(|e| e.to_string())?;
+        Ok(metadata
+            .deps
+            .into_iter()
+            .map(|dep| DependencyRequest {
+                eco: "node".into(),
                 name: dep.name,
                 constraint: dep.constraint,
             })

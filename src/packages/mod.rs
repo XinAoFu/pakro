@@ -5,6 +5,7 @@
 pub mod install;
 pub(crate) mod lockfile;
 pub(crate) mod materialize;
+pub(crate) mod materialize_node;
 
 use indexmap::IndexMap;
 

@@ -6,6 +6,7 @@
 //! same artifact share one directory.
 
 pub mod error;
+pub mod fs;
 pub mod identity;
 pub mod path;
 pub mod refcount;
@@ -15,3 +16,5 @@ pub use error::{Result, StoreError};
 pub use identity::{Arch, Digest, Eco, Libc, Os, PackageIdentity, Platform, RuntimeId};
 pub use refcount::{GcReport, Refs, gc};
 pub use store::Store;
+
+pub use fs::hardlink_tree;
