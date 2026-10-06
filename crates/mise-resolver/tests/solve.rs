@@ -200,3 +200,31 @@ fn solved_graph_nodes_carry_dep_constraints() {
     // digest is filled by artifact selection, never by the solver
     assert!(numpy.digest.is_none());
 }
+
+#[test]
+fn node_ecosystem_dispatch() {
+    let fixture = Fixture::new().with_versions("typescript", &["5.8.1", "5.8.2"]);
+    let graph = solve(
+        &[request("typescript", "5.8.2")],
+        &ResolvedGraph::default(),
+        &fixture,
+        "node",
+    )
+    .unwrap();
+    assert_eq!(chosen(&graph, "typescript"), "5.8.2");
+    assert_eq!(graph.nodes[0].eco, "node");
+
+    // npm caret semantics: ^5.8.1 allows any 5.x >= 5.8.1, so 5.9.0 wins
+    let fixture = Fixture::new()
+        .with_versions("root", &["1.0.0"])
+        .with_versions("typescript", &["5.8.0", "5.8.2", "5.9.0"])
+        .with_deps("root", "1.0.0", &[("typescript", "^5.8.1")]);
+    let graph = solve(
+        &[request("root", "1.0.0")],
+        &ResolvedGraph::default(),
+        &fixture,
+        "node",
+    )
+    .unwrap();
+    assert_eq!(chosen(&graph, "typescript"), "5.9.0");
+}
