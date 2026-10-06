@@ -6,7 +6,7 @@ set -euo pipefail
 
 export MISE_PYTHON_GITHUB_ATTESTATIONS=0
 
-cat > mise.toml <<'EOF'
+cat >mise.toml <<'EOF'
 [tools]
 python = "3.10.14"
 
