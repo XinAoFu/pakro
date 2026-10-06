@@ -814,6 +814,21 @@ Show outdated tool versions
 \fBpatrons\fR
 Show the individuals supporting mise as Patron\-tier members
 .TP
+\fBproject\fR
+Manage mise projects
+.TP
+\fBproject init\fR
+Create a new project scaffold
+.TP
+\fBproject attach\fR
+Bring an existing code directory under mise management
+.TP
+\fBproject ls\fR
+List registered projects on this machine
+.TP
+\fBproject status\fR
+Show what mise manages for the current project
+.TP
 \fBplugins\fR
 Manage plugins
 .RS
@@ -7147,6 +7162,81 @@ mise patrons
 mise patrons \-J
 mise patrons \-\-refresh
 .RE
+.SH "MISE PROJECT"
+Manage mise projects
+
+A project is a directory tree plus its mise.toml; these commands scaffold
+that file (init/attach) and report what mise manages (ls/status). The
+runtime association itself is unchanged: running a command resolves the
+environment from the nearest config up the tree.
+.PP
+\fBUsage:\fR mise project [OPTIONS] <COMMAND>
+.PP
+\fBOptions:\fR
+.PP
+.TP
+\fB\-h, \-\-help\fR
+Print help
+.SH "MISE PROJECT INIT"
+Create a new project scaffold
+
+Writes a mise.toml (in PATH, default the current directory) declaring the
+requested runtimes and package pins. Never touches code files.
+.PP
+\fBUsage:\fR mise project init [OPTIONS] [<PATH>]
+.PP
+\fBOptions:\fR
+.PP
+.TP
+\fB\-\-python\fR \fI<PYTHON>\fR
+Declare a python runtime with an exact version
+.TP
+\fB\-\-node\fR \fI<NODE>\fR
+Declare a node runtime with an exact version
+.TP
+\fB\-\-package\fR \fI<ECO+NAME@VERSION>\fR
+Package pin like python+numpy@1.26.4 (eco + NAME@VERSION)
+.TP
+\fB\-h, \-\-help\fR
+Print help
+\fBArguments:\fR
+.PP
+.TP
+\fB<PATH>\fR
+Directory to scaffold; created when missing
+.SH "MISE PROJECT ATTACH"
+Bring an existing code directory under mise management
+
+Writes a minimal mise.toml into the current directory when none exists.
+Code files are never modified.
+.PP
+\fBUsage:\fR mise project attach [OPTIONS]
+.PP
+\fBOptions:\fR
+.PP
+.TP
+\fB\-h, \-\-help\fR
+Print help
+.SH "MISE PROJECT LS"
+List registered projects on this machine
+.PP
+\fBUsage:\fR mise project ls [OPTIONS]
+.PP
+\fBOptions:\fR
+.PP
+.TP
+\fB\-h, \-\-help\fR
+Print help
+.SH "MISE PROJECT STATUS"
+Show what mise manages for the current project
+.PP
+\fBUsage:\fR mise project status [OPTIONS]
+.PP
+\fBOptions:\fR
+.PP
+.TP
+\fB\-h, \-\-help\fR
+Print help
 .SH "MISE PLUGINS"
 Manage plugins
 .PP

@@ -375,6 +375,11 @@
 - [mise plugins ls-remote](https://mise.jdx.dev/cli/plugins/ls-remote.html): List all available remote plugins
 - [mise plugins uninstall](https://mise.jdx.dev/cli/plugins/uninstall.html): Remove an installed plugin
 - [mise plugins update](https://mise.jdx.dev/cli/plugins/update.html): Update a plugin to the latest version
+- [mise project](https://mise.jdx.dev/cli/project.html): Manage mise projects
+- [mise project attach](https://mise.jdx.dev/cli/project/attach.html): Bring an existing code directory under mise management
+- [mise project init](https://mise.jdx.dev/cli/project/init.html): Create a new project scaffold
+- [mise project ls](https://mise.jdx.dev/cli/project/ls.html): List registered projects on this machine
+- [mise project status](https://mise.jdx.dev/cli/project/status.html): Show what mise manages for the current project
 - [mise prune](https://mise.jdx.dev/cli/prune.html): Delete unused versions of tools
 - [mise registry](https://mise.jdx.dev/cli/registry.html): List registry shorthand names and their backends
 - [mise reshim](https://mise.jdx.dev/cli/reshim.html): Create shims for executables provided by installed tools

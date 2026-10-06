@@ -786,6 +786,23 @@ export const commands: { [key: string]: Command } = {
       },
     },
   },
+  project: {
+    hide: false,
+    subcommands: {
+      attach: {
+        hide: false,
+      },
+      init: {
+        hide: false,
+      },
+      ls: {
+        hide: false,
+      },
+      status: {
+        hide: false,
+      },
+    },
+  },
   prune: {
     hide: false,
   },

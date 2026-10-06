@@ -6718,6 +6718,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "mise-store",
+ "node-semver",
  "pep440_rs",
  "pep508_rs",
  "reqwest",

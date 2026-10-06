@@ -4702,6 +4702,51 @@ mise patrons -J
 mise patrons --refresh
 """#
 }
+cmd project subcommand_required=#true help="Manage mise projects" {
+    long_help #"""
+Manage mise projects
+
+A project is a directory tree plus its mise.toml; these commands scaffold
+that file (init/attach) and report what mise manages (ls/status). The
+runtime association itself is unchanged: running a command resolves the
+environment from the nearest config up the tree.
+"""#
+    flag "-h --help" help="Print help" action=help builtin=#true
+    cmd init help="Create a new project scaffold" {
+        long_help #"""
+Create a new project scaffold
+
+Writes a mise.toml (in PATH, default the current directory) declaring the
+requested runtimes and package pins. Never touches code files.
+"""#
+        flag --python help="Declare a python runtime with an exact version" {
+            arg <PYTHON>
+        }
+        flag --node help="Declare a node runtime with an exact version" {
+            arg <NODE>
+        }
+        flag --package help="Package pin like python+numpy@1.26.4 (eco + NAME@VERSION)" var=#true {
+            arg <ECO+NAME@VERSION>
+        }
+        flag "-h --help" help="Print help" action=help builtin=#true
+        arg "[PATH]" help="Directory to scaffold; created when missing" required=#false
+    }
+    cmd attach help="Bring an existing code directory under mise management" {
+        long_help #"""
+Bring an existing code directory under mise management
+
+Writes a minimal mise.toml into the current directory when none exists.
+Code files are never modified.
+"""#
+        flag "-h --help" help="Print help" action=help builtin=#true
+    }
+    cmd ls help="List registered projects on this machine" {
+        flag "-h --help" help="Print help" action=help builtin=#true
+    }
+    cmd status help="Show what mise manages for the current project" {
+        flag "-h --help" help="Print help" action=help builtin=#true
+    }
+}
 cmd plugins help="Manage plugins" effect=read {
     alias p plugin plugin-list
     flag "-a --all" help="List all available remote plugins" hide=#true {
