@@ -14,11 +14,11 @@ assert_contains "cat proj/mise.toml" '[packages."python@3.10.14"]'
 mkdir -p code
 echo 'print("hello")' >code/main.py
 (
-	cd code
-	mise project attach
-	test -f mise.toml
-	# code untouched
-	assert "cat main.py" 'print("hello")'
+  cd code
+  mise project attach
+  test -f mise.toml
+  # code untouched
+  assert "cat main.py" 'print("hello")'
 )
 
 # ls lists both, status reports the group
