@@ -351,3 +351,26 @@ impl MetadataSource for NodeSource {
             .collect())
     }
 }
+
+/// Installs every `[packages]` group plus any extra CLI pins (bound or bare).
+/// Shared by `mise install` and `mise use`.
+pub async fn install_config_packages(
+    config: &crate::config::Config,
+    extra: Vec<super::PackageInstallRequest>,
+) -> eyre::Result<usize> {
+    let mut requests = config.package_requests();
+    requests.extend(extra);
+    if let Some(cli_pins) = super::CLI_PACKAGE_ARGS.get() {
+        requests.extend(cli_pins.iter().cloned());
+    }
+    if requests.is_empty() {
+        return Ok(0);
+    }
+    let project_root = config
+        .project_root
+        .clone()
+        .or_else(|| std::env::current_dir().ok())
+        .ok_or_else(|| eyre::eyre!("could not locate project root"))?;
+    let locations = Locations::from_config(&project_root)?;
+    install_packages(&requests, &locations).await
+}

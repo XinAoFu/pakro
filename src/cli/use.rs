@@ -399,6 +399,13 @@ impl Use {
             cf.remove_tool(tool_name)?;
         }
 
+        // bound `+` pins persist into [packages] alongside the runtime tools
+        if let Some(pins) = crate::packages::CLI_PACKAGE_ARGS.get()
+            && !pins.is_empty()
+        {
+            cf.add_packages(pins)?;
+        }
+
         if !self.is_dry_run() {
             cf.save()?;
             drop(config_lock.take());
@@ -417,6 +424,20 @@ impl Use {
             )
             .await?;
             crate::packslip::auto_sync_skills(&config).await;
+            // packages ride along: install what the pins require
+            let extra = crate::packages::CLI_PACKAGE_ARGS
+                .get()
+                .map(|pins| pins.to_vec())
+                .unwrap_or_default();
+            let installed = crate::packages::install::install_config_packages(&config, extra)
+                .await
+                .unwrap_or_else(|err| {
+                    warn!("package install after `use` failed: {err:#}");
+                    0
+                });
+            if installed > 0 {
+                info!("installed {installed} package artifact(s) into the mise store");
+            }
         }
 
         self.render_success_message(cf.as_ref(), &versions, &self.remove)?;

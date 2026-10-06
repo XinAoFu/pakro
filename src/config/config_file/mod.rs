@@ -143,6 +143,15 @@ pub trait ConfigFile: Debug + Send + Sync {
     fn to_package_requests(&self) -> Vec<crate::packages::PackageInstallRequest> {
         Vec::new()
     }
+
+    /// Persists package pins into this file's `[packages]` table. Config
+    /// formats without such a table reject the write when pins are present.
+    fn add_packages(
+        &self,
+        _requests: &[crate::packages::PackageInstallRequest],
+    ) -> eyre::Result<()> {
+        Ok(())
+    }
     fn aliases(&self) -> eyre::Result<AliasMap> {
         Ok(Default::default())
     }

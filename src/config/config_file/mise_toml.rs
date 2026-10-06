@@ -470,9 +470,10 @@ pub struct MiseToml {
     monorepo: Option<MonorepoConfig>,
     /// Exact-pinned packages grouped by runtime identity:
     /// `[packages."python@3.10.14"]` with `numpy = "4.2.2"`. Serialized only
-    /// when non-empty so config rewrites neither drop nor pad it.
-    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
-    pub(crate) packages: IndexMap<String, IndexMap<String, String>>,
+    /// when non-empty so config rewrites neither drop nor pad it. Guarded
+    /// like `tools` because config files hand out `&self`.
+    #[serde(default)]
+    pub(crate) packages: std::sync::Mutex<IndexMap<String, IndexMap<String, String>>>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -1385,8 +1386,48 @@ impl MiseToml {
 }
 
 impl ConfigFile for MiseToml {
+    fn add_packages(
+        &self,
+        requests: &[crate::packages::PackageInstallRequest],
+    ) -> eyre::Result<()> {
+        use toml_edit::{Item, Table};
+        {
+            let mut packages = self.packages.lock().unwrap();
+            for request in requests {
+                packages
+                    .entry(request.group_key())
+                    .or_default()
+                    .insert(request.name.clone(), request.version.clone());
+            }
+        }
+        // the file is saved from the toml_edit document, so mirror the
+        // change there; groups become `[packages."python@3.10.14"]` tables
+        let mut doc = self.doc_mut()?;
+        let doc = doc.get_mut().expect("doc_mut initializes the document");
+        let root = doc.as_table_mut();
+        let packages = root
+            .entry("packages")
+            .or_insert(Item::Table({
+                let mut t = Table::new();
+                t.set_implicit(true);
+                t
+            }))
+            .as_table_mut()
+            .expect("packages is a table");
+        for request in requests {
+            let group = packages
+                .entry(&request.group_key())
+                .or_insert(Item::Table(Table::new()))
+                .as_table_mut()
+                .expect("group is a table");
+            group.insert(&request.name, Item::Value(request.version.clone().into()));
+        }
+        Ok(())
+    }
+
     fn to_package_requests(&self) -> Vec<crate::packages::PackageInstallRequest> {
-        crate::packages::requests_from_config(&self.packages).unwrap_or_else(|err| {
+        let packages = self.packages.lock().unwrap();
+        crate::packages::requests_from_config(&packages).unwrap_or_else(|err| {
             warn!("[packages] in {} is ignored: {err}", self.path.display());
             Vec::new()
         })
@@ -2186,7 +2227,7 @@ impl Clone for MiseToml {
             monorepo_root: self.monorepo_root,
             experimental_monorepo_root: self.experimental_monorepo_root,
             monorepo: self.monorepo.clone(),
-            packages: self.packages.clone(),
+            packages: std::sync::Mutex::new(self.packages.lock().unwrap().clone()),
         }
     }
 }
