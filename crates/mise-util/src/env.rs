@@ -9,7 +9,7 @@ use log::LevelFilter;
 use mise_settings::Settings;
 use std::collections::{HashMap, HashSet};
 pub use std::env::*;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::LazyLock as Lazy;
@@ -448,6 +448,27 @@ pub const SELF_REPLACE_RANDOM_LEN: usize = 32;
 /// character, so this cannot mis-read a name that is not ASCII to begin with.
 fn is_self_replace_random_segment(s: &str) -> bool {
     s.len() == SELF_REPLACE_RANDOM_LEN && s.bytes().all(|b| b.is_ascii_lowercase())
+}
+
+/// Rewrites environment variables that are not valid UTF-8: values become
+/// lossy copies (invalid bytes turn into U+FFFD) and variables with
+/// non-UTF-8 names are removed. One inherited non-UTF-8 variable is enough
+/// to panic the first `env::vars()` reader — notably the embedded npm
+/// installer on hosts whose shell exports GBK/Big5-encoded paths. Returns
+/// the number of variables touched.
+pub fn sanitize_non_utf8_env() -> usize {
+    let dirty: Vec<(OsString, OsString)> = std::env::vars_os()
+        .filter(|(k, v)| k.to_str().is_none() || v.to_str().is_none())
+        .collect();
+    let count = dirty.len();
+    for (key, value) in &dirty {
+        if key.to_str().is_some() {
+            set_var(key, value.to_string_lossy().to_string());
+        } else {
+            remove_var(key);
+        }
+    }
+    count
 }
 
 /// Whether *this* process is one of those copies, read straight from the OS.
@@ -1368,6 +1389,45 @@ mod launcher_args_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(unix)]
+    fn test_sanitize_non_utf8_env_replaces_invalid_bytes() {
+        use std::os::unix::ffi::OsStrExt;
+        let prev = std::env::var_os("MISE_TEST_UTF8_PROBE").map(|v| v.to_os_string());
+        // a GBK-mangled path, exactly the shape seen in the wild: valid
+        // UTF-8 around raw invalid bytes
+        let mangled = b"/Users/\xe6\x83\xb6\x83\xa7\xe4\xbb\xb6/mise";
+        unsafe {
+            std::env::set_var("MISE_TEST_UTF8_PROBE", std::ffi::OsStr::from_bytes(mangled));
+        }
+        // the value itself is not valid UTF-8...
+        assert!(
+            std::env::var_os("MISE_TEST_UTF8_PROBE")
+                .unwrap()
+                .to_str()
+                .is_none()
+        );
+        let sanitized = sanitize_non_utf8_env();
+        assert_eq!(sanitized, 1);
+        // ...and afterwards it is, with the bad bytes replaced lossily
+        let value = std::env::var("MISE_TEST_UTF8_PROBE").unwrap();
+        assert!(value.contains("\u{fffd}"), "{value:?}");
+        assert!(value.starts_with("/Users/") && value.ends_with("/mise"));
+        match prev {
+            Some(v) => unsafe { std::env::set_var("MISE_TEST_UTF8_PROBE", v) },
+            None => unsafe { std::env::remove_var("MISE_TEST_UTF8_PROBE") },
+        }
+
+        // a variable whose *name* is not UTF-8 cannot be represented by
+        // `env::vars()` at all, so it is dropped
+        let raw_key = std::ffi::OsStr::from_bytes(b"MISE_\xff_BAD_KEY");
+        unsafe { std::env::set_var(raw_key, "value") }
+        let prev = std::env::var_os(raw_key);
+        assert!(prev.is_some());
+        sanitize_non_utf8_env();
+        assert!(std::env::var_os(raw_key).is_none());
+    }
 
     #[test]
     fn test_is_within_sees_through_spellings() {

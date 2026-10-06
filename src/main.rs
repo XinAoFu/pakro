@@ -43,6 +43,10 @@ mod test {
 }
 
 fn main() -> ExitCode {
+    // A single non-UTF-8 environment variable inherited from a non-Unicode
+    // shell (e.g. a GBK-encoded `_`) panics the first `env::vars()` reader;
+    // normalize before anything can observe it.
+    crate::env::sanitize_non_utf8_env();
     cli::register_frontend();
     register_util_hooks();
     // Same reason, different caller: `self-replace` spawns a copy of this binary under a generated
