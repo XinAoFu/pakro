@@ -6745,6 +6745,7 @@ dependencies = [
 name = "mise-resolver"
 version = "0.1.0"
 dependencies = [
+ "node-semver",
  "pep440_rs",
  "petgraph",
  "pubgrub",

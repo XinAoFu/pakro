@@ -7,6 +7,7 @@ license = "MIT"
 publish = false
 
 [dependencies]
+node-semver = "2.2.0"
 pep440_rs = "0.7.3"
 petgraph = "0.8"
 pubgrub = "0.4.0"

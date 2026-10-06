@@ -7,6 +7,7 @@
 
 pub mod error;
 pub mod graph;
+pub mod npmver;
 pub mod pyver;
 pub mod solve;
 
