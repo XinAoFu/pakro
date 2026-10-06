@@ -84,6 +84,7 @@ mod outdated;
 mod packslip;
 mod patrons;
 mod plugins;
+mod project;
 pub(crate) mod prune;
 mod publish_system_install;
 mod registry;
@@ -361,6 +362,7 @@ pub(crate) enum Commands {
     Packslip(packslip::Packslip),
     Outdated(outdated::Outdated),
     Patrons(patrons::Patrons),
+    Project(project::Project),
     Plugins(plugins::Plugins),
     Deps(deps::Deps),
     Prune(prune::Prune),
@@ -527,6 +529,7 @@ impl Commands {
             Self::Packslip(cmd) => Box::pin(cmd.run()),
             Self::Outdated(cmd) => Box::pin(cmd.run()),
             Self::Patrons(cmd) => Box::pin(cmd.run()),
+            Self::Project(cmd) => Box::pin(cmd.run()),
             Self::Plugins(cmd) => Box::pin(cmd.run()),
             Self::Deps(cmd) => Box::pin(cmd.run()),
             Self::Prune(cmd) => Box::pin(cmd.run()),
