@@ -24,10 +24,18 @@ pub fn hardlink_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
                 fs::remove_file(&to)?;
             }
             std::os::unix::fs::symlink(target, &to)?;
-        } else if fs::hard_link(&from, &to).is_err() {
-            // cross-device or filesystem without hardlinks: fall back to a
-            // copy, still correct, just not deduplicated
-            fs::copy(&from, &to)?;
+        } else {
+            // a stale link at `to` must go first: when `from` and `to` are
+            // already links to the same inode, `fs::copy` would truncate the
+            // shared file and zero the store entry itself
+            if fs::symlink_metadata(&to).is_ok() {
+                fs::remove_file(&to)?;
+            }
+            if fs::hard_link(&from, &to).is_err() {
+                // cross-device or filesystem without hardlinks: fall back to
+                // a copy, still correct, just not deduplicated
+                fs::copy(&from, &to)?;
+            }
         }
     }
     Ok(())

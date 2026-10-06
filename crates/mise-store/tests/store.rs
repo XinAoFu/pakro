@@ -27,7 +27,10 @@ fn unpack_verifies_and_extracts() {
     assert!(!store.contains(&id));
 
     let unpacked = store.unpack(&id, &bytes).unwrap();
-    assert!(unpacked.join("pkg/hello.txt").is_file());
+    assert_eq!(
+        std::fs::read_to_string(unpacked.join("pkg/hello.txt")).unwrap(),
+        "hello"
+    );
     assert!(store.contains(&id));
     assert!(unpacked.join(".mise-complete").is_file());
     assert!(unpacked.join(".mise-meta.json").is_file());
@@ -77,4 +80,35 @@ fn unpack_rejects_unknown_archive_format() {
     let id = identity_for("numpy", "4.2.2", Digest::from_sha256_bytes(bytes));
     let err = store.unpack(&id, bytes).unwrap_err();
     assert!(err.to_string().contains("archive"));
+}
+
+#[test]
+fn hardlink_tree_copies_content_not_just_names() {
+    let src = tempfile::tempdir().unwrap();
+    let dst = tempfile::tempdir().unwrap();
+    let pkg = src.path().join("package");
+    std::fs::create_dir_all(&pkg).unwrap();
+    std::fs::write(pkg.join("package.json"), b"{\"name\":\"x\"}").unwrap();
+    mise_store::hardlink_tree(&pkg, &dst.path().join("x")).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dst.path().join("x/package.json")).unwrap(),
+        "{\"name\":\"x\"}"
+    );
+    // the source must be untouched
+    assert_eq!(
+        std::fs::read_to_string(pkg.join("package.json")).unwrap(),
+        "{\"name\":\"x\"}"
+    );
+
+    // re-materializing over its own hardlinks must not truncate the source:
+    // fs::copy from a file onto another link to the same inode zeroes it
+    mise_store::hardlink_tree(&pkg, &dst.path().join("x")).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dst.path().join("x/package.json")).unwrap(),
+        "{\"name\":\"x\"}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(pkg.join("package.json")).unwrap(),
+        "{\"name\":\"x\"}"
+    );
 }
