@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use mise_resolver::solve::{PyMetadataSource, solve};
+use mise_resolver::solve::{MetadataSource, solve};
 use mise_resolver::{DependencyRequest, ResolvedGraph};
 
 struct Fixture {
@@ -32,7 +32,7 @@ impl Fixture {
     }
 }
 
-impl PyMetadataSource for Fixture {
+impl MetadataSource for Fixture {
     fn versions(&self, name: &str) -> Result<Vec<String>, String> {
         self.versions
             .get(name)
@@ -83,6 +83,7 @@ fn exact_pin_resolves_single_package() {
         &[request("numpy", "4.2.2")],
         &ResolvedGraph::default(),
         &fixture,
+        "python",
     )
     .unwrap();
     assert_eq!(graph.nodes.len(), 1);
@@ -99,6 +100,7 @@ fn transitive_range_picks_max_in_range() {
         &[request("numpy", "1.0.0")],
         &ResolvedGraph::default(),
         &fixture,
+        "python",
     )
     .unwrap();
     assert_eq!(chosen(&graph, "contingent-pyprops"), "0.3.0");
@@ -116,6 +118,7 @@ fn shared_dependency_intersects_ranges() {
         &[request("a", "1.0.0"), request("b", "1.0.0")],
         &ResolvedGraph::default(),
         &fixture,
+        "python",
     )
     .unwrap();
     assert_eq!(chosen(&graph, "c"), "2.0.0");
@@ -131,7 +134,7 @@ fn locked_choice_is_preferred_when_still_valid() {
         r#"{"nodes":[{"eco":"python","name":"c","version":"1.0.0","digest":null,"deps":[]}]}"#,
     )
     .unwrap();
-    let graph = solve(&[request("a", "1.0.0")], &locked, &fixture).unwrap();
+    let graph = solve(&[request("a", "1.0.0")], &locked, &fixture, "python").unwrap();
     assert_eq!(chosen(&graph, "c"), "1.0.0");
 
     // a lock outside the current constraints must not win
@@ -139,7 +142,7 @@ fn locked_choice_is_preferred_when_still_valid() {
         r#"{"nodes":[{"eco":"python","name":"c","version":"3.5.0","digest":null,"deps":[]}]}"#,
     )
     .unwrap();
-    let graph = solve(&[request("a", "1.0.0")], &stale, &fixture).unwrap();
+    let graph = solve(&[request("a", "1.0.0")], &stale, &fixture, "python").unwrap();
     assert_eq!(chosen(&graph, "c"), "2.0.0");
 }
 
@@ -155,6 +158,7 @@ fn conflicting_constraints_report_both_sides() {
         &[request("a", "1.0.0"), request("b", "1.0.0")],
         &ResolvedGraph::default(),
         &fixture,
+        "python",
     )
     .unwrap_err();
     let report = err.to_string();
@@ -170,6 +174,7 @@ fn top_level_requests_must_be_exact_versions() {
         &[request("numpy", ">=1.0")],
         &ResolvedGraph::default(),
         &fixture,
+        "python",
     )
     .unwrap_err();
     assert!(err.to_string().contains("exact"), "{err}");
@@ -185,6 +190,7 @@ fn solved_graph_nodes_carry_dep_constraints() {
         &[request("numpy", "1.0.0")],
         &ResolvedGraph::default(),
         &fixture,
+        "python",
     )
     .unwrap();
     let numpy = graph.nodes.iter().find(|n| n.name == "numpy").unwrap();

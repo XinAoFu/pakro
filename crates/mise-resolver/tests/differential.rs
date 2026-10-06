@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::process::Command;
 
-use mise_resolver::solve::{PyMetadataSource, solve};
+use mise_resolver::solve::{MetadataSource, solve};
 use mise_resolver::{DependencyRequest, ResolvedGraph};
 
 /// A frozen PyPI snapshot small enough to also hand to `uv` as a
@@ -45,7 +45,7 @@ fn snapshot() -> Snapshot {
     Snapshot { versions, deps }
 }
 
-impl PyMetadataSource for Snapshot {
+impl MetadataSource for Snapshot {
     fn versions(&self, name: &str) -> Result<Vec<String>, String> {
         self.versions
             .get(name)
@@ -81,6 +81,7 @@ fn resolution_matches_expected_pick() {
         }],
         &ResolvedGraph::default(),
         &snap,
+        "python",
     )
     .unwrap();
     let chosen: BTreeMap<String, String> = graph
@@ -144,6 +145,7 @@ fn resolution_agrees_with_uv_when_available() {
         }],
         &ResolvedGraph::default(),
         &snap,
+        "python",
     )
     .unwrap();
     let ours: BTreeMap<&str, &str> = graph

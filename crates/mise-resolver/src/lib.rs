@@ -12,4 +12,4 @@ pub mod solve;
 
 pub use error::{ResolveFailure, ResolverError};
 pub use graph::{DependencyRequest, ResolvedGraph, ResolvedNode};
-pub use solve::{PyMetadataSource, solve};
+pub use solve::{MetadataSource, solve};

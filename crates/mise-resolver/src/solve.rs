@@ -22,7 +22,7 @@ use crate::pyver::PyRanges;
 /// Metadata the solver needs, injected so this crate stays offline-testable.
 /// Constraint strings use each ecosystem's own syntax; `dependencies` already
 /// had environment markers filtered by the provider.
-pub trait PyMetadataSource {
+pub trait MetadataSource {
     /// All candidate versions of a package.
     fn versions(&self, name: &str) -> Result<Vec<String>, String>;
     /// Dependencies of one exact version as (name, constraint) pairs.
@@ -37,7 +37,8 @@ type DepsCache = HashMap<(String, Version), Arc<Vec<DepEntry>>>;
 pub fn solve(
     requests: &[DependencyRequest],
     locked: &ResolvedGraph,
-    source: &dyn PyMetadataSource,
+    source: &dyn MetadataSource,
+    eco: &str,
 ) -> Result<ResolvedGraph, ResolveFailure> {
     let locked: HashMap<String, Version> = locked
         .nodes
@@ -85,7 +86,7 @@ pub fn solve(
                 entries
                     .iter()
                     .map(|(dep_name, _range, constraint)| DependencyRequest {
-                        eco: "python".into(),
+                        eco: eco.to_string(),
                         name: dep_name.clone(),
                         constraint: constraint.clone(),
                     })
@@ -93,7 +94,7 @@ pub fn solve(
             })
             .unwrap_or_default();
         nodes.push(ResolvedNode {
-            eco: "python".into(),
+            eco: eco.to_string(),
             name: name.clone(),
             version: version.to_string(),
             // filled later by artifact selection, never by the solver
@@ -117,7 +118,7 @@ fn map_error(err: PubGrubError<PyProvider<'_>>) -> ResolveFailure {
 }
 
 struct PyProvider<'a> {
-    source: &'a dyn PyMetadataSource,
+    source: &'a dyn MetadataSource,
     locked: HashMap<String, Version>,
     versions_cache: RefCell<HashMap<String, Arc<Vec<Version>>>>,
     deps_cache: RefCell<DepsCache>,

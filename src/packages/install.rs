@@ -12,7 +12,7 @@ use tokio::task::block_in_place;
 
 use mise_index::pypi::{Index, python_requires_matches};
 use mise_index::{ArtifactKind, RuntimeInfo, wheel_matches};
-use mise_resolver::{DependencyRequest, PyMetadataSource, ResolvedGraph};
+use mise_resolver::{DependencyRequest, MetadataSource, ResolvedGraph};
 use mise_store::{Digest, Eco, PackageIdentity, Platform, RuntimeId, Store};
 
 use crate::{dirs, http};
@@ -95,7 +95,7 @@ pub async fn install_packages(
                     })
                     .collect();
                 let locked_bias = lock.graph_for(&group_key).unwrap_or_default();
-                mise_resolver::solve(&solve_requests, &locked_bias, &source)
+                mise_resolver::solve(&solve_requests, &locked_bias, &source, "python")
                     .map_err(|e| eyre::eyre!("resolving {group_key}: {e}"))?
             }
         };
@@ -236,7 +236,7 @@ struct IndexSource {
     runtime: RuntimeInfo,
 }
 
-impl PyMetadataSource for IndexSource {
+impl MetadataSource for IndexSource {
     fn versions(&self, name: &str) -> Result<Vec<String>, String> {
         let index = &self.index;
         block_in_place(|| Handle::current().block_on(index.versions(name)))
