@@ -3,6 +3,7 @@
 //! is offline-testable.
 
 use std::path::Path;
+use std::str::FromStr;
 use std::time::Duration;
 
 use pep508_rs::{MarkerEnvironment, MarkerEnvironmentBuilder, Requirement};
@@ -252,4 +253,22 @@ pub fn python_requires_matches(spec: &str, runtime: &RuntimeInfo) -> bool {
         return true;
     };
     specs.contains(&version)
+}
+
+impl Index {
+    /// Newest non-prerelease version of a python package, or None when the
+    /// registry knows nothing. pep440 ordering decides "newest".
+    pub async fn latest_stable_python(&self, name: &str) -> Result<Option<String>> {
+        let versions = self.versions(name).await?;
+        Ok(versions
+            .into_iter()
+            .filter(|v| !v.contains('-') && !v.contains('*'))
+            .filter_map(|v| {
+                pep440_rs::Version::from_str(&v)
+                    .ok()
+                    .map(|parsed| (parsed, v))
+            })
+            .max_by(|(a, _), (b, _)| a.cmp(b))
+            .map(|(_, v)| v))
+    }
 }

@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 base64 = "0.23"
 mise-store = { path = "../mise-store" }
+node-semver = "2"
 pep440_rs = "0.7"
 pep508_rs = "0.9"
 reqwest = { version = "0.13", default-features = false, features = [

@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use crate::args::ToolArg;
 use crate::config::Config;
@@ -129,6 +130,9 @@ impl Outdated {
             false
         };
         self.display(outdated, bump_available)?;
+        if !self.bump {
+            self.display_packages(&config).await?;
+        }
         Ok(())
     }
 
@@ -136,6 +140,36 @@ impl Outdated {
         match self.json {
             true => self.display_json(outdated)?,
             false => self.display_table(outdated, bump_available)?,
+        }
+        Ok(())
+    }
+
+    async fn display_packages(&self, config: &Arc<Config>) -> Result<()> {
+        let requests = config.package_requests();
+        if requests.is_empty() {
+            return Ok(());
+        }
+        let index = mise_index::Index::new(crate::dirs::CACHE.join("index"));
+        miseprintln!("\nPackages:");
+        for request in &requests {
+            let latest = match request.runtime_name.as_str() {
+                "node" => index.latest_stable_npm(&request.name).await,
+                _ => index.latest_stable_python(&request.name).await,
+            };
+            let latest = latest.unwrap_or(None).unwrap_or_else(|| "?".to_string());
+            let marker = if latest == request.version {
+                ""
+            } else {
+                " (outdated)"
+            };
+            miseprintln!(
+                "  {}@{} {} {} -> {}{marker}",
+                request.runtime_name,
+                request.runtime_version,
+                request.name,
+                request.version,
+                latest
+            );
         }
         Ok(())
     }

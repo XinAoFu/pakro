@@ -3,6 +3,7 @@
 //! `/{name}` (all versions); tarball digests are SRI integrity strings
 //! (`sha512-<base64>`), converted here to `sha512-<hex>` digest strings.
 
+use std::str::FromStr;
 use std::time::Duration;
 
 use base64::Engine;
@@ -149,4 +150,22 @@ fn hex_of(bytes: &[u8]) -> String {
         let _ = write!(out, "{byte:02x}");
     }
     out
+}
+
+impl crate::Index {
+    /// Newest non-prerelease version of an npm package, or None. semver
+    /// ordering decides "newest".
+    pub async fn latest_stable_npm(&self, name: &str) -> Result<Option<String>> {
+        let versions = self.npm_versions(name).await?;
+        Ok(versions
+            .into_iter()
+            .filter(|v| !v.split('+').next().unwrap_or_default().contains('-'))
+            .filter_map(|v| {
+                node_semver::Version::from_str(&v)
+                    .ok()
+                    .map(|parsed| (parsed, v))
+            })
+            .max_by(|(a, _), (b, _)| a.cmp(b))
+            .map(|(_, v)| v))
+    }
 }
