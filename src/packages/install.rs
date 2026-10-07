@@ -226,7 +226,42 @@ pub async fn install_packages(
         }
     }
     lock.write(&lock_path)?;
+    // go/maven: storage-layer absorption (design doc §六); go.mod and pom.xml
+    // remain the declarations, mise takes over where artifacts live
+    if super::go::install_go_modules(&locs.project_root, locs)? {
+        downloaded += 1;
+    }
+    if super::maven::install_maven_dependencies(&locs.project_root, locs)? {
+        downloaded += 1;
+    }
+    maybe_auto_gc(&locs.store_root);
     Ok(downloaded)
+}
+
+/// Runs `store gc` at most once a day; the marker lives in STATE.
+fn maybe_auto_gc(store_root: &std::path::Path) {
+    let marker = crate::dirs::STATE.join("store-gc-last-run");
+    let day = std::time::Duration::from_secs(24 * 60 * 60);
+    let fresh = std::fs::metadata(&marker)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .is_some_and(|age| age < day);
+    if fresh {
+        return;
+    }
+    let store = Store::open(store_root);
+    if let Ok(store) = store
+        && let Ok(report) = mise_store::gc(&store)
+        && !report.removed.is_empty()
+    {
+        info!(
+            "store gc: removed {} entries ({} bytes freed)",
+            report.removed.len(),
+            report.freed_bytes
+        );
+    }
+    let _ = std::fs::write(&marker, b"");
 }
 
 fn runtime_info(version: &str) -> eyre::Result<RuntimeInfo> {

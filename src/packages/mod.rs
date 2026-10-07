@@ -2,10 +2,12 @@
 //! glue between resolver/index/store and the rest of mise. Backends and
 //! materialization live in sibling modules as they land.
 
+pub mod go;
 pub mod install;
 pub(crate) mod lockfile;
 pub(crate) mod materialize;
 pub(crate) mod materialize_node;
+pub(crate) mod maven;
 
 use std::sync::OnceLock;
 

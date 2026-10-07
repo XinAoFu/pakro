@@ -201,6 +201,10 @@ impl GoPlugin {
         if settings.go.set_gopath {
             set("GOPATH", self.gopath(tv));
         }
+        // the mise store is the global module cache; go projects share it
+        if let Some(store) = crate::dirs::INSTALLS.parent() {
+            set("GOMODCACHE", store.join("store/go/mod"));
+        }
         Ok(map)
     }
 }
