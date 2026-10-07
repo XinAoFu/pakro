@@ -111,6 +111,13 @@ impl Toolset {
             paths.push(venv.venv_path.clone());
         }
 
+        // 3b. package venvs from [packages] (ADR-0007): same precedence as
+        // the uv venv — the project's materialized environment wins over
+        // bare tool paths, but an explicitly configured uv venv stays first
+        for (_, bin) in crate::packages::venv_bin_dirs(config) {
+            paths.push(bin);
+        }
+
         // 4. tool_add_paths (MISE_ADD_PATH from tools)
         paths.extend(env_results.tool_add_paths);
 
@@ -146,6 +153,12 @@ impl Toolset {
         // UV venv path (if any) - these are tool-managed paths
         if let Some(venv) = uv::uv_venv(config, self).await? {
             tool_paths.push(venv.venv_path.clone());
+        }
+
+        // package venvs from [packages] (ADR-0007): tool-managed, same slot
+        // as the uv venv above
+        for (_, bin) in crate::packages::venv_bin_dirs(config) {
+            tool_paths.push(bin);
         }
 
         // tool_add_paths (MISE_ADD_PATH from tools)
