@@ -352,7 +352,10 @@ struct PythonSource {
 impl MetadataSource for PythonSource {
     fn versions(&self, name: &str) -> Result<Vec<String>, String> {
         let index = &self.index;
-        block_in_place(|| Handle::current().block_on(index.versions(name)))
+        let runtime = &self.runtime;
+        // runtime-filtered: a version whose requires-python rejects this
+        // interpreter must never become a solver candidate
+        block_in_place(|| Handle::current().block_on(index.versions_for_runtime(name, runtime)))
             .map_err(|e| e.to_string())
     }
 

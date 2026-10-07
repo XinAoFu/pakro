@@ -128,6 +128,46 @@ pub fn parse_pypi_versions(value: &Value) -> Result<Vec<String>> {
     versions.sort();
     Ok(versions)
 }
+/// Version keys of a `/pypi/{name}/json` listing filtered to one runtime: a
+/// release survives when any of its files carries no `requires_python` (those
+/// are permissive) or one that admits the interpreter. Keeping incompatible
+/// versions out of the listing means the solver never proposes a candidate
+/// that download-time checks would reject.
+pub fn parse_pypi_versions_for_runtime(
+    value: &Value,
+    runtime: &RuntimeInfo,
+) -> Result<Vec<String>> {
+    let bad = |reason: &str| IndexError::BadResponse {
+        package: value
+            .pointer("/info/name")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string(),
+        reason: reason.to_string(),
+    };
+    let releases = value
+        .get("releases")
+        .and_then(Value::as_object)
+        .ok_or_else(|| bad("missing releases map"))?;
+    let mut versions = releases
+        .iter()
+        .filter(|(_, files)| {
+            let Some(files) = files.as_array() else {
+                return false;
+            };
+            !files.is_empty()
+                && files.iter().any(|file| {
+                    file.get("requires_python")
+                        .and_then(Value::as_str)
+                        .is_none_or(|spec| python_requires_matches(spec, runtime))
+                })
+        })
+        .map(|(version, _)| version.clone())
+        .collect::<Vec<_>>();
+    versions.sort();
+    Ok(versions)
+}
+
 
 fn marker_environment(
     runtime: &RuntimeInfo,

@@ -104,3 +104,30 @@ fn parses_version_listing() {
     let versions = parse_pypi_versions(&value).unwrap();
     assert_eq!(versions, vec!["4.2.1".to_string(), "4.2.2".to_string()]);
 }
+
+#[test]
+fn version_listing_filters_by_requires_python() {
+    use mise_index::pypi::parse_pypi_versions_for_runtime;
+    let value = serde_json::json!({
+        "info": {"name": "networkx", "version": "3.7"},
+        "releases": {
+            "3.4.2": [{"filename": "networkx-3.4.2.tar.gz", "requires_python": ">=3.10"}],
+            "3.7.0": [{"filename": "networkx-3.7.0.tar.gz", "requires_python": "!=3.14.1,>=3.12"}],
+            "3.8.0": [{"filename": "networkx-3.8.0.tar.gz", "requires_python": null}],
+            "3.9.0-empty": []
+        }
+    });
+    // 3.11 runtime: 3.7.0 demands >=3.12 and must drop out of the candidate
+    // list before the solver ever sees it; a null spec stays permissive
+    let for_311 = parse_pypi_versions_for_runtime(&value, &rt(3, 11)).unwrap();
+    assert_eq!(for_311, vec!["3.4.2".to_string(), "3.8.0".to_string()]);
+    let for_312 = parse_pypi_versions_for_runtime(&value, &rt(3, 12)).unwrap();
+    assert_eq!(
+        for_312,
+        vec![
+            "3.4.2".to_string(),
+            "3.7.0".to_string(),
+            "3.8.0".to_string()
+        ]
+    );
+}

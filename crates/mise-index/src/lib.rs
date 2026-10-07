@@ -82,6 +82,21 @@ impl Index {
         parse_pypi_versions(&value)
     }
 
+    /// Released versions whose `requires_python` admits the runtime, so the
+    /// solver never proposes candidates install-time checks would reject.
+    /// Same cache entry as [`Index::versions`]; no extra request.
+    pub async fn versions_for_runtime(
+        &self,
+        name: &str,
+        runtime: &RuntimeInfo,
+    ) -> Result<Vec<String>> {
+        let url = format!("{}/{}/json", self.pypi_url, normalize_py_name(name));
+        let value = self
+            .fetch_cached("python", name, "__versions__", &url)
+            .await?;
+        pypi::parse_pypi_versions_for_runtime(&value, runtime)
+    }
+
     /// Newest non-prerelease version, pep440 ordering.
     pub async fn latest_stable_python(&self, name: &str) -> Result<Option<String>> {
         let versions = self.versions(name).await?;
