@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Package registry metadata for mise: clients, parsing, caching"
 license = "MIT"
-publish = false
+
 
 [dependencies]
 base64 = "0.23"

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Content-addressed package store for mise"
 license = "MIT"
-publish = false
+
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

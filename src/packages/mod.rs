@@ -157,13 +157,13 @@ pub fn requests_from_config(
 ) -> Result<Vec<PackageInstallRequest>, String> {
     let mut out = vec![];
     for (group, packages) in table {
+        // exact keys (python@3.10.14) or prefix keys (python@3.10) are both
+        // accepted; the resolver pins the concrete version in the lockfile
         let (runtime_name, runtime_version) = group
             .split_once('@')
             .filter(|(name, version)| !name.is_empty() && !version.is_empty())
             .ok_or_else(|| {
-                format!(
-                    "[packages] group key {group:?} must be an exact runtime like \"python@3.10.14\""
-                )
+                format!("[packages] group key {group:?} must name a runtime like \"python@3.10\"")
             })?;
         for (name, version) in packages {
             if name.is_empty() || version.is_empty() {
@@ -234,6 +234,46 @@ pub fn split_bare_packages(
         }
     }
     Ok((kept, pins))
+}
+
+/// Human-readable store summary: entries grouped by ecosystem with sizes
+/// and referrer counts.
+pub fn store_summary(store_root: &std::path::Path) -> Result<String, String> {
+    let mut out = String::new();
+    for eco in ["python", "node", "go", "maven"] {
+        let eco_dir = store_root.join(eco);
+        if !eco_dir.is_dir() {
+            continue;
+        }
+        let mut total = 0u64;
+        let mut count = 0usize;
+        fn walk(dir: &std::path::Path, total: &mut u64, count: &mut usize) {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        walk(&path, total, count);
+                    } else {
+                        *total += entry.metadata().map(|m| m.len()).unwrap_or(0);
+                    }
+                }
+            }
+            if dir.join(".mise-complete").is_file() {
+                *count += 1;
+            }
+        }
+        walk(&eco_dir, &mut total, &mut count);
+        if count > 0 {
+            out.push_str(&format!(
+                "{eco}: {count} entries, {:.1} MB\n",
+                total as f64 / 1_048_576.0
+            ));
+        }
+    }
+    if out.is_empty() {
+        out.push_str("(empty)");
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
