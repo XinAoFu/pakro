@@ -504,10 +504,7 @@ async fn build_sdist_to_wheel(
         .context("pip wheel produced no wheel")?;
     let bytes = std::fs::read(wheel_file.path())?;
     let filename = wheel_file.file_name().to_string_lossy().to_string();
-    let digest = format!(
-        "sha256-{}",
-        hex::encode(mise_store::Digest::from_sha256_bytes(&bytes).hex())
-    );
+    let digest = mise_store::Digest::from_sha256_bytes(&bytes).to_string();
     Ok(BuiltArtifact {
         descriptor: mise_index::ArtifactDescriptor {
             filename,
