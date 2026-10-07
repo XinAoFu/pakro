@@ -139,18 +139,41 @@ pub async fn install_packages(
                     metadata
                 }
             };
-            let artifact = select_artifact(
+            let mut built_bytes: Option<Vec<u8>> = None;
+            let artifact_owned;
+            let artifact = match select_artifact(
                 &metadata.artifacts,
                 &runtime,
                 &platform,
                 runtime_name == "node",
-            )
-                .with_context(|| {
-                    format!(
-                        "no installable artifact for {} {} on {platform} (source builds are not installed in this version)",
-                        node.name, node.version
+            ) {
+                Some(a) => a,
+                None if runtime_name == "python" => {
+                    let built = build_sdist_to_wheel(
+                        &metadata,
+                        &node.name,
+                        &node.version,
+                        &runtime_name,
+                        &runtime_version,
+                        &runtime,
                     )
-                })?;
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "no wheel for {} {} on {platform}; source build also failed",
+                            node.name, node.version
+                        )
+                    })?;
+                    built_bytes = Some(built.bytes);
+                    artifact_owned = built.descriptor;
+                    &artifact_owned
+                }
+                None => bail!(
+                    "no installable artifact for {} {} on {platform}",
+                    node.name,
+                    node.version
+                ),
+            };
             let digest_str = artifact
                 .digest
                 .clone()
@@ -183,11 +206,15 @@ pub async fn install_packages(
                 _ => identity,
             };
             if !store.contains(&identity) {
-                let bytes = http::HTTP
-                    .get_bytes(artifact.url.as_str())
-                    .await
-                    .with_context(|| format!("downloading {}", artifact.filename))?;
-                store.unpack(&identity, bytes.as_ref())?;
+                if let Some(bytes) = &built_bytes {
+                    store.unpack(&identity, bytes)?;
+                } else {
+                    let bytes = http::HTTP
+                        .get_bytes(artifact.url.as_str())
+                        .await
+                        .with_context(|| format!("downloading {}", artifact.filename))?;
+                    store.unpack(&identity, bytes.as_ref())?;
+                }
                 downloaded += 1;
             }
             node.digest = Some(digest_str);
@@ -408,4 +435,85 @@ pub async fn install_config_packages(
         .ok_or_else(|| eyre::eyre!("could not locate project root"))?;
     let locations = Locations::from_config(&project_root)?;
     install_packages(&requests, &locations).await
+}
+
+/// A wheel produced by building an sdist locally.
+struct BuiltArtifact {
+    descriptor: mise_index::ArtifactDescriptor,
+    bytes: Vec<u8>,
+}
+
+/// Builds an sdist into a wheel using the mise-installed python, returning
+/// the wheel bytes. This runs `pip wheel --no-deps` which executes the
+/// package's build backend — the same code `pip install` would run, with
+/// the same security implications; it only triggers when no prebuilt wheel
+/// matches the platform.
+#[allow(clippy::too_many_arguments)]
+async fn build_sdist_to_wheel(
+    metadata: &mise_index::PackageMetadata,
+    name: &str,
+    version: &str,
+    runtime_name: &str,
+    runtime_version: &str,
+    _runtime: &RuntimeInfo,
+) -> eyre::Result<BuiltArtifact> {
+    let sdist = metadata
+        .artifacts
+        .iter()
+        .find(|a| matches!(a.kind, mise_index::ArtifactKind::Sdist))
+        .context("no sdist available either")?;
+    warn!(
+        "no prebuilt wheel for {name} {version}; building from source (this runs the package's build code)"
+    );
+    let interpreter = dirs::INSTALLS
+        .join(runtime_name)
+        .join(runtime_version)
+        .join("bin/python3");
+    if !interpreter.exists() {
+        bail!("runtime {runtime_name}@{runtime_version} not installed");
+    }
+    let sdist_bytes = http::HTTP
+        .get_bytes(sdist.url.as_str())
+        .await
+        .context("downloading sdist")?;
+    let tmp = tempfile::tempdir()?;
+    let sdist_path = tmp.path().join(&sdist.filename);
+    std::fs::write(&sdist_path, &sdist_bytes)?;
+    let wheel_dir = tmp.path().join("wheels");
+    std::fs::create_dir_all(&wheel_dir)?;
+    let status = std::process::Command::new(&interpreter)
+        .args([
+            "-m",
+            "pip",
+            "wheel",
+            "--no-deps",
+            "--no-build-isolation",
+            "-w",
+        ])
+        .arg(&wheel_dir)
+        .arg(&sdist_path)
+        .status()
+        .context("running pip wheel")?;
+    if !status.success() {
+        bail!("pip wheel failed with {status}");
+    }
+    let wheel_file = std::fs::read_dir(&wheel_dir)?
+        .flatten()
+        .find(|e| e.file_name().to_string_lossy().ends_with(".whl"))
+        .context("pip wheel produced no wheel")?;
+    let bytes = std::fs::read(wheel_file.path())?;
+    let filename = wheel_file.file_name().to_string_lossy().to_string();
+    let digest = format!(
+        "sha256-{}",
+        hex::encode(mise_store::Digest::from_sha256_bytes(&bytes).hex())
+    );
+    Ok(BuiltArtifact {
+        descriptor: mise_index::ArtifactDescriptor {
+            filename,
+            url: String::new(),
+            digest: Some(digest),
+            kind: mise_index::ArtifactKind::Sdist,
+        },
+        bytes,
+    })
 }
