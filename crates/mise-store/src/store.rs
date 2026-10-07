@@ -141,6 +141,22 @@ pub fn hardlink_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
 const REFS_FILE: &str = ".mise-refs.json";
 const COMPLETE_FILE: &str = ".mise-complete";
 
+/// Hardlinks one file to `dst`, replacing whatever held the destination name.
+/// Falls back to a copy across filesystems (EXDEV). Removing the stale name
+/// first matters for the same reason as in [`hardlink_tree`]: copy would
+/// truncate an inode shared with the store.
+pub fn hardlink_file(src: &Path, dst: &Path) -> std::io::Result<()> {
+    if std::fs::symlink_metadata(dst).is_ok() {
+        std::fs::remove_file(dst)?;
+    }
+    match std::fs::hard_link(src, dst) {
+        Ok(()) => Ok(()),
+        // EXDEV: link across filesystems — a real copy keeps the layout valid
+        Err(err) if err.raw_os_error() == Some(18) => std::fs::copy(src, dst).map(|_| ()),
+        Err(err) => Err(err),
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Refs {
     pub projects: Vec<String>,

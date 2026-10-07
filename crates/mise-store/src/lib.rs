@@ -9,7 +9,7 @@ mod identity;
 mod store;
 
 pub use identity::{Arch, Digest, Eco, Libc, Os, PackageIdentity, Platform, RuntimeId};
-pub use store::{GcReport, Refs, Store, entry_dir, gc, hardlink_tree};
+pub use store::{GcReport, Refs, Store, entry_dir, gc, hardlink_file, hardlink_tree};
 
 use thiserror::Error;
 

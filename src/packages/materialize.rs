@@ -127,15 +127,55 @@ fn link_entry_into_site(
     site_packages: &Path,
     node: &ResolvedNode,
 ) -> eyre::Result<()> {
-    let children = std::fs::read_dir(entry)
-        .with_context(|| format!("store entry {} is missing", entry.display()))?;
-    for child in children.flatten() {
+    merge_children(entry, site_packages).with_context(|| format!("linking entry for {}", node.name))
+}
+
+/// Recursively links `src_dir`'s children into `dst`. Uncontested names
+/// become single symlinks; a directory name claimed by several store entries
+/// (the PyQt5 family: pyqt5, pyqt5-sip and pyqt5-qt5 each own parts of
+/// `PyQt5/`) expands into a real directory merging every owner's children —
+/// the same union pip produces when unpacking wheels.
+fn merge_children(src_dir: &Path, dst: &Path) -> eyre::Result<()> {
+    for child in std::fs::read_dir(src_dir)
+        .with_context(|| format!("reading {}", src_dir.display()))?
+        .flatten()
+    {
         let name = child.file_name().to_string_lossy().to_string();
         if name.starts_with(".mise") {
             continue;
         }
-        replace_symlink(&child.path(), &site_packages.join(&name))
-            .with_context(|| format!("linking {} for {}", name, node.name))?;
+        link_child(&child.path(), &dst.join(&name)).with_context(|| format!("linking {name}"))?;
+    }
+    Ok(())
+}
+
+fn link_child(src: &Path, dst: &Path) -> eyre::Result<()> {
+    if !src.is_dir() {
+        // a real file, not a symlink: dyld resolves `@rpath`/`$ORIGIN` of a
+        // symlinked .so to its physical store location, where sibling
+        // directories other entries provide (PyQt5's Qt5/) are absent.
+        // Hardlinks make the file physically present in the merged layout.
+        mise_store::hardlink_file(src, dst)
+            .with_context(|| format!("hardlinking {}", src.display()))?;
+        return Ok(());
+    }
+    match std::fs::symlink_metadata(dst) {
+        // another entry's symlink holds this name: expand its target into a
+        // real directory, then merge the new entry's children into it too
+        Ok(meta) if meta.file_type().is_symlink() => {
+            let prior = std::fs::read_link(dst)?;
+            std::fs::remove_file(dst)?;
+            std::fs::create_dir_all(dst)?;
+            merge_children(&prior, dst)?;
+            merge_children(src, dst)?;
+        }
+        // a real directory: a previous merge already claimed it
+        Ok(_) => merge_children(src, dst)?,
+        // uncontested: one symlink for the whole directory
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            replace_symlink(src, dst)?;
+        }
+        Err(err) => return Err(err.into()),
     }
     Ok(())
 }
@@ -151,20 +191,33 @@ fn replace_symlink(target: &Path, link: &Path) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use mise_resolver::DependencyRequest;
-    use std::io::Write;
 
     fn fixture_store_with_entry(store_root: &Path, name: &str, version: &str) -> PackageIdentity {
+        fixture_store_with_files(
+            store_root,
+            name,
+            version,
+            &[(format!("{name}/__init__.py"), &b""[..])],
+        )
+    }
+
+    /// A store entry whose zip carries the given `path -> bytes` members.
+    fn fixture_store_with_files(
+        store_root: &Path,
+        name: &str,
+        version: &str,
+        files: &[(String, &[u8])],
+    ) -> PackageIdentity {
         let store = Store::open(store_root).unwrap();
         let mut buf = std::io::Cursor::new(Vec::new());
         {
             let mut writer = zip::ZipWriter::new(&mut buf);
-            writer
-                .start_file(
-                    format!("{name}/__init__.py"),
-                    zip::write::SimpleFileOptions::default(),
-                )
-                .unwrap();
-            writer.write_all(b"").unwrap();
+            for (path, bytes) in files {
+                writer
+                    .start_file(path.as_str(), zip::write::SimpleFileOptions::default())
+                    .unwrap();
+                std::io::Write::write_all(&mut writer, bytes).unwrap();
+            }
             writer.finish().unwrap();
         }
         let bytes = buf.into_inner();
@@ -239,6 +292,74 @@ mod tests {
     }
 
     #[test]
+    fn shared_top_level_directories_merge_instead_of_overwriting() {
+        let root = tempfile::tempdir().unwrap();
+        let store_root = tempfile::tempdir().unwrap();
+        let interp_home = root.path().join("installs/python/3.10.14");
+        std::fs::create_dir_all(interp_home.join("bin")).unwrap();
+        std::fs::write(interp_home.join("bin/python3"), b"#!/bin/sh\n").unwrap();
+
+        // the PyQt5 shape: three packages each own parts of the same
+        // top-level directory
+        let pyqt5 = fixture_store_with_files(
+            store_root.path(),
+            "pyqt5",
+            "5.15.11",
+            &[
+                ("PyQt5/__init__.py".to_string(), &b""[..]),
+                ("PyQt5/QtWidgets.so".to_string(), &b""[..]),
+                ("PyQt5-5.15.11.dist-info/METADATA".to_string(), &b""[..]),
+            ],
+        );
+        let sip = fixture_store_with_files(
+            store_root.path(),
+            "pyqt5-sip",
+            "12.20.0",
+            &[("PyQt5/sip.so".to_string(), &b""[..])],
+        );
+        let qt5 = fixture_store_with_files(
+            store_root.path(),
+            "pyqt5-qt5",
+            "5.15.19",
+            &[("PyQt5/Qt5/lib/QtCore.dylib".to_string(), &b""[..])],
+        );
+        let store = Store::open(&store_root).unwrap();
+        let graph = ResolvedGraph {
+            nodes: [pyqt5, sip, qt5]
+                .into_iter()
+                .map(|id| node(&id.name, &id.version, Some(id.digest.to_string())))
+                .collect(),
+        };
+        let spec = VenvSpec {
+            project_root: root.path(),
+            runtime_name: "python",
+            runtime_version: "3.10.14",
+            interpreter_home: &interp_home,
+        };
+        materialize_venv(&spec, &graph, &store).unwrap();
+
+        let site = root
+            .path()
+            .join(".mise/venvs/python-3.10.14/lib/python3.10/site-packages");
+        // the contested directory is a real directory uniting all owners;
+        // its files are hardlinks so dyld's $ORIGIN lands beside the Qt5/
+        // tree the other entries provide
+        let pyqt = site.join("PyQt5");
+        assert!(pyqt.is_dir() && !pyqt.is_symlink());
+        assert!(pyqt.join("__init__.py").is_file() && !pyqt.join("__init__.py").is_symlink());
+        assert!(pyqt.join("QtWidgets.so").is_file() && !pyqt.join("QtWidgets.so").is_symlink());
+        assert!(pyqt.join("sip.so").is_file() && !pyqt.join("sip.so").is_symlink());
+        // an uncontested nested directory stays a single symlink
+        assert!(pyqt.join("Qt5").is_symlink());
+        assert!(pyqt.join("Qt5/lib/QtCore.dylib").is_file());
+
+        // re-materialization is idempotent
+        materialize_venv(&spec, &graph, &store).unwrap();
+        assert!(pyqt.join("sip.so").is_file() && !pyqt.join("sip.so").is_symlink());
+        assert!(pyqt.join("__init__.py").is_file());
+    }
+
+    #[test]
     fn venv_provides_sourceable_activate_script() {
         let root = tempfile::tempdir().unwrap();
         let store_root = tempfile::tempdir().unwrap();
@@ -279,7 +400,8 @@ mod tests {
             venv.display().to_string()
         );
     }
-#[test]
+
+    #[test]
     fn rejects_node_without_digest() {
         let root = tempfile::tempdir().unwrap();
         let store_root = tempfile::tempdir().unwrap();
