@@ -92,7 +92,7 @@ pub async fn install_packages(
                     })
                     .collect();
                 let locked_bias = lock.graph_for(&group_key).unwrap_or_default();
-                let index = Index::new(&locs.index_cache);
+                let index = Index::from_env(&locs.index_cache);
                 match runtime_name.as_str() {
                     "node" => {
                         let source = NodeSource { index };
@@ -108,7 +108,7 @@ pub async fn install_packages(
         };
 
         let store = Store::open(&locs.store_root)?;
-        let index = Index::new(&locs.index_cache);
+        let index = Index::from_env(&locs.index_cache);
         let mut nodes = graph.nodes.clone();
         for node in &mut nodes {
             if node.digest.as_deref().is_some_and(|d| !d.is_empty()) {

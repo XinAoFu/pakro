@@ -105,6 +105,17 @@ pub fn parse_pypi_response(value: &Value, runtime: &RuntimeInfo) -> Result<Packa
     })
 }
 
+/// Rewrites a `files.pythonhosted.org` artifact URL onto a mirror that
+/// proxies the same `/packages/...` paths (Tsinghua and USTC do). Registry
+/// JSON from these mirrors still points at the official file host, so the
+/// download side needs its own knob.
+pub fn rewrite_files_host(url: &str, base: &str) -> String {
+    match url.strip_prefix("https://files.pythonhosted.org") {
+        Some(rest) => format!("{base}{rest}"),
+        None => url.to_string(),
+    }
+}
+
 /// Version keys of a `/pypi/{name}/json` listing, keeping only releases that
 /// actually carry files.
 pub fn parse_pypi_versions(value: &Value) -> Result<Vec<String>> {
@@ -128,6 +139,7 @@ pub fn parse_pypi_versions(value: &Value) -> Result<Vec<String>> {
     versions.sort();
     Ok(versions)
 }
+
 /// Version keys of a `/pypi/{name}/json` listing filtered to one runtime: a
 /// release survives when any of its files carries no `requires_python` (those
 /// are permissive) or one that admits the interpreter. Keeping incompatible
@@ -167,7 +179,6 @@ pub fn parse_pypi_versions_for_runtime(
     versions.sort();
     Ok(versions)
 }
-
 
 fn marker_environment(
     runtime: &RuntimeInfo,

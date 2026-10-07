@@ -13,7 +13,10 @@ use std::str::FromStr;
 use std::time::Duration;
 
 pub use npm::{parse_npm_version_metadata, parse_npm_versions};
-pub use pypi::{parse_pypi_response, parse_pypi_versions, python_requires_matches};
+pub use pypi::{
+    parse_pypi_response, parse_pypi_versions, parse_pypi_versions_for_runtime,
+    python_requires_matches, rewrite_files_host,
+};
 pub use types::{
     ArtifactDescriptor, ArtifactKind, DependencyConstraint, PackageMetadata, normalize_py_name,
 };
@@ -33,6 +36,7 @@ pub struct Index {
     client: reqwest::Client,
     pypi_url: String,
     npm_registry: String,
+    pypi_files_url: Option<String>,
 }
 
 impl Index {
@@ -42,7 +46,28 @@ impl Index {
             client: reqwest::Client::new(),
             pypi_url: DEFAULT_PYPI_URL.to_string(),
             npm_registry: DEFAULT_NPM_REGISTRY.to_string(),
+            pypi_files_url: None,
         }
+    }
+
+    /// [`Index::new`] with registry endpoints overridden by the
+    /// `MISE_PYPI_URL` / `MISE_NPM_REGISTRY` / `MISE_PYPI_FILES_URL`
+    /// environment variables — the configurable mirrors FR-11 promises.
+    /// Registry JSON from mirror sites still points artifact downloads at
+    /// `files.pythonhosted.org`, so mirrors need `MISE_PYPI_FILES_URL` to
+    /// actually reroute the bytes.
+    pub fn from_env(cache_root: impl AsRef<Path>) -> Self {
+        let mut index = Self::new(cache_root);
+        if let Ok(url) = std::env::var("MISE_PYPI_URL") {
+            index = index.with_base_url(url);
+        }
+        if let Ok(url) = std::env::var("MISE_NPM_REGISTRY") {
+            index = index.with_npm_registry(url);
+        }
+        if let Ok(url) = std::env::var("MISE_PYPI_FILES_URL") {
+            index = index.with_pypi_files_url(url);
+        }
+        index
     }
 
     pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
@@ -52,6 +77,13 @@ impl Index {
 
     pub fn with_npm_registry(mut self, url: impl Into<String>) -> Self {
         self.npm_registry = url.into();
+        self
+    }
+
+    /// Base that replaces `https://files.pythonhosted.org` in artifact URLs,
+    /// for mirrors that proxy the same `/packages/...` paths.
+    pub fn with_pypi_files_url(mut self, url: impl Into<String>) -> Self {
+        self.pypi_files_url = Some(url.into());
         self
     }
 
@@ -70,7 +102,13 @@ impl Index {
             normalize_py_name(name)
         );
         let value = self.fetch_cached("python", name, version, &url).await?;
-        parse_pypi_response(&value, runtime)
+        let mut metadata = parse_pypi_response(&value, runtime)?;
+        if let Some(base) = &self.pypi_files_url {
+            for artifact in &mut metadata.artifacts {
+                artifact.url = rewrite_files_host(&artifact.url, base);
+            }
+        }
+        Ok(metadata)
     }
 
     /// All released versions of a python package.
@@ -94,7 +132,7 @@ impl Index {
         let value = self
             .fetch_cached("python", name, "__versions__", &url)
             .await?;
-        pypi::parse_pypi_versions_for_runtime(&value, runtime)
+        parse_pypi_versions_for_runtime(&value, runtime)
     }
 
     /// Newest non-prerelease version, pep440 ordering.
@@ -145,13 +183,24 @@ impl Index {
         key: &str,
         url: &str,
     ) -> Result<serde_json::Value> {
-        if let Some(bytes) = self.cache.read_with_ttl(eco, name, key, TTL)? {
+        // cache scope includes the registry host: metadata from a mirror
+        // carries the mirror's download URLs, so it must not leak back when
+        // the endpoint is switched
+        let host = url
+            .split("://")
+            .nth(1)
+            .unwrap_or(url)
+            .split('/')
+            .next()
+            .unwrap_or("unknown");
+        let scope = format!("{eco}__{host}");
+        if let Some(bytes) = self.cache.read_with_ttl(&scope, name, key, TTL)? {
             return Ok(serde_json::from_slice(&bytes)?);
         }
         let response = self.client.get(url).send().await?.error_for_status()?;
         let bytes = response.bytes().await?;
         let value: serde_json::Value = serde_json::from_slice(&bytes)?;
-        self.cache.write(eco, name, key, &bytes)?;
+        self.cache.write(&scope, name, key, &bytes)?;
         Ok(value)
     }
 }

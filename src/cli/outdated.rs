@@ -149,7 +149,7 @@ impl Outdated {
         if requests.is_empty() {
             return Ok(());
         }
-        let index = mise_index::Index::new(crate::dirs::CACHE.join("index"));
+        let index = mise_index::Index::from_env(crate::dirs::CACHE.join("index"));
         miseprintln!("\nPackages:");
         for request in &requests {
             let latest = match request.runtime_name.as_str() {

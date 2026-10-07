@@ -106,6 +106,26 @@ fn parses_version_listing() {
 }
 
 #[test]
+fn files_host_rewrites_onto_mirror_paths() {
+    use mise_index::pypi::rewrite_files_host;
+    assert_eq!(
+        rewrite_files_host(
+            "https://files.pythonhosted.org/packages/aa/x.whl",
+            "https://pypi.tuna.tsinghua.edu.cn"
+        ),
+        "https://pypi.tuna.tsinghua.edu.cn/packages/aa/x.whl"
+    );
+    // urls already on another host pass through untouched
+    assert_eq!(
+        rewrite_files_host(
+            "https://example.com/other.whl",
+            "https://pypi.tuna.tsinghua.edu.cn"
+        ),
+        "https://example.com/other.whl"
+    );
+}
+
+#[test]
 fn version_listing_filters_by_requires_python() {
     use mise_index::pypi::parse_pypi_versions_for_runtime;
     let value = serde_json::json!({
