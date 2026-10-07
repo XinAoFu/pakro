@@ -6,7 +6,7 @@
 //! keep their `@scope/` path shape everywhere.
 
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use eyre::{Context, bail};
 use mise_resolver::{ResolvedGraph, ResolvedNode};
@@ -80,7 +80,75 @@ pub(crate) fn materialize_node_modules(
             .with_context(|| format!("linking {} at the top level", node.name))?;
         link_bins(&node_modules.join(".bin"), &target, &node.name)?;
     }
+    rebuild_native_modules(&node_modules)?;
     Ok(())
+}
+
+/// Rebuilds packages that ship native code (binding.gyp): node-gyp needs to
+/// compile against the running node's headers, and hardlinked binaries from
+/// the store were built for a different node. Only packages declaring
+/// `binding.gyp` at their root are touched.
+fn rebuild_native_modules(node_modules: &Path) -> eyre::Result<()> {
+    let node_bin = find_node()?;
+    for entry in std::fs::read_dir(node_modules.join(".mise-store"))? {
+        let entry = entry?;
+        if !entry.path().is_dir() {
+            continue;
+        }
+        let pkg = entry.path().join("node_modules");
+        let Ok(packages) = std::fs::read_dir(&pkg) else {
+            continue;
+        };
+        for name_dir in packages.flatten() {
+            let pkg_dir = name_dir.path();
+            if !pkg_dir.is_dir() || !pkg_dir.join("binding.gyp").exists() {
+                continue;
+            }
+            warn!(
+                "rebuilding native module {} (hardlinked binaries were built for a different node)",
+                name_dir.file_name().to_string_lossy()
+            );
+            let status = std::process::Command::new(&node_bin)
+                .current_dir(&pkg_dir)
+                .args(["node-gyp", "rebuild"])
+                .status();
+            match status {
+                Ok(status) if status.success() => {}
+                Ok(status) => bail!(
+                    "node-gyp rebuild failed with {status} in {}",
+                    pkg_dir.display()
+                ),
+                Err(err) => bail!("could not run node-gyp in {}: {err}", pkg_dir.display()),
+            }
+        }
+    }
+    Ok(())
+}
+
+fn find_node() -> eyre::Result<PathBuf> {
+    let installed = crate::dirs::INSTALLS
+        .join("node")
+        .read_dir()
+        .ok()
+        .and_then(|entries| {
+            entries
+                .flatten()
+                .filter(|e| e.path().join("bin/node").exists())
+                .max_by_key(|e| e.file_name().to_string_lossy().to_string())
+                .map(|e| e.path().join("bin/node"))
+        });
+    if let Some(node) = installed {
+        return Ok(node);
+    }
+    let path = std::env::var_os("PATH").and_then(|p| {
+        p.to_string_lossy().split(':').find_map(|d| {
+            std::path::Path::new(d)
+                .join("node")
+                .is_file()
+                .then(|| std::path::PathBuf::from(d).join("node"))
+        })
+    });
+    path.ok_or_else(|| eyre::eyre!("no node binary found for native module rebuild"))
 }
 
 /// Creates `node_modules/.bin/<name>` links for a package's declared `bin`
