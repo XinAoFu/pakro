@@ -2,94 +2,14 @@
 //! thin layer over the cache; everything downstream of `parse_pypi_response`
 //! is offline-testable.
 
-use std::path::Path;
-use std::str::FromStr;
-use std::time::Duration;
-
 use pep508_rs::{MarkerEnvironment, MarkerEnvironmentBuilder, Requirement};
 use serde_json::Value;
 
-use crate::cache::MetadataCache;
-use crate::error::{IndexError, Result};
 use crate::types::{
     ArtifactDescriptor, ArtifactKind, DependencyConstraint, PackageMetadata, normalize_py_name,
 };
 use crate::wheel::{RuntimeInfo, parse_wheel_filename};
-
-const DEFAULT_BASE_URL: &str = "https://pypi.org/pypi";
-const DEFAULT_TTL: Duration = Duration::from_secs(60 * 60 * 24);
-
-pub struct Index {
-    pub(crate) cache: MetadataCache,
-    pub(crate) client: reqwest::Client,
-    base_url: String,
-    pub(crate) npm_registry: String,
-}
-
-impl Index {
-    pub fn new(cache_root: impl AsRef<Path>) -> Self {
-        Self {
-            cache: MetadataCache::new(cache_root),
-            client: reqwest::Client::new(),
-            base_url: DEFAULT_BASE_URL.to_string(),
-            npm_registry: crate::npm::DEFAULT_NPM_REGISTRY.to_string(),
-        }
-    }
-
-    pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
-        self.base_url = url.into();
-        self
-    }
-
-    pub fn with_npm_registry(mut self, url: impl Into<String>) -> Self {
-        self.npm_registry = url.into();
-        self
-    }
-
-    /// All released versions of a package (the `/pypi/{name}/json` listing),
-    /// cached under a reserved pseudo-version key.
-    pub async fn versions(&self, name: &str) -> Result<Vec<String>> {
-        const VERSIONS_KEY: &str = "__versions__";
-        if let Some(bytes) = self
-            .cache
-            .read_with_ttl("python", name, VERSIONS_KEY, DEFAULT_TTL)?
-        {
-            let value: Value = serde_json::from_slice(&bytes)?;
-            return parse_pypi_versions(&value);
-        }
-        let url = format!("{}/{}/json", self.base_url, normalize_py_name(name));
-        let response = self.client.get(url).send().await?.error_for_status()?;
-        let bytes = response.bytes().await?;
-        let value: Value = serde_json::from_slice(&bytes)?;
-        self.cache.write("python", name, VERSIONS_KEY, &bytes)?;
-        parse_pypi_versions(&value)
-    }
-
-    pub async fn metadata(
-        &self,
-        name: &str,
-        version: &str,
-        runtime: &RuntimeInfo,
-    ) -> Result<PackageMetadata> {
-        if let Some(bytes) = self
-            .cache
-            .read_with_ttl("python", name, version, DEFAULT_TTL)?
-        {
-            let value: Value = serde_json::from_slice(&bytes)?;
-            return parse_pypi_response(&value, runtime);
-        }
-        let url = format!(
-            "{}/{}/{version}/json",
-            self.base_url,
-            normalize_py_name(name)
-        );
-        let response = self.client.get(url).send().await?.error_for_status()?;
-        let bytes = response.bytes().await?;
-        let value: Value = serde_json::from_slice(&bytes)?;
-        self.cache.write("python", name, version, &bytes)?;
-        parse_pypi_response(&value, runtime)
-    }
-}
+use crate::{IndexError, Result};
 
 /// Parse a PyPI `/pypi/{name}/{version}/json` response into metadata whose
 /// dependency list is already filtered to `runtime` via PEP 508 markers.
@@ -253,22 +173,4 @@ pub fn python_requires_matches(spec: &str, runtime: &RuntimeInfo) -> bool {
         return true;
     };
     specs.contains(&version)
-}
-
-impl Index {
-    /// Newest non-prerelease version of a python package, or None when the
-    /// registry knows nothing. pep440 ordering decides "newest".
-    pub async fn latest_stable_python(&self, name: &str) -> Result<Option<String>> {
-        let versions = self.versions(name).await?;
-        Ok(versions
-            .into_iter()
-            .filter(|v| !v.contains('-') && !v.contains('*'))
-            .filter_map(|v| {
-                pep440_rs::Version::from_str(&v)
-                    .ok()
-                    .map(|parsed| (parsed, v))
-            })
-            .max_by(|(a, _), (b, _)| a.cmp(b))
-            .map(|(_, v)| v))
-    }
 }

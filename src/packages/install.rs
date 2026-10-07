@@ -10,7 +10,8 @@ use eyre::{Context, ContextCompat, bail};
 use tokio::runtime::Handle;
 use tokio::task::block_in_place;
 
-use mise_index::pypi::{Index, python_requires_matches};
+use mise_index::Index;
+use mise_index::pypi::python_requires_matches;
 use mise_index::{ArtifactKind, RuntimeInfo, wheel_matches};
 use mise_resolver::{DependencyRequest, MetadataSource, ResolvedGraph};
 use mise_store::{Digest, Eco, PackageIdentity, Platform, RuntimeId, Store};
@@ -255,10 +256,10 @@ pub async fn install_packages(
     lock.write(&lock_path)?;
     // go/maven: storage-layer absorption (design doc §六); go.mod and pom.xml
     // remain the declarations, mise takes over where artifacts live
-    if super::go::install_go_modules(&locs.project_root, locs)? {
+    if super::system::install_go_modules(&locs.project_root, locs)? {
         downloaded += 1;
     }
-    if super::maven::install_maven_dependencies(&locs.project_root, locs)? {
+    if super::system::install_maven_dependencies(&locs.project_root, locs)? {
         downloaded += 1;
     }
     maybe_auto_gc(&locs.store_root);

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use sha2::Digest as Sha2Digest;
 use sha2::{Sha256, Sha512};
 
-use crate::error::StoreError;
+use crate::StoreError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

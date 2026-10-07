@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use crate::error::Result;
+use crate::Result;
 
 pub struct MetadataCache {
     root: PathBuf,

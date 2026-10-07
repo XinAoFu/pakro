@@ -3,52 +3,11 @@
 //! `/{name}` (all versions); tarball digests are SRI integrity strings
 //! (`sha512-<base64>`), converted here to `sha512-<hex>` digest strings.
 
-use std::str::FromStr;
-use std::time::Duration;
-
 use base64::Engine;
 use serde_json::Value;
 
-use crate::error::{IndexError, Result};
 use crate::types::{ArtifactDescriptor, ArtifactKind, DependencyConstraint, PackageMetadata};
-use crate::wheel::RuntimeInfo;
-
-pub const DEFAULT_NPM_REGISTRY: &str = "https://registry.npmjs.org";
-const TTL: Duration = Duration::from_secs(60 * 60 * 24);
-const VERSIONS_KEY: &str = "__versions__";
-
-impl crate::Index {
-    pub async fn npm_metadata(
-        &self,
-        name: &str,
-        version: &str,
-        _runtime: &RuntimeInfo,
-    ) -> Result<PackageMetadata> {
-        if let Some(bytes) = self.cache.read_with_ttl("node", name, version, TTL)? {
-            let value: Value = serde_json::from_slice(&bytes)?;
-            return parse_npm_version_metadata(&value);
-        }
-        let url = format!("{npm}/{name}/{version}", npm = self.npm_registry);
-        let response = self.client.get(url).send().await?.error_for_status()?;
-        let bytes = response.bytes().await?;
-        let value: Value = serde_json::from_slice(&bytes)?;
-        self.cache.write("node", name, version, &bytes)?;
-        parse_npm_version_metadata(&value)
-    }
-
-    pub async fn npm_versions(&self, name: &str) -> Result<Vec<String>> {
-        if let Some(bytes) = self.cache.read_with_ttl("node", name, VERSIONS_KEY, TTL)? {
-            let value: Value = serde_json::from_slice(&bytes)?;
-            return parse_npm_versions(&value);
-        }
-        let url = format!("{npm}/{name}", npm = self.npm_registry);
-        let response = self.client.get(url).send().await?.error_for_status()?;
-        let bytes = response.bytes().await?;
-        let value: Value = serde_json::from_slice(&bytes)?;
-        self.cache.write("node", name, VERSIONS_KEY, &bytes)?;
-        parse_npm_versions(&value)
-    }
-}
+use crate::{IndexError, Result};
 
 /// Parses a single-version registry document. The SRI integrity in `dist` is
 /// mandatory: a tarball we cannot digest-verify is not installable.
@@ -150,22 +109,4 @@ fn hex_of(bytes: &[u8]) -> String {
         let _ = write!(out, "{byte:02x}");
     }
     out
-}
-
-impl crate::Index {
-    /// Newest non-prerelease version of an npm package, or None. semver
-    /// ordering decides "newest".
-    pub async fn latest_stable_npm(&self, name: &str) -> Result<Option<String>> {
-        let versions = self.npm_versions(name).await?;
-        Ok(versions
-            .into_iter()
-            .filter(|v| !v.split('+').next().unwrap_or_default().contains('-'))
-            .filter_map(|v| {
-                node_semver::Version::from_str(&v)
-                    .ok()
-                    .map(|parsed| (parsed, v))
-            })
-            .max_by(|(a, _), (b, _)| a.cmp(b))
-            .map(|(_, v)| v))
-    }
 }

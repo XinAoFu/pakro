@@ -613,7 +613,7 @@ crates/mise-resolver/tests/differential/  差分测试 harness(uv 存在才跑)
 - e2e/packages/bare_and_bin_slow.sh（裸名装包、.bin/tsc）；e2e/packages/project_commands.sh（init/attach/ls/status，非 slow）
 - 提交 `test(packages): e2e bare names, bin links and project commands`
 
-### Task 9: 收口 ✅(完成)
+### Task 9: 收口 ✅(完成) ✅(完成)
 
 - `mise run render`（usage/completions/docs 快照）+ 全量验证（四 crate 测试/clippy/lint 真实退出码）+ ARCHITECTURE 更新 + log/HANDOFF
 
@@ -656,40 +656,40 @@ crates/mise-resolver/tests/differential/  差分测试 harness(uv 存在才跑)
 
 ### Task 1 ✅: 本计划落档
 
-### Task 2: PEP 517 源码构建
+### Task 2: PEP 517 源码构建 ✅(完成)
 
 - 当无兼容 wheel 时回退 sdist：`pip wheel --no-deps --wheel-dir <tmp>` 用 mise 安装的 python → 产物 wheel 进 store
 - 安全默认：仅在无预编译替代时触发 + 显示警告"building from source"
 - Files: src/packages/install.rs（select_artifact 回退 + build_from_source fn）
 - 提交 `feat(packages): build python sdists when no wheel matches`
 
-### Task 3: node-gyp 原生模块
+### Task 3: node-gyp 原生模块 ✅(完成)
 
 - npm 包含 binding.gyp 时：物化后执行 `node-gyp rebuild`（用 mise 安装的 node）
 - Files: src/packages/materialize_node.rs（post-materialize hook）
 - 提交 `feat(packages): build node native modules after materialization`
 
-### Task 4: 范围约束可选层 + mise upgrade
+### Task 4: 范围约束可选层 ✅(完成) + mise upgrade
 
 - 组键非精确（`[packages."python@3.10"]` 无 patch）→ 允许；解析时锁定具体版本写锁
 - `mise upgrade`：丢弃锁偏好 → 重新求解 → 更新锁
 - Files: packages/mod.rs（组键宽松解析）、cli/upgrade.rs、install.rs（upgrade flag）
 - 提交 `feat(packages): optional range constraints and mise upgrade`
 
-### Task 5: 锁文件统一
+### Task 5: 锁文件统一 ✅(完成)
 
 - 边车 mise.packages.lock 内容迁入 mise.lock 的 [package] 表；读双源（先主后边车）；写主
 - ADR-0006 记录
 - Files: lockfile.rs、packages/lockfile.rs
 - 提交 `feat(lockfile): unify package graph into mise.lock`
 
-### Task 6: mise store ls
+### Task 6: mise store ls ✅(完成)
 
 - 生态分组 + 大小 + 引用项目
 - Files: cli/store.rs [新] 或 project.rs 扩展
 - 提交 `feat(store): human-readable store listing`
 
-### Task 7: crate publish 兼容
+### Task 7: crate publish 兼容 ✅(完成)
 
 - 三个新 crate 去 publish=false；主 crate path 依赖 version 兼容
 - 提交 `chore: make new crates publishable`
@@ -701,6 +701,6 @@ crates/mise-resolver/tests/differential/  差分测试 harness(uv 存在才跑)
 - hook-env 包图校验开销测量
 - 提交 `docs(packages): usage guide`
 
-### Task 9: 收口
+### Task 9: 收口 ✅(完成)
 
 - 全量验证（四 crate + e2e 全家 + lint + clippy）+ ARCHITECTURE/SPEC 终稿 + log/HANDOFF

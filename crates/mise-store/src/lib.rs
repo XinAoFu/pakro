@@ -5,16 +5,36 @@
 //! the store lays entries out under that identity so two projects requesting the
 //! same artifact share one directory.
 
-pub mod error;
-pub mod fs;
-pub mod identity;
-pub mod path;
-pub mod refcount;
-pub mod store;
+mod identity;
+mod store;
 
-pub use error::{Result, StoreError};
 pub use identity::{Arch, Digest, Eco, Libc, Os, PackageIdentity, Platform, RuntimeId};
-pub use refcount::{GcReport, Refs, gc};
-pub use store::Store;
+pub use store::{GcReport, Refs, Store, entry_dir, gc, hardlink_tree};
 
-pub use fs::hardlink_tree;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum StoreError {
+    #[error("unknown ecosystem: {0}")]
+    UnknownEco(String),
+    #[error("invalid identity: {0}")]
+    InvalidIdentity(String),
+    #[error("invalid digest: {0}")]
+    InvalidDigest(String),
+    #[error("digest mismatch for {identity}: expected sha256-{expected}, got sha256-{actual}")]
+    DigestMismatch {
+        identity: String,
+        expected: String,
+        actual: String,
+    },
+    #[error("unsupported archive format (expected zip or gzip magic bytes)")]
+    InvalidArchive,
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Zip(#[from] zip::result::ZipError),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+}
+
+pub type Result<T> = std::result::Result<T, StoreError>;
