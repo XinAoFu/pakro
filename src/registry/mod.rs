@@ -1368,7 +1368,7 @@ backends = [
     #[test]
     fn registry_min_version_schema_matches_semver_identifiers() {
         let schema: serde_json::Value =
-            serde_json::from_str(include_str!("../schema/mise-registry-tool.json")).unwrap();
+            serde_json::from_str(include_str!("../../schema/mise-registry-tool.json")).unwrap();
         let properties = &schema["properties"]["backends"]["items"]["oneOf"][1]["properties"];
         assert_eq!(
             properties["max_version"]["pattern"],

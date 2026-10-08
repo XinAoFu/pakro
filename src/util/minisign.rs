@@ -4,7 +4,7 @@ use std::iter::Iterator;
 use std::sync::LazyLock;
 
 pub static MISE_PUB_KEY: LazyLock<String> = LazyLock::new(|| {
-    include_str!("../minisign.pub")
+    include_str!("../../minisign.pub")
         .to_string()
         .lines()
         .last()

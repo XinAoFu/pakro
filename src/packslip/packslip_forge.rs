@@ -334,7 +334,7 @@ mod tests {
 
     /// jdx/hk's v2.3.0 packslip as its release workflow published it. Its
     /// certificate records repository ID 922514152.
-    const HK: &str = include_str!("../test/fixtures/packslip-forge/hk-v2.3.0.sigstore.json");
+    const HK: &str = include_str!("../../test/fixtures/packslip-forge/hk-v2.3.0.sigstore.json");
     const HK_SIGNER: &str = "sigstore-oidc:https://github.com/jdx/hk/.github/workflows/release.yml";
     const JDX_ID: &str = "216188";
 

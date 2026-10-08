@@ -1,6 +1,12 @@
 //! mise's core: config, toolsets, backends, tasks and everything else the
 //! command line is built on. The `mise` binary (`src/main.rs` and `src/cli/`)
 //! is the only intended consumer; this is not a stable public API.
+//!
+//! The module tree below is the single table of contents: root keeps only the
+//! entry points (`main.rs`, `lib.rs`, `frontend.rs`); implementations live in
+//! thematic directories. Files whose declarations carry `#[path]` moved there
+//! without changing their `crate::…` paths, and one-line re-export shims of
+//! `mise-util` are absorbed as `use` items.
 
 #![allow(unknown_lints)]
 #![deny(unreachable_pub)]
@@ -9,6 +15,7 @@ use crate::config::SettingsExt;
 
 #[cfg(test)]
 #[macro_use]
+#[path = "util/test.rs"]
 mod test;
 
 #[cfg(test)]
@@ -17,116 +24,170 @@ mod lockfile_rollout;
 #[path = "../build/registry_url.rs"]
 mod registry_url;
 
+// Macro modules are declared at the crate root so `#[macro_use]` exposes
+// their macros crate-wide; their files live in `util/`.
+
 #[macro_use]
+#[path = "util/output.rs"]
 pub mod output;
 
 #[macro_use]
+#[path = "util/hint.rs"]
 pub mod hint;
 
 #[macro_use]
+#[path = "util/timings.rs"]
 pub mod timings;
 
-pub mod otel;
-
 #[macro_use]
+#[path = "util/cmd.rs"]
 pub mod cmd;
-mod inline_command;
+
+// Modules that are thin re-exports of `mise-util`: importing the module keeps
+// every `crate::x::…` path working without one file per alias.
+
+pub(crate) use mise_util::{
+    deps_graph, gpg, inline_command, packslip_requirements, rand, redactions, remote_source,
+    sysconfig, timeout,
+};
+pub use mise_util::{
+    dirs, duration, exit, forgejo, fuzzy, github, github_relay, gitlab, http, jobs, lock_file,
+    packslip_pins, parallel, path, platform, sandbox, semver, tokens, wildcard, windows_console,
+    windows_posix,
+};
+
+pub mod result {
+    pub type Result<T> = eyre::Result<T>;
+}
+
+pub use crate::result::Result;
+pub use mise_util::exit::request as request_exit;
+
+// Environment and shell-hook machinery (`environment/`): env var helpers, the
+// hook-env protocol, env diffing, watch files, direnv, uv venv integration.
+
+#[path = "environment/direnv.rs"]
+pub mod direnv;
+#[path = "environment/env.rs"]
+pub mod env;
+#[path = "environment/env_diff.rs"]
+pub mod env_diff;
+#[path = "environment/hook_env.rs"]
+pub mod hook_env;
+#[path = "environment/hooks.rs"]
+pub mod hooks;
+#[path = "environment/path_env.rs"]
+pub mod path_env;
+#[path = "environment/uv.rs"]
+mod uv;
+#[path = "environment/watch_files.rs"]
+pub mod watch_files;
+
+// Tool installation machinery (`toolinstall/`): backend install context,
+// pre-install orchestration, system package fallbacks, runtime symlinks.
+
+#[path = "toolinstall/install_before.rs"]
+pub mod install_before;
+#[path = "toolinstall/install_context.rs"]
+pub mod install_context;
+#[path = "toolinstall/runtime_symlinks.rs"]
+pub mod runtime_symlinks;
+#[cfg(unix)]
+#[path = "toolinstall/system_install.rs"]
+pub mod system_install;
+#[path = "toolinstall/tool_purgatory.rs"]
+pub mod tool_purgatory;
+#[path = "toolinstall/tool_stub.rs"]
+pub mod tool_stub;
+
+// Shims (`shims/`): the shim layer itself plus the fake-asdf compatibility
+// shims (platform-swapped like the rest of mise's Windows modules).
+
+#[cfg_attr(not(windows), path = "shims/fake_asdf.rs")]
+#[cfg_attr(windows, path = "shims/fake_asdf_windows.rs")]
+mod fake_asdf;
+pub mod shims;
+
+// Tool discovery (`registry/`): the baked registry, shorthands, the searchable
+// tool catalog, and the versions host.
+
+pub mod registry;
+#[path = "registry/shorthands.rs"]
+mod shorthands;
+#[path = "registry/tool_catalog.rs"]
+pub mod tool_catalog;
+#[path = "registry/versions_host.rs"]
+mod versions_host;
+
+// Signed release manifests (`packslip/`).
+
+pub mod packslip;
+#[path = "packslip/packslip_forge.rs"]
+mod packslip_forge;
+#[path = "packslip/packslip_stamps.rs"]
+mod packslip_stamps;
+
+// General utilities (`util/`): small helpers shared across the crate.
+
+#[path = "util/build_time.rs"]
+pub mod build_time;
+#[path = "util/cache.rs"]
+pub mod cache;
+#[path = "util/errors.rs"]
+pub mod errors;
+#[path = "util/file.rs"]
+pub mod file;
+#[path = "util/git.rs"]
+pub mod git;
+#[path = "util/hash.rs"]
+pub mod hash;
+#[path = "util/logger.rs"]
+pub mod logger;
+#[path = "util/maplit.rs"]
+pub(crate) mod maplit;
+#[path = "util/migrate.rs"]
+pub mod migrate;
+#[path = "util/minisign.rs"]
+pub mod minisign;
+#[path = "util/sops.rs"]
+mod sops;
+#[path = "util/tera.rs"]
+pub mod tera;
+#[doc(hidden)]
+#[path = "util/testing.rs"]
+pub mod testing;
+#[path = "util/toml.rs"]
+pub mod toml;
+#[path = "util/upgrade_hint.rs"]
+pub mod upgrade_hint;
+#[path = "util/version.rs"]
+pub mod version;
+#[cfg(windows)]
+#[path = "util/windows_job.rs"]
+mod windows_job;
+
+// Subsystem directories keep their own `mod.rs` / entry files, and
+// `frontend.rs` stays at the root as the seam between core and `cli`.
 
 pub mod agecrypt;
 pub mod aqua;
 pub mod args;
 pub mod backend;
-pub mod build_time;
-pub mod cache;
 pub mod config;
 pub mod daemons;
 pub mod deps;
-pub(crate) mod deps_graph;
-pub mod direnv;
-pub mod dirs;
-pub mod duration;
-pub mod env;
-pub mod env_diff;
-pub mod errors;
-pub mod exit;
-#[cfg_attr(windows, path = "fake_asdf_windows.rs")]
-mod fake_asdf;
-pub mod file;
-pub mod forgejo;
 pub mod frontend;
-pub mod fuzzy;
-pub mod git;
-pub mod github;
-pub mod github_relay;
-pub mod gitlab;
-mod gpg;
-pub mod hash;
-pub mod hook_env;
-pub mod hooks;
-pub mod http;
-pub mod install_before;
-pub mod install_context;
 pub mod install_layout;
-pub mod jobs;
-pub mod lock_file;
 pub mod lockfile;
-pub mod logger;
-pub(crate) mod maplit;
-pub mod migrate;
-pub mod minisign;
 pub mod oci;
+pub mod otel;
 pub mod packages;
-pub mod packslip;
-mod packslip_forge;
-pub mod packslip_pins;
-mod packslip_requirements;
-mod packslip_stamps;
-pub mod parallel;
-pub mod path;
-pub mod path_env;
-pub mod platform;
 pub mod plugins;
-mod rand;
-mod redactions;
-pub mod registry;
-mod remote_source;
-pub(crate) mod result;
-pub mod runtime_symlinks;
-pub mod sandbox;
-pub mod semver;
 pub mod shell;
-pub mod shims;
-mod shorthands;
-mod sops;
-mod sysconfig;
 pub mod system;
-#[cfg(unix)]
-pub mod system_install;
 pub mod task;
-pub mod tera;
-#[doc(hidden)]
-pub mod testing;
-pub(crate) mod timeout;
-pub mod tokens;
-pub mod toml;
-pub mod tool_catalog;
-pub mod tool_purgatory;
-pub mod tool_stub;
 pub mod toolset;
 pub mod ui;
-pub mod upgrade_hint;
-mod uv;
-pub mod version;
-mod versions_host;
-pub mod watch_files;
-pub mod wildcard;
-pub mod windows_console;
-#[cfg(windows)]
-mod windows_job;
-pub mod windows_posix;
-
-pub use crate::exit::request as request_exit;
-pub use crate::result::Result;
 
 /// Register what mise's lower crates need from mise itself (its settings loader,
 /// build identity, version and config-layer lookups) before anything uses them.
