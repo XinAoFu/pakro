@@ -14,7 +14,7 @@ use super::PackageInstallRequest;
 /// python groups only (node materializes `node_modules/` instead), present
 /// on disk, ordered by group key so the PATH is deterministic. Returns
 /// `(group_key, bin_dir)` pairs; the key names the owning runtime group.
-pub fn venv_bin_dirs_for(
+pub(crate) fn venv_bin_dirs_for(
     project_root: Option<&Path>,
     requests: &[PackageInstallRequest],
 ) -> Vec<(String, PathBuf)> {

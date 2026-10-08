@@ -752,20 +752,6 @@ impl PythonPlugin {
         }
     }
 
-    // fn check_venv_python(&self, virtualenv: &Path, tv: &ToolVersion) -> eyre::Result<()> {
-    //     let symlink = virtualenv.join("bin/python");
-    //     let target = python_path(tv);
-    //     let symlink_target = symlink.read_link().unwrap_or_default();
-    //     ensure!(
-    //         symlink_target == target,
-    //         "expected venv {} to point to {}.\nTry deleting the venv at {}.",
-    //         display_path(&symlink),
-    //         display_path(&target),
-    //         display_path(virtualenv)
-    //     );
-    //     Ok(())
-    // }
-
     async fn test_python(
         &self,
         config: &Arc<Config>,

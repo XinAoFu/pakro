@@ -6,11 +6,14 @@ pub(crate) mod lockfile;
 pub(crate) mod materialize;
 pub(crate) mod materialize_node;
 pub mod request;
-pub mod system;
+pub(crate) mod system;
 pub(crate) mod venv;
 
+// the surface the rest of mise consumes: CLI arg rewriting (cli/mod.rs),
+// bare-name binding (cli/install.rs), config tables (config/), env injection
+// (toolset/). The request/venv internals stay reachable through their modules.
 pub use request::{
-    CLI_PACKAGE_ARGS, InstallArg, PackageInstallRequest, extract_bound_package_args,
-    parse_install_arg, requests_from_bound, requests_from_config, split_bare_packages,
+    CLI_PACKAGE_ARGS, PackageInstallRequest, extract_bound_package_args, requests_from_config,
+    split_bare_packages,
 };
-pub use venv::{venv_bin_dirs, venv_bin_dirs_for};
+pub use venv::venv_bin_dirs;

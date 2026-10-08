@@ -150,13 +150,13 @@ pub async fn install_packages(
             ) {
                 Some(a) => a,
                 None if runtime_name == "python" => {
+                    let interpreter_home =
+                        dirs::INSTALLS.join(&runtime_name).join(&runtime_version);
                     let built = build_sdist_to_wheel(
                         &metadata,
                         &node.name,
                         &node.version,
-                        &runtime_name,
-                        &runtime_version,
-                        &runtime,
+                        &interpreter_home,
                     )
                     .await
                     .with_context(|| {
@@ -452,14 +452,11 @@ struct BuiltArtifact {
 /// package's build backend — the same code `pip install` would run, with
 /// the same security implications; it only triggers when no prebuilt wheel
 /// matches the platform.
-#[allow(clippy::too_many_arguments)]
 async fn build_sdist_to_wheel(
     metadata: &mise_index::PackageMetadata,
     name: &str,
     version: &str,
-    runtime_name: &str,
-    runtime_version: &str,
-    _runtime: &RuntimeInfo,
+    interpreter_home: &Path,
 ) -> eyre::Result<BuiltArtifact> {
     let sdist = metadata
         .artifacts
@@ -469,12 +466,9 @@ async fn build_sdist_to_wheel(
     warn!(
         "no prebuilt wheel for {name} {version}; building from source (this runs the package's build code)"
     );
-    let interpreter = dirs::INSTALLS
-        .join(runtime_name)
-        .join(runtime_version)
-        .join("bin/python3");
+    let interpreter = interpreter_home.join("bin/python3");
     if !interpreter.exists() {
-        bail!("runtime {runtime_name}@{runtime_version} not installed");
+        bail!("interpreter {} is not installed", interpreter.display());
     }
     let sdist_bytes = http::HTTP
         .get_bytes(sdist.url.as_str())
