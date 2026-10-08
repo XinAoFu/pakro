@@ -13,7 +13,7 @@ export NPM_CONFIG_FUND=false
 cat >mise.toml <<'EOF'
 [tools]
 node = "latest"
-"npm:prettier" = "3.1.0"
+"cargo:ripgrep" = "14.1.0"
 
 [env]
 NODE_VERSION = { value = "{{ tools.node.version }}", tools = true }

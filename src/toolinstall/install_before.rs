@@ -188,9 +188,7 @@ fn default_minimum_release_age_applies(backend_arg: &BackendArg) -> bool {
             | BackendType::Github
             | BackendType::Gitlab
             | BackendType::Go
-            | BackendType::Npm
             | BackendType::Packslip
-            | BackendType::Pipx
             | BackendType::Spm
             | BackendType::Ubi
     )
@@ -205,12 +203,11 @@ fn is_minimum_release_age_excluded(backend_arg: &BackendArg) -> bool {
     let mut full = None;
     let mut backend_wildcard = None;
     excludes.iter().any(|exclude| {
-        let exclude = crate::backend::canonical_backend_full(exclude.trim());
-        let exclude = exclude.as_ref();
+        let exclude = exclude.trim();
         if exclude.is_empty() {
             return false;
         }
-        if exclude == crate::backend::canonical_backend_full(&backend_arg.short) {
+        if exclude == backend_arg.short {
             return true;
         }
         let full = full.get_or_insert_with(|| {
@@ -218,10 +215,9 @@ fn is_minimum_release_age_excluded(backend_arg: &BackendArg) -> bool {
                 let name = split_bracketed_opts(&backend_arg.short)
                     .map(|(name, _)| name)
                     .unwrap_or(&backend_arg.short);
-                crate::backend::canonical_backend_full(name).into_owned()
+                name.to_string()
             } else {
-                crate::backend::canonical_backend_full(&backend_arg.full_without_opts())
-                    .into_owned()
+                backend_arg.full_without_opts()
             }
         });
         if exclude == full {
@@ -403,22 +399,9 @@ mod tests {
         let _settings = crate::test::SettingsGuard::lock();
         let mut partial = SettingsPartial::empty();
         partial.minimum_release_age = Some("2024-01-03".to_string());
-        partial.minimum_release_age_excludes = Some(vec!["npm:prettier".to_string()]);
+        partial.minimum_release_age_excludes = Some(vec!["cargo:ripgrep".to_string()]);
         Settings::reset(Some(partial));
-        assert_eq!(resolved_tool_timestamp("npm:prettier", None, None), None);
-    }
-
-    #[test]
-    fn test_pypi_release_age_exclusions_accept_both_backend_names() {
-        let _settings = crate::test::SettingsGuard::lock();
-        for exclude in ["pipx:*", "pypi:*", "pipx:black", "pypi:black"] {
-            let mut partial = SettingsPartial::empty();
-            partial.minimum_release_age = Some("2024-01-03".to_string());
-            partial.minimum_release_age_excludes = Some(vec![exclude.to_owned()]);
-            Settings::reset(Some(partial));
-            assert_eq!(resolved_tool_timestamp("pypi:black", None, None), None);
-            assert_eq!(resolved_tool_timestamp("pipx:black", None, None), None);
-        }
+        assert_eq!(resolved_tool_timestamp("cargo:ripgrep", None, None), None);
     }
 
     #[test]
@@ -426,10 +409,10 @@ mod tests {
         let _settings = crate::test::SettingsGuard::lock();
         let mut partial = SettingsPartial::empty();
         partial.minimum_release_age = Some("2024-01-03".to_string());
-        partial.minimum_release_age_excludes = Some(vec!["npm".to_string()]);
+        partial.minimum_release_age_excludes = Some(vec!["cargo".to_string()]);
         Settings::reset(Some(partial));
         assert_eq!(
-            resolved_tool_timestamp("npm:prettier", None, None),
+            resolved_tool_timestamp("cargo:ripgrep", None, None),
             Some(crate::duration::parse_into_timestamp("2024-01-03").unwrap())
         );
     }
@@ -439,9 +422,9 @@ mod tests {
         let _settings = crate::test::SettingsGuard::lock();
         let mut partial = SettingsPartial::empty();
         partial.minimum_release_age = Some("2024-01-03".to_string());
-        partial.minimum_release_age_excludes = Some(vec!["npm:*".to_string()]);
+        partial.minimum_release_age_excludes = Some(vec!["cargo:*".to_string()]);
         Settings::reset(Some(partial));
-        assert_eq!(resolved_tool_timestamp("npm:prettier", None, None), None);
+        assert_eq!(resolved_tool_timestamp("cargo:ripgrep", None, None), None);
     }
 
     #[test]
@@ -449,10 +432,10 @@ mod tests {
         let _settings = crate::test::SettingsGuard::lock();
         let mut partial = SettingsPartial::empty();
         partial.minimum_release_age = Some("2024-01-03".to_string());
-        partial.minimum_release_age_excludes = Some(vec!["prettier".to_string()]);
+        partial.minimum_release_age_excludes = Some(vec!["ripgrep".to_string()]);
         Settings::reset(Some(partial));
         assert_eq!(
-            resolved_tool_timestamp("npm:prettier", None, None),
+            resolved_tool_timestamp("cargo:ripgrep", None, None),
             Some(crate::duration::parse_into_timestamp("2024-01-03").unwrap())
         );
     }
@@ -462,10 +445,10 @@ mod tests {
         let _settings = crate::test::SettingsGuard::lock();
         let mut partial = SettingsPartial::empty();
         partial.minimum_release_age = Some("2024-01-03".to_string());
-        partial.minimum_release_age_excludes = Some(vec!["npm".to_string()]);
+        partial.minimum_release_age_excludes = Some(vec!["cargo".to_string()]);
         Settings::reset(Some(partial));
         assert_eq!(
-            resolved_tool_timestamp("npm:prettier", None, Some("2024-01-02")),
+            resolved_tool_timestamp("cargo:ripgrep", None, Some("2024-01-02")),
             Some(crate::duration::parse_into_timestamp("2024-01-02").unwrap())
         );
     }
@@ -482,7 +465,7 @@ mod tests {
         let _settings = crate::test::SettingsGuard::lock();
         Settings::reset(None);
         assert_eq!(
-            resolved_tool_timestamp("npm:prettier", None, None),
+            resolved_tool_timestamp("cargo:ripgrep", None, None),
             Some(crate::duration::parse_into_timestamp(DEFAULT_MINIMUM_RELEASE_AGE).unwrap())
         );
     }
@@ -508,7 +491,7 @@ mod tests {
     fn test_before_date_source_distinguishes_default_from_explicit() {
         let _settings = crate::test::SettingsGuard::lock();
         Settings::reset(None);
-        let ba: BackendArg = "npm:prettier".into();
+        let ba: BackendArg = "cargo:ripgrep".into();
 
         // Built-in default → Default source
         let (_, source) = resolve_before_date_for_tool_with_source(&ba, None, None)
@@ -545,7 +528,7 @@ mod tests {
     fn test_minimum_release_age_label_only_names_the_value_that_produced_the_cutoff() {
         let _settings = crate::test::SettingsGuard::lock();
         Settings::reset(None);
-        let ba: BackendArg = "npm:prettier".into();
+        let ba: BackendArg = "cargo:ripgrep".into();
 
         // The built-in default resolves to the cutoff it produced, so it is
         // safe to name in an error message.
@@ -580,7 +563,7 @@ mod tests {
     fn test_effective_minimum_release_age_for_tool_reports_raw_value() {
         let _settings = crate::test::SettingsGuard::lock();
         Settings::reset(None);
-        let ba: BackendArg = "npm:prettier".into();
+        let ba: BackendArg = "cargo:ripgrep".into();
 
         // Built-in default
         assert_eq!(

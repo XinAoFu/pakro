@@ -594,6 +594,21 @@ pub(crate) async fn search_tools(query: &str, limit: usize) -> Result<Vec<vfox::
 }
 
 #[cfg(test)]
+pub(crate) fn test_backend(tool: &str, installs_path: Option<std::path::PathBuf>) -> CargoBackend {
+    let mut ba = BackendArg::new_raw(
+        format!("cargo:{tool}"),
+        Some(tool.to_string()),
+        tool.to_string(),
+        None,
+        crate::args::BackendResolution::new(true),
+    );
+    if let Some(installs_path) = installs_path {
+        ba.set_installs_path(installs_path);
+    }
+    CargoBackend::from_arg(ba)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::platform::Platform;

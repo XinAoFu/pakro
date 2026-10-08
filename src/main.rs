@@ -63,13 +63,7 @@ fn main() -> ExitCode {
     if let Some(code) = mise_util::cmd::ctrl_c_group::try_run() {
         mise::exit::exit_with_windows_status(code as u32);
     }
-    // Embedded aube lifecycle shims re-exec this binary with private commands
-    // (notably `__node-gyp-bootstrap`). Hand those to aube before mise's
-    // naked-run rewrite / clap parser can claim them.
     let early_args = env::args_safe();
-    if let Some(code) = backend::aube_host::try_run_embedded_cli(&early_args) {
-        return exit::status(code);
-    }
     if cli::Cli::exit_early_for_unchanged_hook_env(&early_args) {
         return ExitCode::SUCCESS;
     }

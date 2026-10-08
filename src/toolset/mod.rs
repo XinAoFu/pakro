@@ -974,8 +974,7 @@ pub async fn get_versions_needed_by_tracked_configs_excluding_locks(
                                 .backend
                                 .clone()
                                 .unwrap_or_else(|| BackendArg::from(short).full_without_opts());
-                            let backend_name =
-                                backend::canonical_backend_full(&backend_name).into_owned();
+
                             let pinned = tool
                                 .platforms
                                 .get(&crate::platform::Platform::current().to_key())

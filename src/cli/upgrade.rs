@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::args::{BackendArg, ToolArg};
-use crate::backend::pipx::PIPXBackend;
 use crate::config::{Config, Settings, SettingsExt, config_file};
 use crate::errors::split_install_result;
 use crate::file::display_path;
@@ -999,18 +998,6 @@ impl Upgrade {
             crate::lockfile::LockfileUpdateMode::AllowLocked,
         )
         .await?;
-
-        if successful_versions.iter().any(|v| v.short() == "python") {
-            PIPXBackend::reinstall_all(
-                config,
-                opts.locked,
-                opts.resolve_options.use_locked_version,
-            )
-                .await
-                .unwrap_or_else(|err| {
-                    warn!("failed to reinstall pipx tools: {err}");
-                });
-        }
 
             Ok(())
         }

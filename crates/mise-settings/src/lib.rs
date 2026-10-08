@@ -92,30 +92,6 @@ pub enum SettingsStatusMissingTools {
 )]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
-pub enum NpmPackageManager {
-    #[default]
-    Auto,
-    Npm,
-    Aube,
-    AubeCli,
-    Bun,
-    Pnpm,
-}
-
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    Serialize,
-    Deserialize,
-    Default,
-    strum::EnumString,
-    strum::Display,
-    PartialEq,
-    Eq,
-)]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
 pub enum SystemDepsMode {
     /// prompt to install missing plugin system dependencies (falls back to `warn` non-interactively)
     #[default]

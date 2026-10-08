@@ -2,7 +2,7 @@
 
 # Test that user-specified `depends` field in tool options controls install ordering.
 # Uses the `needs-dummy` plugin whose install script checks that dummy is already
-# installed on disk — simulating a real runtime dependency like pipx:ruff needing python.
+# installed on disk — simulating a real runtime dependency like a CLI tool needing python.
 
 # With depends, needs-dummy waits for dummy even though it is listed first.
 cat <<EOF >mise.toml

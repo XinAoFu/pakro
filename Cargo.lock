@@ -6497,7 +6497,6 @@ dependencies = [
  "async-backtrace",
  "async-trait",
  "aube",
- "aube-registry",
  "aws-config",
  "aws-lc-rs",
  "aws-sdk-s3",

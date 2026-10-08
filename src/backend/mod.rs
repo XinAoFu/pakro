@@ -32,7 +32,6 @@ use crate::registry::{
     REGISTRY, RegistryIdiomaticFile, full_to_url, normalize_remote, tool_enabled,
 };
 use crate::runtime_symlinks::is_runtime_symlink;
-use crate::semver::semver_triplet;
 use crate::tera::{contains_template_syntax, get_tera, render_str};
 use crate::toolset::outdated_info::OutdatedInfo;
 use crate::toolset::{
@@ -59,7 +58,6 @@ use self::options::VersionOrder;
 pub(crate) mod aqua;
 pub(crate) mod asdf;
 pub mod asset_matcher;
-pub mod aube_host;
 pub mod backend_type;
 pub(crate) mod cargo;
 pub(crate) mod conda;
@@ -70,11 +68,8 @@ pub(crate) mod github;
 pub(crate) mod go;
 pub(crate) mod http;
 pub(crate) mod jq;
-pub(crate) mod npm;
-pub(crate) mod npm_registry;
 pub(crate) mod options;
 pub mod packslip;
-pub mod pipx;
 pub mod platform_target;
 mod platform_tokens;
 pub(crate) mod s3;
@@ -147,7 +142,7 @@ pub(crate) fn backend_arg_is_preferred_registry_backend(ba: &BackendArg) -> bool
 ///
 /// Only a subset of backends benefit from the versions host cache — those
 /// whose upstream listing is rate-limited (github API) or not otherwise
-/// available. Package-registry backends (npm, pipx, cargo, gem, go, conda,
+/// available. Package-registry backends (cargo, gem, go, conda,
 /// dotnet, spm) and http/s3 with an explicit version_list_url already have
 /// canonical, always-fresh sources, so the cache would only add latency and
 /// staleness risk. Note: this asymmetrically overrides
@@ -168,74 +163,6 @@ fn versions_host_applies(backend_type: &BackendType, listing_opts: &ToolVersionO
         BackendType::Http | BackendType::S3 => !listing_opts.contains_key("version_list_url"),
         _ => false,
     }
-}
-
-pub(crate) fn toolset_semver_version(ts: &Toolset, tool: &str) -> Option<String> {
-    let tvl = ts
-        .versions
-        .iter()
-        .find(|(ba, _)| ba.short == tool)
-        .map(|(_, tvl)| tvl)?;
-
-    if let Some(version) = tvl.versions.iter().find_map(|tv| {
-        let version = tv.version.trim().trim_start_matches(['v', 'V']);
-        semver_triplet(version)?;
-        Some(version.to_string())
-    }) {
-        return Some(version);
-    }
-
-    tvl.requests.iter().find_map(|tr| {
-        let version = tr.version();
-        let version = version.trim().trim_start_matches(['v', 'V']);
-        semver_triplet(version)?;
-        Some(version.to_string())
-    })
-}
-
-pub(crate) async fn semver_version_from_toolsets_or_path(
-    backend: &dyn Backend,
-    config: &Arc<Config>,
-    ts: &Toolset,
-    tool: &str,
-) -> Option<String> {
-    if let Some(version) = toolset_semver_version(ts, tool) {
-        return Some(version);
-    }
-    if let Ok(ts) = backend.dependency_toolset(config).await
-        && let Some(version) = toolset_semver_version(&ts, tool)
-    {
-        return Some(version);
-    }
-    semver_version_from_path(backend, config, ts, tool).await
-}
-
-/// `ts` is threaded through only so the probe can resolve `tool` the same way the install
-/// spawns it — a bare name would be looked up by `Command::new`, which on Windows appends
-/// only `.exe` and so misses the `.cmd` shim the install itself would have used.
-async fn semver_version_from_path(
-    backend: &dyn Backend,
-    config: &Arc<Config>,
-    ts: &Toolset,
-    tool: &str,
-) -> Option<String> {
-    let env = backend.dependency_env(config).await.ok()?;
-    let program = backend.spawn_program(config, Some(ts), tool).await;
-    let output = cmd!(program, "--version").full_env(env).read().ok()?;
-    parse_cli_version_output(&output)
-}
-
-pub(crate) fn parse_cli_version_output(output: &str) -> Option<String> {
-    let line = output.lines().next()?;
-    let version = line.trim().trim_start_matches(['v', 'V']);
-    if semver_triplet(version).is_some() {
-        return Some(version.to_string());
-    }
-    line.split_whitespace().find_map(|version| {
-        let version = version.trim().trim_start_matches(['v', 'V']);
-        semver_triplet(version)?;
-        Some(version.to_string())
-    })
 }
 
 const VERSIONS_HOST_LOCAL_OPT_SOURCES: &[ToolOptionSource] = &[
@@ -620,9 +547,6 @@ pub(crate) fn remove(short: &str) {
 }
 
 pub fn is_disabled_backend_type(backend_type: &BackendType) -> bool {
-    if *backend_type == BackendType::Pipx {
-        return is_disabled_backend_name("pypi") || is_disabled_backend_name("pipx");
-    }
     backend_type
         .disable_key()
         .is_some_and(is_disabled_backend_name)
@@ -665,9 +589,7 @@ pub fn arg_to_backend(ba: BackendArg) -> Option<ABackend> {
         BackendType::Github => Some(Arc::new(github::UnifiedGitBackend::from_arg(ba))),
         BackendType::Gitlab => Some(Arc::new(github::UnifiedGitBackend::from_arg(ba))),
         BackendType::Go => Some(Arc::new(go::GoBackend::from_arg(ba))),
-        BackendType::Npm => Some(Arc::new(npm::NPMBackend::from_arg(ba))),
         BackendType::Packslip => Some(Arc::new(packslip::PackslipBackend::from_arg(ba))),
-        BackendType::Pipx => Some(Arc::new(pipx::PIPXBackend::from_arg(ba))),
         BackendType::Spinel => Some(Arc::new(spinel::SpinelBackend::from_arg(ba))),
         BackendType::Spm => Some(Arc::new(spm::SPMBackend::from_arg(ba))),
         BackendType::Http => Some(Arc::new(http::HttpBackend::from_arg(ba))),
@@ -697,9 +619,7 @@ pub(crate) fn install_time_option_keys_for_type(backend_type: &BackendType) -> V
         BackendType::Ubi => ubi::install_time_option_keys(),
         BackendType::Cargo => cargo::install_time_option_keys(),
         BackendType::Go => go::install_time_option_keys(),
-        BackendType::Npm => npm::install_time_option_keys(),
         BackendType::Packslip => packslip::install_time_option_keys(),
-        BackendType::Pipx => pipx::install_time_option_keys(),
         BackendType::Aqua => aqua::install_time_option_keys(),
         BackendType::Spinel => spinel::install_time_option_keys(),
         BackendType::Spm => spm::install_time_option_keys(),
@@ -877,7 +797,7 @@ where
 ///
 /// Non-pristine to match that function, which is what [`Backend::dependency_which`] uses.
 /// The "a mise-managed tool beats a system one" contract that
-/// `e2e/backend/test_pipx_direct_dependencies` asserts comes from consulting the toolset
+/// comes from consulting the toolset
 /// first in [`Backend::spawnable_dependency`], not from the PATH flavor, so it is kept.
 ///
 /// mise's shim directories are skipped on Windows. A shim re-enters mise, and once a
@@ -934,7 +854,7 @@ pub(crate) async fn configured_toolset_or_path_which(
 mod tests {
     use super::*;
     use crate::args::{BackendArg, BackendResolution};
-    use crate::toolset::{ToolRequest, ToolSource, ToolVersionList};
+    use crate::toolset::{ToolRequest, ToolSource};
     use regex::Regex;
     use std::fs;
     use std::sync::Arc;
@@ -949,20 +869,6 @@ mod tests {
         // An entry `get` resolved after load_tools may carry command-scoped
         // options, so it is left alone.
         assert!(!installed_replaces(&seeded, "mytool"));
-    }
-
-    fn create_test_backend_arg(tool: &str) -> Arc<BackendArg> {
-        Arc::new(BackendArg::new_raw(
-            tool.to_string(),
-            None,
-            tool.to_string(),
-            None,
-            BackendResolution::new(true),
-        ))
-    }
-
-    fn create_test_tool_request(ba: Arc<BackendArg>, version: &str) -> ToolRequest {
-        ToolRequest::new(ba, version, ToolSource::Argument).unwrap()
     }
 
     #[test]
@@ -1039,16 +945,16 @@ mod tests {
         // never see an uppercase extension through this path however the file is named on a
         // case-insensitive filesystem. See
         // `is_spawnable_rejects_interpreter_only_extensions_case_insensitively`.
-        for name in ["pipx.ps1", "pipx.vbs"] {
+        for name in ["tool.ps1", "tool.vbs"] {
             let dir = tempfile::tempdir().unwrap();
             fs::write(dir.path().join(name), "exit 42\n").unwrap();
             let dirs = || vec![dir.path().to_path_buf()];
             assert!(
-                which_in_dirs(dirs(), "pipx", false).is_some(),
+                which_in_dirs(dirs(), "tool", false).is_some(),
                 "{name} must still satisfy the permissive predicate"
             );
             assert_eq!(
-                which_in_dirs(dirs(), "pipx", true),
+                which_in_dirs(dirs(), "tool", true),
                 None,
                 "{name} cannot be spawned directly"
             );
@@ -1243,86 +1149,6 @@ mod tests {
             parse_registry_idiomatic_file(Path::new("does-not-need-to-exist"), &spec).unwrap(),
             None
         );
-    }
-
-    #[test]
-    fn test_toolset_semver_version_prefers_resolved_version() {
-        let ba = create_test_backend_arg("bun");
-        let request = create_test_tool_request(ba.clone(), "1.2.0");
-        let mut tvl = ToolVersionList::new(ba.clone(), ToolSource::Argument);
-        tvl.requests.push(request.clone());
-        tvl.versions
-            .push(ToolVersion::new(request, "1.3.0".to_string()));
-
-        let mut ts = Toolset::default();
-        ts.versions.insert(ba, tvl);
-
-        assert_eq!(
-            toolset_semver_version(&ts, "bun"),
-            Some("1.3.0".to_string())
-        );
-    }
-
-    #[test]
-    fn test_toolset_semver_version_uses_exact_request() {
-        let ba = create_test_backend_arg("pnpm");
-        let request = create_test_tool_request(ba.clone(), "10.15.0");
-        let mut tvl = ToolVersionList::new(ba.clone(), ToolSource::Argument);
-        tvl.requests.push(request);
-
-        let mut ts = Toolset::default();
-        ts.versions.insert(ba, tvl);
-
-        assert_eq!(
-            toolset_semver_version(&ts, "pnpm"),
-            Some("10.15.0".to_string())
-        );
-    }
-
-    #[test]
-    fn test_toolset_semver_version_ignores_unresolved_request() {
-        let ba = create_test_backend_arg("pnpm");
-        let request = create_test_tool_request(ba.clone(), "10");
-        let mut tvl = ToolVersionList::new(ba.clone(), ToolSource::Argument);
-        tvl.requests.push(request);
-
-        let mut ts = Toolset::default();
-        ts.versions.insert(ba, tvl);
-
-        assert_eq!(toolset_semver_version(&ts, "pnpm"), None);
-    }
-
-    #[test]
-    fn test_toolset_semver_version_normalizes_v_prefix() {
-        let ba = create_test_backend_arg("pnpm");
-        let request = create_test_tool_request(ba.clone(), "v10.15.0");
-        let mut tvl = ToolVersionList::new(ba.clone(), ToolSource::Argument);
-        tvl.requests.push(request);
-
-        let mut ts = Toolset::default();
-        ts.versions.insert(ba, tvl);
-
-        assert_eq!(
-            toolset_semver_version(&ts, "pnpm"),
-            Some("10.15.0".to_string())
-        );
-    }
-
-    #[test]
-    fn test_parse_cli_version_output() {
-        assert_eq!(
-            parse_cli_version_output("10.15.0\n"),
-            Some("10.15.0".to_string())
-        );
-        assert_eq!(
-            parse_cli_version_output("v1.3.0"),
-            Some("1.3.0".to_string())
-        );
-        assert_eq!(
-            parse_cli_version_output("uv 0.2.22"),
-            Some("0.2.22".to_string())
-        );
-        assert_eq!(parse_cli_version_output("not-a-version"), None);
     }
 
     #[test]
@@ -2968,12 +2794,6 @@ pub trait Backend: Debug + Send + Sync {
         match tv.request {
             ToolRequest::System { .. } => true,
             _ => {
-                // Embedded-aube lock graphs are part of the physical install
-                // identity. A version-only request path must never satisfy a
-                // graph-locked request for the same top-level version.
-                if tv.aube_lock.is_some() || tv.uv_lock.is_some() {
-                    return check_path(&tv.install_path(), check_symlink);
-                }
                 // The identity layout resolves the exact installation for this
                 // request. The request's version slot is a compatibility link that
                 // can point at only one variant, so it is not consulted.
@@ -3835,23 +3655,7 @@ pub trait Backend: Debug + Send + Sync {
         {
             warn_once!("{} is deprecated: {reason}", rt.short);
         }
-        let graph_install_is_current = !ctx.locked
-            && !ctx.force
-            && (tv.uv_lock.is_some() || tv.aube_lock.is_some())
-            && self
-                .is_install_satisfied_or_false(&ctx.config, &tv, true)
-                .await;
-        let mut tv = if graph_install_is_current {
-            if let Some(graph) = &tv.uv_lock {
-                graph.warn_if_missing();
-            }
-            if let Some(graph) = &tv.aube_lock {
-                graph.warn_if_missing();
-            }
-            tv
-        } else {
-            self.prepare_install_version(&ctx, tv).await?
-        };
+        let mut tv = self.prepare_install_version(&ctx, tv).await?;
         // Toolset installs preflight these options before doing any work, but
         // direct callers such as `install-into` must be protected here too.
         tv.request.ensure_safe_install_options()?;
@@ -6707,13 +6511,6 @@ fn fuzzy_version_matches(query: &str, version: &str) -> bool {
 pub(crate) fn tool_directory_name(short: &str) -> String {
     use heck::ToKebabCase;
     short.to_kebab_case()
-}
-
-pub(crate) fn canonical_backend_full(backend: &str) -> std::borrow::Cow<'_, str> {
-    match backend.strip_prefix("pipx:") {
-        Some(name) => format!("pypi:{name}").into(),
-        None => backend.into(),
-    }
 }
 
 pub fn unalias_backend(backend: &str) -> std::borrow::Cow<'_, str> {

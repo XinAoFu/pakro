@@ -4,7 +4,7 @@ use futures_util::{StreamExt, future, stream};
 use itertools::Itertools;
 
 use crate::backend::backend_type::BackendType;
-use crate::backend::{cargo, dotnet, gem, npm_registry};
+use crate::backend::{cargo, dotnet, gem};
 use crate::cache::CacheManagerBuilder;
 use crate::config::{Settings, SettingsExt};
 use crate::plugins::PluginType;
@@ -15,12 +15,8 @@ use crate::{dirs, timeout};
 
 const BACKEND_CATALOG_CONCURRENCY: usize = 8;
 /// Built-in backends whose package registry has a search API.
-const PACKAGE_REGISTRY_BACKENDS: &[BackendType] = &[
-    BackendType::Cargo,
-    BackendType::Dotnet,
-    BackendType::Gem,
-    BackendType::Npm,
-];
+const PACKAGE_REGISTRY_BACKENDS: &[BackendType] =
+    &[BackendType::Cargo, BackendType::Dotnet, BackendType::Gem];
 const SEARCH_LIMIT: usize = 20;
 /// Per-registry limit when one search fans out to every registry, so a single
 /// registry cannot fill the table.
@@ -141,7 +137,7 @@ pub async fn search(query: &str) -> Vec<ToolCatalogEntry> {
 }
 
 /// Searches built-in backends' package registries. A `backend:query` search,
-/// e.g. `npm:prettier`, searches that backend's registry. An unprefixed query
+/// e.g. `cargo:ripgrep`, searches that backend's registry. An unprefixed query
 /// searches every registry when `all` is set and none otherwise, so plain
 /// searches and shell completion never query package registries.
 pub async fn search_package_registry(query: &str, all: bool) -> Vec<ToolCatalogEntry> {
@@ -183,7 +179,6 @@ async fn search_backend_registry(
     }
     // Results depend on which registry is configured, not just the query
     let registry = match backend_type {
-        BackendType::Npm => npm_registry::search_registry(query),
         BackendType::Dotnet => settings.dotnet.registry_url.clone(),
         _ => String::new(),
     };
@@ -204,7 +199,6 @@ async fn search_backend_registry(
                         BackendType::Cargo => cargo::search_tools(query, SEARCH_LIMIT).await,
                         BackendType::Dotnet => dotnet::search_tools(query, SEARCH_LIMIT).await,
                         BackendType::Gem => gem::search_tools(query, SEARCH_LIMIT).await,
-                        BackendType::Npm => npm_registry::search_tools(query, SEARCH_LIMIT).await,
                         _ => Ok(vec![]),
                     }
                 },

@@ -52,12 +52,10 @@ pub(super) fn unset(key: &str, local: bool) -> Result<()> {
 }
 
 fn remove_from_file(mut key: &str, path: &std::path::Path) -> Result<Option<String>> {
-    key = super::canonical_setting(key);
     let raw = file::read_to_string(path)?;
     let mut config: DocumentMut = raw.parse()?;
     if let Some(settings) = config["settings"].as_table_like_mut() {
-        let removed_legacy = super::remove_legacy_pypi_setting(settings, key);
-        if removed_legacy && let Some((parent, leaf)) = key.split_once('.') {
+        if let Some((parent, leaf)) = key.split_once('.') {
             if let Some(preferred) = settings
                 .get_mut(parent)
                 .and_then(toml_edit::Item::as_table_like_mut)

@@ -1837,19 +1837,6 @@ url = "https://example.com/tool-{{ version }}.tar.gz"
     // Read from `BAKED_REGISTRY` for the same reason the `os` test above does: the claim is about
     // `registry/pre-commit.toml` in this commit, and `REGISTRY` substitutes a cached floating
     // registry whenever `registry_floating` is on and the cache exists.
-    #[cfg(windows)]
-    #[test]
-    fn pre_commit_falls_through_to_pipx_on_windows() {
-        use super::*;
-
-        assert!(env::var("MISE_BACKENDS_PRE_COMMIT").is_err());
-        let backends = BAKED_REGISTRY.get("pre-commit").unwrap().backends();
-        assert_eq!(
-            backends.first().copied(),
-            Some("pypi:pre-commit"),
-            "{backends:?}"
-        );
-    }
 
     // Not `not(windows)`: mise runs on Android too, where `backend_matches_platform` sees `android`
     // and drops the aqua backend along with Windows, so this expectation would be wrong there.

@@ -297,7 +297,7 @@ impl Builder {
         // installed at all.
         let owner_str = format!("{}:{}", owner.uid, owner.gid);
         let plugins = build_plugin_layers(&self.cfg, &versions, &mount_point, owner).await?;
-        let python_relocations: Vec<PythonRelocation> = versions
+        let _python_relocations: Vec<PythonRelocation> = versions
             .iter()
             .filter(|(backend, _)| is_python_backend(backend.as_ref()))
             .map(|(_, tv)| PythonRelocation {
@@ -322,7 +322,7 @@ impl Builder {
                         version: tv.version.clone(),
                         prefix: tool_tar_prefix(&mount_point, tv),
                         owner: owner_str.clone(),
-                        relocation: tool_layer_relocation_key(tv, &python_relocations),
+                        relocation: tool_layer_relocation_key(tv),
                         plugin: plugin.clone(),
                     })
                     .cloned()
@@ -385,7 +385,7 @@ impl Builder {
         let mut tool_layers: Vec<ToolLayerEntry> = Vec::new();
         for (i, (_, tv)) in versions.iter().enumerate() {
             let tv_prefix = tool_tar_prefix(&mount_point, tv);
-            let relocation_key = tool_layer_relocation_key(tv, &python_relocations);
+            let relocation_key = tool_layer_relocation_key(tv);
             let layer = if let Some(reused) = &tool_reuse[i] {
                 info!(
                     "oci: reusing {} layer from the cache image (unchanged)",
@@ -398,28 +398,11 @@ impl Builder {
                 // publication so a same-version reinstall cannot poison a key.
                 let _install_lock = lock_tool_install(tv)?;
                 require_tool_install(tv)?;
-                let is_pipx = tv.ba().backend_type() == BackendType::Pipx;
-                // Only pipx layers are expected to link into another tool's
-                // install. Other backends get their own mapping for shebang
-                // relocation without making their reuse key depend on the
-                // complete toolset.
-                let mut paths = vec![(
+                let paths = vec![(
                     tv.install_path(),
                     PathBuf::from(tool_in_image_path(&mount_point, tv)),
                 )];
-                if is_pipx {
-                    paths.extend(
-                        python_relocations
-                            .iter()
-                            .map(|python| (python.host.clone(), python.image.clone())),
-                    );
-                }
-                let pythons = if is_pipx {
-                    python_relocations.clone()
-                } else {
-                    Vec::new()
-                };
-                let relocation = layer::ToolRelocation::new(paths).with_pythons(pythons);
+                let relocation = layer::ToolRelocation::new(paths);
                 let blob = if self.opts.no_cache {
                     layer::build_relocated_tool_layer_from_dir(
                         &tv.install_path(),
@@ -1492,36 +1475,12 @@ fn tool_tar_prefix(mount_point: &str, tv: &ToolVersion) -> String {
         .to_string()
 }
 
-fn tool_layer_relocation_key(tv: &ToolVersion, pythons: &[PythonRelocation]) -> String {
-    if tv.ba().backend_type() == BackendType::Pipx {
-        format!(
-            "{TOOL_LAYER_RELOCATION_VERSION}:python={}",
-            python_relocation_fingerprint(pythons)
-        )
-    } else {
-        TOOL_LAYER_RELOCATION_VERSION.to_string()
-    }
+fn tool_layer_relocation_key(_tv: &ToolVersion) -> String {
+    TOOL_LAYER_RELOCATION_VERSION.to_string()
 }
 
 fn is_python_backend(backend: &dyn crate::backend::Backend) -> bool {
     backend.get_type() == BackendType::Core && backend.tool_name() == "python"
-}
-
-fn python_relocation_fingerprint(pythons: &[PythonRelocation]) -> String {
-    let mut pythons = pythons.to_vec();
-    pythons.sort_by(|a, b| (&a.version, &a.host, &a.image).cmp(&(&b.version, &b.host, &b.image)));
-    let mut hash = Sha256::new();
-    for python in pythons {
-        for input in [
-            python.version,
-            python.host.to_string_lossy().into_owned(),
-            python.image.to_string_lossy().into_owned(),
-        ] {
-            hash.update((input.len() as u64).to_le_bytes());
-            hash.update(input.as_bytes());
-        }
-    }
-    layer::hex_encode(&hash.finalize())
 }
 
 fn synthesize_embedded_config_toml(
@@ -1933,91 +1892,6 @@ mod tests {
         let alias = crate::args::BackendArg::new("py".to_string(), Some("core:python".to_string()));
         let backend = crate::backend::arg_to_backend(alias).unwrap();
         assert!(is_python_backend(backend.as_ref()));
-    }
-
-    #[test]
-    fn python_relocation_fingerprint_covers_exact_inputs_and_not_order() {
-        let python_313 = PythonRelocation {
-            version: "3.13.9".into(),
-            host: "/host/python/3.13.9".into(),
-            image: "/mise/installs/python/3.13.9".into(),
-        };
-        let python_314 = PythonRelocation {
-            version: "3.14.3".into(),
-            host: "/host/python/3.14.3".into(),
-            image: "/mise/installs/python/3.14.3".into(),
-        };
-        let fingerprint = python_relocation_fingerprint(&[python_313.clone(), python_314.clone()]);
-        assert_eq!(
-            fingerprint,
-            python_relocation_fingerprint(&[python_314.clone(), python_313.clone()])
-        );
-        assert_ne!(fingerprint, python_relocation_fingerprint(&[python_314]));
-
-        let python_313_fingerprint =
-            python_relocation_fingerprint(std::slice::from_ref(&python_313));
-        let mut changed_target = python_313;
-        changed_target.image = "/opt/python/3.13.9".into();
-        assert_ne!(
-            python_313_fingerprint,
-            python_relocation_fingerprint(&[changed_target])
-        );
-    }
-
-    #[test]
-    fn reuse_index_keys_on_all_relocation_annotations() {
-        let full = [
-            (ANNOTATION_TOOL_SHORT, "jq"),
-            (ANNOTATION_TOOL_VERSION, "1.8.1"),
-            (ANNOTATION_LAYER_PREFIX, "mise/installs/jq/1.8.1"),
-            (ANNOTATION_LAYER_OWNER, "0:0"),
-            (ANNOTATION_LAYER_RELOCATION, TOOL_LAYER_RELOCATION_VERSION),
-        ];
-        // Second layer lacks prefix/owner/relocation (pushed by an older mise) —
-        // not reusable.
-        let partial = [
-            (ANNOTATION_TOOL_SHORT, "node"),
-            (ANNOTATION_TOOL_VERSION, "20.0.0"),
-        ];
-        let remote = registry::RemoteImage {
-            manifest: ImageManifest {
-                schema_version: 2,
-                media_type: manifest::MEDIA_TYPE_OCI_MANIFEST.to_string(),
-                config: layer(&[], "sha256:cfg"),
-                layers: vec![layer(&full, "sha256:aaa"), layer(&partial, "sha256:bbb")],
-                annotations: Default::default(),
-            },
-            diff_ids: vec!["sha256:diff-a".into(), "sha256:diff-b".into()],
-            config: serde_json::json!({}),
-        };
-
-        let index = build_reuse_index(&remote);
-        assert_eq!(index.len(), 1);
-        let hit = index
-            .get(&ReuseKey {
-                short: "jq".into(),
-                version: "1.8.1".into(),
-                prefix: "mise/installs/jq/1.8.1".into(),
-                owner: "0:0".into(),
-                relocation: TOOL_LAYER_RELOCATION_VERSION.into(),
-                plugin: String::new(),
-            })
-            .unwrap();
-        assert_eq!(hit.digest, "sha256:aaa");
-        assert_eq!(hit.diff_id, "sha256:diff-a");
-        // Different owner -> miss.
-        assert!(
-            index
-                .get(&ReuseKey {
-                    short: "jq".into(),
-                    version: "1.8.1".into(),
-                    prefix: "mise/installs/jq/1.8.1".into(),
-                    owner: "1000:1000".into(),
-                    relocation: TOOL_LAYER_RELOCATION_VERSION.into(),
-                    plugin: String::new(),
-                })
-                .is_none()
-        );
     }
 
     #[test]

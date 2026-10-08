@@ -674,18 +674,6 @@ url = "https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-x64.zip"
 checksum = "sha256:158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721cef75de9e541"
 url = "https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-x64.zip"
 
-[[tools."npm:ajv-cli"]]
-version = "5.0.0"
-aube = { path = ".mise/locks/npm-ajv-cli/5.0.0", digest = "sha256:c6bd542579453b2939078812311b051a3ec4d71a86a6428b5b47e0386c7b6b84" }
-backend = "npm:ajv-cli"
-specifiers = ["latest"]
-
-[[tools."npm:markdownlint-cli"]]
-version = "0.49.1"
-aube = { path = ".mise/locks/npm-markdownlint-cli/0.49.1", digest = "sha256:51f2635d765ee2d15aa7286fd82fe042b4ffa2089b8732e2ee676e8545da1cdc" }
-backend = "npm:markdownlint-cli"
-specifiers = ["latest"]
-
 [[tools.prettier]]
 version = "3.9.9"
 aube = { path = ".mise/locks/prettier/3.9.9", digest = "sha256:815f6667505e41ac2d03ecbac86b79f1beb78d45783879428193c9adc80760a3" }

@@ -79,11 +79,9 @@ impl BackendProvider for MiseBackendProvider {
                 BackendType::Github => ("github", Some("Install from GitHub releases")),
                 BackendType::Gitlab => ("gitlab", Some("Install from GitLab releases")),
                 BackendType::Go => ("go", Some("Install Go modules")),
-                BackendType::Npm => ("npm", Some("Install npm packages globally")),
                 BackendType::Packslip => {
                     ("packslip", Some("Install from a vendor's signed packslip"))
                 }
-                BackendType::Pipx => ("pipx", Some("Install Python CLI tools")),
                 BackendType::Spinel => ("spinel", Some("Compile Ruby tools with Spinel")),
                 BackendType::Spm => ("spm", Some("Install Swift packages")),
                 BackendType::Http => ("http", Some("Download files from HTTP URLs")),

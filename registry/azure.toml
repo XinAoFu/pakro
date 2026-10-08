@@ -29,9 +29,3 @@ asset_pattern = "azure-cli-{{ version }}-x64.zip"
 # Everywhere else: PyPI. There is no Linux release asset, and the macOS tarball
 # does not bundle python — outside a Homebrew Cask path its launcher requires
 # AZ_PYTHON to be set.
-[[backends]]
-full = "pipx:azure-cli"
-
-[backends.options]
-dependency_prereleases = "allow"
-with = ["pip"]

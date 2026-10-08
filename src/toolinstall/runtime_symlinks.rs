@@ -527,7 +527,7 @@ mod tests {
     use std::fs;
 
     fn npm_test_backend() -> Arc<dyn Backend> {
-        Arc::new(crate::backend::npm::test_backend("happy", None, None))
+        Arc::new(crate::backend::cargo::test_backend("happy", None))
     }
 
     /// A backend whose name no other test shares. The incomplete marker lives
@@ -535,9 +535,8 @@ mod tests {
     /// a fixed name would leak one test's marker into another.
     fn unique_backend(temp_dir: &tempfile::TempDir) -> Arc<dyn Backend> {
         let suffix = temp_dir.path().file_name().unwrap().to_string_lossy();
-        Arc::new(crate::backend::npm::test_backend(
+        Arc::new(crate::backend::cargo::test_backend(
             &format!("happy{suffix}"),
-            None,
             None,
         ))
     }

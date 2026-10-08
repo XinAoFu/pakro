@@ -844,15 +844,7 @@ impl BackendArg {
         let short = unalias_backend(&self.short);
         let short = short.as_ref();
         let env_key = format!("MISE_BACKENDS_{}", short.to_shouty_snake_case());
-        env::var(&env_key).ok().or_else(|| {
-            short.strip_prefix("pypi:").and_then(|name| {
-                env::var(format!(
-                    "MISE_BACKENDS_PIPX_{}",
-                    name.to_shouty_snake_case()
-                ))
-                .ok()
-            })
-        })
+        env::var(&env_key).ok()
     }
 
     fn backend_alias_opts_from_loaded_config(&self) -> Option<ToolVersionOptions> {
@@ -1094,7 +1086,6 @@ mod tests {
         let asdf = |s, full, name| t(s, full, name, BackendType::Asdf);
         let cargo = |s, full, name| t(s, full, name, BackendType::Cargo);
         // let core = |s, full, name| t(s, full, name, BackendType::Core);
-        let npm = |s, full, name| t(s, full, name, BackendType::Npm);
         let vfox = |s, full, name| t(s, full, name, BackendType::Vfox);
 
         #[cfg(unix)]
@@ -1105,8 +1096,6 @@ mod tests {
         cargo("cargo:eza", "cargo:eza", "eza");
         t("dotnet-core", "core:dotnet", "dotnet", BackendType::Core);
         // core("node", "node", "node");
-        npm("npm:@antfu/ni", "npm:@antfu/ni", "@antfu/ni");
-        npm("npm:prettier", "npm:prettier", "prettier");
         vfox(
             "vfox:version-fox/vfox-nodejs",
             "vfox:version-fox/vfox-nodejs",
@@ -1132,7 +1121,6 @@ mod tests {
 
         let fa: BackendArg = "npm:npm".into();
         assert_str_eq!("npm:npm", fa.full());
-        assert_eq!(BackendType::Npm, fa.backend_type());
     }
 
     #[tokio::test]
@@ -1143,7 +1131,6 @@ mod tests {
         #[cfg(windows)]
         {
             assert_str_eq!("npm:npm", fa.full());
-            assert_eq!(BackendType::Npm, fa.backend_type());
         }
         #[cfg(not(windows))]
         {
@@ -1251,15 +1238,15 @@ mod tests {
     async fn test_parse_backend_opts_core_fields() {
         let _config = Config::get().await.unwrap();
         let ba: BackendArg =
-            "pipx:ruff[depends=python,os=linux,install_env.PIPX_HOME=/tmp/pipx,install_env.REMOVE=false]".into();
+            "cargo:ripgrep[depends=python,os=linux,install_env.CARGO_HOME=/tmp/cargo,install_env.REMOVE=false]".into();
         let opts = ba.opts();
 
         assert_eq!(opts.depends, Some(vec!["python".to_string()]));
         assert_eq!(opts.os, Some(vec!["linux".to_string()]));
         assert_eq!(
-            opts.install_env.get("PIPX_HOME"),
+            opts.install_env.get("CARGO_HOME"),
             Some(&crate::config::env_directive::EnvValue::String(
-                "/tmp/pipx".to_string()
+                "/tmp/cargo".to_string()
             ))
         );
         assert_eq!(
@@ -1268,12 +1255,12 @@ mod tests {
         );
         assert!(!opts.opts.contains_key("depends"));
         assert!(!opts.opts.contains_key("os"));
-        assert!(!opts.opts.contains_key("install_env.PIPX_HOME"));
+        assert!(!opts.opts.contains_key("install_env.CARGO_HOME"));
     }
 
     #[test]
     fn test_parse_backend_opts_rejects_invalid_core_fields() {
-        let err = "pipx:ruff[depends={ name = \"python\" }]"
+        let err = "cargo:ripgrep[depends={ name = \"python\" }]"
             .parse::<BackendArg>()
             .unwrap_err();
 
@@ -1331,19 +1318,4 @@ mod tests {
         assert_eq!(opts.get("bin"), Some("solc"));
         assert_eq!(opts.get("foo"), Some("resolved"));
     }
-}
-
-#[test]
-fn pypi_and_pipx_use_distinct_tool_identities() {
-    let preferred = BackendArg::from("pypi:black");
-    let legacy = BackendArg::from("pipx:black");
-    assert_ne!(preferred, legacy);
-    assert_eq!(preferred.short, "pypi:black");
-    assert_eq!(legacy.short, "pipx:black");
-    assert_eq!(preferred.full(), "pypi:black");
-    assert_eq!(legacy.full(), "pipx:black");
-    assert_ne!(preferred.installs_path, legacy.installs_path);
-    assert_eq!(preferred.tool_dir_name(), "pypi-black");
-    assert_eq!(BackendType::guess("pipx:black"), BackendType::Pipx);
-    assert_eq!(BackendType::guess("pypi:black"), BackendType::Pipx);
 }

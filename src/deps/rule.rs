@@ -23,7 +23,6 @@ pub(super) const BUILTIN_PROVIDERS: &[&str] = &[
     "yarn",
     "pnpm",
     "bun",           // Node.js
-    "aube",          // Node.js
     "deno",          // Deno
     "go",            // Go
     "pip",           // Python (requirements.txt)

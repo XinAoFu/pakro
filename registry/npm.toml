@@ -2,9 +2,7 @@ backends = [
   { full = "aqua:npm/cli", platforms = [
     "linux",
     "macos",
-  ] },
-  "npm:npm",
-]
+  ] }]
 description = "the package manager for JavaScript"
 idiomatic_files = ["package.json"]
 overrides = ["node"]

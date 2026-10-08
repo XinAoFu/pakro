@@ -78,10 +78,9 @@ fn lock_tool_matches(a: &LockTool, b: &LockTool) -> bool {
         && a.1.request.source() == b.1.request.source()
 }
 
-fn push_unique_lock_tool(tools: &mut Vec<LockTool>, mut tool: LockTool) {
+fn push_unique_lock_tool(tools: &mut Vec<LockTool>, tool: LockTool) {
     // Installed-version resolution can yield an install directory name such
     // as `3.9.6~aube~<digest>`; lock the npm/PyPI version it stands for.
-    tool.1.strip_install_path_identity();
     if !tools
         .iter()
         .any(|existing| lock_tool_matches(existing, &tool))
@@ -233,51 +232,10 @@ pub(crate) struct Lock {
     #[usage(long, verbatim_doc_comment)]
     pub upgrade: bool,
 
-    /// List native dependency sidecars instead of updating lockfiles
-    ///
-    /// Prints, for each existing lockfile in scope, the sidecar directory mise
-    /// keeps its native dependency graphs in and every sidecar directory the
-    /// lockfile references. Nothing is resolved, installed, or written.
-    /// Paths are relative to the current directory when they are inside it,
-    /// and absolute otherwise, such as the sidecars of a symlinked lockfile.
-    /// Combine with `--json` for machine-readable output, or with `--local`
-    /// and `--global` to choose the lockfiles.
-    #[usage(long, verbatim_doc_comment)]
-    pub sidecars: bool,
-
     /// Restrict the run to these lockfiles, for callers that relock the
     /// entries they rewrote (`mise backends switch`).
     #[usage(skip)]
     pub lockfiles: Option<BTreeSet<PathBuf>>,
-}
-
-/// A lockfile's sidecar directories, reported by `--sidecars`
-#[derive(serde::Serialize)]
-struct SidecarListing {
-    lockfile: String,
-    root: String,
-    sidecars: Vec<SidecarItem>,
-}
-
-#[derive(serde::Serialize)]
-struct SidecarItem {
-    tool: String,
-    version: String,
-    graph: &'static str,
-    path: String,
-    digest: String,
-    exists: bool,
-}
-
-/// Show a path relative to the current directory when it lies inside it.
-fn sidecar_display_path(path: &Path) -> String {
-    // Canonicalizing a symlinked lockfile yields `\\?\C:\…` on Windows.
-    let path = dunce::simplified(path);
-    let cwd = crate::env::current_dir().unwrap_or_default();
-    path.strip_prefix(&cwd)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .replace('\\', "/")
 }
 
 /// A lockfile version change reported by `--json`
@@ -495,7 +453,6 @@ impl Lock {
             local: false,
             minimum_release_age: None,
             upgrade: false,
-            sidecars: false,
             lockfiles: None,
         }
         .run_with_installed(Some(installed), config)
@@ -510,9 +467,6 @@ impl Lock {
         lockfile::suppress_outdated_lockfile_warning(&config);
         if self.upgrade && !self.tool.is_empty() {
             bail!("`mise lock --upgrade` cannot be combined with tool arguments");
-        }
-        if self.sidecars {
-            return self.list_sidecars(&config).await;
         }
         let settings = Settings::get();
         let generate = settings.generate_lockfiles();
@@ -663,7 +617,6 @@ impl Lock {
                             && actual.request.source() == tv.request.source()
                     }) {
                         *tv = actual.clone();
-                        tv.strip_install_path_identity();
                     }
                 }
                 if tools.is_empty() && !lockfile_path.exists() {
@@ -935,24 +888,6 @@ impl Lock {
             } else {
                 self.bind_requests(&mut lockfile, &tools, &target_platforms);
             }
-            Box::pin(lockfile::generate::populate_uv_locks(
-                &config,
-                &mut lockfile,
-                &tools,
-                self.bump,
-                installed.is_some(),
-            ))
-            .await?;
-            if !generate || self.bump || format_changed {
-                Box::pin(lockfile::generate::populate_aube_locks(
-                    &mut lockfile,
-                    &tools,
-                    None,
-                    self.bump,
-                ))
-                .await?;
-            }
-
             // Prune stale versions AFTER provenance checks complete
             if !generate {
                 self.prune_stale_versions(&mut lockfile, &tools)?;
@@ -1083,10 +1018,6 @@ impl Lock {
                 .iter()
                 .map(|staged| staged.lockfile.prepare_write(&staged.path))
                 .collect::<Result<Vec<_>>>()?;
-            let mut mutation_paths = mutation_paths;
-            for prepared in prepared_writes.iter().flatten() {
-                mutation_paths.extend(prepared.mutation_paths().cloned());
-            }
             // Read-only inputs need locks, but must never become rollback writes.
             let snapshots = mutation_paths
                 .iter()
@@ -1130,12 +1061,11 @@ impl Lock {
             // later disk-full failure cannot prevent restoration by requiring
             // more file data to be written.
             let rollbacks = prepare_lockfile_rollback(&snapshots)?;
-            let mut graph_cleanups = Vec::new();
             verify_generation_snapshots(config_snapshots.iter().chain(initial_lockfiles.iter()))?;
             let commit_result = (|| -> Result<()> {
                 crate::toolset::outdated_info::apply_config_bumps(&config, &deferred_config_bumps)?;
                 for prepared in prepared_writes.into_iter().flatten() {
-                    graph_cleanups.push(prepared.publish_deferred()?);
+                    prepared.publish_deferred()?;
                 }
                 lockfile::migrate_monorepo_lockfiles_already_locked(
                     &config,
@@ -1160,9 +1090,6 @@ impl Lock {
                 return Err(err);
             }
             drop(rollbacks);
-            for cleanup in graph_cleanups {
-                cleanup.prune()?;
-            }
             drop(transaction_locks);
 
             for staged in &staged_upgrade_writes {
@@ -1264,75 +1191,6 @@ impl Lock {
             }
         }
         changes
-    }
-
-    /// `--sidecars`: report the sidecar directories of each existing lockfile
-    /// without resolving tools or writing anything.
-    async fn list_sidecars(&self, config: &Arc<Config>) -> Result<()> {
-        if !self.tool.is_empty()
-            || self.dry_run
-            || self.bump
-            || self.upgrade
-            || !self.platform.is_empty()
-            || self.minimum_release_age.is_some()
-        {
-            bail!(
-                "`mise lock --sidecars` only lists sidecars; it cannot be combined with tool arguments, --dry-run, --bump, --upgrade, --platform, or --minimum-release-age"
-            );
-        }
-        let mut listings = vec![];
-        // Target the lockfiles a normal run would write. In a monorepo that
-        // includes lockfiles contributed only by sibling configs.
-        let monorepo_union = if !self.global && config.monorepo_lockfile_root().is_some() {
-            Some(config.monorepo_lockfile_union().await?)
-        } else {
-            None
-        };
-        let config_files = monorepo_union
-            .as_ref()
-            .map_or(&config.config_files, |union| &union.config_files);
-        let scoped = self.config_paths_in_lock_scope(config, config_files);
-        let targets = self.get_lockfile_targets(config, config_files, &scoped);
-        for lockfile_path in targets.keys() {
-            if !lockfile_path.exists() {
-                continue;
-            }
-            let sidecars = Lockfile::read(lockfile_path)?
-                .sidecar_refs()
-                .into_iter()
-                .map(|sidecar| SidecarItem {
-                    tool: sidecar.short,
-                    version: sidecar.version,
-                    graph: sidecar.graph,
-                    path: sidecar_display_path(&sidecar.dir),
-                    digest: sidecar.digest,
-                    exists: sidecar.exists,
-                })
-                .collect();
-            listings.push(SidecarListing {
-                lockfile: sidecar_display_path(lockfile_path),
-                root: sidecar_display_path(&lockfile::sidecar_dir_for(lockfile_path)?),
-                sidecars,
-            });
-        }
-        if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&listings)?);
-            return Ok(());
-        }
-        for listing in &listings {
-            miseprintln!("{} (sidecars in {})", listing.lockfile, listing.root);
-            for item in &listing.sidecars {
-                let missing = if item.exists { "" } else { " (missing)" };
-                miseprintln!(
-                    "  {}@{} {} {}{missing}",
-                    item.tool,
-                    item.version,
-                    item.graph,
-                    item.path
-                );
-            }
-        }
-        Ok(())
     }
 
     /// Get the before_date from the CLI --minimum-release-age flag only.
@@ -1479,42 +1337,6 @@ impl Lock {
                         && version == &entry.version
                         && entry.backend.as_deref().is_some_and(|b| b == backend)
                 })
-            });
-        }
-        if self.is_unfiltered_lock_run()
-            && lockfile
-                .tools()
-                .values()
-                .flatten()
-                .any(|entry| entry.uv.is_some() || entry.aube.is_some())
-        {
-            let variants = tools
-                .iter()
-                .map(|(ba, tv)| {
-                    Ok((
-                        ba.short.clone(),
-                        ba.stored_full(),
-                        tv.version.clone(),
-                        tv.backend()?.resolve_lockfile_options(
-                            &tv.request,
-                            &crate::backend::platform_target::PlatformTarget::from_current(),
-                        )?,
-                    ))
-                })
-                .collect::<Result<Vec<_>>>()?;
-            lockfile.retain_graph_entries(|short, entry| {
-                let mut matching = variants
-                    .iter()
-                    .filter(|(name, backend, version, _)| {
-                        name == short
-                            && version == &entry.version
-                            && entry.backend.as_deref().is_none_or(|b| b == backend)
-                    })
-                    .peekable();
-                // Keep backends unavailable on this host; only prune variants
-                // for a backend and version resolved by this invocation.
-                matching.peek().is_none()
-                    || matching.any(|(_, _, _, options)| options == &entry.options)
             });
         }
         Ok(())
@@ -2636,7 +2458,6 @@ mod tests {
             minimum_release_age: None,
             bump: false,
             upgrade: false,
-            sidecars: false,
             lockfiles: None,
             json: false,
         }

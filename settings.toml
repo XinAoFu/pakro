@@ -2209,63 +2209,6 @@ env = "MISE_NOT_FOUND_SYSTEM_FALLBACK"
 type = "Bool"
 
 
-[npm.bun]
-deprecated = "Use npm.package_manager instead."
-description = "Use bun instead of npm if bun is installed and on PATH."
-docs = """
-If true, mise will use `bun` instead of `npm` if
-[`bun`](https://bun.sh/) is installed and on PATH.
-This makes installing CLIs faster by using `bun` as the package manager.
-
-You can install it with mise:
-
-```sh
-mise use -g bun
-```
-"""
-env = "MISE_NPM_BUN"
-hide = true
-type = "Bool"
-
-[npm.package_manager]
-default = "auto"
-description = "Package manager to use for installing npm packages."
-docs = """
-Package manager to use for installing npm packages. The default, `auto`, uses
-mise's embedded `aube` package manager. Set this to `aube_cli` to invoke a
-standalone aube executable, or to `npm`, `bun`, or `pnpm` to invoke that
-package manager instead.
-"""
-enum = ["auto", "npm", "aube", "aube_cli", "bun", "pnpm"]
-env = "MISE_NPM_PACKAGE_MANAGER"
-rust_type = "NpmPackageManager"
-type = "String"
-
-[npm.shell_out]
-default = false
-description = "Shell out to the npm CLI for `npm:` version metadata and installs instead of mise's built-in aube-based implementation."
-docs = """
-By default, mise handles `npm:` tools without needing node/npm installed:
-version metadata (`mise ls-remote`, `latest` resolution) is queried directly
-from the npm registry over HTTP, and packages are installed with mise's
-embedded [aube](https://github.com/jdx/aube) package manager. Both honor the
-registry, scoped registries, and auth tokens configured in `~/.npmrc` and
-`NPM_CONFIG_*` environment variables.
-
-Enable this setting to shell out to the npm CLI instead — `npm view` for
-metadata and `npm install -g` for installs. Use it if your setup relies on
-npm-specific configuration the built-in implementation does not support (such
-as `cafile`, client certificates, or an auth token helper). When enabled, npm
-must be installed.
-
-This applies to the default/`auto` package manager. Explicitly selecting a
-package manager with [`npm.package_manager`](/configuration/settings.html#npm.package_manager) (`aube_cli`,
-`bun`, `pnpm`, or `npm`) always shells out to that tool regardless of this
-setting.
-"""
-env = "MISE_NPM_SHELL_OUT"
-type = "Bool"
-
 [oci.default_from]
 default = "debian:bookworm-slim"
 description = "Default base image for `mise oci build` when [oci].from is not set."
@@ -2489,41 +2432,6 @@ passing `--fuzzy` on the command line.
 env = "MISE_PIN"
 type = "Bool"
 
-[pipx.registry_url]
-description = "URL to use for pipx registry."
-docs = """
-URL to use for pipx registry.
-
-This is used to fetch the latest version of a package from the pypi registry.
-
-The default is `https://pypi.org/pypi/{}/json` which is the JSON endpoint for the pypi
-registry.
-
-You can also use the HTML endpoint by setting this to `https://pypi.org/simple/{}/`.
-"""
-env = "MISE_PIPX_REGISTRY_URL"
-hide = true
-optional = true
-type = "String"
-
-[pipx.uvx]
-default_docs = "true"
-description = "Use uvx instead of pipx if uv is installed and on PATH."
-docs = """
-If true, mise will use `uvx` instead of `pipx` if
-[`uv`](https://docs.astral.sh/uv/) is installed and on PATH.
-This makes installing CLIs _much_ faster by using `uv` as the package manager.
-
-You can install it with mise:
-
-```sh
-mise use -g uv
-```
-"""
-env = "MISE_PIPX_UVX"
-hide = true
-optional = true
-type = "Bool"
 
 [plugin_autoupdate_last_check_duration]
 default = "7d"
@@ -2585,18 +2493,6 @@ does not ignore checksum failures, provenance verification mismatches, or
 lockfiles that already require provenance for the tool being installed.
 """
 env = "MISE_PROVENANCE_API_FAILURES_FATAL"
-type = "Bool"
-
-[pypi.registry_url]
-description = "Package registry URL for Python tools (pipx.registry_url is a compatibility alias)."
-env = "MISE_PYPI_REGISTRY_URL"
-optional = true
-type = "String"
-
-[pypi.uvx]
-description = "Use uv for Python tools when available (pipx.uvx is a compatibility alias)."
-env = "MISE_PYPI_UVX"
-optional = true
 type = "Bool"
 
 [python.compile]

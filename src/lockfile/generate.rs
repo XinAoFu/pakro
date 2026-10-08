@@ -182,7 +182,7 @@ pub(crate) async fn prepare_install(config: &Arc<Config>, tv: &ToolVersion) -> R
     platforms.retain(|platform| platform.to_key() != Platform::current().to_key());
     // Reserve at most one background worker, leaving the remaining workers for installs.
     let _permit = PREPARE_SLOTS.acquire().await?;
-    let mut candidate = generate(
+    let _ = generate(
         &previous,
         &[(tv.ba().clone(), tv.clone())],
         &platforms,
@@ -191,14 +191,6 @@ pub(crate) async fn prepare_install(config: &Arc<Config>, tv: &ToolVersion) -> R
         1,
         &[],
     )
-    .await?;
-    Box::pin(populate_uv_locks(
-        config,
-        &mut candidate,
-        &[(tv.ba().clone(), tv.clone())],
-        false,
-        true,
-    ))
     .await?;
     Ok(())
 }
@@ -266,12 +258,6 @@ pub fn is_current(previous: &Lockfile, tools: &[Tool], platforms: &[Platform]) -
         let Some(entries) = previous.tools_for(&ba.short) else {
             return Ok(false);
         };
-        if entries.iter().any(|entry| {
-            matches!(entry.uv, Some(super::GraphRef::Inline { .. }))
-                || matches!(entry.aube, Some(super::GraphRef::Inline { .. }))
-        }) {
-            return Ok(false);
-        }
         let backend = tv.backend()?;
         let stored_backend = ba.stored_full();
         let specifier = tv.request.version();
@@ -294,19 +280,6 @@ pub fn is_current(previous: &Lockfile, tools: &[Tool], platforms: &[Platform]) -
                 } else {
                     entry.specifiers.is_empty()
                 };
-                // Native graphs are universal and have no per-platform artifact rows.
-                // Compare recorded identities only; hot auto-lock must stay lazy.
-                if entry.uv.is_some() || entry.aube.is_some() {
-                    if !bindings_current
-                        || !entry.platforms.is_empty()
-                        || entry.uv != tv.uv_lock
-                        || entry.aube != tv.aube_lock
-                    {
-                        return Ok(false);
-                    }
-                    covered.entry(index).or_default();
-                    continue;
-                }
                 let key = platform.to_key();
                 let Some(info) = entry.platforms.get(&key) else {
                     return Ok(false);
@@ -568,186 +541,10 @@ pub async fn generate(
             candidate.set_conda_package(&platform.to_key(), &key, value);
         }
     }
-    for (short, entries) in &mut candidate.tools {
-        for entry in entries.iter_mut().filter(|entry| entry.aube.is_none()) {
-            entry.aube = previous.tools_for(short).and_then(|previous_entries| {
-                previous_entries
-                    .iter()
-                    .find(|previous| {
-                        previous.version == entry.version
-                            && previous.backend == entry.backend
-                            && previous.options == entry.options
-                    })
-                    .and_then(|previous| previous.aube.clone())
-            });
-        }
-    }
-    for (short, entries) in &mut candidate.tools {
-        for entry in entries.iter_mut().filter(|entry| entry.uv.is_none()) {
-            entry.uv = previous
-                .tools_for(short)
-                .and_then(|entries| {
-                    entries.iter().find(|old| {
-                        old.version == entry.version
-                            && old.backend == entry.backend
-                            && old.options == entry.options
-                    })
-                })
-                .and_then(|old| old.uv.clone());
-        }
-    }
-    Box::pin(populate_aube_locks(
-        &mut candidate,
-        tools,
-        Some(report.as_ref()),
-        false,
-    ))
-    .await?;
     candidate.cleanup_unreferenced_conda_packages();
     report.finish_with_message(format!("{completed} targets checked"));
     progress.finished = true;
     Ok(candidate)
-}
-
-pub async fn populate_aube_locks(
-    lockfile: &mut Lockfile,
-    tools: &[Tool],
-    report: Option<&dyn crate::ui::progress_report::SingleReport>,
-    force: bool,
-) -> Result<()> {
-    if lockfile.lockfile_version() < 2 {
-        return Ok(());
-    }
-    if !crate::backend::npm::NPMBackend::uses_embedded_aube() {
-        for entry in lockfile.tools.values_mut().flatten() {
-            entry.aube = None;
-        }
-        return Ok(());
-    }
-    for (ba, tv) in tools {
-        let backend = tv.backend()?;
-        if backend.get_type() != BackendType::Npm {
-            continue;
-        }
-        let options =
-            backend.resolve_lockfile_options(&tv.request, &PlatformTarget::from_current())?;
-        let backend_name = ba.stored_full();
-        let npm = crate::backend::npm::NPMBackend::from_arg(ba.clone());
-        if !force
-            && let Some(old) = lockfile
-                .tools_for(&ba.short)
-                .and_then(|entries| {
-                    entries.iter().find(|entry| {
-                        entry.version == tv.version
-                            && entry.backend.as_deref().is_none_or(|b| b == backend_name)
-                            && entry.options == options
-                    })
-                })
-                .and_then(|entry| entry.aube.as_ref())
-        {
-            let candidate = if old.load().is_ok() {
-                Some(old.clone())
-            } else {
-                old.refresh().ok()
-            };
-            if let Some(candidate) = candidate {
-                npm.validate_aube_lock(tv, candidate.load()?)?;
-                lockfile.set_aube_lock(
-                    &ba.short,
-                    &tv.version,
-                    &backend_name,
-                    &options,
-                    candidate,
-                )?;
-                continue;
-            }
-        }
-        if let Some(report) = report {
-            report.set_message(format!("{}@{} dependencies", ba.short, tv.version));
-        }
-        let graph = npm.resolve_aube_lock(tv).await?;
-        lockfile.set_aube_lock(&ba.short, &tv.version, &backend_name, &options, graph)?;
-    }
-    Ok(())
-}
-
-pub async fn populate_uv_locks(
-    config: &Arc<Config>,
-    lockfile: &mut Lockfile,
-    tools: &[Tool],
-    force: bool,
-    best_effort: bool,
-) -> Result<()> {
-    if lockfile.lockfile_version() < 2 {
-        return Ok(());
-    }
-    for (ba, tv) in tools {
-        if ba.backend_type() != BackendType::Pipx {
-            continue;
-        }
-        let backend = crate::backend::pipx::PIPXBackend::from_arg(ba.clone());
-        let options =
-            backend.resolve_lockfile_options(&tv.request, &PlatformTarget::from_current())?;
-        let backend_name = ba.stored_full();
-        if !backend.uv_lock_allowed(tv) {
-            if let Some(entries) = lockfile.tools_for_mut(&ba.short) {
-                for entry in entries
-                    .iter_mut()
-                    .filter(|entry| entry.version == tv.version && entry.options == options)
-                {
-                    entry.uv = None;
-                }
-            }
-            continue;
-        }
-        if let Some(lock) = lockfile
-            .tools_for(&ba.short)
-            .and_then(|entries| {
-                entries.iter().find(|entry| {
-                    entry.version == tv.version
-                        && entry.backend.as_deref().is_none_or(|b| b == backend_name)
-                        && entry.options == options
-                })
-            })
-            .and_then(|entry| entry.uv.as_ref())
-            && !force
-        {
-            let candidate = if lock.load().is_ok() {
-                Some(lock.clone())
-            } else {
-                lock.refresh().ok()
-            };
-            if let Some(candidate) = candidate {
-                backend.validate_uv_lock(tv, candidate.load()?)?;
-                lockfile.set_uv_lock(&ba.short, &tv.version, &backend_name, &options, candidate)?;
-                continue;
-            }
-        }
-        if backend
-            .spawnable_dependency(config, None, "uv")
-            .await
-            .is_none()
-        {
-            warn!(
-                "{} dependency graph skipped: uv >= 0.12.10 is unavailable; install uv and run `mise lock` again",
-                ba.short
-            );
-            continue;
-        }
-        let graph = match backend.resolve_uv_lock(config, tv).await {
-            Ok(graph) => graph,
-            Err(error) if best_effort => {
-                debug!(
-                    "{} dependency graph skipped during automatic locking: {error:#}",
-                    ba.short
-                );
-                continue;
-            }
-            Err(error) => return Err(error),
-        };
-        lockfile.set_uv_lock(&ba.short, &tv.version, &backend_name, &options, graph)?;
-    }
-    Ok(())
 }
 
 /// Keep the forge IDs an old Packslip entry recorded when the new one, for
@@ -1195,25 +992,6 @@ mod tests {
         .await
         .unwrap_err();
         assert!(error.to_string().contains("unexpected provenance type"));
-    }
-
-    #[tokio::test]
-    async fn current_native_graph_does_not_read_sidecars() {
-        crate::backend::load_tools().await.unwrap();
-        let temp = tempfile::tempdir().unwrap();
-        let graph = super::super::GraphRef::Sidecar {
-            dir: temp.path().join("missing"),
-            digest: "sha256:recorded".into(),
-            cell: std::sync::OnceLock::new(),
-        };
-        let mut old = previous();
-        let entry = &mut old.tools_for_mut("fixture").unwrap()[0];
-        entry.platforms.clear();
-        entry.uv = Some(graph.clone());
-        let (ba, mut tv) = tool();
-        tv.uv_lock = Some(graph);
-        assert!(is_current(&old, &[(ba, tv)], &[Platform::parse("linux-x64").unwrap()]).unwrap());
-        assert!(!temp.path().join("missing").exists());
     }
 
     #[tokio::test]

@@ -380,10 +380,6 @@ pub fn detect_applicable_providers(project_root: &Path) -> Vec<String> {
             Box::new(DenoDepsProvider::new(project_root, default_config.clone())),
         ),
         (
-            "aube",
-            Box::new(AubeDepsProvider::new(project_root, default_config.clone())),
-        ),
-        (
             "go",
             Box::new(GoDepsProvider::new(project_root, default_config.clone())),
         ),

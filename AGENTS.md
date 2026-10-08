@@ -29,7 +29,7 @@ Before adding a **new** tool or shorthand to `registry/`, follow the `registry-s
 - Warn the user about the bar, look up real popularity numbers, and stop if the tool is personal, internal, a fork, or niche.
 - Put a `## Popularity` section with those numbers in the PR description.
 - Confirm `mise ls-remote <backend>` lists installable versions.
-- Prefer `packslip:`, then `aqua:`, `github:`, or `gitlab:`. `conda:` has a high bar; `npm:`, `pipx:`, `gem:`, `cargo:`, `go:`, and `dotnet:` are almost never accepted. New `asdf:`, `vfox:`, and `ubi:` entries are not accepted.
+- Prefer `packslip:`, then `aqua:`, `github:`, or `gitlab:`. `conda:` has a high bar; `gem:`, `cargo:`, `go:`, and `dotnet:` are almost never accepted. (`npm:` and `pipx:` were removed: package installs go through the native `[packages]` pipeline.) New `asdf:`, `vfox:`, and `ubi:` entries are not accepted.
 - Users can install any tool without a registry entry (`mise use github:owner/repo`, `mise use cargo:name`, …); the registry only adds a shorthand.
 
 None of this applies to editing an existing registry entry; do not ask the user about popularity for maintenance or fixes.
@@ -88,7 +88,7 @@ The `mise` package has two targets. The library (`src/lib.rs`) is everything exc
 - `src/lib.rs` - Library root: module list and the hooks lower crates need
 - `src/cli/` - Command-line interface implementation with subcommands (binary only)
 - `src/config/` - Configuration file parsing and management
-- `src/backend/` - Tool backend implementations (aqua, github, cargo, npm, asdf, vfox, …)
+- `src/backend/` - Tool backend implementations (aqua, github, cargo, asdf, vfox, …)
 - `src/toolset/` - Tool version management and installation logic
 - `src/task/` - Task execution system
 - `src/plugins/` - Plugin system for extending tool support
@@ -98,7 +98,7 @@ The `mise` package has two targets. The library (`src/lib.rs`) is everything exc
 - `aqua.rs` — Aqua registry
 - `github.rs` — GitHub / GitLab / Forgejo releases
 - `http.rs`, `s3.rs` — HTTP and S3 backends
-- `cargo.rs`, `npm.rs` (plus embedded aube), `pipx.rs`, `gem.rs`, `go.rs`, `dotnet.rs`, `conda.rs`, `spm.rs`
+- `cargo.rs`, `gem.rs`, `go.rs`, `dotnet.rs`, `conda.rs`, `spm.rs` (the `npm:`/`pipx:` backends were removed in favor of the native packages pipeline; the `aube` crate remains as a library for node workspace discovery)
 - `asdf.rs`, `vfox.rs` — plugin compatibility layers
 - `ubi.rs` — deprecated; do not add new registry entries
 
@@ -112,7 +112,7 @@ The `mise` package has two targets. The library (`src/lib.rs`) is everything exc
 - Task definition and execution
 
 ### Key Design Patterns
-1. **Backend Architecture**: Tools are implemented through a unified backend interface, allowing multiple sources (ASDF plugins, vfox plugins, cargo, npm, etc.)
+1. **Backend Architecture**: Tools are implemented through a unified backend interface, allowing multiple sources (ASDF plugins, vfox plugins, cargo, etc.)
 2. **Toolset Management**: The `Toolset` manages collections of tool versions and their installation state
 3. **Configuration Layering**: Config files are loaded hierarchically from system → global → local with environment-specific overrides
 4. **Task System**: Tasks can be defined in TOML files with dependencies, environment variables, and multiple execution modes

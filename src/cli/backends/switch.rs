@@ -228,20 +228,15 @@ impl BackendsSwitch {
             return Ok(missing);
         }
 
-        // Snapshot each lockfile and its graph sidecar directory: a relock can
-        // replace or prune sidecars, so restoring the lockfile text alone could
-        // leave it pointing at files that are gone.
-        let mut snapshots = originals
+        let snapshots = originals
             .iter()
             .map(|(path, content)| Snapshot::take(path, content.clone()))
             .collect::<Result<Vec<_>>>()?;
-        snapshots.sort_by(|a, b| a.sidecars.cmp(&b.sidecars));
         let result = self
             .write_and_relock(rewritten, relocks, &needs_platforms)
             .await;
         if let Err(err) = result {
-            // Attempt every restore and keep the original error. Parents
-            // restore before the nested sidecar roots of local lockfiles.
+            // Attempt every restore and keep the original error.
             let failed = snapshots
                 .into_iter()
                 .filter_map(|snapshot| {
@@ -341,7 +336,6 @@ impl BackendsSwitch {
             local: false,
             minimum_release_age: None,
             upgrade: false,
-            sidecars: false,
             lockfiles: None,
         }
     }
@@ -514,71 +508,24 @@ impl BackendsSwitch {
     }
 }
 
-/// A lockfile and its graph sidecar directory as they were before the switch.
+/// A lockfile as it was before the switch.
 struct Snapshot {
     lockfile: PathBuf,
     content: Option<String>,
-    sidecars: PathBuf,
-    /// A copy of `sidecars`, or `None` when the directory did not exist.
-    sidecar_copy: Option<tempfile::TempDir>,
 }
 
 impl Snapshot {
     fn take(lockfile: &Path, content: Option<String>) -> Result<Self> {
-        // A symlinked lockfile keeps its sidecars beside the target, where
-        // reads and writes resolve it.
-        let target = if lockfile.is_symlink() {
-            std::fs::canonicalize(lockfile).unwrap_or_else(|_| lockfile.to_path_buf())
-        } else {
-            lockfile.to_path_buf()
-        };
-        let sidecars = lockfile::sidecar_root(&target);
-        let sidecar_copy = if sidecars.is_dir() {
-            let copy = tempfile::tempdir()?;
-            crate::file::copy_dir_all_preserve_symlinks(&sidecars, &copy.path().join("sidecars"))?;
-            Some(copy)
-        } else {
-            None
-        };
         Ok(Self {
             lockfile: lockfile.to_path_buf(),
             content,
-            sidecars,
-            sidecar_copy,
         })
     }
 
     fn restore(self) -> Result<()> {
-        // Restore the sidecars even when the lockfile text cannot be, and keep
-        // the backup whenever either step fails.
-        let lockfile_restored = match &self.content {
+        match &self.content {
             Some(content) => crate::file::write(&self.lockfile, content),
             None => Ok(()),
-        };
-        let sidecars_restored = (|| -> Result<()> {
-            if self.sidecars.exists() {
-                crate::file::remove_all(&self.sidecars)?;
-            }
-            if let Some(copy) = &self.sidecar_copy {
-                crate::file::copy_dir_all_preserve_symlinks(
-                    &copy.path().join("sidecars"),
-                    &self.sidecars,
-                )?;
-            }
-            Ok(())
-        })();
-        let err = match (lockfile_restored, sidecars_restored) {
-            (Ok(()), Ok(())) => return Ok(()),
-            (Err(err), Ok(())) | (Ok(()), Err(err)) => err,
-            (Err(lockfile), Err(sidecars)) => lockfile.wrap_err(format!("{sidecars:#}")),
-        };
-        match self.sidecar_copy {
-            // Keep the backup instead of letting the temp dir delete it.
-            Some(copy) => Err(err.wrap_err(format!(
-                "the previous sidecars are kept in {}",
-                display_path(copy.keep().join("sidecars"))
-            ))),
-            None => Err(err),
         }
     }
 }
@@ -593,8 +540,7 @@ fn layout_version(tv: &ToolVersion) -> String {
 
 /// Whether the tool directory `tool_dir` has a version path for `tv`'s version,
 /// as the backend before the switch named it. That is `tv`'s own path name, or
-/// the version with the private dependency-graph suffix an aube or uv install
-/// adds (`1.0.0~aube~…`), which only one of the two backends may carry.
+/// the plain version, which only one of the two backends may carry.
 fn has_version_path(tool_dir: &Path, tv: &ToolVersion) -> bool {
     let version = layout_version(tv);
     if tool_dir.join(tv.tv_pathname()).exists() || tool_dir.join(&version).exists() {

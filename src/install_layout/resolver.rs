@@ -187,7 +187,7 @@ fn digest_of_string(s: &str) -> String {
 /// options, and no credentials (a plugin repository URL can carry `user:token@`).
 pub(crate) fn canonical_backend(full: &str) -> String {
     let name = crate::args::split_bracketed_opts(full).map_or(full, |(name, _)| name);
-    redact_credentials(&crate::backend::canonical_backend_full(name))
+    redact_credentials(name)
 }
 
 /// The identity `tv` answers.
@@ -223,12 +223,6 @@ pub(crate) fn identity_of(tv: &ToolVersion) -> Option<InstallIdentity> {
         );
     }
     let mut inputs = BTreeMap::new();
-    if let Some(graph) = tv.aube_install_identity() {
-        inputs.insert("aube".to_string(), graph);
-    }
-    if let Some(graph) = tv.uv_install_identity() {
-        inputs.insert("uv".to_string(), graph);
-    }
     let platform = backend.get_platform_key();
     let mut mode = Mode::Fallback;
     if tv.resolved_from_lockfile()

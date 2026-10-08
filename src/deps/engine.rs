@@ -131,10 +131,9 @@ impl DepsProvider for ScopedDepsProvider {
 use super::DepsProviderApplicability::Applicable;
 use super::deps_ordering::DepsOrdering;
 use super::providers::{
-    AubeDepsProvider, BunDepsProvider, BundlerDepsProvider, ComposerDepsProvider,
-    CustomDepsProvider, DartDepsProvider, DenoDepsProvider, GitSubmoduleDepsProvider,
-    GoDepsProvider, NpmDepsProvider, PipDepsProvider, PnpmDepsProvider, PoetryDepsProvider,
-    UvDepsProvider, YarnDepsProvider,
+    BunDepsProvider, BundlerDepsProvider, ComposerDepsProvider, CustomDepsProvider,
+    DartDepsProvider, DenoDepsProvider, GitSubmoduleDepsProvider, GoDepsProvider, NpmDepsProvider,
+    PipDepsProvider, PnpmDepsProvider, PoetryDepsProvider, UvDepsProvider, YarnDepsProvider,
 };
 use super::rule::BUILTIN_PROVIDERS;
 use super::state::{self, DepsState};
@@ -466,10 +465,6 @@ impl DepsEngine {
                     provider_config,
                 ))),
                 "bun" => Some(Box::new(BunDepsProvider::new(config_root, provider_config))),
-                "aube" => Some(Box::new(AubeDepsProvider::new(
-                    config_root,
-                    provider_config,
-                ))),
                 "deno" => Some(Box::new(DenoDepsProvider::new(
                     config_root,
                     provider_config,

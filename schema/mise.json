@@ -19,7 +19,9 @@
         },
         {
           "type": "object",
-          "required": ["auto"],
+          "required": [
+            "auto"
+          ],
           "properties": {
             "auto": {
               "const": true,
@@ -59,7 +61,10 @@
     "daemon_proxy_tls": {
       "description": "Whether the proxy terminates TLS for this daemon or passes the connection through to it.",
       "type": "string",
-      "enum": ["terminate", "passthrough"]
+      "enum": [
+        "terminate",
+        "passthrough"
+      ]
     },
     "daemon_proxy_idle_timeout": {
       "description": "Stop this daemon after this long without proxy traffic when the proxy started it, for example \"30m\". false exempts it from idle shutdown even when pitchfork's proxy.idle_timeout is set; \"0\" does the same. Idle shutdown is off unless this or pitchfork's proxy.idle_timeout is set, and a daemon started with `mise daemons start` is never stopped for inactivity. Requires pitchfork 2.27.0.",
@@ -70,7 +75,9 @@
         },
         {
           "type": "boolean",
-          "enum": [false]
+          "enum": [
+            false
+          ]
         }
       ]
     },
@@ -109,7 +116,9 @@
               "type": "boolean"
             }
           },
-          "required": ["task"],
+          "required": [
+            "task"
+          ],
           "unevaluatedProperties": false
         }
       ]
@@ -257,7 +266,10 @@
     },
     "env_age_format": {
       "type": "string",
-      "enum": ["raw", "zstd"],
+      "enum": [
+        "raw",
+        "zstd"
+      ],
       "description": "[experimental] compression format for the encrypted value"
     },
     "env_directive": {
@@ -290,7 +302,9 @@
               "$ref": "#/$defs/env_path"
             }
           },
-          "required": ["path"]
+          "required": [
+            "path"
+          ]
         },
         {
           "type": "object",
@@ -299,7 +313,9 @@
               "$ref": "#/$defs/env_paths"
             }
           },
-          "required": ["paths"]
+          "required": [
+            "paths"
+          ]
         }
       ]
     },
@@ -322,7 +338,9 @@
                 "$ref": "#/$defs/env_required"
               }
             },
-            "required": ["value"],
+            "required": [
+              "value"
+            ],
             "unevaluatedProperties": false
           },
           {
@@ -338,7 +356,9 @@
                 "$ref": "#/$defs/env_redact"
               }
             },
-            "required": ["default"],
+            "required": [
+              "default"
+            ],
             "unevaluatedProperties": false
           },
           {
@@ -354,7 +374,9 @@
                 "$ref": "#/$defs/env_required"
               }
             },
-            "required": ["required"],
+            "required": [
+              "required"
+            ],
             "unevaluatedProperties": false
           },
           {
@@ -373,7 +395,9 @@
                 "$ref": "#/$defs/env_required"
               }
             },
-            "required": ["age"],
+            "required": [
+              "age"
+            ],
             "unevaluatedProperties": false,
             "description": "[experimental] age-encrypted environment variable"
           },
@@ -399,12 +423,16 @@
                     "$ref": "#/$defs/env_required"
                   }
                 },
-                "required": ["value"],
+                "required": [
+                  "value"
+                ],
                 "unevaluatedProperties": false,
                 "description": "[experimental] age-encrypted value (complex format)"
               }
             },
-            "required": ["age"],
+            "required": [
+              "age"
+            ],
             "unevaluatedProperties": false,
             "description": "[experimental] age-encrypted environment variable"
           },
@@ -468,7 +496,9 @@
                           "$ref": "#/$defs/env_path"
                         }
                       },
-                      "required": ["path"]
+                      "required": [
+                        "path"
+                      ]
                     },
                     {
                       "type": "object",
@@ -477,7 +507,9 @@
                           "$ref": "#/$defs/env_paths"
                         }
                       },
-                      "required": ["paths"]
+                      "required": [
+                        "paths"
+                      ]
                     }
                   ]
                 },
@@ -550,7 +582,9 @@
                           }
                         }
                       },
-                      "required": ["path"],
+                      "required": [
+                        "path"
+                      ],
                       "type": "object"
                     }
                   ]
@@ -1242,7 +1276,11 @@
               "default": "sync",
               "description": "What the history watcher does with a connected setup repository on its own: `sync` publishes after saves, fetches periodically, and applies incoming changes. Any conflict pauses publication and incoming application for the entire setup; local commits and fetching continue. `fetch-only` only fetches; `manual` does nothing automatically. `mise bootstrap dotfiles sync` and `pull` work on request in every mode.",
               "type": "string",
-              "enum": ["sync", "fetch-only", "manual"]
+              "enum": [
+                "sync",
+                "fetch-only",
+                "manual"
+              ]
             },
             "sync_interval": {
               "default": "5m",
@@ -1354,7 +1392,10 @@
         "install_layout": {
           "description": "[experimental] Name installations by what they are (`identity`) instead of `installs/<tool>/<version>` (`legacy`).",
           "type": "string",
-          "enum": ["legacy", "identity"]
+          "enum": [
+            "legacy",
+            "identity"
+          ]
         },
         "java": {
           "type": "object",
@@ -1391,7 +1432,11 @@
         "libc": {
           "description": "Libc implementation to use for precompiled Linux binaries.",
           "type": "string",
-          "enum": ["glibc", "gnu", "musl"]
+          "enum": [
+            "glibc",
+            "gnu",
+            "musl"
+          ]
         },
         "libgit2": {
           "default": true,
@@ -1404,12 +1449,20 @@
           "type": "boolean"
         },
         "locked_scopes": {
-          "default": ["global", "project", "system"],
+          "default": [
+            "global",
+            "project",
+            "system"
+          ],
           "description": "Config scopes where invocation-wide locked mode is enforced.",
           "type": "array",
           "items": {
             "type": "string",
-            "enum": ["project", "global", "system"]
+            "enum": [
+              "project",
+              "global",
+              "system"
+            ]
           }
         },
         "locked_verify_provenance": {
@@ -1424,7 +1477,10 @@
         "lockfile_mode": {
           "description": "Choose incremental merging or complete lockfile generation.",
           "type": "string",
-          "enum": ["merge", "generate"]
+          "enum": [
+            "merge",
+            "generate"
+          ]
         },
         "lockfile_platforms": {
           "description": "Platforms to target in lockfile operations.",
@@ -1437,7 +1493,13 @@
           "default": "info",
           "description": "Show more/less output.",
           "type": "string",
-          "enum": ["trace", "debug", "info", "warn", "error"]
+          "enum": [
+            "trace",
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ]
         },
         "minimum_release_age": {
           "description": "Minimum release age / supply chain protection — only install versions older than this threshold",
@@ -1566,28 +1628,6 @@
           "description": "Set to false to stop shims from falling back to a same-named binary found elsewhere on PATH.",
           "type": "boolean"
         },
-        "npm": {
-          "type": "object",
-          "unevaluatedProperties": false,
-          "properties": {
-            "bun": {
-              "description": "Use bun instead of npm if bun is installed and on PATH.",
-              "type": "boolean",
-              "deprecated": true
-            },
-            "package_manager": {
-              "default": "auto",
-              "description": "Package manager to use for installing npm packages.",
-              "type": "string",
-              "enum": ["auto", "npm", "aube", "aube_cli", "bun", "pnpm"]
-            },
-            "shell_out": {
-              "default": false,
-              "description": "Shell out to the npm CLI for `npm:` version metadata and installs instead of mise's built-in aube-based implementation.",
-              "type": "boolean"
-            }
-          }
-        },
         "oci": {
           "type": "object",
           "unevaluatedProperties": false,
@@ -1677,20 +1717,6 @@
           "description": "Default to pinning versions when running `mise use` in mise.toml files.",
           "type": "boolean"
         },
-        "pipx": {
-          "type": "object",
-          "unevaluatedProperties": false,
-          "properties": {
-            "registry_url": {
-              "description": "URL to use for pipx registry.",
-              "type": "string"
-            },
-            "uvx": {
-              "description": "Use uvx instead of pipx if uv is installed and on PATH.",
-              "type": "boolean"
-            }
-          }
-        },
         "plugin_autoupdate_last_check_duration": {
           "default": "7d",
           "description": "How long to wait before updating plugins automatically (note this isn't currently implemented).",
@@ -1713,20 +1739,6 @@
           "default": true,
           "description": "Fail when provenance API checks cannot be completed.",
           "type": "boolean"
-        },
-        "pypi": {
-          "type": "object",
-          "unevaluatedProperties": false,
-          "properties": {
-            "registry_url": {
-              "description": "Package registry URL for Python tools (pipx.registry_url is a compatibility alias).",
-              "type": "string"
-            },
-            "uvx": {
-              "description": "Use uv for Python tools when available (pipx.uvx is a compatibility alias).",
-              "type": "boolean"
-            }
-          }
         },
         "python": {
           "type": "object",
@@ -1773,7 +1785,12 @@
             "uv_venv_auto": {
               "default": false,
               "description": "Integrate with uv to manage project venvs when uv.lock is present.",
-              "enum": [false, "source", "create|source", true],
+              "enum": [
+                false,
+                "source",
+                "create|source",
+                true
+              ],
               "oneOf": [
                 {
                   "type": "boolean"
@@ -2116,7 +2133,12 @@
           "default": "prompt",
           "description": "How to handle a plugin's declared system dependencies before installing a tool.",
           "type": "string",
-          "enum": ["prompt", "auto", "warn", "ignore"]
+          "enum": [
+            "prompt",
+            "auto",
+            "warn",
+            "ignore"
+          ]
         },
         "system_installs_dir": {
           "description": "Directory containing system tool installs.",
@@ -2168,7 +2190,11 @@
                   "default": "read-write",
                   "description": "[experimental] Remote task and action cache access mode.",
                   "type": "string",
-                  "enum": ["read-write", "read-only", "write-only"]
+                  "enum": [
+                    "read-write",
+                    "read-only",
+                    "write-only"
+                  ]
                 },
                 "remote_namespace": {
                   "description": "[experimental] Namespace sent to the remote build cache.",
@@ -2212,7 +2238,11 @@
               "description": "Compatibility alias for task.cache.remote_mode.",
               "type": "string",
               "deprecated": true,
-              "enum": ["read-write", "read-only", "write-only"]
+              "enum": [
+                "read-write",
+                "read-only",
+                "write-only"
+              ]
             },
             "cache_remote_namespace": {
               "description": "Compatibility alias for task.cache.remote_namespace.",
@@ -2475,7 +2505,14 @@
           "type": "string"
         },
         "windows_executable_extensions": {
-          "default": ["exe", "bat", "cmd", "com", "ps1", "vbs"],
+          "default": [
+            "exe",
+            "bat",
+            "cmd",
+            "com",
+            "ps1",
+            "vbs"
+          ],
           "description": "List of executable extensions for Windows. For example, `exe` for .exe files, `bat` for .bat files, and so on.",
           "type": "array",
           "items": {
@@ -2538,7 +2575,9 @@
               }
             }
           },
-          "required": ["task"]
+          "required": [
+            "task"
+          ]
         },
         {
           "type": "object",
@@ -2553,7 +2592,9 @@
               "type": "array"
             }
           },
-          "required": ["tasks"]
+          "required": [
+            "tasks"
+          ]
         }
       ]
     },
@@ -2668,7 +2709,9 @@
                 "$ref": "#/$defs/env_redact"
               }
             },
-            "required": ["value"],
+            "required": [
+              "value"
+            ],
             "unevaluatedProperties": false
           },
           {
@@ -2681,7 +2724,9 @@
                 "$ref": "#/$defs/env_redact"
               }
             },
-            "required": ["default"],
+            "required": [
+              "default"
+            ],
             "unevaluatedProperties": false
           },
           {
@@ -2701,7 +2746,9 @@
                 ]
               }
             },
-            "required": ["required"],
+            "required": [
+              "required"
+            ],
             "unevaluatedProperties": false
           },
           {
@@ -2714,7 +2761,9 @@
                 "$ref": "#/$defs/env_redact"
               }
             },
-            "required": ["age"],
+            "required": [
+              "age"
+            ],
             "unevaluatedProperties": false,
             "description": "[experimental] age-encrypted variable"
           },
@@ -2734,12 +2783,16 @@
                     "$ref": "#/$defs/env_redact"
                   }
                 },
-                "required": ["value"],
+                "required": [
+                  "value"
+                ],
                 "unevaluatedProperties": false,
                 "description": "[experimental] age-encrypted value (complex format)"
               }
             },
-            "required": ["age"],
+            "required": [
+              "age"
+            ],
             "unevaluatedProperties": false
           }
         ]
@@ -3030,11 +3083,16 @@
                         },
                         "when": {
                           "type": "string",
-                          "enum": ["install", "always"],
+                          "enum": [
+                            "install",
+                            "always"
+                          ],
                           "default": "install"
                         }
                       },
-                      "required": ["run"],
+                      "required": [
+                        "run"
+                      ],
                       "additionalProperties": false
                     }
                   ]
@@ -3078,7 +3136,10 @@
         },
         {
           "type": "integer",
-          "enum": [0, 1]
+          "enum": [
+            0,
+            1
+          ]
         }
       ]
     },
@@ -3454,7 +3515,10 @@
         "provider": {
           "description": "forge used to fetch releases and assets",
           "type": "string",
-          "enum": ["github", "gitlab"]
+          "enum": [
+            "github",
+            "gitlab"
+          ]
         },
         "api_url": {
           "description": "provider api base url, for self-hosted instances",
@@ -3936,7 +4000,11 @@
         "libc": {
           "description": "force strict glibc or musl asset selection on linux",
           "type": "string",
-          "enum": ["glibc", "gnu", "musl"]
+          "enum": [
+            "glibc",
+            "gnu",
+            "musl"
+          ]
         },
         "slsa_signer_identity": {
           "description": "expected fulcio certificate subject for slsa provenance; requires slsa_signer_issuer",
@@ -4198,7 +4266,12 @@
         "dependency_prereleases": {
           "description": "uv prerelease policy for dependency resolution (requires uv)",
           "type": "string",
-          "enum": ["disallow", "allow", "if-necessary", "explicit"]
+          "enum": [
+            "disallow",
+            "allow",
+            "if-necessary",
+            "explicit"
+          ]
         },
         "package_name": {
           "description": "distribution name for git sources, used to attach extras",
@@ -4345,7 +4418,10 @@
         "provider": {
           "description": "git host used for release info and assets",
           "type": "string",
-          "enum": ["github", "gitlab"]
+          "enum": [
+            "github",
+            "gitlab"
+          ]
         },
         "api_url": {
           "description": "provider api url, for self-hosted instances",
@@ -4473,7 +4549,9 @@
         "trust": {
           "description": "vendor exempts this tool from configured packslip stampers",
           "type": "string",
-          "enum": ["vendor"]
+          "enum": [
+            "vendor"
+          ]
         }
       }
     },
@@ -4583,7 +4661,10 @@
         "release_type": {
           "description": "jdk metadata channel: ga (default) or ea for early access builds",
           "type": "string",
-          "enum": ["ga", "ea"]
+          "enum": [
+            "ga",
+            "ea"
+          ]
         }
       }
     },
@@ -4674,7 +4755,11 @@
         "runtime": {
           "description": "install a shared runtime instead of the sdk; the version is the runtime version",
           "type": "string",
-          "enum": ["dotnet", "aspnetcore", "windowsdesktop"]
+          "enum": [
+            "dotnet",
+            "aspnetcore",
+            "windowsdesktop"
+          ]
         }
       }
     },
@@ -4730,7 +4815,10 @@
         },
         "version_order": {
           "description": "ordering applied to remote versions: \"source\" keeps the backend's order, \"semver\" sorts semantic versions",
-          "enum": ["source", "semver"]
+          "enum": [
+            "source",
+            "semver"
+          ]
         },
         "prerelease": {
           "description": "include pre-release versions when listing versions and resolving latest",
@@ -4747,16 +4835,24 @@
       },
       "oneOf": [
         {
-          "required": ["version"]
+          "required": [
+            "version"
+          ]
         },
         {
-          "required": ["path"]
+          "required": [
+            "path"
+          ]
         },
         {
-          "required": ["prefix"]
+          "required": [
+            "prefix"
+          ]
         },
         {
-          "required": ["ref"]
+          "required": [
+            "ref"
+          ]
         }
       ],
       "type": "object"
@@ -4783,10 +4879,14 @@
       },
       "anyOf": [
         {
-          "required": ["run"]
+          "required": [
+            "run"
+          ]
         },
         {
-          "required": ["run_windows"]
+          "required": [
+            "run_windows"
+          ]
         }
       ],
       "type": "object"
@@ -4822,7 +4922,10 @@
           "type": "string"
         }
       },
-      "required": ["script", "shell"],
+      "required": [
+        "script",
+        "shell"
+      ],
       "type": "object"
     },
     "hook_current_shell_scripts_table": {
@@ -4837,7 +4940,10 @@
           "type": "string"
         }
       },
-      "required": ["scripts", "shell"],
+      "required": [
+        "scripts",
+        "shell"
+      ],
       "type": "object"
     },
     "hook_spawned_script_table": {
@@ -4850,7 +4956,9 @@
           "$ref": "#/$defs/hook_script_value"
         }
       },
-      "required": ["script"],
+      "required": [
+        "script"
+      ],
       "type": "object"
     },
     "hook_spawned_scripts_table": {
@@ -4863,7 +4971,9 @@
           "$ref": "#/$defs/hook_scripts_value"
         }
       },
-      "required": ["scripts"],
+      "required": [
+        "scripts"
+      ],
       "type": "object"
     },
     "hook_install_script_table": {
@@ -4881,7 +4991,9 @@
           "type": "string"
         }
       },
-      "required": ["script"],
+      "required": [
+        "script"
+      ],
       "type": "object"
     },
     "hook_install_scripts_table": {
@@ -4899,7 +5011,9 @@
           "type": "string"
         }
       },
-      "required": ["scripts"],
+      "required": [
+        "scripts"
+      ],
       "type": "object"
     },
     "hook_task_ref": {
@@ -4910,7 +5024,9 @@
           "type": "string"
         }
       },
-      "required": ["task"],
+      "required": [
+        "task"
+      ],
       "type": "object"
     },
     "hook_definition_item": {
@@ -5033,7 +5149,10 @@
                 }
               }
             },
-            "required": ["run", "patterns"]
+            "required": [
+              "run",
+              "patterns"
+            ]
           },
           {
             "unevaluatedProperties": false,
@@ -5050,7 +5169,10 @@
                 }
               }
             },
-            "required": ["task", "patterns"]
+            "required": [
+              "task",
+              "patterns"
+            ]
           }
         ]
       }
@@ -5171,7 +5293,14 @@
                 },
                 "default": {
                   "description": "default value for confirmation (yes/no/true/false)",
-                  "enum": ["yes", "no", "y", "n", "true", "false"],
+                  "enum": [
+                    "yes",
+                    "no",
+                    "y",
+                    "n",
+                    "true",
+                    "false"
+                  ],
                   "type": "string"
                 },
                 "yes": {
@@ -5183,7 +5312,9 @@
                   "type": "string"
                 }
               },
-              "required": ["message"],
+              "required": [
+                "message"
+              ],
               "unevaluatedProperties": false,
               "type": "object"
             }
@@ -5362,11 +5493,15 @@
               "properties": {
                 "auto": {
                   "description": "automatically touch an internal tracked file instead of specifying outputs",
-                  "enum": [true],
+                  "enum": [
+                    true
+                  ],
                   "type": "boolean"
                 }
               },
-              "required": ["auto"],
+              "required": [
+                "auto"
+              ],
               "type": "object"
             }
           ]
@@ -5447,7 +5582,10 @@
               "type": "boolean"
             },
             {
-              "enum": ["stdout", "stderr"],
+              "enum": [
+                "stdout",
+                "stderr"
+              ],
               "type": "string"
             }
           ]
@@ -5645,7 +5783,10 @@
     },
     "bootstrap_file_phase": {
       "type": "string",
-      "enum": ["pre-packages", "post-packages"],
+      "enum": [
+        "pre-packages",
+        "post-packages"
+      ],
       "default": "post-packages",
       "description": "When to apply the managed path during bootstrap; pre-packages runs before the pre-packages hook"
     },
@@ -5678,7 +5819,9 @@
               ]
             }
           },
-          "required": ["run"],
+          "required": [
+            "run"
+          ],
           "additionalProperties": true
         }
       ]
@@ -5691,7 +5834,10 @@
         },
         {
           "type": "string",
-          "enum": ["activate", "shims"],
+          "enum": [
+            "activate",
+            "shims"
+          ],
           "description": "enable the target with the selected activation mode"
         },
         {
@@ -5704,11 +5850,16 @@
             },
             "mode": {
               "type": "string",
-              "enum": ["activate", "shims"],
+              "enum": [
+                "activate",
+                "shims"
+              ],
               "description": "activation mode; defaults according to the target"
             }
           },
-          "required": ["enabled"],
+          "required": [
+            "enabled"
+          ],
           "additionalProperties": false
         }
       ]
@@ -5735,7 +5886,9 @@
           "additionalProperties": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["run"],
+            "required": [
+              "run"
+            ],
             "properties": {
               "run": {
                 "type": "string",
@@ -5761,7 +5914,10 @@
               "shell": {
                 "description": "Shell command, including the command flag, as in tasks.",
                 "type": "string",
-                "examples": ["bash -c", "pwsh -Command"]
+                "examples": [
+                  "bash -c",
+                  "pwsh -Command"
+                ]
               },
               "os": {
                 "$ref": "#/$defs/os_filter",
@@ -5834,7 +5990,9 @@
                 }
               }
             },
-            "required": ["command"],
+            "required": [
+              "command"
+            ],
             "additionalProperties": false
           }
         ]
@@ -6106,7 +6264,10 @@
                 "description": "absolute non-root image path without `.` or `..` components"
               }
             },
-            "required": ["host", "image"],
+            "required": [
+              "host",
+              "image"
+            ],
             "additionalProperties": false
           }
         },
@@ -6197,7 +6358,9 @@
               "manifest": {
                 "type": "string",
                 "description": "source manifest used to select managed files from a directory",
-                "enum": ["git"]
+                "enum": [
+                  "git"
+                ]
               },
               "remove_empty": {
                 "type": "boolean",
@@ -6227,7 +6390,9 @@
                 "description": "template engine to render block content with; currently only \"tera\"",
                 "anyOf": [
                   {
-                    "enum": ["tera"]
+                    "enum": [
+                      "tera"
+                    ]
                   },
                   {
                     "type": "string"
@@ -6244,7 +6409,10 @@
                 "description": "where to insert a missing line",
                 "anyOf": [
                   {
-                    "enum": ["append", "prepend"]
+                    "enum": [
+                      "append",
+                      "prepend"
+                    ]
                   },
                   {
                     "type": "string"
@@ -6301,10 +6469,15 @@
                     }
                   },
                   {
-                    "required": ["mode"],
+                    "required": [
+                      "mode"
+                    ],
                     "properties": {
                       "mode": {
-                        "enum": ["symlink", "symlink-each"]
+                        "enum": [
+                          "symlink",
+                          "symlink-each"
+                        ]
                       }
                     }
                   },
@@ -6339,10 +6512,14 @@
                     },
                     "anyOf": [
                       {
-                        "required": ["source"]
+                        "required": [
+                          "source"
+                        ]
                       },
                       {
-                        "required": ["mode"]
+                        "required": [
+                          "mode"
+                        ]
                       },
                       {
                         "properties": {
@@ -6353,7 +6530,9 @@
                   }
                 ],
                 "if": {
-                  "required": ["mode"],
+                  "required": [
+                    "mode"
+                  ],
                   "properties": {
                     "mode": {
                       "const": "absent"
@@ -6385,13 +6564,18 @@
               {
                 "oneOf": [
                   {
-                    "required": ["manifest"],
+                    "required": [
+                      "manifest"
+                    ],
                     "properties": {
                       "source": {},
                       "content": false,
                       "permissions": false,
                       "mode": {
-                        "enum": ["copy", "symlink-each"]
+                        "enum": [
+                          "copy",
+                          "symlink-each"
+                        ]
                       },
                       "exclude": {},
                       "manifest": {},
@@ -6410,7 +6594,9 @@
               },
               {
                 "if": {
-                  "required": ["dot_prefix"],
+                  "required": [
+                    "dot_prefix"
+                  ],
                   "properties": {
                     "dot_prefix": {
                       "const": true
@@ -6421,7 +6607,10 @@
                   "properties": {
                     "content": false,
                     "mode": {
-                      "enum": ["copy", "symlink-each"]
+                      "enum": [
+                        "copy",
+                        "symlink-each"
+                      ]
                     },
                     "block": false,
                     "line": false,
@@ -6430,10 +6619,14 @@
                   },
                   "anyOf": [
                     {
-                      "required": ["source"]
+                      "required": [
+                        "source"
+                      ]
                     },
                     {
-                      "required": ["mode"]
+                      "required": [
+                        "mode"
+                      ]
                     },
                     {
                       "properties": {
@@ -6446,10 +6639,15 @@
               {
                 "oneOf": [
                   {
-                    "required": ["permissions"],
+                    "required": [
+                      "permissions"
+                    ],
                     "properties": {
                       "mode": {
-                        "enum": ["copy", "template"]
+                        "enum": [
+                          "copy",
+                          "template"
+                        ]
                       },
                       "block": false,
                       "template": false,
@@ -6457,13 +6655,19 @@
                     },
                     "anyOf": [
                       {
-                        "required": ["source"]
+                        "required": [
+                          "source"
+                        ]
                       },
                       {
-                        "required": ["content"]
+                        "required": [
+                          "content"
+                        ]
                       },
                       {
-                        "required": ["mode"]
+                        "required": [
+                          "mode"
+                        ]
                       },
                       {
                         "properties": {
@@ -6484,7 +6688,9 @@
               {
                 "oneOf": [
                   {
-                    "required": ["content"],
+                    "required": [
+                      "content"
+                    ],
                     "properties": {
                       "source": false,
                       "manifest": false,
@@ -6498,7 +6704,9 @@
                     }
                   },
                   {
-                    "required": ["line"],
+                    "required": [
+                      "line"
+                    ],
                     "properties": {
                       "content": false,
                       "permissions": false,
@@ -6522,7 +6730,10 @@
               {
                 "oneOf": [
                   {
-                    "required": ["include", "mode"],
+                    "required": [
+                      "include",
+                      "mode"
+                    ],
                     "properties": {
                       "mode": {
                         "const": "track"
@@ -6539,7 +6750,10 @@
               {
                 "oneOf": [
                   {
-                    "required": ["allow_plaintext", "mode"],
+                    "required": [
+                      "allow_plaintext",
+                      "mode"
+                    ],
                     "properties": {
                       "mode": {
                         "const": "track"
@@ -6584,7 +6798,9 @@
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["root"],
+        "required": [
+          "root"
+        ],
         "properties": {
           "root": {
             "type": "string",
@@ -6598,7 +6814,11 @@
           "mode": {
             "type": "string",
             "description": "how the tree is deployed",
-            "enum": ["symlink-each", "copy", "symlink"],
+            "enum": [
+              "symlink-each",
+              "copy",
+              "symlink"
+            ],
             "default": "symlink-each"
           },
           "exclude": {
@@ -6616,7 +6836,9 @@
           "manifest": {
             "type": "string",
             "description": "source manifest used to select managed files from the tree",
-            "enum": ["git"]
+            "enum": [
+              "git"
+            ]
           },
           "relative": {
             "type": "boolean",
@@ -6678,7 +6900,10 @@
               },
               "state": {
                 "type": "string",
-                "enum": ["present", "absent"]
+                "enum": [
+                  "present",
+                  "absent"
+                ]
               },
               "replace": {
                 "type": "boolean"
@@ -6693,7 +6918,9 @@
             "allOf": [
               {
                 "if": {
-                  "required": ["remove_empty"],
+                  "required": [
+                    "remove_empty"
+                  ],
                   "properties": {
                     "remove_empty": {
                       "const": true
@@ -6701,7 +6928,9 @@
                   }
                 },
                 "then": {
-                  "required": ["template"],
+                  "required": [
+                    "template"
+                  ],
                   "properties": {
                     "template": {
                       "const": true
@@ -6723,10 +6952,14 @@
                   "not": {
                     "anyOf": [
                       {
-                        "required": ["source"]
+                        "required": [
+                          "source"
+                        ]
                       },
                       {
-                        "required": ["content"]
+                        "required": [
+                          "content"
+                        ]
                       }
                     ]
                   }
@@ -6734,13 +6967,19 @@
                 "then": {
                   "anyOf": [
                     {
-                      "required": ["mode"]
+                      "required": [
+                        "mode"
+                      ]
                     },
                     {
-                      "required": ["owner"]
+                      "required": [
+                        "owner"
+                      ]
                     },
                     {
-                      "required": ["group"]
+                      "required": [
+                        "group"
+                      ]
                     }
                   ],
                   "properties": {
@@ -6777,7 +7016,10 @@
               },
               "state": {
                 "type": "string",
-                "enum": ["present", "absent"]
+                "enum": [
+                  "present",
+                  "absent"
+                ]
               },
               "recursive": {
                 "type": "boolean"
@@ -6853,7 +7095,9 @@
               "description": "remote bootstrap inventory keyed by target name",
               "additionalProperties": {
                 "type": "object",
-                "required": ["host"],
+                "required": [
+                  "host"
+                ],
                 "properties": {
                   "host": {
                     "type": "string",
@@ -6945,12 +7189,19 @@
           "additionalProperties": {
             "type": "object",
             "not": {
-              "required": ["builtin", "command"]
+              "required": [
+                "builtin",
+                "command"
+              ]
             },
             "properties": {
               "state": {
                 "type": "string",
-                "enum": ["running", "stopped", "absent"],
+                "enum": [
+                  "running",
+                  "stopped",
+                  "absent"
+                ],
                 "default": "running"
               },
               "enabled": {
@@ -6964,18 +7215,28 @@
               },
               "on_change": {
                 "type": "string",
-                "enum": ["reload", "restart", "reload_or_restart", "none"],
+                "enum": [
+                  "reload",
+                  "restart",
+                  "reload_or_restart",
+                  "none"
+                ],
                 "default": "reload_or_restart",
                 "description": "System scope only"
               },
               "scope": {
                 "type": "string",
-                "enum": ["system", "user"],
+                "enum": [
+                  "system",
+                  "user"
+                ],
                 "description": "Defaults to system; builtin implies user"
               },
               "builtin": {
                 "type": "string",
-                "enum": ["history-watch"],
+                "enum": [
+                  "history-watch"
+                ],
                 "description": "A mise-provided user service"
               },
               "command": {
@@ -6988,7 +7249,11 @@
               },
               "restart": {
                 "type": "string",
-                "enum": ["always", "on-failure", "never"],
+                "enum": [
+                  "always",
+                  "on-failure",
+                  "never"
+                ],
                 "default": "on-failure"
               },
               "environment": {
@@ -7057,22 +7322,38 @@
               },
               "state": {
                 "type": "string",
-                "enum": ["running", "stopped", "absent"],
+                "enum": [
+                  "running",
+                  "stopped",
+                  "absent"
+                ],
                 "default": "running"
               },
               "pull": {
                 "type": "string",
-                "enum": ["always", "missing", "never"],
+                "enum": [
+                  "always",
+                  "missing",
+                  "never"
+                ],
                 "default": "missing"
               },
               "build": {
                 "type": "string",
-                "enum": ["auto", "always", "never"],
+                "enum": [
+                  "auto",
+                  "always",
+                  "never"
+                ],
                 "default": "auto"
               },
               "recreate": {
                 "type": "string",
-                "enum": ["auto", "always", "never"],
+                "enum": [
+                  "auto",
+                  "always",
+                  "never"
+                ],
                 "default": "auto"
               },
               "wait": {
@@ -7103,7 +7384,10 @@
               },
               "down_images": {
                 "type": "string",
-                "enum": ["local", "all"]
+                "enum": [
+                  "local",
+                  "all"
+                ]
               },
               "sudo": {
                 "type": "boolean",
@@ -7131,7 +7415,9 @@
                 }
               }
             },
-            "required": ["project_dir"],
+            "required": [
+              "project_dir"
+            ],
             "additionalProperties": false
           }
         },
@@ -7226,12 +7512,19 @@
                   "state": {
                     "type": "string",
                     "description": "desired package state; only pacman currently supports absent",
-                    "enum": ["present", "absent"],
+                    "enum": [
+                      "present",
+                      "absent"
+                    ],
                     "default": "present"
                   }
                 },
                 "dependentRequired": {
-                  "url": ["sha256", "artifact", "version"]
+                  "url": [
+                    "sha256",
+                    "artifact",
+                    "version"
+                  ]
                 },
                 "additionalProperties": false
               }
@@ -7257,7 +7550,9 @@
                 "description": "optional branch, tag, or full commit SHA to check out"
               }
             },
-            "required": ["url"],
+            "required": [
+              "url"
+            ],
             "additionalProperties": false
           }
         },
@@ -7292,7 +7587,11 @@
                 },
                 "orientation": {
                   "type": "string",
-                  "enum": ["bottom", "left", "right"],
+                  "enum": [
+                    "bottom",
+                    "left",
+                    "right"
+                  ],
                   "description": "Dock screen edge"
                 },
                 "tilesize": {
@@ -7348,7 +7647,12 @@
                 },
                 "preferred_view_style": {
                   "type": "string",
-                  "enum": ["icon", "list", "column", "gallery"],
+                  "enum": [
+                    "icon",
+                    "list",
+                    "column",
+                    "gallery"
+                  ],
                   "description": "Finder preferred view style"
                 }
               },
@@ -7431,7 +7735,11 @@
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["domain", "key", "value"],
+                "required": [
+                  "domain",
+                  "key",
+                  "value"
+                ],
                 "properties": {
                   "domain": {
                     "type": "string"
@@ -7449,7 +7757,10 @@
                   },
                   "host": {
                     "type": "string",
-                    "enum": ["any", "current"],
+                    "enum": [
+                      "any",
+                      "current"
+                    ],
                     "default": "any"
                   },
                   "value": {
@@ -7576,7 +7887,9 @@
                         "description": "run `launchctl kickstart -k` after loading the agent"
                       }
                     },
-                    "required": ["program"]
+                    "required": [
+                      "program"
+                    ]
                   }
                 }
               }
@@ -7595,25 +7908,42 @@
                 "backend": {
                   "type": "string",
                   "description": "firewall backend; auto reuses managed or active host infrastructure",
-                  "enum": ["auto", "ufw", "firewalld", "nftables"],
+                  "enum": [
+                    "auto",
+                    "ufw",
+                    "firewalld",
+                    "nftables"
+                  ],
                   "default": "auto"
                 },
                 "state": {
                   "type": "string",
                   "description": "desired lifecycle of mise-managed firewall state",
-                  "enum": ["enabled", "disabled", "absent"],
+                  "enum": [
+                    "enabled",
+                    "disabled",
+                    "absent"
+                  ],
                   "default": "enabled"
                 },
                 "default_incoming": {
                   "type": "string",
                   "description": "default action for incoming traffic",
-                  "enum": ["allow", "deny", "reject"],
+                  "enum": [
+                    "allow",
+                    "deny",
+                    "reject"
+                  ],
                   "default": "deny"
                 },
                 "default_outgoing": {
                   "type": "string",
                   "description": "default action for outgoing traffic",
-                  "enum": ["allow", "deny", "reject"],
+                  "enum": [
+                    "allow",
+                    "deny",
+                    "reject"
+                  ],
                   "default": "allow"
                 },
                 "exclusive": {
@@ -7642,17 +7972,28 @@
                       },
                       "state": {
                         "type": "string",
-                        "enum": ["present", "absent"],
+                        "enum": [
+                          "present",
+                          "absent"
+                        ],
                         "default": "present"
                       },
                       "direction": {
                         "type": "string",
-                        "enum": ["incoming", "outgoing"],
+                        "enum": [
+                          "incoming",
+                          "outgoing"
+                        ],
                         "default": "incoming"
                       },
                       "action": {
                         "type": "string",
-                        "enum": ["allow", "limit", "deny", "reject"],
+                        "enum": [
+                          "allow",
+                          "limit",
+                          "deny",
+                          "reject"
+                        ],
                         "default": "allow"
                       },
                       "port": {
@@ -7671,7 +8012,12 @@
                       },
                       "protocol": {
                         "type": "string",
-                        "enum": ["tcp", "udp", "sctp", "dccp"]
+                        "enum": [
+                          "tcp",
+                          "udp",
+                          "sctp",
+                          "dccp"
+                        ]
                       },
                       "source": {
                         "type": "string",
@@ -7689,7 +8035,9 @@
                         "pattern": "^[A-Za-z0-9_.:-]+$"
                       }
                     },
-                    "required": ["name"]
+                    "required": [
+                      "name"
+                    ]
                   }
                 }
               }
@@ -7923,32 +8271,50 @@
                     "oneOf": [
                       {
                         "title": "systemd service",
-                        "required": ["exec_start"],
+                        "required": [
+                          "exec_start"
+                        ],
                         "not": {
                           "anyOf": [
                             {
-                              "required": ["on_boot_sec"]
+                              "required": [
+                                "on_boot_sec"
+                              ]
                             },
                             {
-                              "required": ["on_unit_active_sec"]
+                              "required": [
+                                "on_unit_active_sec"
+                              ]
                             },
                             {
-                              "required": ["on_unit_inactive_sec"]
+                              "required": [
+                                "on_unit_inactive_sec"
+                              ]
                             },
                             {
-                              "required": ["on_calendar"]
+                              "required": [
+                                "on_calendar"
+                              ]
                             },
                             {
-                              "required": ["randomized_delay_sec"]
+                              "required": [
+                                "randomized_delay_sec"
+                              ]
                             },
                             {
-                              "required": ["accuracy_sec"]
+                              "required": [
+                                "accuracy_sec"
+                              ]
                             },
                             {
-                              "required": ["persistent"]
+                              "required": [
+                                "persistent"
+                              ]
                             },
                             {
-                              "required": ["unit"]
+                              "required": [
+                                "unit"
+                              ]
                             }
                           ]
                         }
@@ -7957,22 +8323,32 @@
                         "title": "systemd timer",
                         "anyOf": [
                           {
-                            "required": ["on_boot_sec"]
+                            "required": [
+                              "on_boot_sec"
+                            ]
                           },
                           {
-                            "required": ["on_unit_active_sec"]
+                            "required": [
+                              "on_unit_active_sec"
+                            ]
                           },
                           {
-                            "required": ["on_unit_inactive_sec"]
+                            "required": [
+                              "on_unit_inactive_sec"
+                            ]
                           },
                           {
-                            "required": ["on_calendar"]
+                            "required": [
+                              "on_calendar"
+                            ]
                           }
                         ],
                         "not": {
                           "anyOf": [
                             {
-                              "required": ["exec_start_pre"],
+                              "required": [
+                                "exec_start_pre"
+                              ],
                               "properties": {
                                 "exec_start_pre": {
                                   "type": "array",
@@ -7981,10 +8357,14 @@
                               }
                             },
                             {
-                              "required": ["exec_start"]
+                              "required": [
+                                "exec_start"
+                              ]
                             },
                             {
-                              "required": ["exec_start_post"],
+                              "required": [
+                                "exec_start_post"
+                              ],
                               "properties": {
                                 "exec_start_post": {
                                   "type": "array",
@@ -7993,16 +8373,24 @@
                               }
                             },
                             {
-                              "required": ["type"]
+                              "required": [
+                                "type"
+                              ]
                             },
                             {
-                              "required": ["remain_after_exit"]
+                              "required": [
+                                "remain_after_exit"
+                              ]
                             },
                             {
-                              "required": ["exec_stop"]
+                              "required": [
+                                "exec_stop"
+                              ]
                             },
                             {
-                              "required": ["exec_stop_post"],
+                              "required": [
+                                "exec_stop_post"
+                              ],
                               "properties": {
                                 "exec_stop_post": {
                                   "type": "array",
@@ -8011,19 +8399,29 @@
                               }
                             },
                             {
-                              "required": ["timeout_start_sec"]
+                              "required": [
+                                "timeout_start_sec"
+                              ]
                             },
                             {
-                              "required": ["timeout_stop_sec"]
+                              "required": [
+                                "timeout_stop_sec"
+                              ]
                             },
                             {
-                              "required": ["no_new_privileges"]
+                              "required": [
+                                "no_new_privileges"
+                              ]
                             },
                             {
-                              "required": ["private_tmp"]
+                              "required": [
+                                "private_tmp"
+                              ]
                             },
                             {
-                              "required": ["environment"],
+                              "required": [
+                                "environment"
+                              ],
                               "properties": {
                                 "environment": {
                                   "type": "object",
@@ -8032,7 +8430,9 @@
                               }
                             },
                             {
-                              "required": ["environment_file"],
+                              "required": [
+                                "environment_file"
+                              ],
                               "properties": {
                                 "environment_file": {
                                   "type": "array",
@@ -8041,25 +8441,39 @@
                               }
                             },
                             {
-                              "required": ["nice"]
+                              "required": [
+                                "nice"
+                              ]
                             },
                             {
-                              "required": ["umask"]
+                              "required": [
+                                "umask"
+                              ]
                             },
                             {
-                              "required": ["working_directory"]
+                              "required": [
+                                "working_directory"
+                              ]
                             },
                             {
-                              "required": ["restart"]
+                              "required": [
+                                "restart"
+                              ]
                             },
                             {
-                              "required": ["restart_sec"]
+                              "required": [
+                                "restart_sec"
+                              ]
                             },
                             {
-                              "required": ["standard_output"]
+                              "required": [
+                                "standard_output"
+                              ]
                             },
                             {
-                              "required": ["standard_error"]
+                              "required": [
+                                "standard_error"
+                              ]
                             }
                           ]
                         }
@@ -8263,7 +8677,9 @@
               "default": "main"
             }
           },
-          "required": ["url"],
+          "required": [
+            "url"
+          ],
           "additionalProperties": false
         }
       },
@@ -8600,26 +9016,40 @@
           },
           {
             "type": "object",
-            "required": ["run"],
+            "required": [
+              "run"
+            ],
             "not": {
               "anyOf": [
                 {
-                  "required": ["preset"]
+                  "required": [
+                    "preset"
+                  ]
                 },
                 {
-                  "required": ["project"]
+                  "required": [
+                    "project"
+                  ]
                 },
                 {
-                  "required": ["task"]
+                  "required": [
+                    "task"
+                  ]
                 },
                 {
-                  "required": ["args"]
+                  "required": [
+                    "args"
+                  ]
                 },
                 {
-                  "required": ["provider"]
+                  "required": [
+                    "provider"
+                  ]
                 },
                 {
-                  "required": ["resource"]
+                  "required": [
+                    "resource"
+                  ]
                 }
               ]
             },
@@ -8642,7 +9072,9 @@
                     "type": "object",
                     "description": "Pitchfork's structured port configuration, forwarded verbatim.",
                     "not": {
-                      "required": ["auto"]
+                      "required": [
+                        "auto"
+                      ]
                     }
                   }
                 ]
@@ -8661,23 +9093,35 @@
           },
           {
             "type": "object",
-            "required": ["task"],
+            "required": [
+              "task"
+            ],
             "not": {
               "anyOf": [
                 {
-                  "required": ["run"]
+                  "required": [
+                    "run"
+                  ]
                 },
                 {
-                  "required": ["preset"]
+                  "required": [
+                    "preset"
+                  ]
                 },
                 {
-                  "required": ["project"]
+                  "required": [
+                    "project"
+                  ]
                 },
                 {
-                  "required": ["provider"]
+                  "required": [
+                    "provider"
+                  ]
                 },
                 {
-                  "required": ["resource"]
+                  "required": [
+                    "resource"
+                  ]
                 }
               ]
             },
@@ -8710,23 +9154,36 @@
           },
           {
             "type": "object",
-            "required": ["preset", "version"],
+            "required": [
+              "preset",
+              "version"
+            ],
             "not": {
               "anyOf": [
                 {
-                  "required": ["project"]
+                  "required": [
+                    "project"
+                  ]
                 },
                 {
-                  "required": ["task"]
+                  "required": [
+                    "task"
+                  ]
                 },
                 {
-                  "required": ["args"]
+                  "required": [
+                    "args"
+                  ]
                 },
                 {
-                  "required": ["provider"]
+                  "required": [
+                    "provider"
+                  ]
                 },
                 {
-                  "required": ["resource"]
+                  "required": [
+                    "resource"
+                  ]
                 }
               ]
             },
@@ -8738,7 +9195,13 @@
               },
               "preset": {
                 "type": "string",
-                "enum": ["cockroachdb", "nats", "postgres", "redis", "spicedb"]
+                "enum": [
+                  "cockroachdb",
+                  "nats",
+                  "postgres",
+                  "redis",
+                  "spicedb"
+                ]
               },
               "version": {
                 "type": "string"
@@ -8779,7 +9242,9 @@
           {
             "type": "object",
             "description": "Daemon declared by another project, run under that project's namespace and root.",
-            "required": ["project"],
+            "required": [
+              "project"
+            ],
             "properties": {
               "project": {
                 "type": "string",
@@ -8794,7 +9259,9 @@
           },
           {
             "type": "object",
-            "required": ["provider"],
+            "required": [
+              "provider"
+            ],
             "additionalProperties": false,
             "properties": {
               "provider": {
@@ -8819,11 +9286,18 @@
       },
       "additionalProperties": {
         "type": "object",
-        "required": ["preset", "version"],
+        "required": [
+          "preset",
+          "version"
+        ],
         "additionalProperties": false,
         "properties": {
           "preset": {
-            "enum": ["postgres", "cockroachdb", "nats"]
+            "enum": [
+              "postgres",
+              "cockroachdb",
+              "nats"
+            ]
           },
           "version": {
             "type": "string"
@@ -8883,7 +9357,9 @@
           },
           {
             "type": "object",
-            "required": ["daemons"],
+            "required": [
+              "daemons"
+            ],
             "properties": {
               "daemons": {
                 "type": "array",

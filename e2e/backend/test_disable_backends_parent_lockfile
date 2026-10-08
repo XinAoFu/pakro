@@ -50,13 +50,13 @@ specifiers = ["4.15.0"]
 
 [[tools.yarn]]
 version = "4.16.0"
-backend = "npm:@yarnpkg/cli-dist"
+backend = "cargo:yarn"
 specifiers = ["4.16.0"]
 EOF
 mkdir mixed-child
 cp mise.toml mixed-child/mise.toml
 cd mixed-child
-assert "mise tool yarn --backend" "npm:@yarnpkg/cli-dist"
+assert "mise tool yarn --backend" "cargo:yarn"
 mise lock --platform "$MISE_PLATFORM"
-assert_contains "cat mise.lock" 'backend = "npm:@yarnpkg/cli-dist"'
+assert_contains "cat mise.lock" 'backend = "cargo:yarn"'
 assert_not_contains "cat mise.lock" 'asdf:'
