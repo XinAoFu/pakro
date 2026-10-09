@@ -2,6 +2,7 @@
 //! caches registry data (PyPI and npm); parsing and platform-tag matching
 //! are pure logic in ecological modules (`pypi`, `npm`, `wheel`).
 
+pub mod artifact;
 pub mod cache;
 pub mod npm;
 pub mod pypi;
