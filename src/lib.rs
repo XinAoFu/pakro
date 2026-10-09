@@ -90,6 +90,8 @@ pub mod watch_files;
 pub mod install_before;
 #[path = "toolinstall/install_context.rs"]
 pub mod install_context;
+#[path = "toolinstall/python_runtime.rs"]
+pub mod python_runtime;
 #[path = "toolinstall/runtime_symlinks.rs"]
 pub mod runtime_symlinks;
 #[cfg(unix)]
