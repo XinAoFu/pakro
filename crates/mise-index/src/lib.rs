@@ -6,6 +6,7 @@ pub mod artifact;
 pub mod cache;
 pub mod npm;
 pub mod pypi;
+pub mod python_context;
 pub mod types;
 pub mod wheel;
 
@@ -15,9 +16,11 @@ use std::time::Duration;
 
 pub use npm::{parse_npm_version_metadata, parse_npm_versions};
 pub use pypi::{
-    parse_pypi_response, parse_pypi_versions, parse_pypi_versions_for_runtime,
-    python_requires_matches, rewrite_files_host,
+    parse_pypi_response, parse_pypi_response_for_context, parse_pypi_versions,
+    parse_pypi_versions_for_context, parse_pypi_versions_for_runtime, python_requires_matches,
+    python_requires_matches_for_context, rewrite_files_host,
 };
+pub use python_context::{PythonMarkerContext, PythonMarkerContextBuilder};
 pub use types::{
     ArtifactDescriptor, ArtifactKind, DependencyConstraint, PackageMetadata, normalize_py_name,
 };
@@ -90,53 +93,90 @@ impl Index {
 
     // -- python (PyPI) --
 
-    /// Metadata for one exact version; markers already evaluated for `runtime`.
+    /// Temporary compatibility API; it does not observe a real interpreter.
     pub async fn metadata(
         &self,
         name: &str,
         version: &str,
         runtime: &RuntimeInfo,
     ) -> Result<PackageMetadata> {
-        let url = format!(
-            "{}/{}/{version}/json",
-            self.pypi_url,
-            normalize_py_name(name)
-        );
-        let value = self.fetch_cached("python", name, version, &url).await?;
-        let mut metadata = parse_pypi_response(&value, runtime)?;
-        if let Some(base) = &self.pypi_files_url {
-            for artifact in &mut metadata.artifacts {
-                artifact.url = rewrite_files_host(&artifact.url, base);
-            }
-        }
-        Ok(metadata)
+        let value = self.fetch_python_metadata(name, version).await?;
+        let metadata = parse_pypi_response(&value, runtime)?;
+        Ok(self.rewrite_python_artifacts(metadata))
     }
 
-    /// All released versions of a python package.
+    /// Evaluate dependencies afresh against the caller's explicit marker fields.
+    /// Invalid Requires-Python is an error; valid incompatible constraints remain
+    /// in the returned metadata for the caller's install-time check.
+    /// The cache stores raw JSON. A cache miss may fetch online; this method
+    /// provides no offline guarantee or proof of interpreter/ABI compatibility.
+    pub async fn metadata_for_context(
+        &self,
+        name: &str,
+        version: &str,
+        context: &PythonMarkerContext,
+    ) -> Result<PackageMetadata> {
+        let value = self.fetch_python_metadata(name, version).await?;
+        let metadata = parse_pypi_response_for_context(&value, context)?;
+        Ok(self.rewrite_python_artifacts(metadata))
+    }
+
+    /// Raw release names with files, without target-context compatibility checks.
+    /// A cache miss may fetch online; this method provides no offline guarantee.
     pub async fn versions(&self, name: &str) -> Result<Vec<String>> {
-        let url = format!("{}/{}/json", self.pypi_url, normalize_py_name(name));
-        let value = self
-            .fetch_cached("python", name, "__versions__", &url)
-            .await?;
+        let value = self.fetch_python_version_listing(name).await?;
         parse_pypi_versions(&value)
     }
 
-    /// Released versions whose `requires_python` admits the runtime, so the
-    /// solver never proposes candidates install-time checks would reject.
-    /// Same cache entry as [`Index::versions`]; no extra request.
+    /// Temporary compatibility API with major/minor-only runtime information.
     pub async fn versions_for_runtime(
         &self,
         name: &str,
         runtime: &RuntimeInfo,
     ) -> Result<Vec<String>> {
-        let url = format!("{}/{}/json", self.pypi_url, normalize_py_name(name));
-        let value = self
-            .fetch_cached("python", name, "__versions__", &url)
-            .await?;
+        let value = self.fetch_python_version_listing(name).await?;
         parse_pypi_versions_for_runtime(&value, runtime)
     }
 
-    /// Newest non-prerelease version, pep440 ordering.
+    /// Releases with at least one file admitting the full explicit language version.
+    /// Invalid file Requires-Python constraints are errors. This is not a wheel
+    /// ABI/installability check. The cache stores raw JSON and is evaluated for
+    /// each context; a cache miss may fetch online with no offline guarantee.
+    pub async fn versions_for_context(
+        &self,
+        name: &str,
+        context: &PythonMarkerContext,
+    ) -> Result<Vec<String>> {
+        let value = self.fetch_python_version_listing(name).await?;
+        parse_pypi_versions_for_context(&value, context)
+    }
+
+    async fn fetch_python_metadata(&self, name: &str, version: &str) -> Result<serde_json::Value> {
+        let url = format!(
+            "{}/{}/{version}/json",
+            self.pypi_url,
+            normalize_py_name(name)
+        );
+        self.fetch_cached("python", name, version, &url).await
+    }
+
+    async fn fetch_python_version_listing(&self, name: &str) -> Result<serde_json::Value> {
+        let url = format!("{}/{}/json", self.pypi_url, normalize_py_name(name));
+        self.fetch_cached("python", name, "__versions__", &url)
+            .await
+    }
+
+    fn rewrite_python_artifacts(&self, mut metadata: PackageMetadata) -> PackageMetadata {
+        if let Some(base) = &self.pypi_files_url {
+            for artifact in &mut metadata.artifacts {
+                artifact.url = rewrite_files_host(&artifact.url, base);
+            }
+        }
+        metadata
+    }
+
+    /// Raw Python release selected by the legacy latest helper, without target checks.
+    /// PEP 440 prerelease filtering is incomplete in this compatibility API.
     pub async fn latest_stable_python(&self, name: &str) -> Result<Option<String>> {
         let versions = self.versions(name).await?;
         Ok(latest_stable(versions, |v| {
@@ -233,6 +273,10 @@ pub enum IndexError {
     BadResponse { package: String, reason: String },
     #[error("invalid requirement string {0:?}")]
     BadRequirement(String, #[source] pep508_rs::Pep508Error),
+    #[error("invalid Python marker context: {0}")]
+    InvalidPythonContext(String),
+    #[error("invalid Requires-Python {specifier:?}: {reason}")]
+    InvalidPythonSpecifier { specifier: String, reason: String },
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
