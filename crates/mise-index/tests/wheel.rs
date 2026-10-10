@@ -115,7 +115,7 @@ fn expands_compressed_tag_sets() {
     let f = parse_wheel_filename("foo-1.0-py2.py3-none-any.whl").unwrap();
     assert_eq!(f.tags.python, vec!["py2".to_string(), "py3".to_string()]);
     let f = parse_wheel_filename("bar-2.0-cp39.cp310-abi3-manylinux_2_17_x86_64.whl").unwrap();
-    assert_eq!(f.tags.python, vec!["cp39".to_string(), "cp310".to_string()]);
+    assert_eq!(f.tags.python, vec!["cp310".to_string(), "cp39".to_string()]);
     assert_eq!(f.tags.abi, vec!["abi3".to_string()]);
 }
 

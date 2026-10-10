@@ -2,7 +2,12 @@
 //! `{distribution}-{version}(-{build})?-{python}-{abi}-{platform}.whl`, where
 //! each of the last three fields may hold a `.`-compressed set of tags.
 
+use std::cmp::Ordering;
+use std::str::FromStr;
+
 use mise_store::{Arch, Libc, Os, Platform};
+use pep440_rs::Version;
+use pep508_rs::PackageName;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WheelTags {
@@ -11,14 +16,121 @@ pub struct WheelTags {
     pub platform: Vec<String>,
 }
 
+/// A wheel build tuple, with arbitrary-precision decimal ordering.
+/// Original text is diagnostic only and is excluded from equality/ordering.
+#[derive(Debug, Clone)]
+pub struct WheelBuildTag {
+    raw: String,
+    number: String,
+    suffix: String,
+}
+
+impl WheelBuildTag {
+    pub fn parse(value: &str) -> Option<Self> {
+        if value.is_empty()
+            || value
+                .chars()
+                .any(|ch| ch.is_control() || ch.is_whitespace() || matches!(ch, '/' | '\\' | '-'))
+        {
+            return None;
+        }
+        let digits = value.bytes().take_while(u8::is_ascii_digit).count();
+        if digits == 0 {
+            return None;
+        }
+        let normalized = value[..digits].trim_start_matches('0');
+        Some(Self {
+            raw: value.to_string(),
+            number: if normalized.is_empty() {
+                "0"
+            } else {
+                normalized
+            }
+            .to_string(),
+            suffix: value[digits..].to_string(),
+        })
+    }
+
+    pub fn raw(&self) -> &str {
+        &self.raw
+    }
+
+    pub fn number(&self) -> &str {
+        &self.number
+    }
+
+    pub fn suffix(&self) -> &str {
+        &self.suffix
+    }
+}
+
+impl PartialEq for WheelBuildTag {
+    fn eq(&self, other: &Self) -> bool {
+        self.number == other.number && self.suffix == other.suffix
+    }
+}
+
+impl Eq for WheelBuildTag {}
+
+impl Ord for WheelBuildTag {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.number
+            .len()
+            .cmp(&other.number.len())
+            .then_with(|| self.number.cmp(&other.number))
+            .then_with(|| self.suffix.cmp(&other.suffix))
+    }
+}
+
+impl PartialOrd for WheelBuildTag {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WheelFile {
     pub name: String,
     pub version: String,
+    pub build: Option<WheelBuildTag>,
     pub tags: WheelTags,
 }
 
+fn valid_tag_token(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+}
+
+fn valid_interpreter_token(value: &str) -> bool {
+    valid_tag_token(value)
+        && value
+            .as_bytes()
+            .first()
+            .is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'_')
+}
+
+fn parse_compressed_field(value: &str, validate: fn(&str) -> bool) -> Option<Vec<String>> {
+    let mut values = Vec::new();
+    for token in value.split('.') {
+        if !validate(token) {
+            return None;
+        }
+        values.push(token.to_ascii_lowercase());
+    }
+    values.sort();
+    values.dedup();
+    Some(values)
+}
+
 pub fn parse_wheel_filename(filename: &str) -> Option<WheelFile> {
+    if filename
+        .chars()
+        .any(|ch| ch.is_control() || ch.is_whitespace() || matches!(ch, '/' | '\\'))
+    {
+        return None;
+    }
     let stem = filename.strip_suffix(".whl")?;
     let parts: Vec<&str> = stem.split('-').collect();
     if !matches!(parts.len(), 5 | 6) {
@@ -26,28 +138,28 @@ pub fn parse_wheel_filename(filename: &str) -> Option<WheelFile> {
     }
     let name = parts[0];
     let version = parts[1];
-    if name.is_empty() || version.is_empty() {
+    if name.is_empty() {
         return None;
     }
+    PackageName::from_str(name).ok()?;
+    Version::from_str(version).ok()?;
+    let build = if parts.len() == 6 {
+        Some(WheelBuildTag::parse(parts[2])?)
+    } else {
+        None
+    };
     let [python, abi, platform] = parts[parts.len() - 3..] else {
         return None;
     };
-    let expand = |field: &str| -> Vec<String> { field.split('.').map(str::to_string).collect() };
-    let tags = WheelTags {
-        python: expand(python),
-        abi: expand(abi),
-        platform: expand(platform),
-    };
-    if tags.python.iter().any(String::is_empty)
-        || tags.abi.iter().any(String::is_empty)
-        || tags.platform.iter().any(String::is_empty)
-    {
-        return None;
-    }
     Some(WheelFile {
         name: name.to_string(),
         version: version.to_string(),
-        tags,
+        build,
+        tags: WheelTags {
+            python: parse_compressed_field(python, valid_interpreter_token)?,
+            abi: parse_compressed_field(abi, valid_tag_token)?,
+            platform: parse_compressed_field(platform, valid_tag_token)?,
+        },
     })
 }
 

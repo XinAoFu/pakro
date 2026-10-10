@@ -23,7 +23,9 @@ pub use python_context::{PythonMarkerContext, PythonMarkerContextBuilder};
 pub use types::{
     ArtifactDescriptor, ArtifactKind, DependencyConstraint, PackageMetadata, normalize_py_name,
 };
-pub use wheel::{RuntimeInfo, WheelFile, WheelTags, parse_wheel_filename, wheel_matches};
+pub use wheel::{
+    RuntimeInfo, WheelBuildTag, WheelFile, WheelTags, parse_wheel_filename, wheel_matches,
+};
 
 // ---------------------------------------------------------------------------
 // Index client
