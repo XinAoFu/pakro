@@ -24,7 +24,8 @@ pub use types::{
     ArtifactDescriptor, ArtifactKind, DependencyConstraint, PackageMetadata, normalize_py_name,
 };
 pub use wheel::{
-    RuntimeInfo, WheelBuildTag, WheelFile, WheelTags, parse_wheel_filename, wheel_matches,
+    RuntimeInfo, SupportedWheelTags, WheelBuildTag, WheelFile, WheelTag, WheelTags,
+    parse_wheel_filename, wheel_matches,
 };
 
 // ---------------------------------------------------------------------------
@@ -299,6 +300,8 @@ pub enum IndexError {
     InvalidPythonContext(String),
     #[error("invalid Requires-Python {specifier:?}: {reason}")]
     InvalidPythonSpecifier { specifier: String, reason: String },
+    #[error("invalid wheel tags: {0}")]
+    InvalidWheelTags(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]

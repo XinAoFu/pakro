@@ -3,11 +3,14 @@
 //! each of the last three fields may hold a `.`-compressed set of tags.
 
 use std::cmp::Ordering;
+use std::collections::BTreeSet;
 use std::str::FromStr;
 
 use mise_store::{Arch, Libc, Os, Platform};
 use pep440_rs::Version;
 use pep508_rs::PackageName;
+
+use crate::{IndexError, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WheelTags {
@@ -160,6 +163,96 @@ pub fn parse_wheel_filename(filename: &str) -> Option<WheelFile> {
             abi: parse_compressed_field(abi, valid_tag_token)?,
             platform: parse_compressed_field(platform, valid_tag_token)?,
         },
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct WheelTag {
+    interpreter: String,
+    abi: String,
+    platform: String,
+}
+
+impl WheelTag {
+    pub fn new(interpreter: &str, abi: &str, platform: &str) -> Result<Self> {
+        if !valid_interpreter_token(interpreter)
+            || ![abi, platform].iter().all(|value| valid_tag_token(value))
+        {
+            return Err(IndexError::InvalidWheelTags(
+                "interpreter must be an ASCII identifier; ABI/platform must be nonempty ASCII alphanumeric/underscore atoms".into(),
+            ));
+        }
+        Ok(Self {
+            interpreter: interpreter.to_ascii_lowercase(),
+            abi: abi.to_ascii_lowercase(),
+            platform: platform.to_ascii_lowercase(),
+        })
+    }
+
+    pub fn interpreter(&self) -> &str {
+        &self.interpreter
+    }
+
+    pub fn abi(&self) -> &str {
+        &self.abi
+    }
+
+    pub fn platform(&self) -> &str {
+        &self.platform
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SupportedWheelTags {
+    ordered: Vec<WheelTag>,
+}
+
+impl SupportedWheelTags {
+    pub fn new(ordered: Vec<WheelTag>) -> Result<Self> {
+        let mut seen = BTreeSet::new();
+        for tag in &ordered {
+            if !seen.insert(tag.clone()) {
+                return Err(IndexError::InvalidWheelTags(
+                    "supported list contains a duplicate canonical triple".into(),
+                ));
+            }
+        }
+        Ok(Self { ordered })
+    }
+
+    pub fn ordered(&self) -> &[WheelTag] {
+        &self.ordered
+    }
+
+    pub fn best_rank(&self, wheel: &WheelTags) -> Result<Option<usize>> {
+        let canonical = canonical_wheel_tags(wheel)?;
+        Ok(self.ordered.iter().position(|tag| {
+            canonical.python.binary_search(&tag.interpreter).is_ok()
+                && canonical.abi.binary_search(&tag.abi).is_ok()
+                && canonical.platform.binary_search(&tag.platform).is_ok()
+        }))
+    }
+}
+
+pub(crate) fn canonical_wheel_tags(tags: &WheelTags) -> Result<WheelTags> {
+    fn canonical_field(values: &[String], validate: fn(&str) -> bool) -> Result<Vec<String>> {
+        if values.is_empty() || !values.iter().all(|value| validate(value)) {
+            return Err(IndexError::InvalidWheelTags(
+                "each compressed field must contain at least one valid single atom".into(),
+            ));
+        }
+        let mut canonical: Vec<_> = values
+            .iter()
+            .map(|value| value.to_ascii_lowercase())
+            .collect();
+        canonical.sort();
+        canonical.dedup();
+        Ok(canonical)
+    }
+    Ok(WheelTags {
+        python: canonical_field(&tags.python, valid_interpreter_token)?,
+        abi: canonical_field(&tags.abi, valid_tag_token)?,
+        platform: canonical_field(&tags.platform, valid_tag_token)?,
     })
 }
 
