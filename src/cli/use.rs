@@ -10,7 +10,9 @@ use jiff::Timestamp;
 
 use crate::args::{BackendArg, ToolArg};
 use crate::config::config_file::ConfigFile;
-use crate::config::{Config, ConfigPathOptions, Settings, config_file, resolve_target_config_path};
+use crate::config::{
+    Config, ConfigPathOptions, Settings, SettingsExt, config_file, resolve_target_config_path,
+};
 use crate::file::display_path;
 use crate::install_before::resolve_cli_minimum_release_age;
 use crate::toolset::{
@@ -429,12 +431,46 @@ impl Use {
                 .get()
                 .map(|pins| pins.to_vec())
                 .unwrap_or_default();
-            let installed = crate::packages::install::install_config_packages(&config, extra)
-                .await
-                .unwrap_or_else(|err| {
-                    warn!("package install after `use` failed: {err:#}");
-                    0
-                });
+            // The selected write target can be outside the cwd discovery chain.
+            // Retain its latest saved contents and owner for package policy and paths.
+            let mut package_config_files = config.config_files.clone();
+            let target_path = cf.get_path().to_path_buf();
+            if package_config_files.contains_key(&target_path) {
+                package_config_files.insert(target_path, Arc::clone(&cf));
+            } else {
+                package_config_files.shift_insert(0, target_path, Arc::clone(&cf));
+            }
+            let package_config = config.with_config_files(package_config_files);
+            let package_ts = package_config.get_toolset().await?;
+            let settings = Settings::get();
+            let policy = crate::packages::install::PackageInvocationPolicy {
+                locked: settings.locked,
+                offline: settings.offline(),
+            };
+            let mut package_bindings = crate::packages::install::snapshot_runtime_bindings(
+                &package_config,
+                &versions,
+                settings.locked,
+            );
+            // Successful installs carry the real write-target owner. A current
+            // CLI request reconstructed by Config must not shadow those bindings.
+            package_bindings.extend(crate::packages::install::snapshot_runtime_bindings(
+                &package_config,
+                &package_ts
+                    .list_current_versions()
+                    .into_iter()
+                    .filter(|(_, tv)| !versions.iter().any(|installed| installed.ba() == tv.ba()))
+                    .map(|(_, tv)| tv)
+                    .collect::<Vec<_>>(),
+                settings.locked,
+            ));
+            let installed = crate::packages::install::install_config_packages(
+                &package_config,
+                extra,
+                &package_bindings,
+                policy,
+            )
+            .await?;
             if installed > 0 {
                 info!("installed {installed} package artifact(s) into the mise store");
             }

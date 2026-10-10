@@ -8,12 +8,13 @@ use crate::config::{Config, SettingsExt};
 use crate::errors::split_install_result;
 use crate::hooks::Hooks;
 use crate::install_before::resolve_cli_minimum_release_age;
+use crate::packages::install::{PackageRuntimeBinding, snapshot_runtime_bindings};
 use crate::task::TaskLoadContext;
 use crate::task::task_context_builder::TaskContextBuilder;
 use crate::task::task_tool_installer::TaskToolInstaller;
 use crate::toolset::{
     InstallOptions, ResolveOptions, ToolRequest, ToolRequestSet, ToolSource, ToolVersionOptions,
-    Toolset, ensure_compatible_install_requests, tool_env_vars,
+    Toolset, ToolsetBuilder, ensure_compatible_install_requests, tool_env_vars,
 };
 use crate::ui::install_progress::install_progress;
 use crate::ui::multi_progress_report::MultiProgressReport;
@@ -166,7 +167,7 @@ impl Install {
         }
         let task_requests = self.collect_task_tool_requests(&config).await?;
         crate::plugins::warn_plugin_drift(&config);
-        match &self.tool {
+        let runtime_bindings = match &self.tool {
             Some(runtime) => {
                 let original_tool_args = env::TOOL_ARGS.read().unwrap().clone();
                 env::TOOL_ARGS.write().unwrap().clone_from(runtime);
@@ -178,7 +179,8 @@ impl Install {
                     .await?
             }
         };
-        self.install_config_packages(&config, bare_pins).await?;
+        self.install_config_packages(&config, bare_pins, &runtime_bindings)
+            .await?;
         self.hint_missing_system_packages().await;
         Ok(())
     }
@@ -187,12 +189,19 @@ impl Install {
         &self,
         config: &Arc<Config>,
         bare_pins: Vec<crate::packages::PackageInstallRequest>,
+        runtimes: &[PackageRuntimeBinding],
     ) -> Result<()> {
         if self.is_dry_run() {
             return Ok(());
         }
+        let settings = Settings::get();
+        let policy = crate::packages::install::PackageInvocationPolicy {
+            locked: settings.locked,
+            offline: settings.offline(),
+        };
         let downloaded =
-            crate::packages::install::install_config_packages(config, bare_pins).await?;
+            crate::packages::install::install_config_packages(config, bare_pins, runtimes, policy)
+                .await?;
         if downloaded > 0 {
             info!("installed {downloaded} package artifact(s) into the mise store");
         }
@@ -345,7 +354,7 @@ impl Install {
         runtimes: &[ToolArg],
         original_tool_args: Vec<ToolArg>,
         task_requests: Vec<ToolRequest>,
-    ) -> Result<()> {
+    ) -> Result<Vec<PackageRuntimeBinding>> {
         let monorepo_union = if self.monorepo {
             Some(config.monorepo_union().await?)
         } else {
@@ -389,7 +398,7 @@ impl Install {
 
         // If only wildcards were provided and none matched, exit early
         if expanded_runtimes.is_empty() && has_unmatched_wildcard {
-            return Ok(());
+            return Ok(Vec::new());
         }
 
         let tools: HashSet<String> = expanded_runtimes
@@ -412,6 +421,9 @@ impl Install {
             .chain(tool_env_vars().map(|(name, _, _)| name))
             .chain(task_requests.iter().map(|tr| tr.ba().short.clone()))
             .collect();
+        let configured_ts = ToolsetBuilder::new()
+            .with_config_files(configured_config_files)
+            .build_unresolved(&install_config)?;
         let inactive_tools: Vec<String> = tools
             .iter()
             .filter(|t| !configured_tools.contains(*t))
@@ -419,10 +431,12 @@ impl Install {
             .collect();
         let mut ts: Toolset = trs.filter_by_tool(tools).into();
         extend_toolset(&mut ts, &task_requests);
-        let mut tool_versions = self.get_requested_tool_versions(&ts, &expanded_runtimes)?;
+        let mut tool_versions =
+            self.get_requested_tool_versions(&ts, &configured_ts, &expanded_runtimes)?;
         tool_versions.extend(task_requests);
         dedup_tool_requests(&mut tool_versions);
         ensure_compatible_install_requests(&tool_versions)?;
+        let package_owner_config = Arc::clone(&install_config);
         let (mut versions, install_error) = if tool_versions.is_empty() {
             warn!("no runtimes to install");
             warn!("specify a version with `mise install <TOOL>@<VERSION>`");
@@ -441,6 +455,8 @@ impl Install {
                     .await,
             )
         };
+        let mut package_bindings =
+            snapshot_runtime_bindings(&package_owner_config, &versions, Settings::get().locked);
         // Tools that actually installed successfully. `versions` is mutated
         // below (retained to current versions for the lockfile/shim rebuild),
         // so capture the set now for the "installed but not activated" warning.
@@ -457,7 +473,7 @@ impl Install {
                     return Err(exit::request(1));
                 }
             }
-            return install_error;
+            return install_error.map(|()| package_bindings);
         }
 
         versions.retain(|tv| tv.install_satisfied != Some(true));
@@ -481,6 +497,14 @@ impl Install {
                     .await?
             };
             let current_versions = ts.list_current_versions();
+            package_bindings.extend(snapshot_runtime_bindings(
+                &rebuild_config,
+                &current_versions
+                    .iter()
+                    .map(|(_, tv)| tv.clone())
+                    .collect::<Vec<_>>(),
+                Settings::get().locked,
+            ));
             // Match the configured package and options, not graph identity: accepting
             // an edited sidecar deliberately changes the installed graph identity.
             versions.retain(|tv| {
@@ -526,7 +550,7 @@ impl Install {
         }
 
         install_error?;
-        Ok(())
+        Ok(package_bindings)
     }
 
     fn install_opts(&self) -> Result<InstallOptions> {
@@ -582,13 +606,25 @@ impl Install {
     fn get_requested_tool_versions(
         &self,
         ts: &Toolset,
+        configured_ts: &Toolset,
         runtimes: &[ToolArg],
     ) -> Result<Vec<ToolRequest>> {
         let mut requests = vec![];
         for ta in ToolArg::double_tool_condition(runtimes)? {
             match ta.tvr {
                 // user provided an explicit version
-                Some(tv) => requests.push(tv),
+                Some(tv) => {
+                    let configured = configured_ts
+                        .versions
+                        .get(ta.ba.as_ref())
+                        .map(|tvl| tvl.requests.as_slice())
+                        .unwrap_or_default();
+                    requests.push(ToolsetBuilder::bind_runtime_request(
+                        tv,
+                        configured,
+                        self.install_opts()?.resolve_options.use_locked_version,
+                    ));
+                }
                 None => {
                     match ts.versions.get(ta.ba.as_ref()) {
                         // the tool is in config so fetch the params from config
@@ -619,7 +655,7 @@ impl Install {
         &self,
         config: Arc<Config>,
         task_requests: Vec<ToolRequest>,
-    ) -> eyre::Result<()> {
+    ) -> eyre::Result<Vec<PackageRuntimeBinding>> {
         let monorepo_union = if self.monorepo {
             Some(config.monorepo_union().await?)
         } else {
@@ -679,6 +715,8 @@ impl Install {
                 )
             })
             .flatten();
+        let package_owner_config = Arc::clone(&install_config);
+        let mut package_bindings = Vec::new();
         let requests = measure!("fetching install runtimes", {
             if self.force {
                 install_candidates
@@ -697,6 +735,20 @@ impl Install {
                     // by the install layout (its version link, a lockfile pin); a preview
                     // never writes.
                     if satisfied && !opts.dry_run {
+                        let actual = tr
+                            .resolve(
+                                &install_config,
+                                &ResolveOptions {
+                                    offline: true,
+                                    ..Default::default()
+                                },
+                            )
+                            .await?;
+                        package_bindings.extend(snapshot_runtime_bindings(
+                            &package_owner_config,
+                            &[actual],
+                            Settings::get().locked,
+                        ));
                         tr.note_layout_use(&install_config).await;
                     }
                     if satisfied && tr.options().postinstall().is_none_or(|(_, always)| !always) {
@@ -768,6 +820,11 @@ impl Install {
                 )
             })
         };
+        package_bindings.extend(snapshot_runtime_bindings(
+            &package_owner_config,
+            &versions,
+            Settings::get().locked,
+        ));
         if self.is_dry_run() {
             if self.dry_run_code
                 && has_work
@@ -775,7 +832,7 @@ impl Install {
             {
                 return Err(exit::request(1));
             }
-            return install_error;
+            return install_error.map(|()| package_bindings);
         }
 
         // An `always` postinstall on an existing tool is a successful request,
@@ -819,7 +876,7 @@ impl Install {
             });
         }
         install_error?;
-        Ok(())
+        Ok(package_bindings)
     }
 
     async fn effective_config(
@@ -896,6 +953,31 @@ mod tests {
     use super::*;
     use crate::args::BackendArg;
     use crate::toolset::parse_tool_options;
+
+    #[test]
+    fn explicit_install_request_borrows_config_owner_through_actual_entry() {
+        let backend = Arc::new(BackendArg::new("python".into(), Some("core:python".into())));
+        let owner = ToolSource::MiseToml("/owner/mise.toml".into());
+        let mut configured_ts = Toolset::new(owner.clone());
+        configured_ts.add_version(ToolRequest::new(backend, "3.10.14", owner).unwrap());
+
+        let install = Install::default();
+        let args = [ToolArg::from_str("python@3.10.14").unwrap()];
+        let mut argument_ts = Toolset::new(ToolSource::Argument);
+        argument_ts.add_version(args[0].tvr.clone().unwrap());
+
+        let requests = install
+            .get_requested_tool_versions(&argument_ts, &configured_ts, &args)
+            .unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].source(), &ToolSource::Argument);
+        assert!(format!("{:?}", requests[0]).contains("/owner/mise.toml"));
+
+        let unowned = install
+            .get_requested_tool_versions(&argument_ts, &Toolset::new(ToolSource::Argument), &args)
+            .unwrap();
+        assert!(format!("{:?}", unowned[0]).contains("NoOwner"));
+    }
 
     fn request(version: &str, options: &str, source: ToolSource) -> ToolRequest {
         ToolRequest::new_with_options(

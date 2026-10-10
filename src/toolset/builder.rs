@@ -41,6 +41,30 @@ impl ToolsetBuilder {
         Self::default()
     }
 
+    /// Bind an invocation request to configured options and its lockfile owner.
+    /// The invocation source remains unchanged; absent configuration has NoOwner.
+    pub fn bind_runtime_request(
+        mut request: ToolRequest,
+        configured: &[ToolRequest],
+        use_locked_version: bool,
+    ) -> ToolRequest {
+        if let Some(options) = configured_options_for_runtime_request(configured, &request) {
+            request.apply_config_options(options);
+        }
+        if use_locked_version {
+            let scope = match configured.iter().find(|request| request.is_os_supported()) {
+                Some(configured) if configured.source().path().is_some() => {
+                    LockfileScope::Source(configured.source().clone())
+                }
+                // Environment overrides retain their existing lookup policy.
+                Some(_) => LockfileScope::Default,
+                None => LockfileScope::NoOwner,
+            };
+            request.set_lockfile_scope(scope);
+        }
+        request
+    }
+
     pub fn with_args(mut self, args: &[ToolArg]) -> Self {
         self.args = args.to_vec();
         self
@@ -309,24 +333,12 @@ impl ToolsetBuilder {
                 .get(&args[0].ba)
                 .map(|tvl| tvl.requests.clone())
                 .unwrap_or_default();
-            let apply_arg_options = |mut tvr: ToolRequest| {
-                if let Some(config_options) =
-                    configured_options_for_runtime_request(&configured, &tvr)
-                {
-                    tvr.apply_config_options(config_options);
-                }
-                if self.resolve_options.use_locked_version {
-                    let scope = match configured.iter().find(|request| request.is_os_supported()) {
-                        Some(configured) if configured.source().path().is_some() => {
-                            LockfileScope::Source(configured.source().clone())
-                        }
-                        // Environment overrides retain their existing lookup policy.
-                        Some(_) => LockfileScope::Default,
-                        None => LockfileScope::NoOwner,
-                    };
-                    tvr.set_lockfile_scope(scope);
-                }
-                tvr
+            let apply_arg_options = |tvr| {
+                Self::bind_runtime_request(
+                    tvr,
+                    &configured,
+                    self.resolve_options.use_locked_version,
+                )
             };
             for arg in args {
                 if let Some(tvr) = &arg.tvr {
@@ -373,6 +385,23 @@ mod tests {
 
     use super::*;
     use crate::toolset::{ToolVersion, parse_tool_options};
+
+    #[test]
+    fn canonical_runtime_argument_binding_keeps_source_and_real_owner() {
+        let backend = Arc::new(crate::plugins::core::new_backend_arg("python"));
+        let owner = ToolSource::MiseToml("/owner/mise.toml".into());
+        let configured = ToolRequest::new(backend.clone(), "3.10.14", owner.clone()).unwrap();
+        let argument = ToolRequest::new(backend, "3.10.14", ToolSource::Argument).unwrap();
+
+        let bound = ToolsetBuilder::bind_runtime_request(argument.clone(), &[configured], true);
+        assert_eq!(bound.source(), &ToolSource::Argument);
+        assert_eq!(bound.lockfile_source(), Some(&owner));
+
+        let unowned = ToolsetBuilder::bind_runtime_request(argument, &[], true);
+        assert_eq!(unowned.source(), &ToolSource::Argument);
+        assert_eq!(unowned.lockfile_scope(), &LockfileScope::NoOwner);
+        assert_eq!(unowned.lockfile_source(), None);
+    }
 
     #[test]
     fn postinstall_runtime_uses_the_outer_install_path() {

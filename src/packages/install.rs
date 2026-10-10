@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use eyre::{Context, ContextCompat, bail};
 use tokio::runtime::Handle;
@@ -19,6 +20,12 @@ use mise_store::{Digest, Eco, PackageIdentity, Platform, RuntimeId, Store};
 use crate::{dirs, http};
 
 use super::PackageInstallRequest;
+use super::binding::{
+    PackageInstallInputs, guard_python_sidecar_migration, merge_owned_requests, prepare_inputs,
+};
+pub use super::binding::{
+    PackageInvocationPolicy, PackageRuntimeBinding, snapshot_runtime_bindings,
+};
 use super::lockfile::{LOCKFILE_NAME, PackageLock};
 use super::materialize::{VenvSpec, materialize_venv};
 
@@ -48,10 +55,13 @@ impl Locations {
 
 /// Installs every request group. Returns how many store entries were newly
 /// downloaded (0 means everything came from the store or the lock).
-pub async fn install_packages(
-    requests: &[PackageInstallRequest],
+pub(crate) async fn install_packages(
+    inputs: &PackageInstallInputs,
     locs: &Locations,
+    index: Arc<Index>,
 ) -> eyre::Result<usize> {
+    guard_python_sidecar_migration(inputs)?;
+    let requests = &inputs.requests;
     let mut groups: BTreeMap<(String, String), Vec<&PackageInstallRequest>> = BTreeMap::new();
     for request in requests {
         groups
@@ -92,14 +102,18 @@ pub async fn install_packages(
                     })
                     .collect();
                 let locked_bias = lock.graph_for(&group_key).unwrap_or_default();
-                let index = Index::from_env(&locs.index_cache);
                 match runtime_name.as_str() {
                     "node" => {
-                        let source = NodeSource { index };
+                        let source = NodeSource {
+                            index: Arc::clone(&index),
+                        };
                         mise_resolver::solve(&solve_requests, &locked_bias, &source, "node")
                     }
                     _ => {
-                        let source = PythonSource { index, runtime };
+                        let source = PythonSource {
+                            index: Arc::clone(&index),
+                            runtime,
+                        };
                         mise_resolver::solve(&solve_requests, &locked_bias, &source, "python")
                     }
                 }
@@ -108,7 +122,6 @@ pub async fn install_packages(
         };
 
         let store = Store::open(&locs.store_root)?;
-        let index = Index::from_env(&locs.index_cache);
         let mut nodes = graph.nodes.clone();
         for node in &mut nodes {
             if node.digest.as_deref().is_some_and(|d| !d.is_empty()) {
@@ -345,7 +358,7 @@ fn top_level_matches<'a>(
 /// is safe here because mise runs a multi-thread tokio runtime and solving
 /// happens on a worker thread.
 struct PythonSource {
-    index: Index,
+    index: Arc<Index>,
     runtime: RuntimeInfo,
 }
 
@@ -381,7 +394,7 @@ impl MetadataSource for PythonSource {
 /// candidate list (npm's own default); exact prerelease pins are not
 /// supported for node in this version.
 struct NodeSource {
-    index: Index,
+    index: Arc<Index>,
 }
 
 impl MetadataSource for NodeSource {
@@ -421,24 +434,38 @@ impl MetadataSource for NodeSource {
 /// Installs every `[packages]` group plus any extra CLI pins (bound or bare).
 /// Shared by `mise install` and `mise use`.
 pub async fn install_config_packages(
-    config: &crate::config::Config,
+    config: &Arc<crate::config::Config>,
     extra: Vec<super::PackageInstallRequest>,
+    runtimes: &[PackageRuntimeBinding],
+    invocation: PackageInvocationPolicy,
 ) -> eyre::Result<usize> {
-    let mut requests = config.package_requests();
-    requests.extend(extra);
-    if let Some(cli_pins) = super::CLI_PACKAGE_ARGS.get() {
-        requests.extend(cli_pins.iter().cloned());
-    }
-    if requests.is_empty() {
+    let cli = super::CLI_PACKAGE_ARGS
+        .get()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let owned = merge_owned_requests(
+        config
+            .config_files
+            .values()
+            .map(|cf| (cf.source(), cf.to_package_requests())),
+        &extra,
+        cli,
+    );
+    if owned.is_empty() {
         return Ok(0);
     }
+    let inputs = prepare_inputs(&owned, runtimes, invocation.offline, |source| {
+        config.invocation_locked_for(source, invocation.locked) || config.tool_config_locked(source)
+    })?;
+    guard_python_sidecar_migration(&inputs)?;
     let project_root = config
         .project_root
         .clone()
         .or_else(|| std::env::current_dir().ok())
         .ok_or_else(|| eyre::eyre!("could not locate project root"))?;
     let locations = Locations::from_config(&project_root)?;
-    install_packages(&requests, &locations).await
+    let index = Arc::new(Index::from_env(&locations.index_cache));
+    install_packages(&inputs, &locations, index).await
 }
 
 /// A wheel produced by building an sdist locally.

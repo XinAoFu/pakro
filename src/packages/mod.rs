@@ -1,6 +1,7 @@
 //! mise-native package management: request parsing, config tables, and the
 //! glue between resolver/index/store and the rest of mise.
 
+pub(crate) mod binding;
 pub mod install;
 pub(crate) mod lockfile;
 pub(crate) mod materialize;

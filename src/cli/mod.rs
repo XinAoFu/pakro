@@ -1078,11 +1078,10 @@ impl Cli {
         // `mise install python@3.10.14+numpy@4.2.2`: keep the runtime in the
         // argv for a normal tool install, lift the package pins out for the
         // packages hook
-        if matches!(
-            args.get(1).map(String::as_str),
-            Some("install" | "i" | "use" | "u")
-        ) {
-            crate::packages::extract_bound_package_args(&mut processed_args);
+        if let Some(command_idx) = first_non_global_arg_idx(cmd, args)
+            && matches!(args[command_idx].as_str(), "install" | "i" | "use" | "u")
+        {
+            crate::packages::extract_bound_package_args(&mut processed_args[command_idx + 1..]);
         }
         let deprecated_backends_alias = uses_deprecated_backends_alias(cmd, args);
 
