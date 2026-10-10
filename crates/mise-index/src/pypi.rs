@@ -1,34 +1,22 @@
-//! PyPI JSON parsing. Explicit-context APIs evaluate raw metadata against
-//! interpreter observations; RuntimeInfo APIs are temporary compatibility wrappers.
+//! PyPI JSON parsing. Explicit contexts supply interpreter marker fields;
+//! raw release listing remains available without target compatibility checks.
 
 use std::str::FromStr;
 
-use pep508_rs::{MarkerEnvironment, MarkerEnvironmentBuilder, Requirement};
+use pep508_rs::{MarkerEnvironment, Requirement};
 use serde_json::Value;
 
 use crate::python_context::PythonMarkerContext;
 use crate::types::{
     ArtifactDescriptor, ArtifactKind, DependencyConstraint, PackageMetadata, normalize_py_name,
 };
-use crate::wheel::{RuntimeInfo, parse_wheel_filename};
+use crate::wheel::parse_wheel_filename;
 use crate::{IndexError, Result};
 
-/// Temporary compatibility API. It does not observe a real interpreter.
-pub fn parse_pypi_response(value: &Value, runtime: &RuntimeInfo) -> Result<PackageMetadata> {
-    let environment =
-        legacy_marker_environment(runtime).map_err(|error| IndexError::BadResponse {
-            package: value
-                .pointer("/info/name")
-                .and_then(Value::as_str)
-                .unwrap_or("unknown")
-                .to_string(),
-            reason: error.to_string(),
-        })?;
-    parse_pypi_response_with_environment(value, &environment)
-}
-
-/// Evaluate dependencies using all explicit marker fields. Invalid Requires-Python
-/// is an error; a valid constraint is retained for the caller's install check.
+/// Evaluate dependencies using all explicit marker fields. Invalid info or file
+/// Requires-Python is an error. Valid nonmatching files are removed after every
+/// supplied file condition is validated; no remaining artifacts is an error.
+/// A valid info constraint is retained for the caller's install check.
 /// Requested extras and direct URL dependencies remain outside this batch.
 pub fn parse_pypi_response_for_context(
     value: &Value,
@@ -37,7 +25,26 @@ pub fn parse_pypi_response_for_context(
     if let Some(spec) = value.pointer("/info/requires_python") {
         check_requires_python_value(spec, context)?;
     }
-    parse_pypi_response_with_environment(value, context.environment())
+    let Some(files) = value.get("urls").and_then(Value::as_array) else {
+        return parse_pypi_response_with_environment(value, context.environment());
+    };
+    let accepted = files
+        .iter()
+        .map(|file| match file.get("requires_python") {
+            None => Ok(true),
+            Some(spec) => check_requires_python_value(spec, context),
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut filtered = value.clone();
+    filtered["urls"] = Value::Array(
+        files
+            .iter()
+            .zip(accepted)
+            .filter(|(_, accepted)| *accepted)
+            .map(|(file, _)| file.clone())
+            .collect(),
+    );
+    parse_pypi_response_with_environment(&filtered, context.environment())
 }
 
 fn parse_pypi_response_with_environment(
@@ -146,19 +153,6 @@ pub fn parse_pypi_versions(value: &Value) -> Result<Vec<String>> {
     parse_pypi_versions_matching(value, |_| Ok(true))
 }
 
-/// Temporary compatibility API with the historical permissive spec policy.
-pub fn parse_pypi_versions_for_runtime(
-    value: &Value,
-    runtime: &RuntimeInfo,
-) -> Result<Vec<String>> {
-    parse_pypi_versions_matching(value, |file| {
-        Ok(file
-            .get("requires_python")
-            .and_then(Value::as_str)
-            .is_none_or(|spec| python_requires_matches(spec, runtime)))
-    })
-}
-
 /// A candidate survives if at least one file permits the full language version.
 /// Every supplied file constraint is validated, even after an admitting file.
 pub fn parse_pypi_versions_for_context(
@@ -232,44 +226,4 @@ pub fn python_requires_matches_for_context(
     context: &PythonMarkerContext,
 ) -> Result<bool> {
     requires_matches_version(spec, &context.environment().python_full_version().version)
-}
-
-/// Temporary compatibility API. Invalid constraints retain the old permissive behavior.
-pub fn python_requires_matches(spec: &str, runtime: &RuntimeInfo) -> bool {
-    let Ok(version) = pep440_rs::Version::from_str(&format!("{}.{}", runtime.major, runtime.minor))
-    else {
-        return true;
-    };
-    requires_matches_version(spec, &version).unwrap_or(true)
-}
-
-fn legacy_marker_environment(
-    runtime: &RuntimeInfo,
-) -> std::result::Result<MarkerEnvironment, pep440_rs::VersionParseError> {
-    let py_version = format!("{}.{}", runtime.major, runtime.minor);
-    MarkerEnvironment::try_from(MarkerEnvironmentBuilder {
-        implementation_name: "cpython",
-        implementation_version: &py_version,
-        os_name: "posix",
-        platform_machine: if cfg!(target_arch = "aarch64") {
-            "arm64"
-        } else {
-            "x86_64"
-        },
-        platform_python_implementation: "CPython",
-        platform_release: "",
-        platform_system: if cfg!(target_os = "macos") {
-            "Darwin"
-        } else {
-            "Linux"
-        },
-        platform_version: "",
-        python_full_version: &py_version,
-        python_version: &py_version,
-        sys_platform: if cfg!(target_os = "macos") {
-            "darwin"
-        } else {
-            "linux"
-        },
-    })
 }

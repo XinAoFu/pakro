@@ -12,8 +12,7 @@ use tokio::runtime::Handle;
 use tokio::task::block_in_place;
 
 use mise_index::Index;
-use mise_index::pypi::python_requires_matches;
-use mise_index::{ArtifactKind, RuntimeInfo, wheel_matches};
+use mise_index::{ArtifactKind, RuntimeInfo};
 use mise_resolver::{DependencyRequest, MetadataSource, ResolvedGraph};
 use mise_store::{Digest, Eco, PackageIdentity, Platform, RuntimeId, Store};
 
@@ -28,6 +27,10 @@ pub use super::binding::{
 };
 use super::lockfile::{LOCKFILE_NAME, PackageLock};
 use super::materialize::{VenvSpec, materialize_venv};
+pub use super::python::{PythonPackageLatest, latest_python_package};
+use super::python::{
+    PythonPackageRuntime, PythonSource, select_python_artifact, validate_metadata,
+};
 
 pub struct Locations {
     /// directory receiving `mise.packages.lock`
@@ -61,9 +64,14 @@ pub(crate) async fn install_packages(
     index: Arc<Index>,
 ) -> eyre::Result<usize> {
     guard_python_sidecar_migration(inputs)?;
-    let requests = &inputs.requests;
+    let mut python_runtimes = BTreeMap::new();
+    for (key, tool) in &inputs.python_runtimes {
+        let runtime = PythonPackageRuntime::from_tool_version(tool).await?;
+        runtime.ensure_current_prefix()?;
+        python_runtimes.insert(key.clone(), runtime);
+    }
     let mut groups: BTreeMap<(String, String), Vec<&PackageInstallRequest>> = BTreeMap::new();
-    for request in requests {
+    for request in &inputs.requests {
         groups
             .entry((
                 request.runtime_name.clone(),
@@ -80,96 +88,111 @@ pub(crate) async fn install_packages(
             bail!("native packages currently support python and node, got {runtime_name}");
         }
         let group_key = format!("{runtime_name}@{runtime_version}");
-        let runtime = runtime_info(&runtime_version)?;
+        let python = python_runtimes.get(&group_key);
+        if runtime_name == "python" && python.is_none() {
+            bail!("missing observed Python binding for {group_key}");
+        }
+        let node_runtime = if runtime_name == "node" {
+            Some(runtime_info(&runtime_version)?)
+        } else {
+            None
+        };
         let platform = Platform::detect();
-
-        let graph = match lock.graph_for(&group_key).filter(|locked| {
-            top_level_matches(
-                locked,
-                group_requests
-                    .iter()
-                    .map(|r| (r.name.as_str(), r.version.as_str())),
-            )
-        }) {
+        // Legacy Python locks have neither roots nor a context fingerprint.
+        let reusable = if runtime_name == "node" {
+            lock.graph_for(&group_key).filter(|locked| {
+                top_level_matches(
+                    locked,
+                    group_requests
+                        .iter()
+                        .map(|request| (request.name.as_str(), request.version.as_str())),
+                )
+            })
+        } else {
+            None
+        };
+        let graph = match reusable {
             Some(locked) => locked,
             None => {
                 let solve_requests: Vec<DependencyRequest> = group_requests
                     .iter()
-                    .map(|r| DependencyRequest {
+                    .map(|request| DependencyRequest {
                         eco: runtime_name.clone(),
-                        name: r.name.clone(),
-                        constraint: r.version.clone(),
+                        name: request.name.clone(),
+                        constraint: request.version.clone(),
                     })
                     .collect();
-                let locked_bias = lock.graph_for(&group_key).unwrap_or_default();
-                match runtime_name.as_str() {
-                    "node" => {
-                        let source = NodeSource {
-                            index: Arc::clone(&index),
-                        };
-                        mise_resolver::solve(&solve_requests, &locked_bias, &source, "node")
-                    }
-                    _ => {
-                        let source = PythonSource {
-                            index: Arc::clone(&index),
-                            runtime,
-                        };
-                        mise_resolver::solve(&solve_requests, &locked_bias, &source, "python")
+                let mut bias = lock.graph_for(&group_key).unwrap_or_default();
+                if python.is_some() {
+                    for node in &mut bias.nodes {
+                        node.digest = None;
                     }
                 }
-                .map_err(|e| eyre::eyre!("resolving {group_key}: {e}"))?
+                let result = if let Some(python) = python {
+                    let source = PythonSource {
+                        index: Arc::clone(&index),
+                        context: python.context.clone(),
+                    };
+                    mise_resolver::solve(&solve_requests, &bias, &source, "python")
+                } else {
+                    let source = NodeSource {
+                        index: Arc::clone(&index),
+                    };
+                    mise_resolver::solve(&solve_requests, &bias, &source, "node")
+                };
+                result.map_err(|error| eyre::eyre!("resolving {group_key}: {error}"))?
             }
         };
-
         let store = Store::open(&locs.store_root)?;
-        let mut nodes = graph.nodes.clone();
+        let mut nodes = graph.nodes;
         for node in &mut nodes {
-            if node.digest.as_deref().is_some_and(|d| !d.is_empty()) {
+            if python.is_some() {
+                node.digest = None;
+            }
+            if node
+                .digest
+                .as_deref()
+                .is_some_and(|digest| !digest.is_empty())
+            {
                 continue;
             }
-            let metadata = match runtime_name.as_str() {
-                "node" => index
-                    .npm_metadata(&node.name, &node.version, &runtime)
+            let metadata = if let Some(python) = python {
+                let metadata = index
+                    .metadata_for_context(&node.name, &node.version, &python.context)
                     .await
                     .with_context(|| {
                         format!("fetching metadata for {} {}", node.name, node.version)
-                    })?,
-                _ => {
-                    let metadata = index
-                        .metadata(&node.name, &node.version, &runtime)
-                        .await
-                        .with_context(|| {
-                            format!("fetching metadata for {} {}", node.name, node.version)
-                        })?;
-                    if let Some(requires) = &metadata.requires_python
-                        && !python_requires_matches(requires, &runtime)
-                    {
-                        bail!(
-                            "{} {} requires python {requires}, runtime is {runtime_version}",
-                            node.name,
-                            node.version
-                        );
-                    }
-                    metadata
-                }
+                    })?;
+                validate_metadata(&metadata, &python.context)?;
+                metadata
+            } else {
+                index
+                    .npm_metadata(
+                        &node.name,
+                        &node.version,
+                        node_runtime.as_ref().context("Node runtime missing")?,
+                    )
+                    .await
+                    .with_context(|| {
+                        format!("fetching metadata for {} {}", node.name, node.version)
+                    })?
             };
             let mut built_bytes: Option<Vec<u8>> = None;
             let artifact_owned;
-            let artifact = match select_artifact(
-                &metadata.artifacts,
-                &runtime,
-                &platform,
-                runtime_name == "node",
-            ) {
-                Some(a) => a,
-                None if runtime_name == "python" => {
-                    let interpreter_home =
-                        dirs::INSTALLS.join(&runtime_name).join(&runtime_version);
+            let selected = if let Some(python) = python {
+                select_python_artifact(&metadata.artifacts, python, &platform)
+            } else {
+                select_node_artifact(&metadata.artifacts)
+            };
+            let artifact = match selected {
+                Some(artifact) => artifact,
+                None if python.is_some() => {
+                    let python = python.context("Python source-build binding missing")?;
                     let built = build_sdist_to_wheel(
                         &metadata,
                         &node.name,
                         &node.version,
-                        &interpreter_home,
+                        python.handle.executable(),
                     )
                     .await
                     .with_context(|| {
@@ -191,33 +214,24 @@ pub(crate) async fn install_packages(
             let digest_str = artifact
                 .digest
                 .clone()
-                .expect("artifact selection requires a digest");
+                .context("selected artifact has no digest")?;
             let digest = digest_str
                 .parse::<Digest>()
                 .context("registry digest is malformed")?;
             let identity = PackageIdentity {
-                eco: Eco::Python,
+                eco: if python.is_some() {
+                    Eco::Python
+                } else {
+                    Eco::Node
+                },
                 name: node.name.clone(),
                 version: node.version.clone(),
-                runtime: Some(RuntimeId {
+                runtime: python.map(|_| RuntimeId {
                     eco: Eco::Python,
                     version: runtime_version.clone(),
                 }),
                 platform,
                 digest,
-            };
-            let identity = match runtime_name.as_str() {
-                // npm packages bind to the node major at most; the identity
-                // keeps them runtime-free so one entry serves every project
-                "node" => PackageIdentity {
-                    eco: Eco::Node,
-                    name: node.name.clone(),
-                    version: node.version.clone(),
-                    runtime: None,
-                    platform,
-                    digest,
-                },
-                _ => identity,
             };
             if !store.contains(&identity) {
                 if let Some(bytes) = &built_bytes {
@@ -234,30 +248,20 @@ pub(crate) async fn install_packages(
             node.digest = Some(digest_str);
         }
         let graph = ResolvedGraph { nodes }.sorted();
-
-        if runtime_name == "python" {
-            let interpreter_home = dirs::INSTALLS.join(&runtime_name).join(&runtime_version);
-            if !interpreter_home.join("bin/python3").exists() {
-                bail!("runtime {group_key} is not installed; run `mise install {group_key}` first");
-            }
+        if let Some(python) = python {
             materialize_venv(
                 &VenvSpec {
                     project_root: &locs.project_root,
                     runtime_name: &runtime_name,
                     runtime_version: &runtime_version,
-                    interpreter_home: &interpreter_home,
+                    interpreter_executable: python.handle.executable(),
+                    language_version: &python.descriptor.language_version,
                 },
                 &graph,
                 &store,
             )?;
         } else {
-            // node materialization lands with its own module; installs and
-            // locking already work end to end
-            crate::packages::materialize_node::materialize_node_modules(
-                &locs.project_root,
-                &graph,
-                &store,
-            )?;
+            super::materialize_node::materialize_node_modules(&locs.project_root, &graph, &store)?;
         }
         if let Some(packages) = PackageLock::from_graph(&group_key, &graph)
             .groups
@@ -267,8 +271,6 @@ pub(crate) async fn install_packages(
         }
     }
     lock.write(&lock_path)?;
-    // go/maven: storage-layer absorption (design doc §六); go.mod and pom.xml
-    // remain the declarations, mise takes over where artifacts live
     if super::system::install_go_modules(&locs.project_root, locs)? {
         downloaded += 1;
     }
@@ -277,6 +279,19 @@ pub(crate) async fn install_packages(
     }
     maybe_auto_gc(&locs.store_root);
     Ok(downloaded)
+}
+
+fn select_node_artifact(
+    artifacts: &[mise_index::ArtifactDescriptor],
+) -> Option<&mise_index::ArtifactDescriptor> {
+    let mut candidates: Vec<_> = artifacts
+        .iter()
+        .filter(|artifact| {
+            matches!(artifact.kind, ArtifactKind::Sdist) && artifact.digest.is_some()
+        })
+        .collect();
+    candidates.sort_by(|left, right| left.filename.cmp(&right.filename));
+    candidates.into_iter().next_back()
 }
 
 /// Runs `store gc` at most once a day; the marker lives in STATE.
@@ -316,29 +331,6 @@ fn runtime_info(version: &str) -> eyre::Result<RuntimeInfo> {
     })
 }
 
-/// Picks the wheel to install: platform-compatible, carrying a digest, with
-/// the longest filename last as a stable tie-break (more specific tags sort
-/// later in practice).
-fn select_artifact<'a>(
-    artifacts: &'a [mise_index::ArtifactDescriptor],
-    runtime: &RuntimeInfo,
-    platform: &Platform,
-    node: bool,
-) -> Option<&'a mise_index::ArtifactDescriptor> {
-    let mut candidates: Vec<_> = artifacts
-        .iter()
-        .filter(|a| match &a.kind {
-            // npm ships one platform-independent tarball per version
-            ArtifactKind::Sdist if node => true,
-            ArtifactKind::Wheel(tags) => !node && wheel_matches(tags, runtime, platform),
-            ArtifactKind::Sdist => false,
-        })
-        .filter(|a| a.digest.is_some())
-        .collect();
-    candidates.sort_by(|a, b| a.filename.cmp(&b.filename));
-    candidates.into_iter().next_back()
-}
-
 fn top_level_matches<'a>(
     locked: &ResolvedGraph,
     pinned: impl Iterator<Item = (&'a str, &'a str)>,
@@ -352,42 +344,6 @@ fn top_level_matches<'a>(
         }
     }
     remaining.is_empty()
-}
-
-/// Bridges the sync solver against the async index client. `block_in_place`
-/// is safe here because mise runs a multi-thread tokio runtime and solving
-/// happens on a worker thread.
-struct PythonSource {
-    index: Arc<Index>,
-    runtime: RuntimeInfo,
-}
-
-impl MetadataSource for PythonSource {
-    fn versions(&self, name: &str) -> Result<Vec<String>, String> {
-        let index = &self.index;
-        let runtime = &self.runtime;
-        // runtime-filtered: a version whose requires-python rejects this
-        // interpreter must never become a solver candidate
-        block_in_place(|| Handle::current().block_on(index.versions_for_runtime(name, runtime)))
-            .map_err(|e| e.to_string())
-    }
-
-    fn dependencies(&self, name: &str, version: &str) -> Result<Vec<DependencyRequest>, String> {
-        let index = &self.index;
-        let runtime = &self.runtime;
-        let metadata =
-            block_in_place(|| Handle::current().block_on(index.metadata(name, version, runtime)))
-                .map_err(|e| e.to_string())?;
-        Ok(metadata
-            .deps
-            .into_iter()
-            .map(|dep| DependencyRequest {
-                eco: "python".into(),
-                name: dep.name,
-                constraint: dep.constraint,
-            })
-            .collect())
-    }
 }
 
 /// npm metadata for the solver. Prerelease versions are filtered out of the
@@ -474,16 +430,14 @@ struct BuiltArtifact {
     bytes: Vec<u8>,
 }
 
-/// Builds an sdist into a wheel using the mise-installed python, returning
-/// the wheel bytes. This runs `pip wheel --no-deps` which executes the
-/// package's build backend — the same code `pip install` would run, with
-/// the same security implications; it only triggers when no prebuilt wheel
-/// matches the platform.
+/// Legacy manager fallback, pending native source builds in H4.
+/// Uses the explicitly bound interpreter to invoke `pip wheel --no-deps`.
+/// Correct executable binding does not make this a native build.
 async fn build_sdist_to_wheel(
     metadata: &mise_index::PackageMetadata,
     name: &str,
     version: &str,
-    interpreter_home: &Path,
+    interpreter_executable: &Path,
 ) -> eyre::Result<BuiltArtifact> {
     let sdist = metadata
         .artifacts
@@ -493,7 +447,7 @@ async fn build_sdist_to_wheel(
     warn!(
         "no prebuilt wheel for {name} {version}; building from source (this runs the package's build code)"
     );
-    let interpreter = interpreter_home.join("bin/python3");
+    let interpreter = interpreter_executable;
     if !interpreter.exists() {
         bail!("interpreter {} is not installed", interpreter.display());
     }
@@ -506,7 +460,7 @@ async fn build_sdist_to_wheel(
     std::fs::write(&sdist_path, &sdist_bytes)?;
     let wheel_dir = tmp.path().join("wheels");
     std::fs::create_dir_all(&wheel_dir)?;
-    let status = std::process::Command::new(&interpreter)
+    let status = std::process::Command::new(interpreter)
         .args([
             "-m",
             "pip",
@@ -538,4 +492,53 @@ async fn build_sdist_to_wheel(
         },
         bytes,
     })
+}
+
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+mod source_path_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[tokio::test]
+    async fn legacy_source_build_invokes_explicit_executable() {
+        let root = tempfile::tempdir().unwrap();
+        let executable = root.path().join("selected-python");
+        let marker = root.path().join("invoked");
+        let quoted_marker = marker.display().to_string().replace('\'', "'\\''");
+        std::fs::write(
+            &executable,
+            format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{quoted_marker}'\nexit 7\n"),
+        )
+        .unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut server = mockito::Server::new_async().await;
+        let download = server
+            .mock("GET", "/demo.tar.gz")
+            .with_body("controlled source bytes")
+            .create_async()
+            .await;
+        let metadata = mise_index::PackageMetadata {
+            name: "demo".into(),
+            version: "1.0".into(),
+            requires_python: None,
+            deps: vec![],
+            artifacts: vec![mise_index::ArtifactDescriptor {
+                filename: "demo-1.0.tar.gz".into(),
+                url: format!("{}/demo.tar.gz", server.url()),
+                digest: None,
+                kind: ArtifactKind::Sdist,
+            }],
+        };
+        let error = build_sdist_to_wheel(&metadata, "demo", "1.0", &executable)
+            .await
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("pip wheel failed"), "{error}");
+        assert!(
+            std::fs::read_to_string(marker)
+                .unwrap()
+                .starts_with("-m\npip\nwheel\n")
+        );
+        download.assert_async().await;
+    }
 }

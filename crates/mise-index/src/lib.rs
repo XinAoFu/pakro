@@ -16,8 +16,7 @@ use std::time::Duration;
 
 pub use npm::{parse_npm_version_metadata, parse_npm_versions};
 pub use pypi::{
-    parse_pypi_response, parse_pypi_response_for_context, parse_pypi_versions,
-    parse_pypi_versions_for_context, parse_pypi_versions_for_runtime, python_requires_matches,
+    parse_pypi_response_for_context, parse_pypi_versions, parse_pypi_versions_for_context,
     python_requires_matches_for_context, rewrite_files_host,
 };
 pub use python_context::{PythonMarkerContext, PythonMarkerContextBuilder};
@@ -93,21 +92,9 @@ impl Index {
 
     // -- python (PyPI) --
 
-    /// Temporary compatibility API; it does not observe a real interpreter.
-    pub async fn metadata(
-        &self,
-        name: &str,
-        version: &str,
-        runtime: &RuntimeInfo,
-    ) -> Result<PackageMetadata> {
-        let value = self.fetch_python_metadata(name, version).await?;
-        let metadata = parse_pypi_response(&value, runtime)?;
-        Ok(self.rewrite_python_artifacts(metadata))
-    }
-
     /// Evaluate dependencies afresh against the caller's explicit marker fields.
-    /// Invalid Requires-Python is an error; valid incompatible constraints remain
-    /// in the returned metadata for the caller's install-time check.
+    /// Invalid info or file Requires-Python is an error; valid nonmatching files
+    /// are removed. Valid info constraints remain for the caller's install check.
     /// The cache stores raw JSON. A cache miss may fetch online; this method
     /// provides no offline guarantee or proof of interpreter/ABI compatibility.
     pub async fn metadata_for_context(
@@ -126,16 +113,6 @@ impl Index {
     pub async fn versions(&self, name: &str) -> Result<Vec<String>> {
         let value = self.fetch_python_version_listing(name).await?;
         parse_pypi_versions(&value)
-    }
-
-    /// Temporary compatibility API with major/minor-only runtime information.
-    pub async fn versions_for_runtime(
-        &self,
-        name: &str,
-        runtime: &RuntimeInfo,
-    ) -> Result<Vec<String>> {
-        let value = self.fetch_python_version_listing(name).await?;
-        parse_pypi_versions_for_runtime(&value, runtime)
     }
 
     /// Releases with at least one file admitting the full explicit language version.
@@ -175,13 +152,44 @@ impl Index {
         metadata
     }
 
-    /// Raw Python release selected by the legacy latest helper, without target checks.
-    /// PEP 440 prerelease filtering is incomplete in this compatibility API.
+    /// Stable release candidates whose files admit the full explicit language
+    /// version, in descending PEP 440 order. Returned names remain unchanged.
+    /// Invalid file Requires-Python constraints are errors; invalid release
+    /// names are excluded. This does not establish wheel ABI compatibility or
+    /// installability. Cached raw JSON is evaluated for each context; a cache
+    /// miss may fetch online, with no offline guarantee.
+    pub async fn stable_python_versions_for_context(
+        &self,
+        name: &str,
+        context: &PythonMarkerContext,
+    ) -> Result<Vec<String>> {
+        let versions = self.versions_for_context(name, context).await?;
+        Ok(stable_python_release_names(versions))
+    }
+
+    /// First stable candidate for the explicit target context, without a
+    /// raw-listing fallback. Empty candidate sets return None; query and
+    /// constraint errors propagate. This is not a wheel/installability check,
+    /// and a cache miss may fetch online with no offline guarantee.
+    pub async fn latest_stable_python_for_context(
+        &self,
+        name: &str,
+        context: &PythonMarkerContext,
+    ) -> Result<Option<String>> {
+        Ok(self
+            .stable_python_versions_for_context(name, context)
+            .await?
+            .into_iter()
+            .next())
+    }
+
+    /// Newest stable raw Python release by PEP 440, preserving its original name.
+    /// This excludes pre/dev releases and includes post releases, but performs
+    /// no target Requires-Python or wheel compatibility check. A cache miss
+    /// may fetch online; this method provides no offline guarantee.
     pub async fn latest_stable_python(&self, name: &str) -> Result<Option<String>> {
         let versions = self.versions(name).await?;
-        Ok(latest_stable(versions, |v| {
-            pep440_rs::Version::from_str(v).ok()
-        }))
+        Ok(stable_python_release_names(versions).into_iter().next())
     }
 
     // -- node (npm) --
@@ -244,6 +252,18 @@ impl Index {
         self.cache.write(&scope, name, key, &bytes)?;
         Ok(value)
     }
+}
+
+fn stable_python_release_names(versions: Vec<String>) -> Vec<String> {
+    let mut parsed = versions
+        .into_iter()
+        .filter_map(|raw| {
+            let version = pep440_rs::Version::from_str(&raw).ok()?;
+            version.is_stable().then_some((version, raw))
+        })
+        .collect::<Vec<_>>();
+    parsed.sort_by(|(a, a_raw), (b, b_raw)| b.cmp(a).then_with(|| b_raw.cmp(a_raw)));
+    parsed.into_iter().map(|(_, raw)| raw).collect()
 }
 
 /// Filters prereleases and picks the newest by the ecosystem's ordering.

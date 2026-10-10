@@ -6,6 +6,7 @@ pub mod install;
 pub(crate) mod lockfile;
 pub(crate) mod materialize;
 pub(crate) mod materialize_node;
+pub(crate) mod python;
 pub mod request;
 pub(crate) mod system;
 pub(crate) mod venv;

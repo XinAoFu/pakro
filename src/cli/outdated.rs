@@ -2,7 +2,10 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::args::ToolArg;
-use crate::config::Config;
+use crate::config::{Config, Settings, SettingsExt};
+use crate::packages::install::{
+    PackageRuntimeBinding, PythonPackageLatest, latest_python_package, snapshot_runtime_bindings,
+};
 use crate::toolset::outdated_info::OutdatedInfo;
 use crate::toolset::{ConfigScope, ResolveOptions, ToolsetBuilder};
 use crate::ui::table;
@@ -97,6 +100,14 @@ impl Outdated {
             .with_scope(scope)
             .build(&config)
             .await?;
+        let package_bindings = snapshot_runtime_bindings(
+            &config,
+            &ts.list_current_installed_versions(&config)
+                .into_iter()
+                .map(|(_, tool)| tool)
+                .collect::<Vec<_>>(),
+            Settings::get().locked,
+        );
         let tool_set = self
             .tool
             .iter()
@@ -131,7 +142,7 @@ impl Outdated {
         };
         self.display(outdated, bump_available)?;
         if !self.bump {
-            self.display_packages(&config).await?;
+            self.display_packages(&config, &package_bindings).await?;
         }
         Ok(())
     }
@@ -144,23 +155,47 @@ impl Outdated {
         Ok(())
     }
 
-    async fn display_packages(&self, config: &Arc<Config>) -> Result<()> {
+    async fn display_packages(
+        &self,
+        config: &Arc<Config>,
+        bindings: &[PackageRuntimeBinding],
+    ) -> Result<()> {
         let requests = config.package_requests();
         if requests.is_empty() {
             return Ok(());
         }
-        let index = mise_index::Index::from_env(crate::dirs::CACHE.join("index"));
+        let index = Arc::new(mise_index::Index::from_env(
+            crate::dirs::CACHE.join("index"),
+        ));
+        let offline = Settings::get().offline();
         miseprintln!("\nPackages:");
         for request in &requests {
-            let latest = match request.runtime_name.as_str() {
-                "node" => index.latest_stable_npm(&request.name).await,
-                _ => index.latest_stable_python(&request.name).await,
-            };
-            let latest = latest.unwrap_or(None).unwrap_or_else(|| "?".to_string());
-            let marker = if latest == request.version {
-                ""
-            } else {
-                " (outdated)"
+            let (latest, marker) = match request.runtime_name.as_str() {
+                "python" => python_package_display(
+                    latest_python_package(
+                        Arc::clone(&index),
+                        &request.name,
+                        &request.runtime_version,
+                        bindings,
+                        offline,
+                    )
+                    .await,
+                    &request.version,
+                ),
+                "node" => {
+                    let latest = index
+                        .latest_stable_npm(&request.name)
+                        .await
+                        .unwrap_or(None)
+                        .unwrap_or_else(|| "?".into());
+                    let marker = if latest == request.version {
+                        ""
+                    } else {
+                        " (outdated)"
+                    };
+                    (latest, marker)
+                }
+                _ => ("unavailable: unsupported package ecosystem".into(), ""),
             };
             miseprintln!(
                 "  {}@{} {} {} -> {}{marker}",
@@ -202,9 +237,63 @@ impl Outdated {
     }
 }
 
+fn python_package_display(
+    result: Result<PythonPackageLatest>,
+    current: &str,
+) -> (String, &'static str) {
+    match result {
+        Ok(PythonPackageLatest::Available(Some(version))) => {
+            let marker = if version == current {
+                ""
+            } else {
+                " (outdated)"
+            };
+            (version, marker)
+        }
+        Ok(PythonPackageLatest::Available(None)) => {
+            ("no compatible stable wheel candidate".into(), "")
+        }
+        Ok(PythonPackageLatest::Unavailable(reason)) => (format!("unavailable: {reason}"), ""),
+        Err(error) => (format!("error: {error}"), ""),
+    }
+}
+
 static AFTER_LONG_HELP: &str = color_print::cstr!(
     r###"<bold><underline>Deprecation:</underline></bold>
 
 The `-l` shorthand for `--bump` is deprecated and will be removed in mise 2027.8.5.
 After removal, `-l` will become shorthand for `--local`. Use `-b` or `--bump` instead."###
 );
+
+#[cfg(test)]
+mod python_package_tests {
+    use super::*;
+
+    #[test]
+    fn only_actual_available_candidate_is_marked_outdated() {
+        assert_eq!(
+            python_package_display(
+                Ok(PythonPackageLatest::Available(Some("2.0".into()))),
+                "1.0"
+            ),
+            ("2.0".into(), " (outdated)")
+        );
+        assert_eq!(
+            python_package_display(
+                Ok(PythonPackageLatest::Available(Some("1.0".into()))),
+                "1.0"
+            ),
+            ("1.0".into(), "")
+        );
+        for result in [
+            Ok(PythonPackageLatest::Available(None)),
+            Ok(PythonPackageLatest::Unavailable("no actual binding".into())),
+            Err(eyre::eyre!("registry failure")),
+        ] {
+            let (text, marker) = python_package_display(result, "1.0");
+            assert!(!text.is_empty());
+            assert_ne!(text, "?");
+            assert_eq!(marker, "");
+        }
+    }
+}

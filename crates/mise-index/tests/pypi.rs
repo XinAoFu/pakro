@@ -1,5 +1,7 @@
-use mise_index::RuntimeInfo;
-use mise_index::pypi::parse_pypi_response;
+use mise_index::{
+    PythonMarkerContext, PythonMarkerContextBuilder, parse_pypi_response_for_context,
+    parse_pypi_versions, parse_pypi_versions_for_context, rewrite_files_host,
+};
 use serde_json::json;
 
 fn fixture() -> serde_json::Value {
@@ -31,17 +33,30 @@ fn fixture() -> serde_json::Value {
     })
 }
 
-fn rt(major: u32, minor: u32) -> RuntimeInfo {
-    RuntimeInfo { major, minor }
+fn context(full: &str) -> PythonMarkerContext {
+    let short = full.split('.').take(2).collect::<Vec<_>>().join(".");
+    PythonMarkerContext::new(PythonMarkerContextBuilder {
+        implementation_name: "cpython",
+        implementation_version: full,
+        os_name: "posix",
+        platform_machine: "arm64",
+        platform_python_implementation: "CPython",
+        platform_release: "fixture release",
+        platform_system: "Darwin",
+        platform_version: "fixture version",
+        python_full_version: full,
+        python_version: &short,
+        sys_platform: "darwin",
+    })
+    .unwrap()
 }
 
 #[test]
 fn parses_metadata_and_filters_markers_for_3_10() {
-    let md = parse_pypi_response(&fixture(), &rt(3, 10)).unwrap();
+    let md = parse_pypi_response_for_context(&fixture(), &context("3.10.14")).unwrap();
     assert_eq!(md.name, "numpy");
     assert_eq!(md.version, "4.2.2");
     assert_eq!(md.requires_python.as_deref(), Some(">=3.10"));
-    // tomli applies to <3.11; the extra-gated dep is dropped (no extras requested)
     assert_eq!(
         md.deps
             .iter()
@@ -53,7 +68,7 @@ fn parses_metadata_and_filters_markers_for_3_10() {
 
 #[test]
 fn marker_drops_inapplicable_deps_for_3_12() {
-    let md = parse_pypi_response(&fixture(), &rt(3, 12)).unwrap();
+    let md = parse_pypi_response_for_context(&fixture(), &context("3.12.4")).unwrap();
     assert_eq!(
         md.deps.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(),
         vec!["contingent-pyprops"]
@@ -62,7 +77,7 @@ fn marker_drops_inapplicable_deps_for_3_12() {
 
 #[test]
 fn artifacts_split_into_wheel_and_sdist() {
-    let md = parse_pypi_response(&fixture(), &rt(3, 10)).unwrap();
+    let md = parse_pypi_response_for_context(&fixture(), &context("3.10.14")).unwrap();
     assert_eq!(md.artifacts.len(), 2);
     let wheel = md
         .artifacts
@@ -86,14 +101,13 @@ fn artifacts_split_into_wheel_and_sdist() {
 fn empty_requires_dist_is_ok() {
     let mut f = fixture();
     f["info"]["requires_dist"] = json!(serde_json::Value::Null);
-    let md = parse_pypi_response(&f, &rt(3, 10)).unwrap();
+    let md = parse_pypi_response_for_context(&f, &context("3.10.14")).unwrap();
     assert!(md.deps.is_empty());
 }
 
 #[test]
 fn parses_version_listing() {
-    use mise_index::pypi::parse_pypi_versions;
-    let value = serde_json::json!({
+    let value = json!({
         "info": {"name": "numpy", "version": "4.2.2"},
         "releases": {
             "4.2.1": [{"filename": "numpy-4.2.1.tar.gz"}],
@@ -107,7 +121,6 @@ fn parses_version_listing() {
 
 #[test]
 fn files_host_rewrites_onto_mirror_paths() {
-    use mise_index::pypi::rewrite_files_host;
     assert_eq!(
         rewrite_files_host(
             "https://files.pythonhosted.org/packages/aa/x.whl",
@@ -115,7 +128,6 @@ fn files_host_rewrites_onto_mirror_paths() {
         ),
         "https://pypi.tuna.tsinghua.edu.cn/packages/aa/x.whl"
     );
-    // urls already on another host pass through untouched
     assert_eq!(
         rewrite_files_host(
             "https://example.com/other.whl",
@@ -127,8 +139,7 @@ fn files_host_rewrites_onto_mirror_paths() {
 
 #[test]
 fn version_listing_filters_by_requires_python() {
-    use mise_index::pypi::parse_pypi_versions_for_runtime;
-    let value = serde_json::json!({
+    let value = json!({
         "info": {"name": "networkx", "version": "3.7"},
         "releases": {
             "3.4.2": [{"filename": "networkx-3.4.2.tar.gz", "requires_python": ">=3.10"}],
@@ -137,11 +148,9 @@ fn version_listing_filters_by_requires_python() {
             "3.9.0-empty": []
         }
     });
-    // 3.11 runtime: 3.7.0 demands >=3.12 and must drop out of the candidate
-    // list before the solver ever sees it; a null spec stays permissive
-    let for_311 = parse_pypi_versions_for_runtime(&value, &rt(3, 11)).unwrap();
+    let for_311 = parse_pypi_versions_for_context(&value, &context("3.11.9")).unwrap();
     assert_eq!(for_311, vec!["3.4.2".to_string(), "3.8.0".to_string()]);
-    let for_312 = parse_pypi_versions_for_runtime(&value, &rt(3, 12)).unwrap();
+    let for_312 = parse_pypi_versions_for_context(&value, &context("3.12.4")).unwrap();
     assert_eq!(
         for_312,
         vec![
@@ -149,5 +158,10 @@ fn version_listing_filters_by_requires_python() {
             "3.7.0".to_string(),
             "3.8.0".to_string()
         ]
+    );
+    let excluded_patch = parse_pypi_versions_for_context(&value, &context("3.14.1")).unwrap();
+    assert_eq!(
+        excluded_patch,
+        vec!["3.4.2".to_string(), "3.8.0".to_string()]
     );
 }

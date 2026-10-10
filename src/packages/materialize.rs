@@ -6,16 +6,21 @@
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 
-use eyre::{Context, bail};
+use eyre::{Context, ContextCompat, bail};
 use mise_resolver::{ResolvedGraph, ResolvedNode};
 use mise_store::{Digest, Eco, PackageIdentity, Platform, RuntimeId, Store};
+
+use crate::python_runtime::PythonVersion;
 
 pub(crate) struct VenvSpec<'a> {
     pub project_root: &'a Path,
     pub runtime_name: &'a str,
+    /// Opaque install/group label, never parsed as the language version.
     pub runtime_version: &'a str,
-    /// directory containing the mise-installed `bin/pythonX.Y`
-    pub interpreter_home: &'a Path,
+    /// Canonical bound executable observed before materialization.
+    pub interpreter_executable: &'a Path,
+    /// Actual language tuple from the validated runtime descriptor.
+    pub language_version: &'a PythonVersion,
 }
 
 /// Materializes the venv and returns its path. Idempotent: existing links are
@@ -29,7 +34,7 @@ pub(crate) fn materialize_venv(
         .project_root
         .join(".mise/venvs")
         .join(format!("{}-{}", spec.runtime_name, spec.runtime_version));
-    let (major, minor) = split_minor(spec.runtime_version)?;
+    let (major, minor) = (spec.language_version.major, spec.language_version.minor);
     let site_packages = venv.join(format!("lib/python{major}.{minor}/site-packages"));
     std::fs::create_dir_all(&site_packages)
         .with_context(|| format!("creating {}", site_packages.display()))?;
@@ -47,19 +52,15 @@ pub(crate) fn materialize_venv(
     Ok(venv)
 }
 
-fn split_minor(version: &str) -> eyre::Result<(u32, u32)> {
-    let mut parts = version.split('.');
-    let (Some(major), Some(minor)) = (parts.next(), parts.next()) else {
-        bail!("runtime version {version:?} must be at least major.minor");
-    };
-    Ok((major.parse()?, minor.parse()?))
-}
-
 fn write_pyvenv_cfg(venv: &Path, spec: &VenvSpec<'_>) -> eyre::Result<()> {
+    let home = spec
+        .interpreter_executable
+        .parent()
+        .context("bound executable has no parent")?;
     let cfg = format!(
         "home = {}\ninclude-system-site-packages = false\nversion = {}\n",
-        spec.interpreter_home.display(),
-        spec.runtime_version
+        home.display(),
+        spec.language_version.full_version()
     );
     std::fs::write(venv.join("pyvenv.cfg"), cfg)?;
     Ok(())
@@ -68,10 +69,8 @@ fn write_pyvenv_cfg(venv: &Path, spec: &VenvSpec<'_>) -> eyre::Result<()> {
 fn link_interpreters(venv: &Path, spec: &VenvSpec<'_>) -> eyre::Result<()> {
     let bin = venv.join("bin");
     std::fs::create_dir_all(&bin)?;
-    let target = spec.interpreter_home.join("bin/python3");
     for name in ["python", "python3"] {
-        let link = bin.join(name);
-        replace_symlink(&target, &link)?;
+        replace_symlink(spec.interpreter_executable, &bin.join(name))?;
     }
     Ok(())
 }
@@ -192,6 +191,48 @@ mod tests {
     use super::*;
     use mise_resolver::DependencyRequest;
 
+    fn observed_language() -> PythonVersion {
+        PythonVersion {
+            major: 3,
+            minor: 10,
+            micro: 14,
+            release_level: crate::python_runtime::ReleaseLevel::Final,
+            serial: 0,
+        }
+    }
+
+    #[test]
+    fn actual_executable_and_language_are_distinct_from_opaque_install_label() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path().join("store")).unwrap();
+        let bin = root.path().join("selected-layout/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let executable = bin.join("actual-python");
+        std::fs::write(&executable, b"fixture").unwrap();
+        let executable = executable.canonicalize().unwrap();
+        let language = observed_language();
+        let spec = VenvSpec {
+            project_root: root.path(),
+            runtime_name: "python",
+            runtime_version: "pbs-build-opaque",
+            interpreter_executable: &executable,
+            language_version: &language,
+        };
+        let venv = materialize_venv(&spec, &ResolvedGraph::default(), &store).unwrap();
+        assert!(venv.join("lib/python3.10/site-packages").is_dir());
+        assert_eq!(
+            std::fs::read_link(venv.join("bin/python")).unwrap(),
+            executable
+        );
+        let cfg = std::fs::read_to_string(venv.join("pyvenv.cfg")).unwrap();
+        assert!(cfg.contains(&format!(
+            "home = {}\n",
+            executable.parent().unwrap().display()
+        )));
+        assert!(cfg.contains("version = 3.10.14\n"));
+        assert!(!cfg.contains("version = pbs-build-opaque"));
+    }
+
     fn fixture_store_with_entry(store_root: &Path, name: &str, version: &str) -> PackageIdentity {
         fixture_store_with_files(
             store_root,
@@ -264,11 +305,14 @@ mod tests {
             nodes: vec![node("numpy", "4.2.2", Some(identity.digest.to_string()))],
         };
         let store = Store::open(&store_root).unwrap();
+        let language = observed_language();
+        let executable = interp_home.join("bin/python3");
         let spec = VenvSpec {
             project_root: root.path(),
             runtime_name: "python",
             runtime_version: "3.10.14",
-            interpreter_home: &interp_home,
+            interpreter_executable: &executable,
+            language_version: &language,
         };
         let venv = materialize_venv(&spec, &graph, &store).unwrap();
 
@@ -330,11 +374,14 @@ mod tests {
                 .map(|id| node(&id.name, &id.version, Some(id.digest.to_string())))
                 .collect(),
         };
+        let language = observed_language();
+        let executable = interp_home.join("bin/python3");
         let spec = VenvSpec {
             project_root: root.path(),
             runtime_name: "python",
             runtime_version: "3.10.14",
-            interpreter_home: &interp_home,
+            interpreter_executable: &executable,
+            language_version: &language,
         };
         materialize_venv(&spec, &graph, &store).unwrap();
 
@@ -371,11 +418,14 @@ mod tests {
             nodes: vec![node("numpy", "4.2.2", Some(identity.digest.to_string()))],
         };
         let store = Store::open(&store_root).unwrap();
+        let language = observed_language();
+        let executable = interp_home.join("bin/python3");
         let spec = VenvSpec {
             project_root: root.path(),
             runtime_name: "python",
             runtime_version: "3.10.14",
-            interpreter_home: &interp_home,
+            interpreter_executable: &executable,
+            language_version: &language,
         };
         let venv = materialize_venv(&spec, &graph, &store).unwrap();
 
@@ -409,11 +459,14 @@ mod tests {
             nodes: vec![node("numpy", "4.2.2", None)],
         };
         let store = Store::open(&store_root).unwrap();
+        let language = observed_language();
+        let executable = root.path().join("python");
         let spec = VenvSpec {
             project_root: root.path(),
             runtime_name: "python",
             runtime_version: "3.10.14",
-            interpreter_home: root.path(),
+            interpreter_executable: &executable,
+            language_version: &language,
         };
         let err = materialize_venv(&spec, &graph, &store).unwrap_err();
         assert!(err.to_string().contains("digest"), "{err}");
