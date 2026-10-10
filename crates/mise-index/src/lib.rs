@@ -9,6 +9,9 @@ pub mod pypi;
 pub mod python_context;
 pub mod types;
 pub mod wheel;
+pub mod wheel_selection;
+
+pub use wheel_selection::select_wheel_artifact;
 
 use std::path::Path;
 use std::str::FromStr;
@@ -302,6 +305,15 @@ pub enum IndexError {
     InvalidPythonSpecifier { specifier: String, reason: String },
     #[error("invalid wheel tags: {0}")]
     InvalidWheelTags(String),
+    #[error("invalid wheel artifact {filename:?}: {reason}")]
+    InvalidWheelArtifact { filename: String, reason: String },
+    #[error("ambiguous wheel artifacts for {package} {version}: {first:?} and {second:?}")]
+    AmbiguousWheelArtifacts {
+        package: String,
+        version: String,
+        first: String,
+        second: String,
+    },
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
