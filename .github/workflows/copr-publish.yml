@@ -42,7 +42,7 @@ jobs:
           COPR_OWNER_INPUT: ${{ vars.COPR_OWNER || 'jdxcode' }}
           COPR_PROJECT_INPUT: ${{ vars.COPR_PROJECT || 'mise' }}
         run: |
-          VERSION=$(./scripts/get-version.sh | sed 's/^v//')
+          VERSION=$(./packaging/scripts/get-version.sh | sed 's/^v//')
 
           {
             echo "VERSION=${VERSION}"

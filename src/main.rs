@@ -23,6 +23,7 @@ extern crate mise;
 // and so on.
 use mise::*;
 
+#[path = "../cli/src/commands/mod.rs"]
 mod cli;
 
 use crate::ui::multi_progress_report::MultiProgressReport;

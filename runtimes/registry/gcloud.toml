@@ -1,0 +1,14 @@
+backends = ["asdf:mise-plugins/mise-gcloud"]
+bins = [
+  "bq",
+  "dev_appserver.py",
+  "docker-credential-gcloud",
+  "gcloud",
+  "gcloud-crc32c",
+  "git-credential-gcloud.sh",
+  "gsutil",
+  "java_dev_appserver.sh",
+]
+description = "GCloud CLI (Google Cloud SDK)"
+test = { cmd = "gcloud version", expected = "Google Cloud SDK {{version}}" }
+version_order = "semver"

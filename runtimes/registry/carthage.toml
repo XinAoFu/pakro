@@ -1,0 +1,4 @@
+backends = ["asdf:mise-plugins/mise-carthage"]
+description = "A simple, decentralized dependency manager for Cocoa"
+os = ["macos"]
+version_order = "source"

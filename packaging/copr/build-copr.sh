@@ -270,17 +270,17 @@ cp target/__BUILD_PROFILE__/mise %{buildroot}%{_bindir}/
 
 # Install man page if available
 mkdir -p %{buildroot}%{_mandir}/man1
-cp man/man1/mise.1 %{buildroot}%{_mandir}/man1/
+cp cli/man/man1/mise.1 %{buildroot}%{_mandir}/man1/
 
 # Install shell completions
 mkdir -p %{buildroot}%{_datadir}/bash-completion/completions
-cp completions/mise.bash %{buildroot}%{_datadir}/bash-completion/completions/mise
+cp cli/completions/mise.bash %{buildroot}%{_datadir}/bash-completion/completions/mise
 
 mkdir -p %{buildroot}%{_datadir}/zsh/site-functions
-cp completions/_mise %{buildroot}%{_datadir}/zsh/site-functions/
+cp cli/completions/_mise %{buildroot}%{_datadir}/zsh/site-functions/
 
 mkdir -p %{buildroot}%{_datadir}/fish/vendor_completions.d
-cp completions/mise.fish %{buildroot}%{_datadir}/fish/vendor_completions.d/
+cp cli/completions/mise.fish %{buildroot}%{_datadir}/fish/vendor_completions.d/
 
 # Disable self-update for package manager installations
 mkdir -p %{buildroot}%{_libdir}/mise

@@ -1,0 +1,5 @@
+backends = ["conda:mongodb", "asdf:mise-plugins/mise-mongodb"]
+bins = ["mongod", "mongos"]
+description = "MongoDB"
+test = { cmd = "mongod --version", expected = "db version v{{version}}" }
+version_order = "semver"

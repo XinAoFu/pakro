@@ -1,5 +1,5 @@
 //! mise's core: config, toolsets, backends, tasks and everything else the
-//! command line is built on. The `mise` binary (`src/main.rs` and `src/cli/`)
+//! command line is built on. The `mise` binary (`src/main.rs` and `cli/src/commands/`)
 //! is the only intended consumer; this is not a stable public API.
 //!
 //! The module tree below is the single table of contents: root keeps only the
@@ -15,32 +15,32 @@ use crate::config::SettingsExt;
 
 #[cfg(test)]
 #[macro_use]
-#[path = "util/test.rs"]
+#[path = "core/util/test.rs"]
 mod test;
 
 #[cfg(test)]
-#[path = "../build/lockfile_rollout.rs"]
+#[path = "build/lockfile_rollout.rs"]
 mod lockfile_rollout;
-#[path = "../build/registry_url.rs"]
+#[path = "build/registry_url.rs"]
 mod registry_url;
 
 // Macro modules are declared at the crate root so `#[macro_use]` exposes
-// their macros crate-wide; their files live in `util/`.
+// their macros crate-wide; their files live in `core/util/`.
 
 #[macro_use]
-#[path = "util/output.rs"]
+#[path = "core/util/output.rs"]
 pub mod output;
 
 #[macro_use]
-#[path = "util/hint.rs"]
+#[path = "core/util/hint.rs"]
 pub mod hint;
 
 #[macro_use]
-#[path = "util/timings.rs"]
+#[path = "core/util/timings.rs"]
 pub mod timings;
 
 #[macro_use]
-#[path = "util/cmd.rs"]
+#[path = "core/util/cmd.rs"]
 pub mod cmd;
 
 // Modules that are thin re-exports of `mise-util`: importing the module keeps
@@ -66,129 +66,150 @@ pub use mise_util::exit::request as request_exit;
 // Environment and shell-hook machinery (`environment/`): env var helpers, the
 // hook-env protocol, env diffing, watch files, direnv, uv venv integration.
 
-#[path = "environment/direnv.rs"]
+#[path = "core/environment/direnv.rs"]
 pub mod direnv;
-#[path = "environment/env.rs"]
+#[path = "core/environment/env.rs"]
 pub mod env;
-#[path = "environment/env_diff.rs"]
+#[path = "core/environment/env_diff.rs"]
 pub mod env_diff;
-#[path = "environment/hook_env.rs"]
+#[path = "core/environment/hook_env.rs"]
 pub mod hook_env;
-#[path = "environment/hooks.rs"]
+#[path = "core/environment/hooks.rs"]
 pub mod hooks;
-#[path = "environment/path_env.rs"]
+#[path = "core/environment/path_env.rs"]
 pub mod path_env;
-#[path = "environment/uv.rs"]
+#[path = "../runtimes/environment/uv.rs"]
 mod uv;
-#[path = "environment/watch_files.rs"]
+#[path = "core/environment/watch_files.rs"]
 pub mod watch_files;
 
 // Tool installation machinery (`toolinstall/`): backend install context,
 // pre-install orchestration, system package fallbacks, runtime symlinks.
 
-#[path = "toolinstall/install_before.rs"]
+#[path = "../runtimes/src/toolinstall/install_before.rs"]
 pub mod install_before;
-#[path = "toolinstall/install_context.rs"]
+#[path = "../runtimes/src/toolinstall/install_context.rs"]
 pub mod install_context;
-#[path = "toolinstall/python_runtime.rs"]
+#[path = "../runtimes/src/toolinstall/python_runtime.rs"]
 pub mod python_runtime;
-#[path = "toolinstall/runtime_symlinks.rs"]
+#[path = "../runtimes/src/toolinstall/runtime_symlinks.rs"]
 pub mod runtime_symlinks;
 #[cfg(unix)]
-#[path = "toolinstall/system_install.rs"]
+#[path = "../runtimes/src/toolinstall/system_install.rs"]
 pub mod system_install;
-#[path = "toolinstall/tool_purgatory.rs"]
+#[path = "../runtimes/src/toolinstall/tool_purgatory.rs"]
 pub mod tool_purgatory;
-#[path = "toolinstall/tool_stub.rs"]
+#[path = "../runtimes/src/toolinstall/tool_stub.rs"]
 pub mod tool_stub;
 
 // Shims (`shims/`): the shim layer itself plus the fake-asdf compatibility
 // shims (platform-swapped like the rest of mise's Windows modules).
 
-#[cfg_attr(not(windows), path = "shims/fake_asdf.rs")]
-#[cfg_attr(windows, path = "shims/fake_asdf_windows.rs")]
+#[cfg_attr(not(windows), path = "../runtimes/src/shims/fake_asdf.rs")]
+#[cfg_attr(windows, path = "../runtimes/src/shims/fake_asdf_windows.rs")]
 mod fake_asdf;
+#[path = "../runtimes/src/shims/mod.rs"]
 pub mod shims;
 
 // Tool discovery (`registry/`): the baked registry, shorthands, the searchable
 // tool catalog, and the versions host.
 
+#[path = "../runtimes/src/registry/mod.rs"]
 pub mod registry;
-#[path = "registry/shorthands.rs"]
+#[path = "../runtimes/src/registry/shorthands.rs"]
 mod shorthands;
-#[path = "registry/tool_catalog.rs"]
+#[path = "../runtimes/src/registry/tool_catalog.rs"]
 pub mod tool_catalog;
-#[path = "registry/versions_host.rs"]
+#[path = "../runtimes/src/registry/versions_host.rs"]
 mod versions_host;
 
 // Signed release manifests (`packslip/`).
 
+#[path = "../runtimes/src/packslip/mod.rs"]
 pub mod packslip;
-#[path = "packslip/packslip_forge.rs"]
+#[path = "../runtimes/src/packslip/packslip_forge.rs"]
 mod packslip_forge;
-#[path = "packslip/packslip_stamps.rs"]
+#[path = "../runtimes/src/packslip/packslip_stamps.rs"]
 mod packslip_stamps;
 
 // General utilities (`util/`): small helpers shared across the crate.
 
-#[path = "util/build_time.rs"]
+#[path = "core/util/build_time.rs"]
 pub mod build_time;
-#[path = "util/cache.rs"]
+#[path = "core/util/cache.rs"]
 pub mod cache;
-#[path = "util/errors.rs"]
+#[path = "core/util/errors.rs"]
 pub mod errors;
-#[path = "util/file.rs"]
+#[path = "core/util/file.rs"]
 pub mod file;
-#[path = "util/git.rs"]
+#[path = "core/util/git.rs"]
 pub mod git;
-#[path = "util/hash.rs"]
+#[path = "core/util/hash.rs"]
 pub mod hash;
-#[path = "util/logger.rs"]
+#[path = "core/util/logger.rs"]
 pub mod logger;
-#[path = "util/maplit.rs"]
+#[path = "core/util/maplit.rs"]
 pub(crate) mod maplit;
-#[path = "util/migrate.rs"]
+#[path = "core/util/migrate.rs"]
 pub mod migrate;
-#[path = "util/minisign.rs"]
+#[path = "core/util/minisign.rs"]
 pub mod minisign;
-#[path = "util/sops.rs"]
+#[path = "core/util/sops.rs"]
 mod sops;
-#[path = "util/tera.rs"]
+#[path = "core/util/tera.rs"]
 pub mod tera;
 #[doc(hidden)]
-#[path = "util/testing.rs"]
+#[path = "core/util/testing.rs"]
 pub mod testing;
-#[path = "util/toml.rs"]
+#[path = "core/util/toml.rs"]
 pub mod toml;
-#[path = "util/upgrade_hint.rs"]
+#[path = "core/util/upgrade_hint.rs"]
 pub mod upgrade_hint;
-#[path = "util/version.rs"]
+#[path = "core/util/version.rs"]
 pub mod version;
 #[cfg(windows)]
-#[path = "util/windows_job.rs"]
+#[path = "core/util/windows_job.rs"]
 mod windows_job;
 
 // Subsystem directories keep their own `mod.rs` / entry files, and
 // `frontend.rs` stays at the root as the seam between core and `cli`.
 
+#[path = "core/agecrypt/mod.rs"]
 pub mod agecrypt;
+#[path = "../runtimes/src/aqua/mod.rs"]
 pub mod aqua;
+#[path = "../cli/src/args/mod.rs"]
 pub mod args;
+#[path = "../runtimes/src/backend/mod.rs"]
 pub mod backend;
+#[path = "core/config/mod.rs"]
 pub mod config;
+#[path = "core/daemons/mod.rs"]
 pub mod daemons;
+#[path = "../packages/deps/mod.rs"]
 pub mod deps;
 pub mod frontend;
+#[path = "../runtimes/src/install_layout/mod.rs"]
 pub mod install_layout;
+#[path = "core/lockfile/mod.rs"]
 pub mod lockfile;
+#[path = "../runtimes/src/oci/mod.rs"]
 pub mod oci;
+#[path = "core/otel/mod.rs"]
 pub mod otel;
+#[path = "../packages/src/mod.rs"]
 pub mod packages;
+#[path = "../runtimes/src/plugins/mod.rs"]
 pub mod plugins;
+#[path = "../cli/src/shell/mod.rs"]
 pub mod shell;
+#[path = "core/system/mod.rs"]
 pub mod system;
+#[path = "core/task/mod.rs"]
 pub mod task;
+#[path = "../runtimes/src/toolset/mod.rs"]
 pub mod toolset;
+#[path = "../cli/src/ui/mod.rs"]
 pub mod ui;
 
 /// Register what mise's lower crates need from mise itself (its settings loader,

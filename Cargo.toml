@@ -1,22 +1,19 @@
 [workspace]
 resolver = "3"
 members = [
-  "crates/mise-cache-core",
-  "crates/mise-brew-relocation",
-  "crates/mise-agent-env",
-  "crates/mise-brew-metadata",
-  "crates/mise-bootstrap",
-  "crates/vfox",
-  "crates/aqua-registry",
-  "crates/mise-interactive-config",
-  "crates/mise-shim",
-  "crates/mise-sigstore",
-  "crates/mise-settings",
-  "crates/mise-util",
-  "crates/mise-dotenv",
-  "crates/mise-store",
-  "crates/mise-resolver",
-  "crates/mise-index",
+  "src/crates/mise-cache-core",
+  "packages/crates/mise-brew-relocation",
+  "src/crates/mise-agent-env",
+  "packages/crates/mise-brew-metadata",
+  "src/crates/mise-bootstrap",
+  "runtimes/crates/aqua-registry",
+  "src/crates/mise-sigstore",
+  "src/crates/mise-settings",
+  "src/crates/mise-util",
+  "src/crates/mise-dotenv",
+  "packages/crates/mise-store",
+  "packages/crates/mise-resolver",
+  "packages/crates/mise-index",
 ]
 
 [package]
@@ -36,27 +33,35 @@ include = [
   "/Cargo.lock",
   "/LICENSE",
   "/README.md",
-  "/build.rs",
-  "/build/*.rs",
-  "/completions/*",
-  "/docs/public/apple-touch-icon.png",
-  "/docs/public/android-chrome-512x512.png",
-  "/minisign.pub",
-  "/registry/*.toml",
-  "/registry/daemon-presets/*.toml",
-  "/schema/mise.json",
-  "/zipsign.pub",
-  "/src/**/*.rs",
-  "/src/system/history/notify/macos.m",
-  "/src/system/history/notify/macos.plist",
-  "/src/assets/**",
-  "/src/plugins/core/assets/**",
-  "/src/system/packages/brew/*.rb",
-  "/vendor/aqua-registry/LICENSE",
-  "/vendor/aqua-registry/metadata.json",
-  "/vendor/aqua-registry/registry.yml",
+  "/src/*.rs",
+  "/src/build/*.rs",
+  "/src/core/**/*.rs",
+  "/src/core/system/history/notify/macos.m",
+  "/src/core/system/history/notify/macos.plist",
+  "/src/assets/notifications/*.png",
+  "/src/schema/mise.json",
+  "/cli/src/**/*.rs",
+  "/cli/assets/**",
+  "/cli/completions/*",
+  "/runtimes/src/**/*.rs",
+  "/runtimes/environment/*.rs",
+  "/runtimes/assets/**",
+  "/runtimes/src/toolinstall/python_runtime_probe.py",
+  "/runtimes/src/plugins/core/assets/**",
+  "/runtimes/registry/*.toml",
+  "/runtimes/registry/daemon-presets/*.toml",
+  "/runtimes/vendor/aqua-registry/LICENSE",
+  "/runtimes/vendor/aqua-registry/metadata.json",
+  "/runtimes/vendor/aqua-registry/registry.yml",
+  "/packages/src/**/*.rs",
+  "/packages/deps/**/*.rs",
+  "/packages/system/**/*.rs",
+  "/packages/system/**/*.rb",
+  "/packaging/resources/keys/minisign.pub",
+  "/packaging/resources/keys/zipsign.pub",
+  "/tests/support/fixtures/**/*",
 ]
-build = "build.rs"
+build = "src/build/main.rs"
 rust-version = "1.95"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -88,7 +93,8 @@ opt-level = 3
 
 [dependencies]
 age = { version = "0.12", features = ["ssh", "plugin"] }
-aube = { version = "2", default-features = false, features = ["rustls"] }
+aube-manifest = { version = "2", default-features = false }
+aube-workspace = "2"
 async-backtrace = "0.2"
 async-trait = "0.1"
 aws-config = { version = "1", default-features = false, features = [
@@ -130,7 +136,7 @@ contracts = "0.6"
 dashmap = "6"
 demand = "2"
 diffy = "0.5"
-mise-dotenv = { path = "crates/mise-dotenv", version = "0.1" }
+mise-dotenv = { path = "src/crates/mise-dotenv", version = "0.1" }
 duct = "1"
 dunce = "1"
 expr-lang = "2"
@@ -139,14 +145,14 @@ file-id = "0.2"
 filetime = "0.2"
 flate2 = "1"
 futures-util = "0.3"
-mise-cache-core = { path = "crates/mise-cache-core", version = "0.1", default-features = false }
-mise-settings = { path = "crates/mise-settings", version = "2026" }
-mise-util = { path = "crates/mise-util", version = "2026", default-features = false }
-mise-store = { path = "crates/mise-store", version = "0.1" }
-mise-index = { path = "crates/mise-index", version = "0.1" }
-mise-resolver = { path = "crates/mise-resolver", version = "0.1" }
-mise-brew-metadata = { path = "crates/mise-brew-metadata", version = "0.1" }
-mise-bootstrap = { path = "crates/mise-bootstrap", version = "0.1" }
+mise-cache-core = { path = "src/crates/mise-cache-core", version = "0.1", default-features = false }
+mise-settings = { path = "src/crates/mise-settings", version = "2026" }
+mise-util = { path = "src/crates/mise-util", version = "2026", default-features = false }
+mise-store = { path = "packages/crates/mise-store", version = "0.1" }
+mise-index = { path = "packages/crates/mise-index", version = "0.1" }
+mise-resolver = { path = "packages/crates/mise-resolver", version = "0.1" }
+mise-brew-metadata = { path = "packages/crates/mise-brew-metadata", version = "0.1" }
+mise-bootstrap = { path = "src/crates/mise-bootstrap", version = "0.1" }
 fslock = "0.2"
 gix = { version = "<1", default-features = false, features = [
   "max-performance-safe",
@@ -262,9 +268,7 @@ urlencoding = "2"
 uuid = { version = "1", features = ["v7"] }
 usage-lib = { version = "6.11", features = ["docs"] }
 versions = { version = "8", features = ["serde"] }
-vfox = { path = "crates/vfox", default-features = false }
-aqua-registry = { path = "crates/aqua-registry" }
-mise-interactive-config = { path = "crates/mise-interactive-config", version = "2026" }
+aqua-registry = { path = "runtimes/crates/aqua-registry" }
 walkdir = "2"
 which = "8"
 xx = { version = "2", default-features = false, features = ["glob"] }
@@ -292,11 +296,10 @@ opentelemetry-otlp = { version = "0.33", default-features = false, features = [
 self-replace = { version = "1", optional = true }
 tar = { version = "0.4", optional = true }
 zipsign-api = { version = "0.2", optional = true }
-node-semver = "2"
 
 [target.'cfg(unix)'.dependencies]
 exec = "0.3"
-mise-brew-relocation = { path = "crates/mise-brew-relocation", version = "0.1" }
+mise-brew-relocation = { path = "packages/crates/mise-brew-relocation", version = "0.1" }
 nix = { version = "0.31", features = [
   "dir",
   "fs",
@@ -326,7 +329,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [build-dependencies]
-aqua-registry = { path = "crates/aqua-registry" }
+aqua-registry = { path = "runtimes/crates/aqua-registry" }
 built = { version = "0.8", features = ["chrono"] }
 cc = "1"
 cfg_aliases = "0.2"
@@ -350,7 +353,7 @@ test-log = "0.2"
 
 [features]
 self_update = ["dep:self-replace", "dep:tar", "dep:zipsign-api"]
-default = ["native-tls", "vfox/vendored-lua", "self_update"]
+default = ["native-tls", "self_update"]
 native-tls = [
   "gix/blocking-http-transport-reqwest-native-tls",
   "reqwest/native-tls",
@@ -359,7 +362,6 @@ native-tls = [
   "mise-cache-core/native-tls",
   "mise-util/native-tls",
   "ubi/native-tls",
-  "vfox/native-tls",
   "xx/native-tls",
 ]
 rustls = [
@@ -370,7 +372,6 @@ rustls = [
   "mise-cache-core/rustls",
   "mise-util/rustls",
   "ubi/rustls-tls",
-  "vfox/rustls",
   "xx/rustls",
 ]
 rustls-native-roots = [
@@ -381,7 +382,6 @@ rustls-native-roots = [
   "mise-cache-core/rustls-native-roots",
   "mise-util/rustls-native-roots",
   "ubi/rustls-tls",
-  "vfox/rustls-native-roots",
   "xx/rustls-native-roots",
 ]
 
@@ -402,18 +402,13 @@ pkg-url = "{ repo }/releases/download/v{ version }/mise-v{version}-linux-armv7{ 
 ignored = [
   "aws-lc-rs",
   "built",
-  "cc", # Used by build.rs for the macOS notification helper.
+  "cc", # Used by src/build/main.rs for the macOS notification helper.
   "cfg_aliases",
   "openssl",
   "phf_codegen",
   "rust-embed",
 ]
 
-[package.metadata.release]
-pre-release-replacements = [
-  { file = "docs/installing-mise.md", search = "MISE_VERSION=v[0-9]+\\.[0-9]+\\.[0-9]+", replace = "MISE_VERSION=v{{version}}" },
-  { file = "docs/installing-mise.md", search = "/download/v[0-9]+\\.[0-9]+\\.[0-9]+/mise-v[0-9]+\\.[0-9]+\\.[0-9]+-linux-x64", replace = "/download/v{{version}}/mise-v{{version}}-linux-x64" },
-]
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = [

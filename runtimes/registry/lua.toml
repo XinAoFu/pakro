@@ -1,0 +1,4 @@
+backends = ["asdf:mise-plugins/mise-lua"]
+bins = ["lua", "luac", "luarocks", "luarocks-admin"]
+description = "Lua language"
+version_order = "source"

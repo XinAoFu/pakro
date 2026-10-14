@@ -10,13 +10,13 @@
   },
   "packageRules": [
     {
-      "description": "copr image is rebuilt from source on Dockerfile changes; pinning a digest would cause stale image regressions.",
+      "description": "COPR CI consumes the upstream copr builder image by tag; keep automated digest pinning disabled.",
       "matchPackageNames": ["ghcr.io/jdx/mise"],
       "matchCurrentValue": "copr",
       "enabled": false
     },
     {
-      "description": "fedora major bumps only take effect when the rpm/copr images are rebuilt at release time, so a broken base image surfaces mid-release rather than in PR CI (see the fedora 40 rollback in 8184bc9). Bump manually against the release path; digest updates stay enabled.",
+      "description": "Fedora builder base updates require validation against upstream packaging images. Bump major versions manually; digest updates stay enabled.",
       "matchPackageNames": ["fedora"],
       "matchManagers": ["dockerfile"],
       "matchUpdateTypes": ["major"],
@@ -35,8 +35,8 @@
       "separateMajorMinor": false
     },
     {
-      "description": "aube and aube-registry are released together, so they update together.",
-      "matchPackageNames": ["aube", "aube-registry"],
+      "description": "aube-manifest and aube-workspace are released together, so they update together.",
+      "matchPackageNames": ["aube-manifest", "aube-workspace"],
       "matchManagers": ["cargo"],
       "groupName": "aube",
       "separateMajorMinor": false

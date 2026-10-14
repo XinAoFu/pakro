@@ -116,8 +116,7 @@ jobs:
           save-if: ${{ inputs.trusted && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release' || startsWith(github.ref, 'refs/tags/v')) }}
       - shell: pwsh
         run: |
-          ${{ inputs.trusted && vars.WINDOWS_SELF_HOSTED == 'true' && 'mbx' || 'cargo' }} build --no-default-features --features rustls-native-roots,vfox/vendored-lua,self_update --all-targets
-          ${{ inputs.trusted && vars.WINDOWS_SELF_HOSTED == 'true' && 'mbx' || 'cargo' }} build -p mise-shim
+          ${{ inputs.trusted && vars.WINDOWS_SELF_HOSTED == 'true' && 'mbx' || 'cargo' }} build --no-default-features --features rustls-native-roots,self_update --all-targets
           Add-Content $env:GITHUB_PATH "$env:GITHUB_WORKSPACE\target\debug"
       - parallel:
           - run: mise -v
@@ -126,7 +125,6 @@ jobs:
               name: mise-windows-latest
               path: |
                 target/debug/mise.exe
-                target/debug/mise-shim.exe
 
   unit:
     name: unit-macos
@@ -182,8 +180,8 @@ jobs:
       # The full E2E suite runs on Linux. Tests whose filenames contain `macos`
       # are also discovered and exercised here for platform-specific coverage.
       - run: mise run test:e2e macos
-      # Linux runs this in the full suite; Windows has the equivalent Pester
-      # wrapper. Always replace a disposable copy, never the CI runner binary.
+      # Linux runs this in the full suite. Always replace a disposable copy,
+      # never the CI runner binary.
       - run: mise run test:e2e cli/test_self_update_install
       # Tracked history shells out to git and needs the Xcode Command
       # Line Tools guard exercised on a real macOS runner. Each test has its
@@ -235,7 +233,6 @@ jobs:
               path: target/debug
       - run: echo "$PWD/target/debug" >> "$GITHUB_PATH" && chmod +x target/debug/mise
       - uses: ./.github/actions/mise-tools
-      - run: mise x -- aube install
       # build-ubuntu produced this commit's binary, downloaded above.
       - run: mise run render
         env:
@@ -254,10 +251,10 @@ jobs:
       # cargo-check, so CI can skip that redundant compilation while retaining it
       # for local lint runs.
       - parallel:
-          - run: rm -rf ~/.cargo/advisory-dbs && cargo deny check
+          - run: rm -rf ~/.cargo/advisory-dbs && cargo deny --config .config/deny.toml check
           - run: cargo machete --with-metadata
-          - run: ./scripts/test-standalone.sh
-          - run: ./scripts/test-check-glibc.sh
+          - run: ./tests/scripts/test-standalone.sh
+          - run: ./tests/scripts/test-check-glibc.sh
           - run: mise run lint
             env:
               HK_SKIP_STEPS: cargo-check
@@ -308,7 +305,7 @@ jobs:
             run: docker pull ghcr.io/jdx/mise:e2e
       - run: echo "$PWD/target/debug" >> "$GITHUB_PATH" && chmod +x target/debug/mise
       - name: Test e2e runner
-        run: python3 scripts/test-e2e-runner.py
+        run: python3 tests/scripts/test-e2e-runner.py
       # Tests run in ephemeral containers and do not need host mise tools.
       # Four branches on a large runner; each handles two token-isolated
       # tranches sequentially, capped at eight containers total.
@@ -328,8 +325,8 @@ jobs:
               TOKEN_B: ${{ steps.tokens.outputs.token_4 || secrets.MISE_GH_TOKEN || secrets.GITHUB_TOKEN }}
             run: &e2e-run |
               e2e_status=0
-              MISE_GITHUB_TOKEN="$TOKEN_A" GITHUB_TOKEN="$TOKEN_A" TEST_TRANCHE="$TRANCHE_A" ./e2e/run_all_tests || e2e_status=$?
-              MISE_GITHUB_TOKEN="$TOKEN_B" GITHUB_TOKEN="$TOKEN_B" TEST_TRANCHE="$TRANCHE_B" ./e2e/run_all_tests || e2e_status=$?
+              MISE_GITHUB_TOKEN="$TOKEN_A" GITHUB_TOKEN="$TOKEN_A" TEST_TRANCHE="$TRANCHE_A" ./tests/e2e/run_all_tests || e2e_status=$?
+              MISE_GITHUB_TOKEN="$TOKEN_B" GITHUB_TOKEN="$TOKEN_B" TEST_TRANCHE="$TRANCHE_B" ./tests/e2e/run_all_tests || e2e_status=$?
               exit "$e2e_status"
           - name: Test tranches 1 and 5
             timeout-minutes: 60
@@ -389,7 +386,7 @@ jobs:
           path: target/debug
       - run: chmod +x target/debug/mise
       - name: Converge a complete Linux host over SSH
-        run: scripts/test-bootstrap-linux-host.sh target/debug/mise
+        run: tests/scripts/test-bootstrap-linux-host.sh target/debug/mise
 
   windows-unit:
     runs-on: ${{ inputs.trusted && vars.WINDOWS_SELF_HOSTED == 'true' && fromJSON('["self-hosted", "jdx-win-trusted-v1"]') || 'windows-latest' }}
@@ -447,36 +444,6 @@ jobs:
       - run: rustup component add clippy
       - name: Run Clippy on Windows
         run: ${{ inputs.trusted && vars.WINDOWS_SELF_HOSTED == 'true' && 'mbx' || 'cargo' }} clippy --workspace --all-targets --ignore-rust-version -- -D warnings
-  windows-e2e:
-    permissions:
-      contents: read
-    # Stays on a hosted runner. The Pester suite exercises console windows, scheduled
-    # tasks and other interactive-desktop behavior that a runner running as a service
-    # cannot provide, and it is not compile-bound, so the self-hosted runner gains little.
-    runs-on: windows-latest
-    timeout-minutes: 100
-    needs: [build-windows, classify-changes]
-    if: needs.classify-changes.outputs.full-ci == 'true'
-    env:
-      MISE_DATA_DIR: ~/.local/share/mise
-      MISE_CACHE_DIR: ~/.cache/mise
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: mise-windows-latest
-          path: target/debug
-      - run: ls target\debug
-      - run: Add-Content $env:GITHUB_PATH "$env:GITHUB_WORKSPACE\target\debug"
-      - uses: ./.github/actions/mise-tools
-      - name: e2e
-        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
-        with:
-          timeout_minutes: 30
-          retry_wait_seconds: 30
-          max_attempts: 2
-          command: pwsh e2e-win\run.ps1
-
   test-ci:
     permissions: {}
     runs-on: ${{ !inputs.trusted && 'ubuntu-latest' || 'namespace-profile-endev-linux-amd64;overrides.cache-tag=cache' }}
@@ -491,7 +458,6 @@ jobs:
       - bootstrap-linux-host
       - windows-unit
       - windows-lint
-      - windows-e2e
     # Evaluate skipped and failed dependencies, but do not waste a runner when
     # the workflow is cancelled.
     if: ${{ always() && !cancelled() }}
@@ -541,10 +507,6 @@ jobs:
               echo "windows-lint failed or was skipped"
               exit 1
             fi
-            if [ "${{ needs.windows-e2e.result }}" != "success" ]; then
-              echo "windows-e2e failed or was skipped"
-              exit 1
-            fi
           else
             for result in \
               "${{ needs.build-windows.result }}" \
@@ -552,8 +514,7 @@ jobs:
               "${{ needs.e2e.result }}" \
               "${{ needs.bootstrap-linux-host.result }}" \
               "${{ needs.windows-unit.result }}" \
-              "${{ needs.windows-lint.result }}" \
-              "${{ needs.windows-e2e.result }}"; do
+              "${{ needs.windows-lint.result }}"; do
               if [ "$result" != "skipped" ]; then
                 echo "docs-only jobs should be skipped"
                 exit 1

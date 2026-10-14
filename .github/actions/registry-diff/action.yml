@@ -1,5 +1,5 @@
 name: "List modified registry tools"
-description: "List tools in registry/ that have been modified between commits"
+description: "List tools in runtimes/registry/ that have been modified between commits"
 
 inputs:
   base_sha:
@@ -40,12 +40,12 @@ runs:
           done
         }
 
-        modified=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" -- ':(glob)registry/*.toml' \
+        modified=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" -- ':(glob)runtimes/registry/*.toml' ':(glob)registry/*.toml' \
           | xargs -I{} basename {} .toml \
           | tr '\n' ' ')
         validate_tools "$modified"
 
-        new=$(git diff --name-only --diff-filter=A "$BASE_SHA" "$HEAD_SHA" -- ':(glob)registry/*.toml' \
+        new=$(git diff --name-only --diff-filter=A "$BASE_SHA" "$HEAD_SHA" -- ':(glob)runtimes/registry/*.toml' ':(glob)registry/*.toml' \
           | xargs -I{} basename {} .toml \
           | tr '\n' ' ')
         validate_tools "$new"

@@ -52,7 +52,7 @@ jobs:
             fi
             VERSION="$INPUT_VERSION"
           else
-            VERSION="$(./scripts/get-version.sh)"
+            VERSION="$(./packaging/scripts/get-version.sh)"
           fi
           mkdir -p "releases/$VERSION"
 
@@ -87,7 +87,7 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Install aube via mise
-        # aube comes from this repo's `mise.toml` -> `registry/aube.toml`
+        # aube comes from this repo's `mise.toml` -> `runtimes/registry/aube.toml`
         # (-> `github:endevco/aube`). Same install path local devs see when
         # they run `mise install`. aube signs SLSA provenance via the
         # Sigstore public-good instance using the workflow's
@@ -107,12 +107,12 @@ jobs:
               fi
               MISE_VERSION="$INPUT_VERSION"
             else
-              MISE_VERSION="$(./scripts/get-version.sh)"
+              MISE_VERSION="$(./packaging/scripts/get-version.sh)"
             fi
             export MISE_VERSION
             export RELEASE_DIR="releases"
-            NPM_PREFIX=@jdxcode/mise mise x aube -- ./scripts/release-npm.sh
-            NPM_PREFIX=mise NPM_PLATFORM_PREFIX=@jdxcode/mise PUBLISH_PLATFORM_PACKAGES=0 mise x aube -- ./scripts/release-npm.sh
+            NPM_PREFIX=@jdxcode/mise mise x aube -- ./packaging/scripts/release-npm.sh
+            NPM_PREFIX=mise NPM_PLATFORM_PREFIX=@jdxcode/mise PUBLISH_PLATFORM_PACKAGES=0 mise x aube -- ./packaging/scripts/release-npm.sh
           else
             echo "DRY RUN: Would publish npm packages"
           fi

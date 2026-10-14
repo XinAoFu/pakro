@@ -3,7 +3,7 @@ name: release-window
 # Holds the release PR after the 15:00-03:00 America/Chicago release cutoff by
 # posting a pending `release-window` commit status, which is a required check
 # on main. Merging the release PR is what publishes crates and pushes the tag
-# (see xtasks/release-plz), so this is the only safe place to gate a release.
+# (see packaging/tasks/release-plz), so this is the only safe place to gate a release.
 # A few scheduled runs flip the status at the two edges: it goes pending when
 # quiet hours begin within the hour (~15:00 Central), and back to success after
 # 03:00, when an armed auto-merge completes on its own.

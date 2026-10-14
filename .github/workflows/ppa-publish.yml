@@ -53,7 +53,7 @@ jobs:
           PPA_MAINTAINER_EMAIL_INPUT: ${{ vars.PPA_MAINTAINER_EMAIL || 'noreply@mise.jdx.dev' }}
           PPA_NAME_INPUT: ${{ vars.PPA_NAME || 'ppa:jdxcode/mise' }}
         run: |
-          VERSION=$(./scripts/get-version.sh | sed 's/^v//')
+          VERSION=$(./packaging/scripts/get-version.sh | sed 's/^v//')
 
           if [ "$EVENT_NAME" = "release" ]; then
             DISTRIBUTIONS="resolute"
@@ -136,8 +136,8 @@ jobs:
           [source.vendored-sources]
           directory = "vendor"
           EOF
-          # --no-delete preserves the git-tracked vendor/aqua-registry/ directory
-          # (consumed by build.rs); without it, cargo vendor wipes the directory.
+          # Keep any existing vendored dependencies when refreshing this generated
+          # cargo vendor directory; Aqua data lives separately in runtimes/vendor.
           cargo vendor --no-delete vendor/
 
           # Clear all vendor checksums — dpkg-source strips .o, .a, .git*, *.orig and
@@ -227,31 +227,32 @@ jobs:
             TARGET_DIR="target/${BUILD_PROFILE}"
           fi
 
+          make_recipe_prefix="$(printf '\t')"
           cat > debian/rules << EOF
           #!/usr/bin/make -f
 
           %:
-          	dh \$@
+          ${make_recipe_prefix}dh \$@
 
           override_dh_auto_build:
-          	cargo build --profile ${BUILD_PROFILE} --frozen --bin mise
+          ${make_recipe_prefix}cargo build --profile ${BUILD_PROFILE} --frozen --bin mise
 
           override_dh_auto_install:
-          	mkdir -p debian/mise/usr/bin
-          	cp ${TARGET_DIR}/mise debian/mise/usr/bin/
-          	mkdir -p debian/mise/usr/share/man/man1
-          	if [ -f man/man1/mise.1 ]; then cp man/man1/mise.1 debian/mise/usr/share/man/man1/; fi
-          	mkdir -p debian/mise/usr/share/bash-completion/completions
-          	if [ -f completions/mise.bash ]; then cp completions/mise.bash debian/mise/usr/share/bash-completion/completions/mise; fi
-          	mkdir -p debian/mise/usr/share/zsh/site-functions
-          	if [ -f completions/_mise ]; then cp completions/_mise debian/mise/usr/share/zsh/site-functions/; fi
-          	mkdir -p debian/mise/usr/share/fish/vendor_completions.d
-          	if [ -f completions/mise.fish ]; then cp completions/mise.fish debian/mise/usr/share/fish/vendor_completions.d/; fi
-          	mkdir -p debian/mise/usr/lib/mise
-          	echo 'message = "To update, run:\\n\\n  sudo apt update && sudo apt install --only-upgrade mise\\n"' > debian/mise/usr/lib/mise/mise-self-update-instructions.toml
+          ${make_recipe_prefix}mkdir -p debian/mise/usr/bin
+          ${make_recipe_prefix}cp ${TARGET_DIR}/mise debian/mise/usr/bin/
+          ${make_recipe_prefix}mkdir -p debian/mise/usr/share/man/man1
+          ${make_recipe_prefix}if [ -f cli/man/man1/mise.1 ]; then cp cli/man/man1/mise.1 debian/mise/usr/share/man/man1/; fi
+          ${make_recipe_prefix}mkdir -p debian/mise/usr/share/bash-completion/completions
+          ${make_recipe_prefix}if [ -f cli/completions/mise.bash ]; then cp cli/completions/mise.bash debian/mise/usr/share/bash-completion/completions/mise; fi
+          ${make_recipe_prefix}mkdir -p debian/mise/usr/share/zsh/site-functions
+          ${make_recipe_prefix}if [ -f cli/completions/_mise ]; then cp cli/completions/_mise debian/mise/usr/share/zsh/site-functions/; fi
+          ${make_recipe_prefix}mkdir -p debian/mise/usr/share/fish/vendor_completions.d
+          ${make_recipe_prefix}if [ -f cli/completions/mise.fish ]; then cp cli/completions/mise.fish debian/mise/usr/share/fish/vendor_completions.d/; fi
+          ${make_recipe_prefix}mkdir -p debian/mise/usr/lib/mise
+          ${make_recipe_prefix}echo 'message = "To update, run:\\n\\n  sudo apt update && sudo apt install --only-upgrade mise\\n"' > debian/mise/usr/lib/mise/mise-self-update-instructions.toml
 
           override_dh_auto_clean:
-          	cargo clean || true
+          ${make_recipe_prefix}cargo clean || true
           EOF
 
           # CI verifies that the locked dependencies actually compile with mise's MSRV.

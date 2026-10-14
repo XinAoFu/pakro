@@ -1,0 +1,103 @@
+#:schema ../src/schema/mise-task.json
+
+[clean]
+description = 'Clean build artifacts'
+run = 'cargo clean'
+
+[ci]
+depends = ["format", "build", "test"]
+description = "Run all CI checks"
+
+[lint]
+description = 'Run all lint checks'
+depends = ['lint:*']
+
+[build]
+alias = "b"
+run = "{{ get_env(name='MISE_CARGO_BUILD_COMMAND', default='cargo build') }} --all-features {{ get_env(name='MISE_CARGO_BUILD_EXTRA_ARGS', default='') }}"
+run_windows = "{{ get_env(name='MISE_CARGO_BUILD_COMMAND', default='cargo build') }} {{ get_env(name='MISE_CARGO_BUILD_EXTRA_ARGS', default='') }}"
+description = "Build the project"
+#sources = ["Cargo.*", "src/**/*.rs"]
+#outputs = ["target/debug/mise"]
+
+["render:usage"]
+description = 'Generate the CLI usage specification'
+depends = ["build"]
+env = { CLICOLOR_FORCE = "0" }
+run = ["mkdir -p cli/generated", "mise usage > cli/generated/mise.usage.kdl"]
+
+["render:schema"]
+description = 'Generate configuration JSON schemas with Rust'
+run = 'cargo run -p mise-settings --example render-schema'
+
+["render:completions"]
+description = 'Generate shell completions'
+depends = ["build"]
+wait_for = ["render:usage"]
+env = { NO_COLOR = "1" }
+run = '''
+#!/usr/bin/env bash
+set -xeuo pipefail
+mise completion bash > cli/completions/mise.bash
+mise completion zsh > cli/completions/_mise
+mise completion fish > cli/completions/mise.fish
+'''
+
+["render:mangen"]
+description = 'Generate man pages'
+depends = ["render:usage"]
+env = { NO_COLOR = "1" }
+run = [
+  "mise x usage -- usage generate manpage --file cli/generated/mise.usage.kdl > cli/man/man1/mise.1",
+  # usage's manpage renderer currently includes hidden flags. Omit this temporary
+  # compatibility entry until it is removed alongside the alias in 2026.10.0.
+  '''perl -0pi -e 's/\.TP\n\\fB\\-\\-from\\-git\\fR[^\n]*\nDeprecated alias for \\-\\-adopt\n//g' cli/man/man1/mise.1''',
+]
+
+[render]
+description = 'Run all render tasks'
+depends = ["render:*"]
+
+[snapshots]
+description = "update test snapshots"
+run = "cargo insta test --all-features --accept --unreferenced delete"
+
+[test]
+description = "run all tests"
+alias = 't'
+run = ["mise tasks run test:unit", "mise tasks run test:e2e --all"]
+
+["test:unit"]
+description = "run unit tests"
+run = "cargo test --all-features"
+env = { CARGO_TERM_COLOR = "always", "RUST_TEST_THREADS" = "1" }
+
+["test:unit-ci"]
+description = "run unit tests with CI time limits"
+# NEXTEST_PROFILE lets CI pick `ci-shared` on shared runners, where the strict
+# ceilings are not a usable signal. Defaults to the strict `ci` profile.
+run = [
+  "cargo nextest run --profile ${NEXTEST_PROFILE:-ci} --all-features --ignore-rust-version --no-fail-fast",
+  "cargo nextest run --profile ${NEXTEST_PROFILE:-ci} --workspace --exclude mise --ignore-rust-version --no-fail-fast",
+  "cargo test --doc --workspace --exclude mise --ignore-rust-version",
+]
+
+
+["test:shuffle"]
+description = 'Run tests with shuffling enabled'
+run = 'cargo +nightly test --all-features -- -Z unstable-options --shuffle'
+
+[install-dev]
+description = 'Install the current project in debug mode'
+run = 'cargo install --path . --debug'
+
+[pre-commit]
+description = 'Run pre-commit hooks'
+env = { PRE_COMMIT = 1 }
+run = ["mise run lint"]
+
+[flamegraph]
+description = 'Generate a flamegraph for performance analysis'
+tools = { "cargo:flamegraph" = "latest" }
+env = { CARGO_PROFILE_RELEASE_DEBUG = "true" }
+run = 'cargo flamegraph'

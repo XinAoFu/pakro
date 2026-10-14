@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+error() {
+	echo "$@" >&2
+	exit 1
+}
+
+RUST_TRIPLE=${1:-$(rustc -vV | grep ^host: | cut -d ' ' -f2)}
+#region os/arch
+get_os() {
+	case "$RUST_TRIPLE" in
+	*-apple-darwin*)
+		echo "macos"
+		;;
+	*-windows-*)
+		echo "windows"
+		;;
+	*-linux-*)
+		echo "linux"
+		;;
+	*)
+		error "unsupported OS: $RUST_TRIPLE"
+		;;
+	esac
+}
+
+get_arch() {
+	case "$RUST_TRIPLE" in
+	aarch64-*)
+		echo "arm64"
+		;;
+	arm*)
+		echo "armv7"
+		;;
+	x86_64-*)
+		echo "x64"
+		;;
+	universal2-*)
+		echo "universal"
+		;;
+	*)
+		error "unsupported arch: $RUST_TRIPLE"
+		;;
+	esac
+}
+get_suffix() {
+	case "$RUST_TRIPLE" in
+	*-musl | *-musleabi | *-musleabihf)
+		echo "-musl"
+		;;
+	*)
+		echo ""
+		;;
+	esac
+}
+#endregion
+
+set -x
+os=$(get_os)
+arch=$(get_arch)
+suffix=$(get_suffix)
+version=$(./packaging/scripts/get-version.sh)
+basename=mise-$version-$os-$arch$suffix
+
+case "$os-$arch" in
+linux-arm*)
+	# don't use sccache
+	unset RUSTC_WRAPPER
+	;;
+esac
+
+features="rustls-native-roots,self_update,openssl/vendored"
+if [[ $os == "linux" ]] && [[ $arch == "armv7" ]]; then
+	features="$features,aws-lc-rs"
+fi
+
+if [[ $RUST_TRIPLE == "armv7-unknown-linux-gnueabihf" ]]; then
+	# cross 0.2.5 uses Ubuntu 16.04 for this target, whose libclang 3.8 is
+	# too old for aws-lc-sys bindgen. packaging/config/Cross.toml installs libclang 6 here.
+	export LIBCLANG_PATH=/usr/lib/llvm-6.0/lib
+	export BINDGEN_EXTRA_CLANG_ARGS_armv7_unknown_linux_gnueabihf="--sysroot=/usr/arm-linux-gnueabihf -isystem /usr/lib/llvm-6.0/lib/clang/6.0.1/include"
+fi
+
+if [[ $os == "macos" ]]; then
+	# Targeting macOS 12+ makes ld emit chained fixups (LC_DYLD_CHAINED_FIXUPS),
+	# which dyld applies lazily per page instead of eagerly interpreting ~170k
+	# legacy rebase/bind opcodes on every launch. Measurably faster startup for
+	# a binary this large. macOS 11 (EOL since 2023) cannot run these binaries.
+	export MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET:-12.0}
+	# The notification helper is embedded as a complete signed app. Local builds
+	# use an ad-hoc identity; release builds use the same Developer ID certificate
+	# as the outer mise binary so macOS can validate it after extraction.
+	export MISE_NOTIFICATION_SIGN_IDENTITY="Developer ID Application: Jeffrey Dickey (4993Y37DX6)"
+fi
+
+case "$RUST_TRIPLE" in
+*-linux-gnu | *-linux-gnueabihf)
+	# Link the executable at a fixed address instead of as a PIE, so the
+	# dynamic loader has no pointers to patch at startup (see link_without_pie
+	# in build.rs). About halves the run time of short commands like hook-env.
+	export MISE_NO_PIE=1
+	;;
+esac
+
+if [[ -n ${MISE_BOLT:-} ]] && [[ -z ${MISE_PGO:-} ]]; then
+	error "MISE_BOLT requires MISE_PGO so BOLT optimizes the PGO release binary"
+fi
+
+if [[ -n ${MISE_PGO:-} ]]; then
+	# Profile-guided optimization: instrument, train against the hermetic
+	# offline workload in packaging/scripts/pgo.bash, rebuild with the profile.
+	# Only valid for targets whose binaries can execute on this machine.
+	build_tool=cargo
+	if [[ $os == "linux" ]]; then
+		build_tool=cross
+	fi
+	MISE_PGO_BUILD_TOOL="$build_tool" MISE_PGO_TARGET="$RUST_TRIPLE" \
+		bash packaging/scripts/pgo.bash --ignore-rust-version --no-default-features --features "$features"
+elif [[ $os == "linux" ]]; then
+	cross build --profile=serious --target "$RUST_TRIPLE" --ignore-rust-version --no-default-features --features "$features"
+else
+	cargo build --profile=serious --target "$RUST_TRIPLE" --ignore-rust-version --no-default-features --features "$features"
+fi
+
+# Use CARGO_TARGET_DIR if set, otherwise default to target
+target_dir="${CARGO_TARGET_DIR:-target}"
+binary_path="$target_dir/$RUST_TRIPLE/serious/mise"
+
+if [[ -n ${MISE_BOLT:-} ]]; then
+	case "$RUST_TRIPLE" in
+	x86_64-unknown-linux-gnu)
+		bash packaging/scripts/bolt.bash "$binary_path"
+		;;
+	*)
+		error "BOLT is only enabled for the x86_64 Linux GNU release target: $RUST_TRIPLE"
+		;;
+	esac
+fi
+
+# GNU/Linux release binaries require glibc 2.18 or newer, matching the
+# published v2026.9.10 binaries. Reject builds that require a newer version
+# so toolchain and dependency updates cannot silently reduce compatibility.
+# Static musl builds remain available for systems with older glibc.
+GLIBC_FLOOR=2.18
+
+case "$RUST_TRIPLE" in
+*-linux-gnu | *-linux-gnueabihf)
+	echo "Checking glibc compatibility (floor: $GLIBC_FLOOR)..."
+	packaging/scripts/check-glibc.sh "$binary_path" "$GLIBC_FLOOR" "$RUST_TRIPLE"
+	if ! readelf -h "$binary_path" | grep -q 'Type:.*EXEC'; then
+		error "$binary_path is not linked non-PIE; MISE_NO_PIE did not reach build.rs"
+	fi
+	;;
+esac
+mkdir -p dist/mise/bin
+mkdir -p dist/mise/man/man1
+mkdir -p dist/mise/share/fish/vendor_conf.d
+cp "$target_dir/$RUST_TRIPLE/serious/mise"* dist/mise/bin
+cp README.md dist/mise/README.md
+cp LICENSE dist/mise/LICENSE
+
+if [[ $os != "windows" ]]; then
+	cp cli/man/man1/mise.1 dist/mise/man/man1/mise.1
+	cp cli/share/fish/vendor_conf.d/mise-activate.fish dist/mise/share/fish/vendor_conf.d/mise-activate.fish
+fi
+
+cd dist
+
+if [[ $os == "macos" ]]; then
+	# --options runtime and --timestamp are what the notary service requires;
+	# without them a submission comes back Invalid.
+	codesign -f --options runtime --timestamp --prefix dev.jdx. \
+		-s "$MISE_NOTIFICATION_SIGN_IDENTITY" mise/bin/mise
+fi
+
+if [[ $os == "windows" ]]; then
+	zip -r "$basename.zip" mise
+	ls -oh "$basename.zip"
+else
+	tar_owner_args=(--owner=0 --group=0)
+	if tar --version 2>&1 | grep -q '^bsdtar'; then
+		# macOS ships BSD tar, whose ownership flags differ from GNU tar's.
+		tar_owner_args=(--uid 0 --gid 0 --uname root --gname root)
+	fi
+	XZ_OPT=-9 tar "${tar_owner_args[@]}" -acf "$basename.tar.xz" mise
+	tar "${tar_owner_args[@]}" -cf - mise | gzip -9 >"$basename.tar.gz"
+	ZSTD_NBTHREADS=0 ZSTD_CLEVEL=19 tar "${tar_owner_args[@]}" -acf "$basename.tar.zst" mise
+	ls -oh "$basename.tar."*
+fi

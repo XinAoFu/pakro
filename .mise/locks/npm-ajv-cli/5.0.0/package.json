@@ -1,7 +1,0 @@
-{
-  "name": "mise-npm-install",
-  "private": true,
-  "dependencies": {
-    "ajv-cli": "5.0.0"
-  }
-}

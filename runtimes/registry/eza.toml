@@ -1,0 +1,10 @@
+backends = [
+  { full = "aqua:eza-community/eza", platforms = [
+    "linux",
+  ] },
+
+  "cargo:eza",
+]
+description = "A modern, maintained replacement for ls"
+test = { cmd = "eza --version", expected = "v{{version}}" }
+version_order = "semver"

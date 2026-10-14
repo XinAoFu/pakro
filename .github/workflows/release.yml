@@ -26,6 +26,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+  CROSS_CONFIG: ${{ github.workspace }}/packaging/config/Cross.toml
   CARGO_TERM_COLOR: always
   DRY_RUN: ${{ startsWith(github.ref, 'refs/tags/v') && '0' || '1' }}
   RUST_BACKTRACE: 1
@@ -97,7 +98,7 @@ jobs:
       matrix:
         include:
           # pgo: the amd64 runner can execute x86_64 binaries, so those
-          # targets build via scripts/pgo.bash (instrument -> train ->
+          # targets build via packaging/scripts/pgo.bash (instrument -> train ->
           # rebuild with profile). bolt: apply post-link optimization to
           # the glibc x64 binary after PGO. arm targets can't run their
           # instrumented binaries here and stay plain serious builds.
@@ -140,7 +141,7 @@ jobs:
         with:
           timeout_minutes: 140
           max_attempts: 3
-          command: scripts/build-tarball.sh ${{matrix.target}}
+          command: packaging/scripts/build-tarball.sh ${{matrix.target}}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: tarball-${{matrix.target}}
@@ -190,7 +191,7 @@ jobs:
           # Keep rustc, rust-std, and the profiling runtime on the same
           # toolchain. A mismatched runner default makes PGO training fail
           # before it can write any profile data.
-          command: rustup run stable scripts/build-tarball.sh ${{matrix.target}}
+          command: rustup run stable packaging/scripts/build-tarball.sh ${{matrix.target}}
       # Signing settles who built the binary; notarization is what Gatekeeper
       # demands once an archive carries the quarantine bit, which is to say
       # whenever someone downloads it in a browser rather than with curl.
@@ -279,51 +280,6 @@ jobs:
             dist/mise-*.tar.gz
             dist/mise-*.tar.zst
           if-no-files-found: error
-  build-tarball-windows:
-    needs: [gate]
-    if: needs.gate.outputs.build == 'true'
-    name: build-tarball-windows-${{matrix.arch}}
-    # Each arch builds on a native runner. Cross-compiling arm64 on the x64 runner
-    # with fat LTO and panic=unwind ran past the 150-minute timeout.
-    # The x64 build runs on self-hosted Windows runners for trusted runs. The release PR's dry run uses
-    # the shared trusted runner (repository variable WINDOWS_SELF_HOSTED=true). A real release (tag push or
-    # manual dispatch) uses a separate runner and account that never runs pull requests, so the binary that
-    # gets signed is not built where pull-request code has run (repository variable
-    # WINDOWS_RELEASE_SELF_HOSTED=true, and only when the run starts from a v* tag (a tag push or a
-    # dispatch from the tag) or a dispatch from main, release or mise, the refs that runner accepts; a
-    # dispatch from any other branch builds on the hosted runner).
-    # Either variable unset falls back to the hosted runner. Each runner also enforces this itself.
-    # arm64 stays on a hosted native runner.
-    runs-on: ${{ matrix.arch == 'x64' && !(github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name != github.repository || (github.event.pull_request.user.login != 'jdx' && github.event.pull_request.user.login != 'mise-en-dev'))) && ((github.event_name == 'pull_request' && vars.WINDOWS_SELF_HOSTED == 'true' && fromJSON('["self-hosted", "jdx-win-trusted-v1"]')) || (github.event_name != 'pull_request' && vars.WINDOWS_RELEASE_SELF_HOSTED == 'true' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release' || github.ref == 'refs/heads/mise') && fromJSON('["self-hosted", "jdx-win-release-v1"]'))) || matrix.runner }}
-    # Matches the Linux tarball job. Fat LTO's link varied from ~65 minutes to
-    # past this timeout on windows-latest depending on memory pressure, so
-    # scripts/build-tarball.ps1 builds with thin LTO on hosted runners and with
-    # the profile's fat LTO on the self-hosted runner, which has the RAM for it.
-    timeout-minutes: 150
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: arm64
-            target: aarch64-pc-windows-msvc
-            runner: windows-11-arm
-          - arch: x64
-            target: x86_64-pc-windows-msvc
-            runner: windows-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - run: rustup target add ${{matrix.target}}
-      - run: scripts/build-tarball.ps1 ${{matrix.target}}
-        env:
-          OS: windows
-          ARCH: ${{matrix.arch}}
-      - name: Smoke-test vfox Lua errors
-        run: scripts/smoke-test-vfox-lua-error.ps1 dist/mise/bin/mise.exe
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: tarball-${{matrix.target}}
-          path: dist/*.zip
-          if-no-files-found: error
   e2e-linux:
     needs: [gate, build-tarball-linux]
     # The auto-merge-enabled release PR already tests this exact release
@@ -353,7 +309,7 @@ jobs:
       - uses: taiki-e/install-action@51cd0b8c0499559d9a4d75c0f5c67bec3a894ec8 # v2
         with:
           tool: usage-cli
-      - run: tar -C "$HOME" -xvf "dist/mise-$(./scripts/get-version.sh)-linux-x64.tar.zst"
+      - run: tar -C "$HOME" -xvf "dist/mise-$(./packaging/scripts/get-version.sh)-linux-x64.tar.zst"
       - run: echo "$HOME/mise/bin" >> "$GITHUB_PATH"
       - run: mise -v
       - run: mise x wait-for-gh-rate-limit -- wait-for-gh-rate-limit
@@ -366,7 +322,7 @@ jobs:
           TEST_ALL: 1
           E2E_MAX_ATTEMPTS: 3
           E2E_RETRY_WAIT_SECONDS: 30
-        run: ./e2e/run_all_tests
+        run: ./tests/e2e/run_all_tests
   rpm:
     needs: [gate, build-tarball-linux]
     if: needs.gate.outputs.build == 'true'
@@ -386,7 +342,7 @@ jobs:
         with:
           name: tarball-aarch64-unknown-linux-gnu
           path: dist
-      - run: scripts/build-rpm.sh
+      - run: packaging/scripts/build-rpm.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: rpm
@@ -411,7 +367,7 @@ jobs:
         with:
           name: tarball-aarch64-unknown-linux-gnu
           path: dist
-      - run: scripts/build-deb.sh
+      - run: packaging/scripts/build-deb.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: deb
@@ -432,7 +388,6 @@ jobs:
       - e2e-linux
       - build-tarball-linux
       - build-tarball-macos
-      - build-tarball-windows
     # Run even when a build failed: this is the required `release` check on
     # main, and a skipped required check counts as passed. The steps below
     # turn an unarmed release PR or a failed build into an explicit failure.
@@ -449,7 +404,6 @@ jobs:
           for result in \
             "${{ needs.build-tarball-linux.result }}" \
             "${{ needs.build-tarball-macos.result }}" \
-            "${{ needs.build-tarball-windows.result }}" \
             "${{ needs.rpm.result }}" \
             "${{ needs.deb.result }}"; do
             if [ "$result" != "success" ]; then
@@ -467,7 +421,6 @@ jobs:
             echo "::error::One or more required jobs did not succeed:"
             echo "  build-tarball-linux: ${{ needs.build-tarball-linux.result }}"
             echo "  build-tarball-macos: ${{ needs.build-tarball-macos.result }}"
-            echo "  build-tarball-windows: ${{ needs.build-tarball-windows.result }}"
             echo "  e2e-linux: ${{ needs.e2e-linux.result }} (expected $expected_e2e)"
             echo "  rpm: ${{ needs.rpm.result }}"
             echo "  deb: ${{ needs.deb.result }}"
@@ -480,7 +433,7 @@ jobs:
         id: check-release
         if: startsWith(github.ref, 'refs/tags/v') && inputs.force != true
         run: |
-          VERSION="$(./scripts/get-version.sh)"
+          VERSION="$(./packaging/scripts/get-version.sh)"
           RELEASE="$(gh api --paginate "repos/${{ github.repository }}/releases?per_page=100" |
             jq -s -c --arg version "$VERSION" '[.[][] | select(.tag_name == $version)][0] // {}')"
           DRAFT="$(jq -r 'if has("draft") then .draft else empty end' <<< "$RELEASE")"
@@ -501,7 +454,7 @@ jobs:
           gpg_private_key: ${{ secrets.MISE_GPG_KEY }}
           git_user_signingkey: true
           git_commit_gpgsign: true
-      - run: ./scripts/setup-zipsign.sh
+      - run: ./packaging/scripts/setup-zipsign.sh
         env:
           ZIPSIGN: ${{ secrets.ZIPSIGN }}
       - name: Install fd-find
@@ -521,18 +474,24 @@ jobs:
             mise-v*.tar.gz
             mise-v*.tar.xz
             mise-v*.tar.zst
-            mise-v*.zip
           merge-multiple: true
-      - run: echo "${{ secrets.MINISIGN_KEY }}" >minisign.key
+      - name: Prepare release signing key
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_KEY }}
+        run: |
+          umask 077
+          printf '%s\n' "$MINISIGN_SECRET_KEY" > "$RUNNER_TEMP/mise-minisign.key"
       - run: ls -R artifacts
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: tarball-x86_64-unknown-linux-gnu
           path: dist
-      - run: tar -C "$HOME" -xvf "dist/mise-$(./scripts/get-version.sh)-linux-x64.tar.zst"
+      - run: tar -C "$HOME" -xvf "dist/mise-$(./packaging/scripts/get-version.sh)-linux-x64.tar.zst"
       - run: echo "$HOME/mise/bin" >> "$GITHUB_PATH"
       - run: which mise && mise -v && mise i
-      - run: mise x -- scripts/release.sh
+      - run: mise x -- packaging/scripts/release.sh
+        env:
+          MINISIGN_SECRET_KEY_PATH: ${{ runner.temp }}/mise-minisign.key
       - name: Stage release assets for attestation
         if: startsWith(github.ref, 'refs/tags/v') && steps.check-release.outputs.exists != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -544,8 +503,8 @@ jobs:
       - name: Generate release notes
         if: startsWith(github.ref, 'refs/tags/v') && steps.check-release.outputs.exists != 'true'
         run: |
-          VERSION="$(./scripts/get-version.sh)"
-          if mise x -- communique generate "$VERSION" -o /tmp/release-notes.txt; then
+          VERSION="$(./packaging/scripts/get-version.sh)"
+          if mise x -- communique --config packaging/config/communique.toml generate "$VERSION" -o /tmp/release-notes.txt; then
             TITLE="$(head -1 /tmp/release-notes.txt | sed 's/^#* //' | sed "s/^$VERSION: //")"
             echo "RELEASE_TITLE=$VERSION: $TITLE" >> "$GITHUB_ENV"
             # Remove the title line (and any blank line after it) from the notes body
@@ -553,7 +512,7 @@ jobs:
             mv /tmp/release-notes-body.txt /tmp/release-notes.txt
           else
             echo "::warning::communique failed, falling back to git-cliff changelog"
-            mise x -- git cliff --strip all --latest > /tmp/release-notes.txt 2>/dev/null || echo "Release $VERSION" > /tmp/release-notes.txt
+            mise x -- git cliff --config packaging/config/cliff.toml --strip all --latest > /tmp/release-notes.txt 2>/dev/null || echo "Release $VERSION" > /tmp/release-notes.txt
             echo "RELEASE_TITLE=$VERSION" >> "$GITHUB_ENV"
           fi
           # Strip any pre-existing sponsor section from the generated notes
@@ -579,7 +538,7 @@ jobs:
         id: create-release
         if: startsWith(github.ref, 'refs/tags/v') && steps.check-release.outputs.exists != 'true'
         run: |
-          VERSION="$(./scripts/get-version.sh)"
+          VERSION="$(./packaging/scripts/get-version.sh)"
           if [[ "$EXISTING_DRAFT" == "true" ]]; then
             gh release upload "$VERSION" --clobber "releases/$VERSION"/*
             RELEASE_ID="$EXISTING_RELEASE_ID"
@@ -602,7 +561,7 @@ jobs:
           GH_TOKEN: ${{ secrets.MISE_GH_TOKEN }}
       - name: Publish Release Assets to CDN
         if: startsWith(github.ref, 'refs/tags/v') && steps.check-release.outputs.exists != 'true'
-        run: mise x -- scripts/publish-release.sh
+        run: mise x -- packaging/scripts/publish-release.sh
         env:
           CLOUDFLARE_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_ACCESS_KEY_ID }}
           CLOUDFLARE_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_SECRET_ACCESS_KEY }}
@@ -675,7 +634,7 @@ jobs:
           mkdir -p bin
           tar -xzf "release-assets/mise-$GITHUB_REF_NAME-linux-x64.tar.gz" -C bin
           bin/mise/bin/mise usage > mise.usage.kdl
-          for shell in bash zsh fish powershell; do
+          for shell in bash zsh fish; do
             bin/mise/bin/mise completion "$shell" > "mise.$shell"
             test -s "mise.$shell"
             grep -Fq '__complete_word__' "mise.$shell"
@@ -686,7 +645,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.MISE_GH_TOKEN }}
           GH_REPO: ${{ github.repository }}
-        run: gh release upload "$GITHUB_REF_NAME" mise.usage.kdl mise.bash mise.zsh mise.fish mise.powershell --clobber
+        run: gh release upload "$GITHUB_REF_NAME" mise.usage.kdl mise.bash mise.zsh mise.fish --clobber
       # `out: .` keeps the bundle beside mise.usage.kdl. The action defaults to
       # writing it under packslip/, and an artifact holding files at two
       # depths keeps the directory, which the flat `sha256sum ./*` below
@@ -697,8 +656,8 @@ jobs:
           bin: mise
           # A bare executable named for a dotted version (mise-v2026.9.1-linux-x64)
           # now infers format = "raw" on its own, and the platform scope below picks
-          # the man page out of the Unix archives only -- the Windows zip carries
-          # none -- so neither needs a manifest to say what the file name can't.
+          # the man page out of the Unix archives. Neither needs a manifest to say
+          # what the file name can't.
           resources: |
             man@linux=archive:mise/man/man1/mise.1
             man@darwin=archive:mise/man/man1/mise.1
@@ -706,7 +665,6 @@ jobs:
             completion/bash=asset:mise.bash
             completion/zsh=asset:mise.zsh
             completion/fish=asset:mise.fish
-            completion/powershell=asset:mise.powershell
           attest: "false"
           out: "."
           token: ${{ secrets.MISE_GH_TOKEN }}
@@ -721,7 +679,6 @@ jobs:
             mise.bash
             mise.zsh
             mise.fish
-            mise.powershell
             packslip.sigstore.json
           if-no-files-found: error
           retention-days: 1
@@ -848,7 +805,7 @@ jobs:
           mkdir -p bin
           tar -xzf "release-assets/mise-$TAG-linux-x64.tar.gz" -C bin
           bin/mise/bin/mise usage > mise.usage.kdl
-          for shell in bash zsh fish powershell; do
+          for shell in bash zsh fish; do
             bin/mise/bin/mise completion "$shell" > "mise.$shell"
             test -s "mise.$shell"
             grep -Fq '__complete_word__' "mise.$shell"
@@ -860,7 +817,7 @@ jobs:
           GH_TOKEN: ${{ secrets.MISE_GH_TOKEN }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.finish-draft-resolve.outputs.tag }}
-        run: gh release upload "$TAG" mise.usage.kdl mise.bash mise.zsh mise.fish mise.powershell --clobber
+        run: gh release upload "$TAG" mise.usage.kdl mise.bash mise.zsh mise.fish --clobber
       - uses: jdx/packslip@87479dfc6443253dff69601cace5fc6ea07e6df5 # v1.4.0
         with:
           artifacts: release-assets/mise-*
@@ -873,7 +830,6 @@ jobs:
             completion/bash=asset:mise.bash
             completion/zsh=asset:mise.zsh
             completion/fish=asset:mise.fish
-            completion/powershell=asset:mise.powershell
           attest: "false"
           out: "."
           token: ${{ secrets.MISE_GH_TOKEN }}
@@ -886,7 +842,6 @@ jobs:
             mise.bash
             mise.zsh
             mise.fish
-            mise.powershell
             packslip.sigstore.json
           if-no-files-found: error
           retention-days: 1

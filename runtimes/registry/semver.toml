@@ -1,0 +1,4 @@
+backends = ["aqua:fsaintjacques/semver-tool", "asdf:mathew-fleisch/asdf-semver"]
+description = "semver bash implementation"
+test = { cmd = "semver --version", expected = "semver: {{version}}" }
+version_order = "semver"

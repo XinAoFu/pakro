@@ -2,6 +2,7 @@
 
 [env]
 RUST_TEST_THREADS = '1'
+CLIPPY_CONF_DIR = { value = ".config", relative = true }
 
 [target.aarch64-pc-windows-msvc]
 rustflags = ["-C", "link-arg=/STACK:8000000"]

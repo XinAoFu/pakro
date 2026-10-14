@@ -1,0 +1,30 @@
+# Taplo configuration for mise
+
+
+[formatting]
+align_entries = false
+align_comments = false
+array_auto_collapse = true
+array_auto_expand = true
+indent_tables = false
+reorder_keys = false
+
+[[rule]]
+include = ["runtimes/registry/*.toml"]
+schema.path = "./src/schema/mise-registry-tool.json"
+
+[rule.formatting]
+reorder_keys = true
+reorder_arrays = false
+
+[[rule]]
+include = [".config/settings.toml"]
+schema.path = "./src/schema/mise-settings.json"
+
+[rule.formatting]
+reorder_keys = true
+reorder_arrays = false
+
+[[rule]]
+include = ["runtimes/registry/daemon-presets/*.toml"]
+schema.path = "./src/schema/mise-daemon-preset.json"
