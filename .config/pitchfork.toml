@@ -1,3 +1,3 @@
 [daemons.docs]
-run = "mise run docs"
+run = "pakro run docs"
 auto = ["stop"]

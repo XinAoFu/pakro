@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-#MISE depends=["build"]
-#MISE alias=["e", "e2e"]
-#MISE description="Run end-to-end tests"
+#PAKRO depends=["build"]
+#PAKRO alias=["e", "e2e"]
+#PAKRO description="Run end-to-end tests"
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -12,7 +12,7 @@ export RUST_TEST_THREADS=1
 # Show help
 if [[ ${1:-} == --help ]]; then
 	cat >&2 <<EOF
-Usage: mise run test:e2e [OPTIONS] [TEST_PATTERNS...]
+Usage: pakro run test:e2e [OPTIONS] [TEST_PATTERNS...]
 
 Options:
   --help     Show this help message
@@ -23,11 +23,11 @@ Arguments:
   TEST_PATTERNS...  Test patterns to run (e.g., "tasks", "cli", "test_task_run")
 
 Examples:
-  mise run test:e2e --list                    # List all available tests
-  mise run test:e2e --all                     # Run all tests
-  mise run test:e2e -- tasks                  # Run all task-related tests
-  mise run test:e2e -- cli                    # Run all CLI-related tests
-  mise run test:e2e -- test_task_run          # Run specific test
+  pakro run test:e2e --list                    # List all available tests
+  pakro run test:e2e --all                     # Run all tests
+  pakro run test:e2e -- tasks                  # Run all task-related tests
+  pakro run test:e2e -- cli                    # Run all CLI-related tests
+  pakro run test:e2e -- test_task_run          # Run specific test
 EOF
 	exit 0
 fi

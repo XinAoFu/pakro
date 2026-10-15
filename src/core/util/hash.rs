@@ -1,4 +1,4 @@
-pub use mise_util::hash::*;
+pub use pakro_util::hash::*;
 
 #[cfg(test)]
 mod tests {

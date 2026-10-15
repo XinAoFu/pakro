@@ -21,7 +21,7 @@ EOF
 chmod +x bin/sh bin/probe bin/fail-probe bin/plain-probe
 export PATH="$PWD/bin:$PATH"
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [tasks.direct]
 run = "probe first --key=value"
 dir = "child"
@@ -51,26 +51,26 @@ EOF
 # Deliberately pass dollar syntax literally, without shell expansion.
 # shellcheck disable=SC2016
 literal_arg='$literal'
-assert "mise run -q direct -- 'literal space' '$literal_arg' '*.rs'" "$(printf 'direct\n%s/child\nchild-env\nfirst\n--key=value\nliteral space\n%s\n*.rs' "$PWD" "$literal_arg")"
+assert "pakro run -q direct -- 'literal space' '$literal_arg' '*.rs'" "$(printf 'direct\n%s/child\nchild-env\nfirst\n--key=value\nliteral space\n%s\n*.rs' "$PWD" "$literal_arg")"
 # Native env really bypasses the PATH-provided sh (not just a shell exec-ing it).
-assert_not_contains "mise run -q native" "INLINE_SHELL_USED="
-assert_contains "mise run -q explicit" "shell"
-assert_contains "mise run -q --shell 'sh -o errexit -c' direct" "shell"
-assert_contains "mise run -q expansion" "expanded"
-assert_contains "mise run -q expansion" "shell"
-assert_contains "mise run -q init" "shell"
-assert_contains "mise run -q bash-init" "shell"
-assert "mise run -q plain" "interpreted-by-shell"
-assert_fail_contains "mise run -q fail" "failed-probe"
-assert 'mise run -q fail >/dev/null 2>&1; echo $?' "23"
-assert_fail "mise run -q missing"
-assert_contains "MISE_UNIX_DEFAULT_INLINE_SHELL_ARGS='sh -o errexit -c' mise run -q direct" "shell"
+assert_not_contains "pakro run -q native" "INLINE_SHELL_USED="
+assert_contains "pakro run -q explicit" "shell"
+assert_contains "pakro run -q --shell 'sh -o errexit -c' direct" "shell"
+assert_contains "pakro run -q expansion" "expanded"
+assert_contains "pakro run -q expansion" "shell"
+assert_contains "pakro run -q init" "shell"
+assert_contains "pakro run -q bash-init" "shell"
+assert "pakro run -q plain" "interpreted-by-shell"
+assert_fail_contains "pakro run -q fail" "failed-probe"
+assert 'pakro run -q fail >/dev/null 2>&1; echo $?' "23"
+assert_fail "pakro run -q missing"
+assert_contains "PAKRO_UNIX_DEFAULT_INLINE_SHELL_ARGS='sh -o errexit -c' pakro run -q direct" "shell"
 # Relative and empty PATH components retain shell lookup semantics.
-assert_contains "PATH='$PATH:.' mise run -q direct" "shell"
-assert_contains "PATH='$PATH:' mise run -q direct" "shell"
+assert_contains "PATH='$PATH:.' pakro run -q direct" "shell"
+assert_contains "PATH='$PATH:' pakro run -q direct" "shell"
 
-cat >"$MISE_CONFIG_DIR/config.toml" <<'EOF'
+cat >"$PAKRO_CONFIG_DIR/config.toml" <<'EOF'
 [settings]
 unix_default_inline_shell_args = "sh -o errexit -c"
 EOF
-assert_contains "mise run -q direct" "shell"
+assert_contains "pakro run -q direct" "shell"

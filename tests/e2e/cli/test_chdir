@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 mkdir -p ./test
-cat <<EOF >./test/mise.toml
+cat <<EOF >./test/pakro.toml
 [settings]
 experimental = true
 
@@ -9,11 +9,11 @@ experimental = true
 run = 'echo "Hello, World!"'
 EOF
 
-assert_contains "mise config --cd $PWD/test ls" "test/mise.toml"
+assert_contains "pakro config --cd $PWD/test ls" "test/pakro.toml"
 
-unset MISE_EXPERIMENTAL
-assert "mise -C $PWD/test settings get experimental" "true"
+unset PAKRO_EXPERIMENTAL
+assert "pakro -C $PWD/test settings get experimental" "true"
 
-assert_contains "mise run --cd $PWD/test hello" "Hello, World!"
-assert_contains "mise run --cd ./test hello" "Hello, World!"
-assert_contains "mise run --cd test hello" "Hello, World!"
+assert_contains "pakro run --cd $PWD/test hello" "Hello, World!"
+assert_contains "pakro run --cd ./test hello" "Hello, World!"
+assert_contains "pakro run --cd test hello" "Hello, World!"

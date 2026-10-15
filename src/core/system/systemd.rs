@@ -1,6 +1,6 @@
 //! systemd user services and timers for `[bootstrap.linux.systemd.units]`.
 //!
-//! Entries are rendered to `~/.config/systemd/user/dev.mise.<name>.<service|timer>`
+//! Entries are rendered to `~/.config/systemd/user/dev.pakro.<name>.<service|timer>`
 //! and managed with `systemctl --user` when explicitly applied.
 
 use std::path::{Path, PathBuf};
@@ -112,7 +112,7 @@ pub struct SystemdRequest {
     pub binds_to: Vec<String>,
     pub part_of: Vec<String>,
     pub conflicts: Vec<String>,
-    /// Internal restart budget for mise-owned builtins; ordinary declarations
+    /// Internal restart budget for pakro-owned builtins; ordinary declarations
     /// retain the service manager's defaults.
     pub start_limit: Option<(u32, u32)>,
     pub exec_start_pre: Vec<String>,
@@ -266,7 +266,7 @@ impl SystemdRequest {
         });
         Ok(Self {
             unit: format!(
-                "dev.mise.{name}.{}",
+                "dev.pakro.{name}.{}",
                 match kind {
                     SystemdUnitKind::Service => "service",
                     SystemdUnitKind::Timer => "timer",
@@ -336,7 +336,7 @@ pub fn unavailable_reason() -> String {
     } else if crate::file::which("systemctl").is_none() {
         "`systemctl` not found".to_string()
     } else if sudo_invoking_user().is_some() {
-        "`systemctl --user` cannot target SUDO_USER; run mise as the target user".to_string()
+        "`systemctl --user` cannot target SUDO_USER; run pakro as the target user".to_string()
     } else if !user_manager_available() {
         "systemd user manager not available".to_string()
     } else {
@@ -400,7 +400,7 @@ pub async fn status(requests: &[SystemdRequest]) -> Result<Vec<SystemdStatus>> {
 pub async fn apply(requests: &[SystemdRequest], dry_run: bool) -> Result<()> {
     if dry_run {
         for req in requests {
-            miseprintln!(
+            pakroprintln!(
                 "{}",
                 shell_words::join([
                     "mkdir".to_string(),
@@ -409,13 +409,13 @@ pub async fn apply(requests: &[SystemdRequest], dry_run: bool) -> Result<()> {
                 ])
             );
             let path = unit_path(req);
-            miseprintln!("write {}", shell_words::join([path.display().to_string()]));
+            pakroprintln!("write {}", shell_words::join([path.display().to_string()]));
         }
         for req in requests {
             let sibling = sibling_unit(req);
             let sibling_path = sibling_unit_path(req);
             if sibling_path.exists() {
-                miseprintln!(
+                pakroprintln!(
                     "{}",
                     shell_words::join([
                         "systemctl".to_string(),
@@ -424,7 +424,7 @@ pub async fn apply(requests: &[SystemdRequest], dry_run: bool) -> Result<()> {
                         sibling.clone(),
                     ])
                 );
-                miseprintln!(
+                pakroprintln!(
                     "{}",
                     shell_words::join([
                         "systemctl".to_string(),
@@ -433,12 +433,12 @@ pub async fn apply(requests: &[SystemdRequest], dry_run: bool) -> Result<()> {
                         sibling,
                     ])
                 );
-                miseprintln!(
+                pakroprintln!(
                     "{}",
                     shell_words::join(["rm".to_string(), sibling_path.display().to_string()])
                 );
             }
-            miseprintln!(
+            pakroprintln!(
                 "{}",
                 shell_words::join([
                     "systemctl".to_string(),
@@ -448,7 +448,7 @@ pub async fn apply(requests: &[SystemdRequest], dry_run: bool) -> Result<()> {
                 ])
             );
         }
-        miseprintln!(
+        pakroprintln!(
             "{}",
             shell_words::join([
                 "systemctl".to_string(),
@@ -458,7 +458,7 @@ pub async fn apply(requests: &[SystemdRequest], dry_run: bool) -> Result<()> {
         );
         for req in requests {
             if !req.wanted_by.is_empty() {
-                miseprintln!(
+                pakroprintln!(
                     "{}",
                     shell_words::join([
                         "systemctl".to_string(),
@@ -469,7 +469,7 @@ pub async fn apply(requests: &[SystemdRequest], dry_run: bool) -> Result<()> {
                 );
             }
             for args in activation_commands(req) {
-                miseprintln!(
+                pakroprintln!(
                     "{}",
                     shell_words::join(
                         ["systemctl".to_string(), "--user".to_string()]
@@ -524,18 +524,18 @@ fn activation_commands(request: &SystemdRequest) -> Vec<Vec<String>> {
     commands
 }
 
-/// Stop, disable, and delete the service unit mise wrote for `name`
-/// (`dev.mise.<name>.service`), then reload the user manager. Returns whether
+/// Stop, disable, and delete the service unit pakro wrote for `name`
+/// (`dev.pakro.<name>.service`), then reload the user manager. Returns whether
 /// a unit file existed.
 pub(crate) async fn remove_service(name: &str, dry_run: bool) -> Result<bool> {
-    let unit = format!("dev.mise.{name}.service");
+    let unit = format!("dev.pakro.{name}.service");
     let path = user_units_dir().join(&unit);
     if !path.exists() {
         return Ok(false);
     }
     if dry_run {
         for verb in ["stop", "disable"] {
-            miseprintln!(
+            pakroprintln!(
                 "{}",
                 shell_words::join([
                     "systemctl".to_string(),
@@ -545,11 +545,11 @@ pub(crate) async fn remove_service(name: &str, dry_run: bool) -> Result<bool> {
                 ])
             );
         }
-        miseprintln!(
+        pakroprintln!(
             "{}",
             shell_words::join(["rm".to_string(), path.display().to_string()])
         );
-        miseprintln!(
+        pakroprintln!(
             "{}",
             shell_words::join([
                 "systemctl".to_string(),
@@ -566,9 +566,9 @@ pub(crate) async fn remove_service(name: &str, dry_run: bool) -> Result<bool> {
     Ok(true)
 }
 
-/// The unit file path mise uses for a service named `name`.
+/// The unit file path pakro uses for a service named `name`.
 pub(crate) fn service_unit_path(name: &str) -> PathBuf {
-    user_units_dir().join(format!("dev.mise.{name}.service"))
+    user_units_dir().join(format!("dev.pakro.{name}.service"))
 }
 
 pub(crate) fn render_unit(request: &SystemdRequest) -> String {
@@ -715,8 +715,8 @@ fn render_timer(request: &SystemdRequest, out: &mut String) {
 
 /// systemd unit-type suffixes. A `unit` value ending in one of these is treated
 /// as a fully-qualified unit name and written verbatim (e.g. pointing a timer at
-/// a foreign unit). A bare name is resolved to the `dev.mise.<name>.service` unit
-/// mise writes for the same-named service entry.
+/// a foreign unit). A bare name is resolved to the `dev.pakro.<name>.service` unit
+/// pakro writes for the same-named service entry.
 const UNIT_SUFFIXES: &[&str] = &[
     ".service",
     ".socket",
@@ -735,7 +735,7 @@ fn resolve_timer_unit(unit: &str) -> String {
     if UNIT_SUFFIXES.iter().any(|suffix| unit.ends_with(suffix)) {
         unit.to_string()
     } else {
-        format!("dev.mise.{unit}.service")
+        format!("dev.pakro.{unit}.service")
     }
 }
 
@@ -771,7 +771,7 @@ fn unit_path(request: &SystemdRequest) -> PathBuf {
 
 fn sibling_unit(request: &SystemdRequest) -> String {
     format!(
-        "dev.mise.{}.{}",
+        "dev.pakro.{}.{}",
         request.name,
         match request.kind {
             SystemdUnitKind::Service => "timer",
@@ -998,7 +998,7 @@ mod tests {
             super::activation_commands(&request),
             vec![vec![
                 "restart".to_string(),
-                "dev.mise.watch.service".to_string()
+                "dev.pakro.watch.service".to_string()
             ]]
         );
         request.start_limit = Some((300, 3));
@@ -1007,9 +1007,9 @@ mod tests {
             vec![
                 vec![
                     "reset-failed".to_string(),
-                    "dev.mise.watch.service".to_string()
+                    "dev.pakro.watch.service".to_string()
                 ],
-                vec!["restart".to_string(), "dev.mise.watch.service".to_string()],
+                vec!["restart".to_string(), "dev.pakro.watch.service".to_string()],
             ]
         );
         request.start = false;
@@ -1017,7 +1017,7 @@ mod tests {
             super::activation_commands(&request),
             vec![vec![
                 "stop".to_string(),
-                "dev.mise.watch.service".to_string()
+                "dev.pakro.watch.service".to_string()
             ]]
         );
     }
@@ -1079,7 +1079,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(request.unit, "dev.mise.my-service.service");
+        assert_eq!(request.unit, "dev.pakro.my-service.service");
         assert_eq!(request.wanted_by, vec!["default.target"]);
         assert!(SystemdRequest::from_toml("bad/name".to_string(), Default::default()).is_err());
 
@@ -1325,32 +1325,32 @@ mod tests {
                 randomized_delay_sec: Some("30s".to_string()),
                 accuracy_sec: Some("1s".to_string()),
                 persistent: Some(true),
-                unit: Some("dev.mise.healthcheck.service".to_string()),
+                unit: Some("dev.pakro.healthcheck.service".to_string()),
                 ..Default::default()
             },
         )
         .unwrap();
 
-        assert_eq!(request.unit, "dev.mise.healthcheck.timer");
-        assert_eq!(sibling_unit(&request), "dev.mise.healthcheck.service");
+        assert_eq!(request.unit, "dev.pakro.healthcheck.timer");
+        assert_eq!(sibling_unit(&request), "dev.pakro.healthcheck.service");
         assert_eq!(request.wanted_by, vec!["timers.target"]);
         assert_eq!(
             render_unit(&request),
-            "[Unit]\nRequires=network-online.target\n\n[Timer]\nOnBootSec=2min\nOnUnitInactiveSec=5min\nRandomizedDelaySec=30s\nAccuracySec=1s\nPersistent=yes\nUnit=dev.mise.healthcheck.service\n\n[Install]\nWantedBy=timers.target\n"
+            "[Unit]\nRequires=network-online.target\n\n[Timer]\nOnBootSec=2min\nOnUnitInactiveSec=5min\nRandomizedDelaySec=30s\nAccuracySec=1s\nPersistent=yes\nUnit=dev.pakro.healthcheck.service\n\n[Install]\nWantedBy=timers.target\n"
         );
     }
 
     #[test]
     fn test_resolve_timer_unit() {
-        // bare name resolves to the mise-owned service unit
+        // bare name resolves to the pakro-owned service unit
         assert_eq!(
             resolve_timer_unit("dotfiles-maintain"),
-            "dev.mise.dotfiles-maintain.service"
+            "dev.pakro.dotfiles-maintain.service"
         );
         // already-qualified names are written verbatim
         assert_eq!(
-            resolve_timer_unit("dev.mise.dotfiles-maintain.service"),
-            "dev.mise.dotfiles-maintain.service"
+            resolve_timer_unit("dev.pakro.dotfiles-maintain.service"),
+            "dev.pakro.dotfiles-maintain.service"
         );
         assert_eq!(resolve_timer_unit("nginx.service"), "nginx.service");
         assert_eq!(resolve_timer_unit("foo.target"), "foo.target");
@@ -1367,7 +1367,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(render_unit(&request).contains("Unit=dev.mise.dotfiles-maintain.service\n"));
+        assert!(render_unit(&request).contains("Unit=dev.pakro.dotfiles-maintain.service\n"));
     }
 
     #[test]

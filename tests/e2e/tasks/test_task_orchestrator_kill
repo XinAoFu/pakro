@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Regression coverage for https://github.com/jdx/mise/discussions/8345.
 # An external orchestrator (Playwright's `webServer` is the canonical case)
-# spawns mise with `detached: true`, which on POSIX calls setsid so the
+# spawns pakro with `detached: true`, which on POSIX calls setsid so the
 # orchestrator can later `kill -SIGKILL -pgid` to tear the whole tree down.
-# If mise then creates its own per-task process groups, that tree-kill
-# stops at mise and the grandchildren survive, holding pipes open and
+# If pakro then creates its own per-task process groups, that tree-kill
+# stops at pakro and the grandchildren survive, holding pipes open and
 # hanging the parent.
 #
-# We simulate it with `setsid mise run serve` + `kill -KILL -PGID`.
+# We simulate it with `setsid pakro run serve` + `kill -KILL -PGID`.
 
 set -euo pipefail
 
@@ -16,19 +16,19 @@ rm -f "$marker"
 logfile=$(mktemp)
 trap 'rm -f "$logfile" "$marker"' EXIT
 
-# Use a marker file rather than a stdout sentinel — mise echoes the source
+# Use a marker file rather than a stdout sentinel — pakro echoes the source
 # command to stdout, which would false-match any literal in the script body.
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.serve]
 run = "printf 'SERVE_STARTED\\n' && sleep 60 && touch '$marker'"
 EOF
 
-# `setsid` puts mise into a fresh session/pgroup, mimicking Playwright's
-# detached:true. The shell exits immediately after exec, so PGID == mise's PID.
-setsid mise run serve >"$logfile" 2>&1 &
-mise_pid=$!
+# `setsid` puts pakro into a fresh session/pgroup, mimicking Playwright's
+# detached:true. The shell exits immediately after exec, so PGID == pakro's PID.
+setsid pakro run serve >"$logfile" 2>&1 &
+pakro_pid=$!
 
-# Wait for mise to actually start the task before we kill it.
+# Wait for pakro to actually start the task before we kill it.
 deadline=$((SECONDS + 15))
 while [ "$SECONDS" -lt "$deadline" ]; do
   if grep -q "SERVE_STARTED" "$logfile" 2>/dev/null; then
@@ -45,7 +45,7 @@ fi
 # Capture descendants before the kill so we can verify they actually go away.
 # `pgrep -g $pgid` lists every member of the process group — that's what the
 # orchestrator's mass-kill targets.
-pgid=$mise_pid
+pgid=$pakro_pid
 echo "process group before kill:"
 pgrep -g "$pgid" -a || true
 
@@ -54,8 +54,8 @@ pgrep -g "$pgid" -a || true
 # *different* pgroup and survive this signal.
 kill -KILL -- "-$pgid" 2>/dev/null || true
 
-# Reap mise so the script doesn't leak it.
-wait "$mise_pid" 2>/dev/null || true
+# Reap pakro so the script doesn't leak it.
+wait "$pakro_pid" 2>/dev/null || true
 
 # Give the kernel a beat to deliver signals and reap the corpses.
 sleep 1

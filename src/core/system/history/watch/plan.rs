@@ -158,7 +158,7 @@ mod tests {
             [
                 (p("/home/u/.config/hypr/bindings.lua"), PathKind::File),
                 (p("/home/u/.config"), PathKind::Directory),
-                (p("/home/u/.config/mise"), PathKind::Directory),
+                (p("/home/u/.config/pakro"), PathKind::Directory),
             ],
             |_| None,
         );

@@ -1,6 +1,6 @@
 //! Variant selection for tracked files: which shared stream a machine
 //! belongs to, using the same conventions as bootstrap packages (`os`, with
-//! an optional `/arch`) and mise environments (`profile`).
+//! an optional `/arch`) and pakro environments (`profile`).
 
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +11,7 @@ pub struct Variant {
     /// `"macos"`, `"linux/arm64"`, the `"unix"` family, or a list; empty = any.
     #[serde(default, deserialize_with = "deserialize_one_or_many")]
     pub os: Vec<String>,
-    /// Active when this mise environment is selected (`-E work`).
+    /// Active when this pakro environment is selected (`-E work`).
     #[serde(default)]
     pub profile: Option<String>,
     /// The explicit fallback stream for machines matching no other variant.
@@ -104,7 +104,7 @@ pub(crate) fn validate(variants: &[Variant]) -> eyre::Result<()> {
     Ok(())
 }
 
-/// Picks the variant for this machine given the active mise environments.
+/// Picks the variant for this machine given the active pakro environments.
 pub(crate) fn select(variants: &[Variant], environments: &[String]) -> Selection {
     if variants.is_empty() {
         return Selection::Single;
@@ -132,9 +132,9 @@ pub(crate) fn select(variants: &[Variant], environments: &[String]) -> Selection
     }
 }
 
-/// The active mise environments (`-E` / `MISE_ENV`).
+/// The active pakro environments (`-E` / `PAKRO_ENV`).
 pub(crate) fn active_environments() -> Vec<String> {
-    crate::env::MISE_ENV_WITH_AUTO.clone()
+    crate::env::PAKRO_ENV_WITH_AUTO.clone()
 }
 
 fn deserialize_one_or_many<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>

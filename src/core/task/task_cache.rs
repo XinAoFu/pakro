@@ -17,7 +17,7 @@ use bytesize::ByteSize;
 use eyre::{Context, Report, Result, bail, eyre};
 use ignore::overrides::Override;
 use jdx_tar::{Builder, EntryType, Header};
-use mise_cache_core::RemoteCacheConfig;
+use pakro_cache_core::RemoteCacheConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -64,15 +64,15 @@ pub enum TaskCacheMode {
 
 impl TaskCacheMode {
     pub fn from_env() -> Result<Self> {
-        let Some(value) = std::env::var_os("MISE_TASK_CACHE") else {
+        let Some(value) = std::env::var_os("PAKRO_TASK_CACHE") else {
             return Ok(Self::default());
         };
         let value = value
             .into_string()
-            .map_err(|_| eyre!("MISE_TASK_CACHE must be valid UTF-8"))?;
+            .map_err(|_| eyre!("PAKRO_TASK_CACHE must be valid UTF-8"))?;
         <Self as usage_rs::spec::ValueEnum>::from_choice(&value).ok_or_else(|| {
             eyre!(
-                "invalid MISE_TASK_CACHE value {value:?}; expected read-write, read-only, \
+                "invalid PAKRO_TASK_CACHE value {value:?}; expected read-write, read-only, \
                  write-only, off, or local-only"
             )
         })
@@ -578,10 +578,10 @@ impl TaskArtifactCache {
                 });
             }
             // Serialize restores targeting the same working directory across
-            // mise processes so validation and renames form one cooperative
+            // pakro processes so validation and renames form one cooperative
             // critical section. Result-only entries never mutate the task root.
             let _output_lock = crate::lock_file::LockFile::new(
-                &self.root.join(".mise-task-artifact-cache-output"),
+                &self.root.join(".pakro-task-artifact-cache-output"),
             )
             .lock()?;
             let archive_path = entry
@@ -591,7 +591,7 @@ impl TaskArtifactCache {
                 .ok_or_else(|| eyre!("task cache archive is missing"))?;
 
             let staging = tempfile::Builder::new()
-                .prefix(".mise-task-cache-")
+                .prefix(".pakro-task-cache-")
                 .tempdir_in(&self.root)?;
             file::untar(
                 archive_path,
@@ -1042,7 +1042,7 @@ pub fn clear_task_cache(task: &Task, root: &Path) -> Result<TaskCacheClearResult
         .saturating_sub(identified_entries.clone().count());
     if legacy_entries > 0 {
         warn!(
-            "skipping {legacy_entries} legacy task cache entries because ownership cannot be verified; use `mise cache clear` to remove them"
+            "skipping {legacy_entries} legacy task cache entries because ownership cannot be verified; use `pakro cache clear` to remove them"
         );
     }
     let identity = task_cache_identity(task, root);
@@ -1355,7 +1355,7 @@ fn install_transactionally(
     output_matcher: Option<&Override>,
 ) -> Result<()> {
     let backup = tempfile::Builder::new()
-        .prefix(".mise-task-cache-backup-")
+        .prefix(".pakro-task-cache-backup-")
         .tempdir_in(root)?;
     let mut backed_up = Vec::new();
     for rel in remove_roots {

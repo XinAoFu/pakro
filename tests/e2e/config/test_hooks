@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 mkdir foo
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools]
 dummy = 'latest'
 [hooks]
@@ -13,54 +13,54 @@ postinstall = { run = 'echo POSTINSTALL:\$(pwd)' }
 EOF
 
 # preinstall + postinstall hooks fire when installing
-assert_contains "mise i 2>&1" "PREINSTALL"
-assert_contains "mise i dummy@1 2>&1" "POSTINSTALL"
-# `mise i` with nothing missing still runs postinstall (MISE_INSTALLED_TOOLS=[], #10574)
-assert_contains "mise i 2>&1" "POSTINSTALL"
-assert_contains "mise i dummy@1 2>&1" "POSTINSTALL"
+assert_contains "pakro i 2>&1" "PREINSTALL"
+assert_contains "pakro i dummy@1 2>&1" "POSTINSTALL"
+# `pakro i` with nothing missing still runs postinstall (PAKRO_INSTALLED_TOOLS=[], #10574)
+assert_contains "pakro i 2>&1" "POSTINSTALL"
+assert_contains "pakro i dummy@1 2>&1" "POSTINSTALL"
 
-# install hooks run from the project root even when mise is invoked in a subdirectory (#11854)
+# install hooks run from the project root even when pakro is invoked in a subdirectory (#11854)
 project_root="$PWD"
-assert_contains "cd foo && mise i dummy@2 2>&1" "PREINSTALL:$project_root"
-assert_contains "cd foo && mise i dummy@2 2>&1" "POSTINSTALL:$project_root"
-eval "$(mise hook-env)"
+assert_contains "cd foo && pakro i dummy@2 2>&1" "PREINSTALL:$project_root"
+assert_contains "cd foo && pakro i dummy@2 2>&1" "POSTINSTALL:$project_root"
+eval "$(pakro hook-env)"
 
 cd ~/workdir || exit 1
-assert_not_contains "mise hook-env 2>&1" "HOOK-CD"
-assert_not_contains "mise hook-env 2>&1" "HOOK-ENTER"
-assert_not_contains "mise hook-env 2>&1" "HOOK-LEAVE"
+assert_not_contains "pakro hook-env 2>&1" "HOOK-CD"
+assert_not_contains "pakro hook-env 2>&1" "HOOK-ENTER"
+assert_not_contains "pakro hook-env 2>&1" "HOOK-LEAVE"
 
 cd ~ || exit 1
-assert_not_contains "mise hook-env 2>&1" "HOOK-CD"
-assert_not_contains "mise hook-env 2>&1" "HOOK-ENTER"
-assert_contains "mise hook-env 2>&1" "HOOK-LEAVE"
-eval "$(mise hook-env)"
+assert_not_contains "pakro hook-env 2>&1" "HOOK-CD"
+assert_not_contains "pakro hook-env 2>&1" "HOOK-ENTER"
+assert_contains "pakro hook-env 2>&1" "HOOK-LEAVE"
+eval "$(pakro hook-env)"
 
 cd ~/workdir || exit 1
-assert_contains "mise hook-env 2>&1" "HOOK-CD"
-assert_contains "mise hook-env 2>&1" "HOOK-ENTER"
-assert_not_contains "mise hook-env 2>&1" "HOOK-LEAVE"
-eval "$(mise hook-env)"
+assert_contains "pakro hook-env 2>&1" "HOOK-CD"
+assert_contains "pakro hook-env 2>&1" "HOOK-ENTER"
+assert_not_contains "pakro hook-env 2>&1" "HOOK-LEAVE"
+eval "$(pakro hook-env)"
 
 cd ~/workdir/foo || exit 1
-assert_contains "mise hook-env 2>&1" "HOOK-CD"
-assert_not_contains "mise hook-env 2>&1" "HOOK-ENTER"
-assert_not_contains "mise hook-env 2>&1" "HOOK-LEAVE"
-eval "$(mise hook-env)"
+assert_contains "pakro hook-env 2>&1" "HOOK-CD"
+assert_not_contains "pakro hook-env 2>&1" "HOOK-ENTER"
+assert_not_contains "pakro hook-env 2>&1" "HOOK-LEAVE"
+eval "$(pakro hook-env)"
 
 cd ~ || exit 1
-assert_not_contains "mise hook-env 2>&1" "HOOK-CD"
-assert_not_contains "mise hook-env 2>&1" "HOOK-ENTER"
-assert_contains "mise hook-env 2>&1" "HOOK-LEAVE"
-eval "$(mise hook-env)"
+assert_not_contains "pakro hook-env 2>&1" "HOOK-CD"
+assert_not_contains "pakro hook-env 2>&1" "HOOK-ENTER"
+assert_contains "pakro hook-env 2>&1" "HOOK-LEAVE"
+eval "$(pakro hook-env)"
 
 cd ~/workdir/foo || exit 1
-assert_contains "mise hook-env 2>&1" "HOOK-CD"
-assert_contains "mise hook-env 2>&1" "HOOK-ENTER"
-assert_not_contains "mise hook-env 2>&1" "HOOK-LEAVE"
-eval "$(mise hook-env)"
+assert_contains "pakro hook-env 2>&1" "HOOK-CD"
+assert_contains "pakro hook-env 2>&1" "HOOK-ENTER"
+assert_not_contains "pakro hook-env 2>&1" "HOOK-LEAVE"
+eval "$(pakro hook-env)"
 
 # A forced run in the same directory is a refresh, not an entry
-assert_not_contains "mise hook-env --force 2>&1" "HOOK-ENTER"
+assert_not_contains "pakro hook-env --force 2>&1" "HOOK-ENTER"
 # Activation forces its first run in a new shell; that run enters the project (#13348)
-assert_contains "env -u __MISE_SESSION mise hook-env --force 2>&1" "HOOK-ENTER"
+assert_contains "env -u __PAKRO_SESSION pakro hook-env --force 2>&1" "HOOK-ENTER"

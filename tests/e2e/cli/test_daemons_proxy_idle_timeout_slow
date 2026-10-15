@@ -2,17 +2,17 @@
 # Per-daemon `proxy_idle_timeout` against a real pitchfork. The global idle
 # timeout is a long one, so only a daemon's own `proxy_idle_timeout` can make it
 # stop within the test.
-export MISE_EXPERIMENTAL=1
-if [[ -z ${MISE_TEST_PITCHFORK:-} ]]; then
+export PAKRO_EXPERIMENTAL=1
+if [[ -z ${PAKRO_TEST_PITCHFORK:-} ]]; then
   # A failed install is a failure, not a skip: a run that quietly checks nothing
   # would report per-daemon idle shutdown as covered.
-  if ! mise install pitchfork@2.27.0 --minimum-release-age 0s; then
-    echo "could not install pitchfork 2.27.0; set MISE_TEST_PITCHFORK to pitchfork 2.27.0 or newer to use a local build"
+  if ! pakro install pitchfork@2.27.0 --minimum-release-age 0s; then
+    echo "could not install pitchfork 2.27.0; set PAKRO_TEST_PITCHFORK to pitchfork 2.27.0 or newer to use a local build"
     exit 1
   fi
-  MISE_TEST_PITCHFORK="$(mise which pitchfork --tool pitchfork@2.27.0)"
+  PAKRO_TEST_PITCHFORK="$(pakro which pitchfork --tool pitchfork@2.27.0)"
 fi
-cp "$MISE_TEST_PITCHFORK" ~/bin/pitchfork
+cp "$PAKRO_TEST_PITCHFORK" ~/bin/pitchfork
 export PATH="$HOME/bin:$PATH"
 # Keep these short: unix socket paths fail over about 100 bytes.
 export PITCHFORK_STATE_DIR="$TMPDIR/pf"
@@ -29,12 +29,12 @@ PITCHFORK_PROXY_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("12
 export PITCHFORK_PROXY_PORT
 trap 'pitchfork supervisor stop >/dev/null 2>&1 || true' EXIT
 
-PITCHFORK_MISE_BIN="$(command -v mise)" pitchfork supervisor start
+PITCHFORK_PAKRO_BIN="$(command -v pakro)" pitchfork supervisor start
 
 mkdir project
 cd project
 git init -q
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons_settings]
@@ -54,15 +54,15 @@ run = "exec python3 -m http.server $INHERITS_PORT --bind 127.0.0.1"
 port = { auto = true, base = 37000 }
 ready_cmd = "curl -fsS http://127.0.0.1:$INHERITS_PORT/"
 TOML
-git add mise.toml
+git add pakro.toml
 git -c user.name=test -c user.email=test@example.invalid commit -qm fixture
-mise daemons register
+pakro daemons register
 
 # The proxy can answer 404 for a moment after a checkout is first registered, so
 # poll until the daemon answers. Each successful request starts a stopped daemon.
 request() {
   local url attempt
-  url=$(mise env --json | jq -r ".$1_URL")
+  url=$(pakro env --json | jq -r ".$1_URL")
   for ((attempt = 0; attempt < 30; attempt++)); do
     if curl --noproxy '*' -fsS --max-time 30 --resolve "${url#http://}:127.0.0.1" "$url/" >/dev/null 2>&1; then
       return 0
@@ -73,7 +73,7 @@ request() {
   return 1
 }
 status() {
-  mise daemons ls --json | jq -r --arg name "$1" '.[] | select(.name == $name or (.id // "" | endswith("/" + $name))) | .status'
+  pakro daemons ls --json | jq -r --arg name "$1" '.[] | select(.name == $name or (.id // "" | endswith("/" + $name))) | .status'
 }
 wait_for_status() {
   local attempt
@@ -83,7 +83,7 @@ wait_for_status() {
     fi
     sleep 1
   done
-  mise daemons ls --json
+  pakro daemons ls --json
   return 1
 }
 export -f request status wait_for_status

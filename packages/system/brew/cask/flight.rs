@@ -328,7 +328,7 @@ impl FlightTargetTransaction {
 
 pub(super) fn unused_flight_backup_path(parent: &Path, target: &Path) -> Result<PathBuf> {
     let stem = format!(
-        ".mise-flight-backup-{}-{}",
+        ".pakro-flight-backup-{}-{}",
         hash::hash_to_str(&target.display().to_string()),
         std::process::id()
     );
@@ -688,7 +688,7 @@ pub(super) fn execute_flight_step(
             if existing.is_empty() {
                 return Ok(());
             }
-            // Homebrew's default is the current user. Under `sudo mise` that is
+            // Homebrew's default is the current user. Under `sudo pakro` that is
             // the invoking user, not root, as for the Homebrew prefix.
             let user = match user {
                 Some(user) => user.clone(),
@@ -951,7 +951,7 @@ pub(super) fn execute_terminate_process(
     };
     let expand = |value: &str| expand_cask_template(value, staged_path, appdir, Some(version));
     for notice in notices {
-        miseprintln!("{}", expand(notice));
+        pakroprintln!("{}", expand(notice));
     }
     let name = expand(name);
     let (command, args) = match *match_mode {

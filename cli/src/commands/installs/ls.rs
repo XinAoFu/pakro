@@ -4,7 +4,7 @@ use eyre::Result;
 use crate::args::BackendArg;
 use crate::file::display_path;
 use crate::install_layout::resolver::{self, Installation};
-use crate::ui::table::MiseTable;
+use crate::ui::table::PakroTable;
 
 /// List the installations of the identity install layout
 ///
@@ -17,11 +17,11 @@ use crate::ui::table::MiseTable;
 #[usage(
     visible_alias = "list",
     example(
-        r###"mise installs ls"###,
+        r###"pakro installs ls"###,
         help = r###"Every installation in the identity layout"###
     ),
     example(
-        r###"mise installs ls node --json"###,
+        r###"pakro installs ls node --json"###,
         help = r###"The installations of node, as JSON"###
     ),
     verbatim_doc_comment
@@ -51,10 +51,10 @@ impl InstallsLs {
             });
         }
         if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&installations)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&installations)?);
             return Ok(());
         }
-        let mut table = MiseTable::new(
+        let mut table = PakroTable::new(
             self.no_header,
             &["Installation", "Tool", "Version", "Platform", "Status"],
         );

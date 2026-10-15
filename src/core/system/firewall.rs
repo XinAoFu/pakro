@@ -15,14 +15,14 @@ use sha2::{Digest, Sha256};
 use crate::config::Config;
 use crate::system::resources::{ResourceAction, ResourceId, ResourcePlan};
 
-const STATE_PATH: &str = "/var/lib/mise/bootstrap/firewall.json";
-const NFT_TABLE: &str = "mise_bootstrap";
+const STATE_PATH: &str = "/var/lib/pakro/bootstrap/firewall.json";
+const NFT_TABLE: &str = "pakro_bootstrap";
 const NFT_STATELESS_LIST_ARGS: [&str; 5] = ["--stateless", "list", "table", "inet", NFT_TABLE];
-const NFT_RULES_PATH: &str = "/etc/mise/bootstrap/firewall.nft";
-const NFT_UNIT_PATH: &str = "/etc/systemd/system/mise-bootstrap-firewall.service";
-const FIREWALLD_INCOMING: &str = "mise-bootstrap-in";
-const FIREWALLD_OUTGOING: &str = "mise-bootstrap-out";
-const UFW_TRANSITION_PREFIX: &str = "mise-transition:";
+const NFT_RULES_PATH: &str = "/etc/pakro/bootstrap/firewall.nft";
+const NFT_UNIT_PATH: &str = "/etc/systemd/system/pakro-bootstrap-firewall.service";
+const FIREWALLD_INCOMING: &str = "pakro-bootstrap-in";
+const FIREWALLD_OUTGOING: &str = "pakro-bootstrap-out";
+const UFW_TRANSITION_PREFIX: &str = "pakro-transition:";
 const FIREWALLD_POLICY_DIR: &str = "/etc/firewalld/policies";
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -480,7 +480,7 @@ impl FirewallRequest {
             return match ssh_ancestor {
                 Some(false) => Ok(()),
                 Some(true) => bail!(
-                    "refusing firewall default incoming {} from an SSH-derived process without SSH_CONNECTION: mise cannot verify that remote access will survive; preserve SSH_CONNECTION or set allow_lockout = true",
+                    "refusing firewall default incoming {} from an SSH-derived process without SSH_CONNECTION: pakro cannot verify that remote access will survive; preserve SSH_CONNECTION or set allow_lockout = true",
                     self.default_incoming.ufw()
                 ),
                 None => bail!(
@@ -723,13 +723,13 @@ pub fn apply(request: &FirewallRequest, dry_run: bool, yes: bool) -> Result<()> 
             }
             return Ok(());
         }
-        bail!("refusing unsafe firewall change; inspect `mise bootstrap firewall status`");
+        bail!("refusing unsafe firewall change; inspect `pakro bootstrap firewall status`");
     }
     if dry_run {
         let inspection = request.inspection.as_ref().expect("firewall was inspected");
         let backend = inspection.backend.expect("available firewall backend");
         for command in preview_commands(request, backend)? {
-            miseprintln!("would run {}", shell_words::join(command));
+            pakroprintln!("would run {}", shell_words::join(command));
         }
         return Ok(());
     }
@@ -1111,7 +1111,7 @@ fn managed_backend_present(backend: FirewallBackend) -> bool {
                 })
         }
         FirewallBackend::Ufw => {
-            ufw_added_rules().is_ok_and(|rules| rules.iter().any(|rule| rule.contains("mise:")))
+            ufw_added_rules().is_ok_and(|rules| rules.iter().any(|rule| rule.contains("pakro:")))
         }
         FirewallBackend::Auto => false,
     }
@@ -1138,7 +1138,7 @@ fn live_matches(
                 .filter(|output| output.status.success())
                 .is_some_and(|output| {
                     String::from_utf8_lossy(&output.stdout)
-                        .contains(&format!("mise-bootstrap:{digest}"))
+                        .contains(&format!("pakro-bootstrap:{digest}"))
                         && expected_live_fingerprint
                             .is_some_and(|expected| fingerprint(&output.stdout) == expected)
                 }),
@@ -1234,7 +1234,7 @@ fn apply_nftables(request: &FirewallRequest, digest: &str) -> Result<()> {
     write_atomic(Path::new(NFT_UNIT_PATH), unit.as_bytes(), 0o644)?;
     run_with_stdin(&nft, &["-f", "-"], runtime_rules.as_bytes())?;
     run(&systemctl, &["daemon-reload"])?;
-    run(&systemctl, &["enable", "mise-bootstrap-firewall.service"])
+    run(&systemctl, &["enable", "pakro-bootstrap-firewall.service"])
 }
 
 fn remove_nftables(purge: bool) -> Result<()> {
@@ -1244,7 +1244,7 @@ fn remove_nftables(purge: bool) -> Result<()> {
         run(&nft, &["delete", "table", "inet", NFT_TABLE])?;
     }
     if let Some(systemctl) = crate::file::which("systemctl") {
-        let _ = run(&systemctl, &["disable", "mise-bootstrap-firewall.service"]);
+        let _ = run(&systemctl, &["disable", "pakro-bootstrap-firewall.service"]);
         if purge {
             let _ = fs::remove_file(NFT_UNIT_PATH);
             let _ = fs::remove_file(NFT_RULES_PATH);
@@ -1262,11 +1262,11 @@ fn render_nftables(request: &FirewallRequest, digest: &str, replace: bool) -> St
     lines.extend([
         format!("add table inet {NFT_TABLE}"),
         format!(
-            "add chain inet {NFT_TABLE} input {{ type filter hook input priority filter; policy {}; comment \"mise-bootstrap:{digest}\"; }}",
+            "add chain inet {NFT_TABLE} input {{ type filter hook input priority filter; policy {}; comment \"pakro-bootstrap:{digest}\"; }}",
             request.default_incoming.nft()
         ),
         format!(
-            "add chain inet {NFT_TABLE} output {{ type filter hook output priority filter; policy {}; comment \"mise-bootstrap:{digest}\"; }}",
+            "add chain inet {NFT_TABLE} output {{ type filter hook output priority filter; policy {}; comment \"pakro-bootstrap:{digest}\"; }}",
             request.default_outgoing.nft()
         ),
         format!("add rule inet {NFT_TABLE} input ct state established,related accept"),
@@ -1339,7 +1339,7 @@ fn render_nftables_rule(rule: &FirewallRule, index: usize) -> Vec<String> {
     }
     if rule.action != FirewallAction::Limit {
         parts.push(rule.action.nft().to_string());
-        parts.extend(["comment".to_string(), format!("\"mise:{}\"", rule.name)]);
+        parts.extend(["comment".to_string(), format!("\"pakro:{}\"", rule.name)]);
         return vec![parts.join(" ")];
     }
 
@@ -1360,7 +1360,7 @@ fn render_nftables_rule(rule: &FirewallRule, index: usize) -> Vec<String> {
                 "state".to_string(),
                 "new".to_string(),
                 "meter".to_string(),
-                format!("mise_limit_{index}_{family}"),
+                format!("pakro_limit_{index}_{family}"),
                 "size".to_string(),
                 "65535".to_string(),
                 "{".to_string(),
@@ -1378,7 +1378,7 @@ fn render_nftables_rule(rule: &FirewallRule, index: usize) -> Vec<String> {
                 "}".to_string(),
                 "drop".to_string(),
                 "comment".to_string(),
-                format!("\"mise:{}:{family}-limit\"", rule.name),
+                format!("\"pakro:{}:{family}-limit\"", rule.name),
             ]);
             limited.join(" ")
         })
@@ -1386,7 +1386,7 @@ fn render_nftables_rule(rule: &FirewallRule, index: usize) -> Vec<String> {
     parts.extend([
         "accept".to_string(),
         "comment".to_string(),
-        format!("\"mise:{}\"", rule.name),
+        format!("\"pakro:{}\"", rule.name),
     ]);
     rendered.push(parts.join(" "));
     rendered
@@ -1394,7 +1394,7 @@ fn render_nftables_rule(rule: &FirewallRule, index: usize) -> Vec<String> {
 
 fn render_nftables_unit(nft: &Path) -> String {
     format!(
-        "[Unit]\nDescription=mise bootstrap firewall\nBefore=network-pre.target\nWants=network-pre.target\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStartPre=-{nft} delete table inet {NFT_TABLE}\nExecStart={nft} -f {NFT_RULES_PATH}\nExecReload=-{nft} delete table inet {NFT_TABLE}\nExecReload={nft} -f {NFT_RULES_PATH}\nExecStop=-{nft} delete table inet {NFT_TABLE}\n\n[Install]\nWantedBy=multi-user.target\n",
+        "[Unit]\nDescription=pakro bootstrap firewall\nBefore=network-pre.target\nWants=network-pre.target\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStartPre=-{nft} delete table inet {NFT_TABLE}\nExecStart={nft} -f {NFT_RULES_PATH}\nExecReload=-{nft} delete table inet {NFT_TABLE}\nExecReload={nft} -f {NFT_RULES_PATH}\nExecStop=-{nft} delete table inet {NFT_TABLE}\n\n[Install]\nWantedBy=multi-user.target\n",
         nft = nft.display()
     )
 }
@@ -1422,7 +1422,7 @@ fn apply_firewalld(request: &FirewallRequest, digest: &str) -> Result<()> {
             &[
                 "--permanent",
                 &format!("--policy={policy}"),
-                &format!("--set-description=mise-bootstrap:{digest}"),
+                &format!("--set-description=pakro-bootstrap:{digest}"),
             ],
         )?;
         run(
@@ -1531,7 +1531,7 @@ fn firewalld_policy_matches(
 ) -> bool {
     let path = Path::new(FIREWALLD_POLICY_DIR).join(format!("{policy}.xml"));
     if !fs::read_to_string(path)
-        .is_ok_and(|body| body.contains(&format!("mise-bootstrap:{digest}")))
+        .is_ok_and(|body| body.contains(&format!("pakro-bootstrap:{digest}")))
     {
         return false;
     }
@@ -1666,7 +1666,7 @@ fn add_ufw_rules(ufw: &Path, rules: &[Vec<String>]) -> Result<()> {
 }
 
 fn render_ufw_rule(rule: &FirewallRule) -> Vec<String> {
-    render_ufw_rule_with_comment(rule, format!("mise:{}", rule.name))
+    render_ufw_rule_with_comment(rule, format!("pakro:{}", rule.name))
 }
 
 fn render_ufw_rule_with_comment(rule: &FirewallRule, comment: String) -> Vec<String> {
@@ -1733,7 +1733,7 @@ fn ufw_owned_rule(tokens: &[String]) -> bool {
 }
 
 fn ufw_owned_comment(comment: &str) -> bool {
-    if let Some(name) = comment.strip_prefix("mise:") {
+    if let Some(name) = comment.strip_prefix("pakro:") {
         return validate_name(name).is_ok();
     }
     let Some((nonce, name)) = comment
@@ -1811,7 +1811,7 @@ fn ufw_rule_matches(tokens: &[String], rule: &FirewallRule) -> bool {
     if outgoing != (rule.direction == FirewallDirection::Outgoing) {
         return false;
     }
-    let marker = format!("mise:{}", rule.name);
+    let marker = format!("pakro:{}", rule.name);
     if value_after(tokens, "comment") != Some(marker.as_str()) {
         return false;
     }
@@ -1867,11 +1867,11 @@ fn preview_commands(
     match effective.state {
         FirewallState::Absent => commands.push(vec![
             backend.label().to_string(),
-            "remove mise-managed firewall state".to_string(),
+            "remove pakro-managed firewall state".to_string(),
         ]),
         FirewallState::Disabled => commands.push(vec![
             backend.label().to_string(),
-            "disable mise-managed firewall state".to_string(),
+            "disable pakro-managed firewall state".to_string(),
         ]),
         FirewallState::Enabled => match backend {
             FirewallBackend::Nftables => commands.push(vec![
@@ -1883,7 +1883,7 @@ fn preview_commands(
                 commands.push(vec![
                     "firewall-cmd".to_string(),
                     "--permanent".to_string(),
-                    "reconcile mise-bootstrap policies".to_string(),
+                    "reconcile pakro-bootstrap policies".to_string(),
                 ]);
                 commands.push(vec!["firewall-cmd".to_string(), "--reload".to_string()]);
             }
@@ -1956,7 +1956,7 @@ fn write_atomic(path: &Path, body: &[u8], mode: u32) -> Result<()> {
         .ok_or_else(|| eyre!("{} has no parent", path.display()))?;
     fs::create_dir_all(parent)?;
     let prefix = format!(
-        ".{}.mise-",
+        ".{}.pakro-",
         path.file_name().unwrap_or_default().to_string_lossy()
     );
     let mut temporary = tempfile::Builder::new()
@@ -2298,10 +2298,10 @@ mod tests {
     fn nftables_rules_are_isolated_and_allow_before_default_policy() {
         let request = request_with_ssh(None);
         let rendered = render_nftables(&request, "abc", false);
-        assert!(rendered.contains("add table inet mise_bootstrap"));
+        assert!(rendered.contains("add table inet pakro_bootstrap"));
         assert!(rendered.contains("policy drop"));
-        assert!(rendered.contains("tcp dport 22 accept comment \"mise:ssh\""));
-        assert!(rendered.contains("mise-bootstrap:abc"));
+        assert!(rendered.contains("tcp dport 22 accept comment \"pakro:ssh\""));
+        assert!(rendered.contains("pakro-bootstrap:abc"));
     }
 
     #[test]
@@ -2383,23 +2383,23 @@ mod tests {
         assert_eq!(render_ufw_rule(&request.rules[0])[0], "limit");
         let rendered = render_nftables_rule(&request.rules[0], 0);
         assert_eq!(rendered.len(), 3);
-        assert!(rendered[0].contains("meter mise_limit_0_ip"));
+        assert!(rendered[0].contains("meter pakro_limit_0_ip"));
         assert!(rendered[0].contains("ip saddr timeout 30s"));
-        assert!(rendered[1].contains("meter mise_limit_0_ip6"));
+        assert!(rendered[1].contains("meter pakro_limit_0_ip6"));
         assert!(rendered[1].contains("ip6 saddr timeout 30s"));
-        assert!(rendered[2].ends_with("accept comment \"mise:ssh\""));
+        assert!(rendered[2].ends_with("accept comment \"pakro:ssh\""));
 
         request.rules[0].source = Some("203.0.113.0/24".parse().unwrap());
         let rendered = render_nftables_rule(&request.rules[0], 0);
         assert_eq!(rendered.len(), 2);
-        assert!(rendered[0].contains("meter mise_limit_0_ip"));
+        assert!(rendered[0].contains("meter pakro_limit_0_ip"));
         assert!(!rendered[0].contains("ip6 saddr"));
     }
 
     #[test]
     fn matches_ufw_canonical_rule_output_semantically() {
         let request = request_with_ssh(None);
-        let compact = shell_words::split("allow 22/tcp comment 'mise:ssh'").unwrap();
+        let compact = shell_words::split("allow 22/tcp comment 'pakro:ssh'").unwrap();
         assert!(ufw_rule_matches(&compact, &request.rules[0]));
 
         let mut outgoing = request.rules[0].clone();
@@ -2410,7 +2410,7 @@ mod tests {
         outgoing.source = None;
         outgoing.destination = Some("1.1.1.1/32".parse().unwrap());
         let expanded =
-            shell_words::split("allow out to 1.1.1.1 port 53 proto udp comment 'mise:dns'")
+            shell_words::split("allow out to 1.1.1.1 port 53 proto udp comment 'pakro:dns'")
                 .unwrap();
         assert!(ufw_rule_matches(&expanded, &outgoing));
     }
@@ -2436,15 +2436,15 @@ mod tests {
 
     #[test]
     fn recognizes_recoverable_ufw_transition_rules() {
-        assert!(ufw_owned_comment("mise:ssh"));
-        assert!(ufw_owned_comment("mise-transition:a1B2c3D4:ssh"));
-        assert!(!ufw_owned_comment("mise-transition:short:ssh"));
-        assert!(!ufw_owned_comment("mise-transition:a1B2c3D4:../ssh"));
+        assert!(ufw_owned_comment("pakro:ssh"));
+        assert!(ufw_owned_comment("pakro-transition:a1B2c3D4:ssh"));
+        assert!(!ufw_owned_comment("pakro-transition:short:ssh"));
+        assert!(!ufw_owned_comment("pakro-transition:a1B2c3D4:../ssh"));
 
         let request = request_with_ssh(None);
         let transition = vec![render_ufw_rule_with_comment(
             &request.rules[0],
-            "mise-transition:a1B2c3D4:ssh".to_string(),
+            "pakro-transition:a1B2c3D4:ssh".to_string(),
         )];
         assert!(!ufw_managed_rules_match(&transition, &request.rules));
     }
@@ -2455,8 +2455,8 @@ mod tests {
         request.default_incoming = FirewallPolicy::Reject;
         request.default_outgoing = FirewallPolicy::Reject;
         let rendered = render_nftables(&request, "abc", false);
-        assert!(rendered.contains("add rule inet mise_bootstrap input reject"));
-        assert!(rendered.contains("add rule inet mise_bootstrap output reject"));
+        assert!(rendered.contains("add rule inet pakro_bootstrap input reject"));
+        assert!(rendered.contains("add rule inet pakro_bootstrap output reject"));
     }
 
     #[test]

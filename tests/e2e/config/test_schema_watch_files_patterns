@@ -2,10 +2,10 @@
 
 TOMBI_VERSION="0.9.22"
 
-mise use -g tombi@$TOMBI_VERSION
+pakro use -g tombi@$TOMBI_VERSION
 
-SCHEMA_PATH="$ROOT/src/schema/mise.json"
-TOMBI="mise x tombi@$TOMBI_VERSION -- tombi"
+SCHEMA_PATH="$ROOT/src/schema/pakro.json"
+TOMBI="pakro x tombi@$TOMBI_VERSION -- tombi"
 TOMBI_LINT="$TOMBI lint --offline --no-cache --error-on-warnings --quiet"
 assert_contains "$TOMBI --version" "tombi $TOMBI_VERSION"
 
@@ -18,10 +18,10 @@ strict = true
 
 [[schemas]]
 path = "file://$SCHEMA_PATH"
-include = ["mise-watch-files.toml", "mise-bad-watch-files.toml"]
+include = ["pakro-watch-files.toml", "pakro-bad-watch-files.toml"]
 EOF
 
-cat >"$HOME/workdir/mise-watch-files.toml" <<'TOML'
+cat >"$HOME/workdir/pakro-watch-files.toml" <<'TOML'
 [[watch_files]]
 patterns = []
 run = "echo changed"
@@ -32,14 +32,14 @@ task = "check"
 TOML
 
 cd "$HOME/workdir"
-assert_succeed "$TOMBI_LINT mise-watch-files.toml"
+assert_succeed "$TOMBI_LINT pakro-watch-files.toml"
 
 for action in \
   'run = "echo changed"' \
   'task = "check"'; do
-  cat >"$HOME/workdir/mise-bad-watch-files.toml" <<TOML
+  cat >"$HOME/workdir/pakro-bad-watch-files.toml" <<TOML
 [[watch_files]]
 $action
 TOML
-  assert_fail "$TOMBI_LINT mise-bad-watch-files.toml"
+  assert_fail "$TOMBI_LINT pakro-bad-watch-files.toml"
 done

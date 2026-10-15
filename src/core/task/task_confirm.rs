@@ -70,7 +70,7 @@ mod tests {
         fs::write(
             &task_path,
             r#"#!/bin/bash
-#MISE confirm={message="Proceed?", default="yes"}
+#PAKRO confirm={message="Proceed?", default="yes"}
 echo \"hello world\"
 "#,
         )
@@ -104,7 +104,7 @@ echo \"hello world\"
         fs::write(
             &task_path,
             r#"#!/bin/bash
-#MISE confirm={message="Deploy to prod?", yes="Deploy", no="Cancel"}
+#PAKRO confirm={message="Deploy to prod?", yes="Deploy", no="Cancel"}
 echo \"hello world\"
 "#,
         )

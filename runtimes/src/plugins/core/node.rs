@@ -235,10 +235,10 @@ impl NodePlugin {
             return Ok(());
         }
         let patches = plugins::core::fetch_patch_contents(&sources).await?;
-        file::create_dir_all(&*env::MISE_TMP_DIR)?;
+        file::create_dir_all(&*env::PAKRO_TMP_DIR)?;
         for (source, patch) in sources.iter().zip(patches) {
             ctx.pr.set_message(format!("patch {source}"));
-            let patch_file = env::MISE_TMP_DIR.join(format!(
+            let patch_file = env::PAKRO_TMP_DIR.join(format!(
                 "node-v{}-{}.patch",
                 opts.version,
                 hash::hash_to_str(source)
@@ -536,7 +536,7 @@ impl NodePlugin {
     }
 
     fn shasums_url(&self, v: &str, tarball_name: &str) -> Result<Url> {
-        // let url = MISE_NODE_MIRROR_URL.join(&format!("v{v}/SHASUMS256.txt.asc"))?;
+        // let url = PAKRO_NODE_MIRROR_URL.join(&format!("v{v}/SHASUMS256.txt.asc"))?;
         let settings = Settings::get();
         let url =
             mirror_url_for(&settings.node, tarball_name).join(&format!("v{v}/SHASUMS256.txt"))?;
@@ -586,7 +586,7 @@ impl NodePlugin {
                     }
                 }
                 msg.push_str("\nYou can try setting the flavor using:\n");
-                msg.push_str("  mise settings set node.flavor=<flavor>\n");
+                msg.push_str("  pakro settings set node.flavor=<flavor>\n");
                 return Ok(Some(msg));
             } else {
                 // Fallback: list all files for that version if no arch match
@@ -868,7 +868,7 @@ impl Backend for NodePlugin {
     }
 
     /// The lockfile options say which node is downloaded or built. Two settings also change
-    /// the files mise adds to that node after it is unpacked: the `bin/npm` wrapper
+    /// the files pakro adds to that node after it is unpacked: the `bin/npm` wrapper
     /// (`node.npm_shim`, on by default, and not installed on Windows) and the corepack shims
     /// (`node.corepack`, off by default). Only a non-default value is an input, so the
     /// identity of an install made with the defaults does not carry them.
@@ -1119,7 +1119,7 @@ impl BuildOpts {
         Ok(Self {
             version: v.clone(),
             path: ctx.ts.list_paths(&ctx.config).await,
-            build_dir: env::MISE_TMP_DIR.join(format!("node-v{v}")),
+            build_dir: env::PAKRO_TMP_DIR.join(format!("node-v{v}")),
             configure_cmd: settings.node.configure_cmd(&install_path),
             make_cmd: settings.node.make_cmd(),
             make_install_cmd: settings.node.make_install_cmd(),
@@ -1154,8 +1154,8 @@ fn node_flavor_not_found_message(opts: &BuildOpts) -> Option<String> {
     Some(format!(
         "precompiled node archive not found for node.flavor={flavor:?}: {}\n\
          Node flavors are published by the unofficial builds project. Try:\n  \
-         mise settings set node.mirror_url {UNOFFICIAL_NODE_MIRROR_URL}\n  \
-         mise settings set node.flavor {flavor}\n\
+         pakro settings set node.mirror_url {UNOFFICIAL_NODE_MIRROR_URL}\n  \
+         pakro settings set node.flavor {flavor}\n\
          or unset node.flavor to use official Node binaries.",
         opts.binary_tarball_url
     ))

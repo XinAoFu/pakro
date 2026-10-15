@@ -5,11 +5,11 @@
 # has to widen up to the common ancestor so watchexec's filter actually
 # matches the out-of-cwd source file when it changes.
 
-mise use -g watchexec
+pakro use -g watchexec
 
 mkdir -p packages/foo shared/src
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.build]
 dir = "packages/foo"
 sources = ["../../shared/src/*.ts"]
@@ -19,7 +19,7 @@ EOF
 touch shared/src/index.ts
 
 LOG_FILE=$(mktemp)
-mise watch build >"$LOG_FILE" 2>&1 &
+pakro watch build >"$LOG_FILE" 2>&1 &
 WATCH_PID=$!
 
 trap 'kill $WATCH_PID' EXIT
@@ -45,4 +45,4 @@ done
 if ! grep -q "built" "$LOG_FILE"; then
   fail "Expected re-run after changing ../../shared/src source, got: $(tr -d '\0' <"$LOG_FILE")"
 fi
-ok "mise watch retriggers on cwd-escaping (..) source"
+ok "pakro watch retriggers on cwd-escaping (..) source"

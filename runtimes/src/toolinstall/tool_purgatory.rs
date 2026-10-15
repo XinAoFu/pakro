@@ -165,7 +165,7 @@ pub async fn auto_prune() -> Result<()> {
         return Ok(());
     }
     // Config resolution below may execute trusted templates. If one of those
-    // templates invokes mise, the child reaches auto-prune before the parent
+    // templates invokes pakro, the child reaches auto-prune before the parent
     // has removed the due receipt. Serialize the whole cleanup separately
     // from the short state-file lock so nested and concurrent invocations can
     // skip it without blocking commands that legitimately update the state.

@@ -3,7 +3,7 @@
 # Test the `usage` map inside Tera run scripts for inline tasks
 
 # Basic args + flags with defaults
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.usage-tera]
 description = "Test usage map in tera run scripts"
 usage = '''
@@ -19,17 +19,17 @@ echo "Verbose mode enabled"
 '''
 EOF
 
-assert "mise run usage-tera staging" "Deploying to staging in us-east-1"
-assert "mise run usage-tera staging --region us-west-2" "Deploying to staging in us-west-2"
-assert "mise run usage-tera staging --verbose" "\
+assert "pakro run usage-tera staging" "Deploying to staging in us-east-1"
+assert "pakro run usage-tera staging --region us-west-2" "Deploying to staging in us-west-2"
+assert "pakro run usage-tera staging --verbose" "\
 Deploying to staging in us-east-1
 Verbose mode enabled"
-assert "mise run usage-tera staging --region eu-central-1 --verbose" "\
+assert "pakro run usage-tera staging --region eu-central-1 --verbose" "\
 Deploying to staging in eu-central-1
 Verbose mode enabled"
 
 # Variadic args exposed as arrays in the usage map
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.usage-tera-tags]
 description = "Test variadic args in usage map"
 usage = '''
@@ -45,14 +45,14 @@ echo "tag={{ tag }}"
 '''
 EOF
 
-assert "mise run usage-tera-tags prod foo bar" "\
+assert "pakro run usage-tera-tags prod foo bar" "\
 env=prod
 tag_count=2
 tag=foo
 tag=bar"
 
 # Variadic args backed by an environment variable remain arrays in the usage map
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.usage-tera-var-env]
 description = "Test variadic args from env in usage map"
 usage = '''
@@ -67,19 +67,19 @@ echo "node={{ node }}"
 '''
 EOF
 
-assert "NODENAMES='foo bar baz' mise run usage-tera-var-env" "\
+assert "NODENAMES='foo bar baz' pakro run usage-tera-var-env" "\
 node_count=1
 nodes=foo bar baz
 node=foo bar baz"
 
-assert "NODENAMES='from env' mise run usage-tera-var-env one two" "\
+assert "NODENAMES='from env' pakro run usage-tera-var-env one two" "\
 node_count=2
 nodes=one::two
 node=one
 node=two"
 
 # Hyphenated flag names become snake_case keys on the usage map (e.g. --foo-bar -> usage.foo_bar)
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.usage-tera-hyphen]
 description = "Test hyphenated flag name mapping to snake_case"
 usage = '''
@@ -90,10 +90,10 @@ echo "foo_bar={{ usage.foo_bar }}"
 '''
 EOF
 
-assert "mise run usage-tera-hyphen --foo-bar value" "foo_bar=value"
+assert "pakro run usage-tera-hyphen --foo-bar value" "foo_bar=value"
 
 # Variadic flags exposed as arrays in the usage map
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.usage-tera-var-flag]
 description = "Test variadic flags in usage map"
 usage = '''
@@ -107,17 +107,17 @@ echo "tag={{ tag }}"
 '''
 EOF
 
-assert "mise run usage-tera-var-flag --tag foo --tag bar" "\
+assert "pakro run usage-tera-var-flag --tag foo --tag bar" "\
 tag_count=2
 tag=foo
 tag=bar"
 
-assert "mise run usage-tera-var-flag --tag foo" "\
+assert "pakro run usage-tera-var-flag --tag foo" "\
 tag_count=1
 tag=foo"
 
 # Variadic flags are exposed as arrays and can be joined
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.usage-tera-var-flag-join]
 description = "Test variadic flags joined with a separator"
 usage = '''
@@ -128,10 +128,10 @@ echo "tags={{ usage.tag | join(sep='::') }}"
 '''
 EOF
 
-assert "mise run usage-tera-var-flag-join --tag foo --tag bar" "tags=foo::bar"
+assert "pakro run usage-tera-var-flag-join --tag foo --tag bar" "tags=foo::bar"
 
 # Variadic flags with multiple defaults are exposed as arrays in the usage map
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.usage-tera-var-flag-default]
 description = "Test variadic flags with default in usage map"
 usage = '''
@@ -147,10 +147,10 @@ echo "tags={{ usage.tag | join(sep='::') }}"
 '''
 EOF
 
-assert "mise run usage-tera-var-flag-default" "tags=foo::bar"
+assert "pakro run usage-tera-var-flag-default" "tags=foo::bar"
 
 # Variadic flags with string defaults stay as single element (not split)
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.usage-tera-var-flag-default-string]
 description = "Test variadic flags with string default in usage map"
 usage = '''
@@ -161,10 +161,10 @@ echo "tags={{ usage.tag | join(sep='::') }}"
 '''
 EOF
 
-assert "mise run usage-tera-var-flag-default-string" "tags=foo bar"
+assert "pakro run usage-tera-var-flag-default-string" "tags=foo bar"
 
 # Args with defaults
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.usage-tera-arg-default]
 description = "Test arg with default in usage map"
 usage = '''
@@ -175,11 +175,11 @@ echo "Hello, {{ usage.name }}!"
 '''
 EOF
 
-assert "mise run usage-tera-arg-default" "Hello, world!"
-assert "mise run usage-tera-arg-default -- Alice" "Hello, Alice!"
+assert "pakro run usage-tera-arg-default" "Hello, world!"
+assert "pakro run usage-tera-arg-default -- Alice" "Hello, Alice!"
 
 # Variadic args with multiple defaults
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.usage-tera-var-arg-default]
 description = "Test variadic arg with defaults in usage map"
 usage = '''
@@ -195,12 +195,12 @@ echo "Hello, {{ usage.names | join(sep=' and ') }}!"
 '''
 EOF
 
-assert "mise run usage-tera-var-arg-default" "Hello, alice and bob!"
-assert "mise run usage-tera-var-arg-default -- charlie" "Hello, charlie!"
+assert "pakro run usage-tera-var-arg-default" "Hello, alice and bob!"
+assert "pakro run usage-tera-var-arg-default -- charlie" "Hello, charlie!"
 
 # Path filters (file_stem, basename, dirname, extname) work with required args
 # Regression test for https://github.com/jdx/mise/discussions/7239
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.usage-tera-file-stem]
 description = "Test file_stem filter with required arg"
 usage = '''
@@ -211,11 +211,11 @@ echo "stem={{ usage.file | file_stem }}"
 '''
 EOF
 
-assert "mise run usage-tera-file-stem -- /path/to/myfile.txt" "stem=myfile"
-assert "mise run usage-tera-file-stem -- foo.bar.baz" "stem=foo.bar"
+assert "pakro run usage-tera-file-stem -- /path/to/myfile.txt" "stem=myfile"
+assert "pakro run usage-tera-file-stem -- foo.bar.baz" "stem=foo.bar"
 
 # Test all path filters together
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.usage-tera-path-filters]
 description = "Test all path filters with required arg"
 usage = '''
@@ -229,14 +229,14 @@ echo "file_stem={{ usage.file | file_stem }}"
 '''
 EOF
 
-assert "mise run usage-tera-path-filters -- /path/to/file.txt" "\
+assert "pakro run usage-tera-path-filters -- /path/to/file.txt" "\
 dirname=/path/to
 basename=file.txt
 extname=txt
 file_stem=file"
 
 # Path filters work with value flags that do not declare a default
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.usage-tera-flag-path-filter]
 usage = '''
 arg "<name>"
@@ -247,10 +247,10 @@ echo "dirname={{ usage.file | dirname }}"
 '''
 EOF
 
-assert "mise run usage-tera-flag-path-filter -- test -f data/cmp.csv" "dirname=data"
+assert "pakro run usage-tera-flag-path-filter -- test -f data/cmp.csv" "dirname=data"
 
 # Count flag renders as integer (e.g. -vvv -> 3)
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.usage-tera-count]
 description = "Test count flag renders as integer"
 usage = '''
@@ -261,12 +261,12 @@ echo "verbosity={{ usage.verbose }}"
 '''
 EOF
 
-assert "mise run usage-tera-count" "verbosity=0"
-assert "mise run usage-tera-count -v" "verbosity=1"
-assert "mise run usage-tera-count -vvv" "verbosity=3"
+assert "pakro run usage-tera-count" "verbosity=0"
+assert "pakro run usage-tera-count -v" "verbosity=1"
+assert "pakro run usage-tera-count -vvv" "verbosity=3"
 
 # Negate flag (--no-color sets to false, default is true)
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.usage-tera-negate]
 description = "Test negate flag"
 usage = '''
@@ -277,12 +277,12 @@ echo "color={{ usage.color }}"
 '''
 EOF
 
-assert "mise run usage-tera-negate" "color=true"
-assert "mise run usage-tera-negate --color" "color=true"
-assert "mise run usage-tera-negate --no-color" "color=false"
+assert "pakro run usage-tera-negate" "color=true"
+assert "pakro run usage-tera-negate --color" "color=true"
+assert "pakro run usage-tera-negate --no-color" "color=false"
 
 # Boolean flag defaults to false when not provided (unprovided flag in template)
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.usage-tera-bool-default]
 description = "Test boolean flag defaults to false"
 usage = '''
@@ -297,11 +297,11 @@ echo "not forced"
 '''
 EOF
 
-assert "mise run usage-tera-bool-default" "not forced"
-assert "mise run usage-tera-bool-default --force" "forced"
+assert "pakro run usage-tera-bool-default" "not forced"
+assert "pakro run usage-tera-bool-default --force" "forced"
 
 # Optional arg defaults to empty string when not provided
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.usage-tera-opt-arg]
 description = "Test optional arg defaults to empty"
 usage = '''
@@ -316,11 +316,11 @@ echo "hello world"
 '''
 EOF
 
-assert "mise run usage-tera-opt-arg" "hello world"
-assert "mise run usage-tera-opt-arg -- Alice" "hello Alice"
+assert "pakro run usage-tera-opt-arg" "hello world"
+assert "pakro run usage-tera-opt-arg -- Alice" "hello Alice"
 
 # task_source_files() stays available when scripts are re-rendered with usage args
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.usage-tera-source-files]
 usage = '''
 arg "[files]" var=#true
@@ -335,11 +335,11 @@ echo {{ task_source_files() | join(sep=' ') }}
 '''
 EOF
 
-assert "mise run --dry-run --force usage-tera-source-files 2>&1" "[usage-tera-source-files] $ echo mise.toml"
-assert "mise run --dry-run --force usage-tera-source-files -- mise.toml 2>&1" "[usage-tera-source-files] $ echo mise.toml"
+assert "pakro run --dry-run --force usage-tera-source-files 2>&1" "[usage-tera-source-files] $ echo pakro.toml"
+assert "pakro run --dry-run --force usage-tera-source-files -- pakro.toml 2>&1" "[usage-tera-source-files] $ echo pakro.toml"
 
 # Arg choices restrict allowed values
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.usage-tera-arg-choices]
 description = "Test arg choices"
 usage = '''
@@ -352,6 +352,6 @@ echo "shell={{ usage.shell }}"
 '''
 EOF
 
-assert "mise run usage-tera-arg-choices bash" "shell=bash"
-assert "mise run usage-tera-arg-choices zsh" "shell=zsh"
-assert_fail "mise run usage-tera-arg-choices powershell"
+assert "pakro run usage-tera-arg-choices bash" "shell=bash"
+assert "pakro run usage-tera-arg-choices zsh" "shell=zsh"
+assert_fail "pakro run usage-tera-arg-choices powershell"

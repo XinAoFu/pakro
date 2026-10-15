@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-export MISE_LOCKFILE=1
-export MISE_EXPERIMENTAL=1
+export PAKRO_LOCKFILE=1
+export PAKRO_EXPERIMENTAL=1
 
 detect_platform
-PLATFORM="$MISE_PLATFORM"
+PLATFORM="$PAKRO_PLATFORM"
 
 SERVER_ROOT="$TMPDIR/task-tool-lock-server"
 mkdir -p "$SERVER_ROOT/task-only-1.0.0/bin"
@@ -20,7 +20,7 @@ printf '1.0.0\n2.0.0\n' >"$SERVER_ROOT/versions.txt"
 
 start_http_server --dir "$SERVER_ROOT"
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [task_config]
 includes = ["tasks.toml"]
 
@@ -39,7 +39,7 @@ version = "1.0.0"
 url = "http://127.0.0.1:${HTTP_PORT}/task-only-1.0.0.tar.gz"
 checksum = "sha256:${CHECKSUM}"
 bin_path = "task-only-1.0.0/bin"
-postinstall = "chmod +x \$MISE_TOOL_INSTALL_PATH/task-only-1.0.0/bin/task-only"
+postinstall = "chmod +x \$PAKRO_TOOL_INSTALL_PATH/task-only-1.0.0/bin/task-only"
 EOF
 
 cat >tasks.toml <<EOF
@@ -48,29 +48,29 @@ run = "true"
 tools."http:included-only" = { version = "1.0.0", url = "http://127.0.0.1:${HTTP_PORT}/task-only-1.0.0.tar.gz", checksum = "sha256:${CHECKSUM}" }
 EOF
 
-if ! output=$(mise lock --dry-run --platform "$PLATFORM" 2>&1); then
+if ! output=$(pakro lock --dry-run --platform "$PLATFORM" 2>&1); then
   echo "$output" >&2
   fail "task-only lock dry-run failed"
 fi
 assert_contains "echo '$output'" "http:task-only@1.0.0"
 assert_not_contains "echo '$output'" "No tools configured to lock"
-assert "test ! -e mise.lock"
+assert "test ! -e pakro.lock"
 assert "test ! -e task-ran"
-assert "test ! -e '$MISE_DATA_DIR/installs/http-task-only/1.0.0'"
+assert "test ! -e '$PAKRO_DATA_DIR/installs/http-task-only/1.0.0'"
 
-mise lock --platform "$PLATFORM"
-assert_contains "cat mise.lock" '[[tools."http:task-only"]]'
-assert_contains "cat mise.lock" 'version = "1.0.0"'
-assert_contains "cat mise.lock" "checksum = \"sha256:${CHECKSUM}\""
-assert_contains "cat mise.lock" '[[tools."http:template-only"]]'
-assert_contains "cat mise.lock" '[[tools."http:included-only"]]'
+pakro lock --platform "$PLATFORM"
+assert_contains "cat pakro.lock" '[[tools."http:task-only"]]'
+assert_contains "cat pakro.lock" 'version = "1.0.0"'
+assert_contains "cat pakro.lock" "checksum = \"sha256:${CHECKSUM}\""
+assert_contains "cat pakro.lock" '[[tools."http:template-only"]]'
+assert_contains "cat pakro.lock" '[[tools."http:included-only"]]'
 
-cp mise.lock mise.lock.before-task
-mise run task-only
+cp pakro.lock pakro.lock.before-task
+pakro run task-only
 assert_contains "cat task-ran" "task-only-ok"
-assert "cmp mise.lock.before-task mise.lock"
+assert "cmp pakro.lock.before-task pakro.lock"
 
-cat >>mise.toml <<EOF
+cat >>pakro.toml <<EOF
 
 [tasks.latest]
 run = "true"
@@ -97,60 +97,60 @@ url = "http://127.0.0.1:${HTTP_PORT}/task-only-1.0.0.tar.gz"
 rename_exe = "two"
 EOF
 
-mise lock --platform "$PLATFORM"
-assert_contains "cat mise.lock" '[[tools."http:task-latest"]]'
-assert_contains "cat mise.lock" 'version = "2.0.0"'
-assert "test \"\$(grep -c '\[\[tools.\"http:task-variant\"\]\]' mise.lock)\" -eq 2"
-assert_contains "cat mise.lock" 'rename_exe = "one"'
-assert_contains "cat mise.lock" 'rename_exe = "two"'
+pakro lock --platform "$PLATFORM"
+assert_contains "cat pakro.lock" '[[tools."http:task-latest"]]'
+assert_contains "cat pakro.lock" 'version = "2.0.0"'
+assert "test \"\$(grep -c '\[\[tools.\"http:task-variant\"\]\]' pakro.lock)\" -eq 2"
+assert_contains "cat pakro.lock" 'rename_exe = "one"'
+assert_contains "cat pakro.lock" 'rename_exe = "two"'
 
-mise lock http:task-only --dry-run --platform "$PLATFORM"
+pakro lock http:task-only --dry-run --platform "$PLATFORM"
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [tasks.no-tools]
 run = "true"
 EOF
 rm tasks.toml
 
-mise lock --platform "$PLATFORM"
-assert_not_contains "cat mise.lock" 'http:task-only'
-assert_not_contains "cat mise.lock" 'http:task-latest'
-assert_not_contains "cat mise.lock" 'http:task-variant'
+pakro lock --platform "$PLATFORM"
+assert_not_contains "cat pakro.lock" 'http:task-only'
+assert_not_contains "cat pakro.lock" 'http:task-latest'
+assert_not_contains "cat pakro.lock" 'http:task-variant'
 
-cat >mise.test.toml <<EOF
+cat >pakro.test.toml <<EOF
 [tasks.environment-only]
 run = "true"
 tools."http:environment-only" = { version = "1.0.0", url = "http://127.0.0.1:${HTTP_PORT}/task-only-1.0.0.tar.gz", checksum = "sha256:${CHECKSUM}" }
 EOF
 
-env MISE_ENV=test mise lock --platform "$PLATFORM"
-assert_contains "cat mise.test.lock" '[[tools."http:environment-only"]]'
-assert_not_contains "cat mise.lock" 'http:environment-only'
+env PAKRO_ENV=test pakro lock --platform "$PLATFORM"
+assert_contains "cat pakro.test.lock" '[[tools."http:environment-only"]]'
+assert_not_contains "cat pakro.lock" 'http:environment-only'
 
-cat >mise.local.toml <<EOF
+cat >pakro.local.toml <<EOF
 [tasks.local-only]
 run = "true"
 tools."http:local-only" = { version = "1.0.0", url = "http://127.0.0.1:${HTTP_PORT}/task-only-1.0.0.tar.gz", checksum = "sha256:${CHECKSUM}" }
 EOF
 
-mise lock --local --platform "$PLATFORM"
-assert_contains "cat mise.local.lock" '[[tools."http:local-only"]]'
-assert_not_contains "cat mise.lock" 'http:local-only'
+pakro lock --local --platform "$PLATFORM"
+assert_contains "cat pakro.local.lock" '[[tools."http:local-only"]]'
+assert_not_contains "cat pakro.lock" 'http:local-only'
 
 mkdir -p monorepo/packages/app
-cat >monorepo/mise.toml <<'EOF'
+cat >monorepo/pakro.toml <<'EOF'
 monorepo_root = true
 
 [monorepo]
 lockfile = true
 config_roots = ["packages/*"]
 EOF
-cat >monorepo/packages/app/mise.toml <<EOF
+cat >monorepo/packages/app/pakro.toml <<EOF
 [tasks.child-only]
 run = "true"
 tools."http:child-only" = { version = "1.0.0", url = "http://127.0.0.1:${HTTP_PORT}/task-only-1.0.0.tar.gz", checksum = "sha256:${CHECKSUM}" }
 EOF
 
-(cd monorepo && mise lock --platform "$PLATFORM")
-assert_contains "cat monorepo/mise.lock" '[[tools."http:child-only"]]'
-assert "test ! -e monorepo/packages/app/mise.lock"
+(cd monorepo && pakro lock --platform "$PLATFORM")
+assert_contains "cat monorepo/pakro.lock" '[[tools."http:child-only"]]'
+assert "test ! -e monorepo/packages/app/pakro.lock"

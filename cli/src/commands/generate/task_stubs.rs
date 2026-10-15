@@ -9,17 +9,17 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-/// Generate shims to run mise tasks
+/// Generate shims to run pakro tasks
 ///
-/// By default, this will build shims like ./bin/<task>. These can be paired with `mise generate install-script`
-/// so contributors to a project can execute mise tasks without installing mise into their system.
+/// By default, this will build shims like ./bin/<task>. These can be paired with `pakro generate install-script`
+/// so contributors to a project can execute pakro tasks without installing pakro into their system.
 /// When a parent and nested task both exist, the parent stub is written to `<parent>/_default`.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise tasks add test -- echo 'running tests'
-mise generate task-stubs
+        r###"pakro tasks add test -- echo 'running tests'
+pakro generate task-stubs
 ./bin/test
 running tests"###
     )
@@ -29,15 +29,15 @@ pub(super) struct TaskStubs {
     #[usage(long, short, verbatim_doc_comment, default="bin", value_hint=ValueHint::DirPath)]
     dir: PathBuf,
 
-    /// Path to a mise bin to use when running the task stub.
+    /// Path to a pakro bin to use when running the task stub.
     ///
-    /// Use `--mise-bin=./bin/mise` to use a mise bin generated from `mise generate install-script`
+    /// Use `--pakro-bin=./bin/pakro` to use a pakro bin generated from `pakro generate install-script`
     ///
     /// On Windows a path is run as written, so that script needs its own launcher beside it:
-    /// generate it with `mise generate install-script --write ./bin/mise --windows`. The default
-    /// `mise` is a bare name and resolves off PATH, which needs nothing extra.
-    #[usage(long, short, verbatim_doc_comment, default = "mise")]
-    mise_bin: PathBuf,
+    /// generate it with `pakro generate install-script --write ./bin/pakro --windows`. The default
+    /// `pakro` is a bare name and resolves off PATH, which needs nothing extra.
+    #[usage(long, short, verbatim_doc_comment, default = "pakro")]
+    pakro_bin: PathBuf,
 
     /// What to write beside each stub for Windows to launch
     ///
@@ -89,7 +89,7 @@ impl TaskStubs {
             match migration {
                 StubMigration::File(path) => {
                     // The launcher goes with the stub it belongs to, or it keeps running a task
-                    // that no longer has a stub here. Only one mise wrote is removed, so a
+                    // that no longer has a stub here. Only one pakro wrote is removed, so a
                     // hand-written .cmd is left alone.
                     remove_generated_launcher(&path, &launchers)?;
                     file::remove_file(path)?
@@ -101,7 +101,7 @@ impl TaskStubs {
         // already end in an executable extension, gets no launcher at all — and a warning about
         // launchers that were not written would describe something that did not happen.
         if stubs.iter().any(|s| launchers.path(&s.path).is_some()) {
-            warn_if_windows_cannot_run(&self.mise_bin);
+            warn_if_windows_cannot_run(&self.pakro_bin);
         }
 
         for stub in &stubs {
@@ -110,7 +110,7 @@ impl TaskStubs {
             }
             file::write(&stub.path, &stub.output)?;
             file::make_executable(&stub.path)?;
-            miseprintln!("Wrote to {}", display_path(&stub.path));
+            pakroprintln!("Wrote to {}", display_path(&stub.path));
             // Windows will not execute the `#!/bin/sh` stub, so it needs something it can launch.
             // The `.cmd` is written on every host: stubs are committed, and the contributor who
             // runs one on Windows is not the person who generated it.
@@ -123,7 +123,7 @@ impl TaskStubs {
                 let other = launchers.other_path(&stub.path);
                 remove_owned_launcher(&other, &launchers)?;
                 launchers.write(&launcher_path, &stub.launcher)?;
-                miseprintln!("Wrote to {}", display_path(&launcher_path));
+                pakroprintln!("Wrote to {}", display_path(&launcher_path));
                 warn_if_shadowed(&launcher_path, &other);
             }
         }
@@ -132,90 +132,90 @@ impl TaskStubs {
 
     /// The Windows launcher body for `task`, mirroring what the stub itself runs.
     ///
-    /// `mise_bin` is embedded as given. With the default `mise` it resolves off PATH, where
+    /// `pakro_bin` is embedded as given. With the default `pakro` it resolves off PATH, where
     /// PATHEXT finds a `.cmd`, `.bat` or `.exe` for a bare name. A path is run as written, so a
-    /// `--mise-bin` pointing at a `mise generate install-script` script needs that script's own
+    /// `--pakro-bin` pointing at a `pakro generate install-script` script needs that script's own
     /// Windows launcher beside it — `--windows`, which is opt-in because it is a second committed
     /// file. [`warn_if_windows_cannot_run`] says so when it is missing.
     fn generate_launcher(&self, task: &Task) -> String {
-        let mise_bin = super::cmd_quote(&self.mise_bin.to_string_lossy());
+        let pakro_bin = super::cmd_quote(&self.pakro_bin.to_string_lossy());
         // The task name goes through the same quoting: it is interpolated into the same cmd line,
         // so a `&` or `%` in it breaks the launcher exactly the way one in the path does.
         let display_name = super::cmd_quote(&task.display_name);
-        super::windows_launcher_body(&format!("{mise_bin} run {display_name}"))
+        super::windows_launcher_body(&format!("{pakro_bin} run {display_name}"))
     }
 
     fn generate(&self, task: &Task) -> Result<String> {
-        let mise_bin = self.mise_bin.to_string_lossy();
-        let mise_bin = shell_words::quote(&mise_bin);
+        let pakro_bin = self.pakro_bin.to_string_lossy();
+        let pakro_bin = shell_words::quote(&pakro_bin);
         let display_name = &task.display_name;
         let script = format!(
             r#"
 #!/bin/sh
-# generated by mise task-stubs
-exec {mise_bin} run {display_name} "$@"
+# generated by pakro task-stubs
+exec {pakro_bin} run {display_name} "$@"
 "#
         );
         Ok(script.trim().to_string())
     }
 
     fn generate_legacy(&self, task: &Task) -> Result<String> {
-        let mise_bin = self.mise_bin.to_string_lossy();
-        let mise_bin = shell_words::quote(&mise_bin);
+        let pakro_bin = self.pakro_bin.to_string_lossy();
+        let pakro_bin = shell_words::quote(&pakro_bin);
         let display_name = &task.display_name;
         let script = format!(
             r#"
 #!/bin/sh
-exec {mise_bin} run {display_name} "$@"
+exec {pakro_bin} run {display_name} "$@"
 "#
         );
         Ok(script.trim().to_string())
     }
 }
 
-/// Say so when the launchers this run writes cannot run the mise they were told to use.
+/// Say so when the launchers this run writes cannot run the pakro they were told to use.
 ///
-/// The launcher runs `--mise-bin` as written, so a path has to name something Windows can execute.
-/// `mise generate install-script --write ./bin/mise` writes a `#!/usr/bin/env bash` script, which
+/// The launcher runs `--pakro-bin` as written, so a path has to name something Windows can execute.
+/// `pakro generate install-script --write ./bin/pakro` writes a `#!/usr/bin/env bash` script, which
 /// Windows cannot execute at all; its own launcher is opt-in (`--windows`), deliberately, because
 /// it is a second committed file. Pairing the two commands the way the help suggests therefore
-/// produces a `bin/<task>.cmd` that fails with `'"./bin/mise"' is not recognized` — and nothing
+/// produces a `bin/<task>.cmd` that fails with `'"./bin/pakro"' is not recognized` — and nothing
 /// said so at the point where it could still be fixed.
 ///
 /// Warned on every host, like the `.cmd` itself is written on every host: whoever generated `bin/`
 /// on Linux is exactly the person who will not see the failure.
-fn warn_if_windows_cannot_run(mise_bin: &Path) {
-    if windows_can_run(mise_bin) {
+fn warn_if_windows_cannot_run(pakro_bin: &Path) {
+    if windows_can_run(pakro_bin) {
         return;
     }
     warn!(
         "{} is a path with no Windows launcher beside it, so the generated launchers cannot run it. \
-         Write one with `mise generate install-script --write {} --windows`, or drop --mise-bin to \
-         resolve mise off PATH.",
-        display_path(mise_bin),
-        mise_bin.display()
+         Write one with `pakro generate install-script --write {} --windows`, or drop --pakro-bin to \
+         resolve pakro off PATH.",
+        display_path(pakro_bin),
+        pakro_bin.display()
     );
 }
 
-/// Whether Windows can execute `mise_bin` as the generated launcher spells it.
+/// Whether Windows can execute `pakro_bin` as the generated launcher spells it.
 ///
 /// Answered by Windows' rules, not the generating host's: the value is interpreted by cmd, and the
 /// launcher is written on every platform for a contributor on another one.
-fn windows_can_run(mise_bin: &Path) -> bool {
+fn windows_can_run(pakro_bin: &Path) -> bool {
     // `\` as well as `/`, because cmd takes both as separators. `Path::components` on unix reads
-    // `.\bin\mise` as a single component and would call it a bare name — the exact case where the
+    // `.\bin\pakro` as a single component and would call it a bare name — the exact case where the
     // warning is needed, since cmd will run it as a path.
-    if !mise_bin.to_string_lossy().contains(['/', '\\']) {
+    if !pakro_bin.to_string_lossy().contains(['/', '\\']) {
         return true;
     }
-    if windows_runnable_extension(mise_bin) {
+    if windows_runnable_extension(pakro_bin) {
         return true;
     }
-    let (Some(parent), Some(name)) = (mise_bin.parent(), mise_bin.file_name()) else {
+    let (Some(parent), Some(name)) = (pakro_bin.parent(), pakro_bin.file_name()) else {
         return true;
     };
     // Matched case-insensitively, as Windows matches: on a case-sensitive generating host a
-    // `mise.CMD` beside the script is a launcher Windows would find and a lowercase-only probe
+    // `pakro.CMD` beside the script is a launcher Windows would find and a lowercase-only probe
     // would not, which would warn about a gap that is not there.
     let Ok(entries) = fs::read_dir(parent) else {
         return false;
@@ -279,14 +279,14 @@ fn warn_if_shadowed(written: &Path, other: &Option<PathBuf>) {
         return;
     }
     warn!(
-        "{} is still there and mise cannot show it wrote it, so Windows will run it instead of {}. Remove it by hand if it is no longer needed.",
+        "{} is still there and pakro cannot show it wrote it, so Windows will run it instead of {}. Remove it by hand if it is no longer needed.",
         display_path(other),
         display_path(written)
     );
 }
 
-/// Remove `launcher` if it is there and mise wrote it. A path that holds nothing, or something
-/// mise cannot show it wrote, is left exactly as it is.
+/// Remove `launcher` if it is there and pakro wrote it. A path that holds nothing, or something
+/// pakro cannot show it wrote, is left exactly as it is.
 fn remove_owned_launcher(launcher: &Option<PathBuf>, launchers: &Launchers) -> Result<()> {
     let Some(launcher) = launcher else {
         return Ok(());
@@ -312,13 +312,13 @@ struct TaskStub<'a> {
 /// Remove the Windows launchers beside a stub that is being migrated away.
 ///
 /// A `.cmd` is recognised by [`super::is_generated_launcher`] rather than by comparing against the
-/// launchers this run would produce. Those bodies embed `--mise-bin` and the task name, so a run
+/// launchers this run would produce. Those bodies embed `--pakro-bin` and the task name, so a run
 /// that changes either would not recognise the launcher it wrote last time and would leave
-/// `<task>.cmd` behind, still runnable and still pointing at the old mise. Anything mise did not
+/// `<task>.cmd` behind, still runnable and still pointing at the old pakro. Anything pakro did not
 /// write stays put, and a missing file is fine: most stubs never had one.
 ///
 /// Both forms are checked whichever one this run writes: the stub is going away, so any launcher
-/// mise left for it is going away too.
+/// pakro left for it is going away too.
 fn remove_generated_launcher(stub_path: &Path, launchers: &Launchers) -> Result<()> {
     remove_owned_launcher(&super::windows_launcher_path(stub_path), launchers)?;
     remove_owned_launcher(&super::windows_exe_launcher_path(stub_path), launchers)
@@ -473,10 +473,10 @@ fn validate_stub_paths(
     Ok(migrations.into_iter().collect())
 }
 
-/// Refuse to replace a launcher beside a stub that mise did not write.
+/// Refuse to replace a launcher beside a stub that pakro did not write.
 ///
 /// The stub path is the user's choice, so `bin/<task>.cmd` is a name a project may already be
-/// using for a script of its own — and unlike the stub itself, nothing about the name says mise
+/// using for a script of its own — and unlike the stub itself, nothing about the name says pakro
 /// owns it. `bin/<task>.exe` is the same problem with less to go on, which is why ownership there
 /// rests on the bytes. Checked during validation rather than at the write, so a launcher that is
 /// not ours stops the whole run instead of leaving a half-generated `bin/`.
@@ -571,7 +571,7 @@ fn validate_generated_stub_tree(path: &Path, launchers: &Launchers) -> Result<us
 fn is_generated_task_stub(contents: &str) -> bool {
     let mut lines = contents.lines();
     matches!(lines.next(), Some("#!/bin/sh"))
-        && matches!(lines.next(), Some("# generated by mise task-stubs"))
+        && matches!(lines.next(), Some("# generated by pakro task-stubs"))
         && lines
             .next()
             .and_then(|line| line.strip_prefix("exec "))
@@ -634,11 +634,15 @@ mod tests {
         let launchers = Launchers;
 
         let ours = dir.path().join("hello.cmd");
-        fs::write(&ours, super::super::windows_launcher_body("mise run hello")).unwrap();
+        fs::write(
+            &ours,
+            super::super::windows_launcher_body("pakro run hello"),
+        )
+        .unwrap();
         assert!(launchers.owns(&ours));
 
         let theirs = dir.path().join("theirs.cmd");
-        fs::write(&theirs, "@echo off\r\nmise run hello %*\r\n").unwrap();
+        fs::write(&theirs, "@echo off\r\npakro run hello %*\r\n").unwrap();
         assert!(!launchers.owns(&theirs));
     }
 
@@ -666,7 +670,11 @@ mod tests {
         let launchers = Launchers;
 
         let ours = dir.path().join("hello.cmd");
-        fs::write(&ours, super::super::windows_launcher_body("mise run hello")).unwrap();
+        fs::write(
+            &ours,
+            super::super::windows_launcher_body("pakro run hello"),
+        )
+        .unwrap();
         remove_owned_launcher(&Some(ours.clone()), &launchers).unwrap();
         assert!(!ours.exists());
 
@@ -682,10 +690,10 @@ mod tests {
     }
 
     #[test]
-    fn a_bare_mise_bin_needs_nothing_beside_it() {
-        // The default. cmd resolves a bare name through PATH, where PATHEXT finds `mise.exe`, so
+    fn a_bare_pakro_bin_needs_nothing_beside_it() {
+        // The default. cmd resolves a bare name through PATH, where PATHEXT finds `pakro.exe`, so
         // warning about it would fire on nearly every run of this command and mean nothing.
-        for bin in ["mise", "mise.exe"] {
+        for bin in ["pakro", "pakro.exe"] {
             assert!(windows_can_run(Path::new(bin)), "{bin}");
         }
     }
@@ -693,27 +701,27 @@ mod tests {
     #[test]
     fn a_windows_spelled_path_is_a_path_on_every_host() {
         // `Path::components` on unix reads this as one component, which would classify it as a
-        // bare name. cmd does not: it runs `.\bin\mise` as a path, and that is the case the
+        // bare name. cmd does not: it runs `.\bin\pakro` as a path, and that is the case the
         // warning exists for. Judged by Windows' rules because the launcher is written on every
         // platform for someone on another one.
         let dir = tempfile::tempdir().unwrap();
-        assert!(!windows_can_run(&dir.path().join(".\\bin\\mise")));
+        assert!(!windows_can_run(&dir.path().join(".\\bin\\pakro")));
     }
 
     #[test]
-    fn a_path_mise_bin_needs_something_windows_can_run() {
+    fn a_path_pakro_bin_needs_something_windows_can_run() {
         let dir = tempfile::tempdir().unwrap();
         let bin = dir.path().join("bin");
         fs::create_dir_all(&bin).unwrap();
 
-        // What `mise generate install-script --write bin/mise` leaves without `--windows`: a
+        // What `pakro generate install-script --write bin/pakro` leaves without `--windows`: a
         // shebang script, which cmd cannot execute at all.
-        let script = bin.join("mise");
+        let script = bin.join("pakro");
         fs::write(&script, "#!/usr/bin/env bash\n").unwrap();
         assert!(!windows_can_run(&script));
 
         // What `--windows` adds. Checked by name, not by content: that is the file cmd would find.
-        fs::write(bin.join("mise.cmd"), "@echo off\r\n").unwrap();
+        fs::write(bin.join("pakro.cmd"), "@echo off\r\n").unwrap();
         assert!(windows_can_run(&script));
 
         // A path that already names something Windows runs needs no sibling at all.
@@ -724,13 +732,13 @@ mod tests {
 
     #[test]
     fn a_sibling_is_matched_the_way_windows_matches_it() {
-        // On a case-sensitive host `mise.CMD` is a different filename from `mise.cmd`; on Windows,
+        // On a case-sensitive host `pakro.CMD` is a different filename from `pakro.cmd`; on Windows,
         // where the launcher runs, it is the same one and cmd would find it. Warning here would be
         // about a gap that is not there.
         let dir = tempfile::tempdir().unwrap();
-        let script = dir.path().join("mise");
+        let script = dir.path().join("pakro");
         fs::write(&script, "#!/usr/bin/env bash\n").unwrap();
-        fs::write(dir.path().join("mise.CMD"), "@echo off\r\n").unwrap();
+        fs::write(dir.path().join("pakro.CMD"), "@echo off\r\n").unwrap();
         assert!(windows_can_run(&script));
     }
 
@@ -741,13 +749,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let bin = dir.path().join("bin");
         fs::create_dir_all(&bin).unwrap();
-        // A sibling that is not runnable is not a launcher either -- `mise.txt` beside `mise`
+        // A sibling that is not runnable is not a launcher either -- `pakro.txt` beside `pakro`
         // must not count.
-        fs::write(bin.join("mise"), "#!/usr/bin/env bash\n").unwrap();
-        fs::write(bin.join("mise.txt"), "notes\n").unwrap();
-        assert!(!windows_can_run(&bin.join("mise")));
+        fs::write(bin.join("pakro"), "#!/usr/bin/env bash\n").unwrap();
+        fs::write(bin.join("pakro.txt"), "notes\n").unwrap();
+        assert!(!windows_can_run(&bin.join("pakro")));
         // And a directory that does not exist cannot hold one.
-        assert!(!windows_can_run(&dir.path().join("nested").join("mise")));
+        assert!(!windows_can_run(&dir.path().join("nested").join("pakro")));
     }
 
     #[test]

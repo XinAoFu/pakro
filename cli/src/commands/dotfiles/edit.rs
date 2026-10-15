@@ -18,8 +18,8 @@ use crate::ui::prompt;
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise dot edit ~/.zshrc
-mise dot edit --apply ~/.config/starship.toml"###
+        r###"pakro dot edit ~/.zshrc
+pakro dot edit --apply ~/.config/starship.toml"###
     )
 )]
 pub(crate) struct DotfilesEdit {
@@ -169,8 +169,8 @@ fn source_for_target(
             // neither has a source file: the declaring config is what
             // changes them
             FileMode::Content | FileMode::Absent => req.origin.config.clone(),
-            // mise manages only the permissions; the file itself is the
-            // only copy of its content, and mise never creates it
+            // pakro manages only the permissions; the file itself is the
+            // only copy of its content, and pakro never creates it
             FileMode::Permissions => {
                 if std::fs::symlink_metadata(&req.target).is_err() {
                     bail!(
@@ -307,7 +307,7 @@ async fn apply_target(target: &str, group: Option<&str>, prompt_secrets: bool) -
             dry_run: false,
             verbose: false,
             force: false,
-            force_hint: "use `mise dot apply --force`",
+            force_hint: "use `pakro dot apply --force`",
             yes: true,
         };
         system::files::apply(&config, &files, &opts, &secrets, &mut vec![])?;
@@ -363,7 +363,7 @@ fn group_file_request(
         .find(|(_, deployed)| deployed == target)
     else {
         bail!(
-            "{}: dotfile group {} does not deploy this file (a directory, excluded, or outside its manifest); run `mise dot apply` to apply the group",
+            "{}: dotfile group {} does not deploy this file (a directory, excluded, or outside its manifest); run `pakro dot apply` to apply the group",
             target.display_user(),
             req.group.as_deref().unwrap_or_default()
         );

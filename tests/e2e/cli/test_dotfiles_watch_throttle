@@ -2,33 +2,33 @@
 # Adaptive autosaving: a constantly rewritten file is saved ever more rarely
 # (never excluded, never switched to manual saving), never delays an ordinary
 # edit, is captured promptly once it settles, keeps its throttling across a
-# watcher restart, and is reported by `mise doctor` and `dotfiles status`
+# watcher restart, and is reported by `pakro doctor` and `dotfiles status`
 # without either of them changing anything.
 # shellcheck disable=SC2016
 
 require_cmd git
-export MISE_EXPERIMENTAL=0
+export PAKRO_EXPERIMENTAL=0
 
 # A previously installed service must stop cleanly when history is disabled.
-assert_contains "MISE_HISTORY_ENABLED=0 mise bootstrap dotfiles watch --json" '"event":"disabled"'
-assert_directory_not_exists "$MISE_STATE_DIR/history"
-assert_succeed "MISE_HISTORY_ENABLED=0 mise bootstrap dotfiles watch --once"
+assert_contains "PAKRO_HISTORY_ENABLED=0 pakro bootstrap dotfiles watch --json" '"event":"disabled"'
+assert_directory_not_exists "$PAKRO_STATE_DIR/history"
+assert_succeed "PAKRO_HISTORY_ENABLED=0 pakro bootstrap dotfiles watch --once"
 
-count="mise bootstrap dotfiles history --json -n 0 | jq length"
-throttled="mise bootstrap dotfiles status --json | jq -r '.history.health.throttled[0].interval_secs // 0'"
-repo="$MISE_STATE_DIR/history/repo.git"
+count="pakro bootstrap dotfiles history --json -n 0 | jq length"
+throttled="pakro bootstrap dotfiles status --json | jq -r '.history.health.throttled[0].interval_secs // 0'"
+repo="$PAKRO_STATE_DIR/history/repo.git"
 # the content of a path inside a checkpoint's snapshot (a script: assertions
 # run in a subshell where shell functions are not available)
 snapshot_of="$PWD/snapshot_of"
 cat <<EOF2 >"$snapshot_of"
 #!/usr/bin/env bash
-git --git-dir="$repo" show "\$(mise bootstrap dotfiles history show "\$1" --json | jq -r .uuid):home/\$2"
+git --git-dir="$repo" show "\$(pakro bootstrap dotfiles history show "\$1" --json | jq -r .uuid):home/\$2"
 EOF2
 chmod +x "$snapshot_of"
 
 # Waits until the shell condition $1 holds, for at most $2 seconds (default
 # 30). The budget is wall clock rather than a fixed number of iterations: a
-# loaded CI runner can take seconds to answer one `mise` invocation, which a
+# loaded CI runner can take seconds to answer one `pakro` invocation, which a
 # count of sleeps silently turns into a much shorter timeout.
 wait_until() {
   local deadline=$((SECONDS + ${2:-30}))
@@ -48,29 +48,29 @@ wait_until() {
 mkdir -p ~/.config/hypr
 echo 'monitor=DP-1' >~/.config/hypr/monitors.lua
 echo '{"n":0}' >~/.config/hypr/state.json
-assert_succeed "mise bootstrap dotfiles track ~/.config/hypr"
+assert_succeed "pakro bootstrap dotfiles track ~/.config/hypr"
 # the timing settings live in the configuration so a change to them can be
 # observed while the watcher runs; reconciliation is off, so only events and
 # retries save anything
-cat <<'EOF' >>"$MISE_CONFIG_DIR/config.toml"
+cat <<'EOF' >>"$PAKRO_CONFIG_DIR/config.toml"
 
 [settings]
 history.watch.debounce = "2s"
 history.watch.max_interval = "8s"
 history.watch.reconcile = "0"
 
-[bootstrap.services.mise-history]
+[bootstrap.services.pakro-history]
 builtin = "history-watch"
 EOF
 
 # doctor reports the declared-but-not-running watcher without touching anything
 n="$(eval "$count")"
-assert_contains "mise doctor 2>&1 || true" "the history watcher is declared but not running"
-assert_contains "mise doctor 2>&1 || true" "mise bootstrap services apply"
-assert "mise doctor --json 2>/dev/null | jq -r .dotfiles.watcher" "declared but not running"
+assert_contains "pakro doctor 2>&1 || true" "the history watcher is declared but not running"
+assert_contains "pakro doctor 2>&1 || true" "pakro bootstrap services apply"
+assert "pakro doctor --json 2>/dev/null | jq -r .dotfiles.watcher" "declared but not running"
 assert "$count" "$n"
 
-mise bootstrap dotfiles watch --json >watch.log 2>&1 &
+pakro bootstrap dotfiles watch --json >watch.log 2>&1 &
 watcher=$!
 churn=""
 cleanup() {
@@ -94,13 +94,13 @@ churn=$!
 # the churning file is throttled: its interval grows past the base
 wait_until "[[ \$($throttled) -ge 8 ]]"
 assert_contains "cat watch.log" '"event":"throttled"'
-assert_contains "mise bootstrap dotfiles paths --noisy" "state.json"
-assert_contains "mise bootstrap dotfiles status" "throttled: ~/.config/hypr/state.json changes constantly"
-assert_contains "mise doctor 2>&1 || true" "state.json changes constantly"
-assert "set -o pipefail; mise doctor --json 2>/dev/null | jq '[.warnings[]? | select(contains(\"state.json changes constantly\"))] | length'" "0"
+assert_contains "pakro bootstrap dotfiles paths --noisy" "state.json"
+assert_contains "pakro bootstrap dotfiles status" "throttled: ~/.config/hypr/state.json changes constantly"
+assert_contains "pakro doctor 2>&1 || true" "state.json changes constantly"
+assert "set -o pipefail; pakro doctor --json 2>/dev/null | jq '[.warnings[]? | select(contains(\"state.json changes constantly\"))] | length'" "0"
 # never excluded, never switched to manual saving
-assert_not_contains "cat $MISE_CONFIG_DIR/config.toml" "exclude"
-assert_not_contains "cat $MISE_CONFIG_DIR/config.toml" "autosave"
+assert_not_contains "cat $PAKRO_CONFIG_DIR/config.toml" "exclude"
+assert_not_contains "cat $PAKRO_CONFIG_DIR/config.toml" "autosave"
 
 # an ordinary edit is still saved promptly while the churn goes on, and the
 # checkpoint it makes carries the version of the churning file that the save
@@ -135,41 +135,41 @@ previous_checkpoint="$(jq -rs --arg uuid "$monitor_checkpoint" '[.[] | select(.e
 assert "$snapshot_of $monitor_checkpoint .config/hypr/state.json" "$($snapshot_of "$previous_checkpoint" .config/hypr/state.json)"
 
 # unsaved changes to the throttled file are visible as they happen
-wait_until "[[ \$(mise bootstrap dotfiles status --json | jq -r '.history.health.throttled[0].pending_changes // 0') -ge 1 ]]"
+wait_until "[[ \$(pakro bootstrap dotfiles status --json | jq -r '.history.health.throttled[0].pending_changes // 0') -ge 1 ]]"
 
 # the throttling survives a restart of the watcher while the churn goes on:
 # the startup capture holds the throttled file at its saved version instead
 # of saving it early, and its pending changes are still reported
 kill -TERM "$watcher"
 wait "$watcher" || true
-assert_contains "cat $MISE_STATE_DIR/history/watch-schedule.json" "state.json"
-cp "$MISE_STATE_DIR/history/watch-schedule.json" schedule.saved
+assert_contains "cat $PAKRO_STATE_DIR/history/watch-schedule.json" "state.json"
+cp "$PAKRO_STATE_DIR/history/watch-schedule.json" schedule.saved
 saved_before="$($snapshot_of latest .config/hypr/state.json)"
 sleep 1.2
-mise bootstrap dotfiles watch --json >watch.log 2>&1 &
+pakro bootstrap dotfiles watch --json >watch.log 2>&1 &
 watcher=$!
 wait_until "grep -q '\"event\":\"started\"' watch.log"
 assert "$snapshot_of latest .config/hypr/state.json" "$saved_before"
-assert "mise bootstrap dotfiles status --json | jq -r '.history.health.throttled | length'" "1"
-wait_until "[[ \$(mise bootstrap dotfiles status --json | jq -r '.history.health.throttled[0].pending_changes // 0') -ge 1 ]]"
+assert "pakro bootstrap dotfiles status --json | jq -r '.history.health.throttled | length'" "1"
+wait_until "[[ \$(pakro bootstrap dotfiles status --json | jq -r '.history.health.throttled[0].pending_changes // 0') -ge 1 ]]"
 
 # excluding the churning file while it is throttled takes it out of the
 # schedule at once: no later capture holds it or carries its old version
 replans="$(grep -c 'configuration changed; watching' watch.log || true)"
-assert_succeed "mise bootstrap dotfiles exclude '~/.config/hypr/state.json'"
+assert_succeed "pakro bootstrap dotfiles exclude '~/.config/hypr/state.json'"
 wait_until "[[ \$(grep -c 'configuration changed; watching' watch.log) -gt $replans ]]"
-wait_until "[[ \$(mise bootstrap dotfiles status --json | jq -r '.history.health.throttled | length') -eq 0 ]]"
-assert_not_contains "cat $MISE_STATE_DIR/history/watch-schedule.json" "state.json"
+wait_until "[[ \$(pakro bootstrap dotfiles status --json | jq -r '.history.health.throttled | length') -eq 0 ]]"
+assert_not_contains "cat $PAKRO_STATE_DIR/history/watch-schedule.json" "state.json"
 echo 'monitor=DP-9' >~/.config/hypr/monitors.lua
-wait_until "mise bootstrap dotfiles history diff --path ~/.config/hypr/monitors.lua --exit-code"
+wait_until "pakro bootstrap dotfiles history diff --path ~/.config/hypr/monitors.lua --exit-code"
 assert "$snapshot_of latest .config/hypr/monitors.lua" "monitor=DP-9"
-assert_not_contains "mise bootstrap dotfiles history show latest --files" "state.json"
-assert_succeed "mise bootstrap dotfiles include '~/.config/hypr/state.json'"
+assert_not_contains "pakro bootstrap dotfiles history show latest --files" "state.json"
+assert_succeed "pakro bootstrap dotfiles include '~/.config/hypr/state.json'"
 wait_until "[[ \$($throttled) -ge 2 ]]"
 
 # a timing setting changed while running takes effect: the interval is
 # clamped to the new maximum
-sed -i.bak 's/max_interval = "8s"/max_interval = "2s"/' "$MISE_CONFIG_DIR/config.toml"
+sed -i.bak 's/max_interval = "8s"/max_interval = "2s"/' "$PAKRO_CONFIG_DIR/config.toml"
 wait_until "[[ \$($throttled) -le 2 ]]"
 
 # the churn stops: the final state is captured promptly
@@ -177,7 +177,7 @@ kill "$churn"
 churn=""
 sleep 0.3
 final="$(cat ~/.config/hypr/state.json)"
-wait_until "mise bootstrap dotfiles history diff --path ~/.config/hypr/state.json --exit-code"
+wait_until "pakro bootstrap dotfiles history diff --path ~/.config/hypr/state.json --exit-code"
 # and nothing else is saved once everything is quiet
 n="$(eval "$count")"
 sleep 3
@@ -187,11 +187,11 @@ assert "$count" "$n"
 echo 'outside' >~/outside.conf
 ln -s ~/outside.conf ~/.config/hypr/link.conf
 wait_until "grep -q 'a tracked path appeared' watch.log"
-wait_until "mise bootstrap dotfiles history --json | jq -e '.[0].description | test(\"link.conf\")'"
-assert_not_contains "mise bootstrap dotfiles history show latest --files" "outside.conf"
-assert_succeed "mise bootstrap dotfiles track ~/outside.conf"
+wait_until "pakro bootstrap dotfiles history --json | jq -e '.[0].description | test(\"link.conf\")'"
+assert_not_contains "pakro bootstrap dotfiles history show latest --files" "outside.conf"
+assert_succeed "pakro bootstrap dotfiles track ~/outside.conf"
 echo 'outside2' >~/outside.conf
-wait_until "mise bootstrap dotfiles history --json | jq -e '.[0].description | test(\"outside.conf\")'"
+wait_until "pakro bootstrap dotfiles history --json | jq -e '.[0].description | test(\"outside.conf\")'"
 
 # A capture deferred by a running history operation is retried once the
 # operation finishes. Its after boundary may already save the edit, in which
@@ -199,20 +199,20 @@ wait_until "mise bootstrap dotfiles history --json | jq -e '.[0].description | t
 # The operation is an apply whose pre-dotfiles hook holds the operation lock
 # for a while
 replans="$(grep -c 'configuration changed; watching' watch.log || true)"
-cat <<'EOF' >>"$MISE_CONFIG_DIR/config.toml"
+cat <<'EOF' >>"$PAKRO_CONFIG_DIR/config.toml"
 
 [bootstrap.hooks.pre-dotfiles]
 run = "date +%s%N >>$HOME/applying && sleep 4"
 EOF
 wait_until "[[ \$(grep -c 'configuration changed; watching' watch.log) -gt $replans ]]"
-mise bootstrap dotfiles apply --yes >apply.log 2>&1 &
+pakro bootstrap dotfiles apply --yes >apply.log 2>&1 &
 applying=$!
 wait_until 'test -s ~/applying'
 echo 'monitor=DP-3' >~/.config/hypr/monitors.lua
 wait_until "grep -q '\"event\":\"deferred\"' watch.log"
 wait "$applying" || true
 
-wait_until "mise bootstrap dotfiles history diff --path ~/.config/hypr/monitors.lua --exit-code"
+wait_until "pakro bootstrap dotfiles history diff --path ~/.config/hypr/monitors.lua --exit-code"
 assert "$snapshot_of latest .config/hypr/monitors.lua" "monitor=DP-3"
 
 # Replacing an anchor together with a config edit must reinstall the
@@ -220,10 +220,10 @@ assert "$snapshot_of latest .config/hypr/monitors.lua" "monitor=DP-3"
 replans="$(grep -c 'configuration changed; watching' watch.log)"
 mv ~/.config/hypr ~/.config/hypr.old
 cp -R ~/.config/hypr.old ~/.config/hypr
-printf '\n# replan with a replaced root\n' >>"$MISE_CONFIG_DIR/config.toml"
+printf '\n# replan with a replaced root\n' >>"$PAKRO_CONFIG_DIR/config.toml"
 wait_until "[[ \$(grep -c 'configuration changed; watching' watch.log) -gt $replans ]]"
 echo 'monitor=replaced-root' >~/.config/hypr/monitors.lua
-wait_until "mise bootstrap dotfiles history diff --path ~/.config/hypr/monitors.lua --exit-code"
+wait_until "pakro bootstrap dotfiles history diff --path ~/.config/hypr/monitors.lua --exit-code"
 
 kill -TERM "$watcher"
 wait "$watcher" || true
@@ -232,28 +232,28 @@ assert "cat ~/.config/hypr/state.json" "$final"
 # `--once` reports that nothing was saved while an operation holds the lock
 # (the hook's marker says the lock is held; a slow start would let `--once`
 # run first)
-mise bootstrap dotfiles apply --yes >apply.log 2>&1 &
+pakro bootstrap dotfiles apply --yes >apply.log 2>&1 &
 applying=$!
 wait_until 'test "$(wc -l <~/applying)" -ge 2'
-assert_fail "mise bootstrap dotfiles watch --once --json 2>&1" '"reason":"deferred"'
+assert_fail "pakro bootstrap dotfiles watch --once --json 2>&1" '"reason":"deferred"'
 wait "$applying" || true
 
 # Stopped watcher diagnostics are historical, and a successful one-shot
 # capture clears old watch-installation degradation.
-health="$MISE_STATE_DIR/history/health.json"
+health="$PAKRO_STATE_DIR/history/health.json"
 jq '.watcher.last_error = "old capture failure" | .watcher.consecutive_failures = 1 | .watcher.degraded = ["old watch unavailable"]' "$health" >health.updated
 mv health.updated "$health"
-assert_not_contains "mise doctor 2>&1 || true" "Edits since then are not protected"
-assert_not_contains "mise doctor 2>&1 || true" "Changes there are saved by reconciliation only"
-assert_succeed "mise bootstrap dotfiles watch --once --json"
+assert_not_contains "pakro doctor 2>&1 || true" "Edits since then are not protected"
+assert_not_contains "pakro doctor 2>&1 || true" "Changes there are saved by reconciliation only"
+assert_succeed "pakro bootstrap dotfiles watch --once --json"
 assert "jq '.watcher.degraded | length' $health" "0"
 assert "jq '.watcher.last_error // \"cleared\"' -r $health" "cleared"
 
 # Exclusions made while stopped prune the restored schedule before even
 # a one-shot startup capture can carry the excluded file forward.
-assert_succeed "mise bootstrap dotfiles exclude '~/.config/hypr/state.json'"
-cp schedule.saved "$MISE_STATE_DIR/history/watch-schedule.json"
-assert_succeed "mise bootstrap dotfiles watch --once --json"
-assert_not_contains "cat $MISE_STATE_DIR/history/watch-schedule.json" "state.json"
-latest_uuid="$(mise bootstrap dotfiles history show latest --json | jq -r .uuid)"
+assert_succeed "pakro bootstrap dotfiles exclude '~/.config/hypr/state.json'"
+cp schedule.saved "$PAKRO_STATE_DIR/history/watch-schedule.json"
+assert_succeed "pakro bootstrap dotfiles watch --once --json"
+assert_not_contains "cat $PAKRO_STATE_DIR/history/watch-schedule.json" "state.json"
+latest_uuid="$(pakro bootstrap dotfiles history show latest --json | jq -r .uuid)"
 assert_not_contains "git --git-dir=$repo ls-tree -r --name-only $latest_uuid" "state.json"

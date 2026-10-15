@@ -146,7 +146,7 @@ impl SwiftPlugin {
 
 /// Name the shared libraries a failed `swift --version` could not load.
 ///
-/// swift.org publishes one Linux build per distro family, and mise falls back to
+/// swift.org publishes one Linux build per distro family, and pakro falls back to
 /// another family's build when the host's is not published (#13297). The build
 /// then links against sonames the host may spell differently — Arch builds
 /// ncurses wide-only, so `libncursesw.so.6` is present and `libncurses.so.6` is
@@ -188,7 +188,7 @@ fn explain_missing_libraries(_tv: &ToolVersion, err: eyre::Report) -> eyre::Repo
 /// and bury whatever actually broke.
 ///
 /// `ldd` runs the dynamic loader over each file. These are swift.org artifacts
-/// whose GPG signature mise verified before extracting, which is the same trust
+/// whose GPG signature pakro verified before extracting, which is the same trust
 /// the install already extends by running one of them.
 #[cfg(target_os = "linux")]
 fn missing_sonames(
@@ -304,7 +304,7 @@ impl Backend for SwiftPlugin {
 
     /// Swift download URLs are derived from the build host: OS, arch, and—on
     /// Linux—the specific distro (e.g. `ubuntu24.04`, `amazonlinux2`,
-    /// `fedora39`, `ubi9`). `mise lock` can only guess the distro of a machine
+    /// `fedora39`, `ubi9`). `pakro lock` can only guess the distro of a machine
     /// it isn't running on, so the URL it records for another platform may not
     /// be the one that machine resolves. Opt out of the `--locked` URL
     /// requirement so installs don't hard-fail on a distro the lockfile doesn't
@@ -348,7 +348,7 @@ impl Backend for SwiftPlugin {
     ) -> Result<PlatformInfo> {
         // Every published Linux build links against glibc, so there is nothing
         // to lock for a musl target. Fail instead of recording a URL that
-        // doesn't exist, so `mise lock` reports it as skipped.
+        // doesn't exist, so `pakro lock` reports it as skipped.
         if target.libc() == Some("musl") {
             bail!("swift does not publish musl builds");
         }
@@ -460,8 +460,8 @@ async fn resolve_platform(tv: &ToolVersion, target: &PlatformTarget) -> Result<S
             // settled before anything else — including `swift.platform`, which
             // chooses between distro builds and cannot conjure one that links
             // against musl. `resolve_lock_info` refuses musl ahead of the pin
-            // too; checking it later here would let `mise install` proceed
-            // where `mise lock` had already called the platform impossible.
+            // too; checking it later here would let `pakro install` proceed
+            // where `pakro lock` had already called the platform impossible.
             if target.libc() == Some("musl") {
                 bail!("swift does not publish musl builds");
             }
@@ -474,7 +474,7 @@ async fn resolve_platform(tv: &ToolVersion, target: &PlatformTarget) -> Result<S
                 Ok(builds) => match select_build(&builds, &host, arch) {
                     Some((build, fit)) => {
                         // Only warn about the host actually being installed to;
-                        // `mise lock` resolves other platforms on assumptions
+                        // `pakro lock` resolves other platforms on assumptions
                         // that say nothing about the machine running the tool.
                         if target.is_current() {
                             warn_about_fit(&tv.version, &host, build, fit);
@@ -530,7 +530,7 @@ fn host_distro(target: &PlatformTarget) -> HostDistro {
 
 /// swift.org's machine-readable index of what each release ships: which
 /// distros, for which architectures, and the directory each build lives under.
-/// Consulting it keeps mise from hard-coding a platform list that changes every
+/// Consulting it keeps pakro from hard-coding a platform list that changes every
 /// release — 6.2 dropped `ubuntu20.04`, 6.3 added `fedora41` and
 /// `amazonlinux2023`, and 6.4 dropped `fedora39` and `amazonlinux2` outright.
 const RELEASES_URL: &str = "https://www.swift.org/api/v1/install/releases.json";
@@ -1124,7 +1124,7 @@ mod platform_selection_tests {
         );
     }
 
-    /// The cases that made mise 404 on Swift 6.4.0: the hard-coded map pinned
+    /// The cases that made pakro 404 on Swift 6.4.0: the hard-coded map pinned
     /// Fedora to 39 and Amazon Linux 2 to a build 6.4.0 no longer ships.
     #[test]
     fn selection_follows_the_release_rather_than_a_fixed_map() {
@@ -1440,8 +1440,8 @@ mod lockfile_tests {
     }
 
     /// `swift.platform` chooses between distro builds; it cannot produce one
-    /// that links against musl. Honouring the pin first would let `mise
-    /// install` download a glibc toolchain for a target `mise lock` has
+    /// that links against musl. Honouring the pin first would let `pakro
+    /// install` download a glibc toolchain for a target `pakro lock` has
     /// already refused.
     #[tokio::test]
     async fn a_platform_pin_does_not_override_the_musl_refusal() {

@@ -4,7 +4,7 @@
 # safe config: an untrusted project must not be able to point a github: tool's
 # api_url at a host of its choosing and receive the user's GITHUB_TOKEN.
 
-export MISE_TRUSTED_CONFIG_PATHS=""
+export PAKRO_TRUSTED_CONFIG_PATHS=""
 unset CI GITHUB_ACTIONS GITHUB_ACTION 2>/dev/null || true
 
 cat <<'PY' >sink.py
@@ -47,14 +47,14 @@ assert_contains "curl -s -H 'Authorization: Bearer control' http://127.0.0.1:${s
 : >sink.log
 
 mkdir -p proj
-cat <<EOF2 >proj/mise.toml
+cat <<EOF2 >proj/pakro.toml
 [tools]
 "github:jdx/mise-test-fixtures[api_url=http://127.0.0.1:${sink_port}/api/v3]" = "latest"
 EOF2
 
 export GITHUB_TOKEN=ghp_inline_option_secret
 for cmd in ls env current outdated; do
-  assert_fail_contains "cd proj && MISE_YES=0 mise $cmd 2>&1" "not trusted"
+  assert_fail_contains "cd proj && PAKRO_YES=0 pakro $cmd 2>&1" "not trusted"
 done
 
 assert_not_contains "cat sink.log" "ghp_inline_option_secret"

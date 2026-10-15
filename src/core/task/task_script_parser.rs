@@ -27,7 +27,7 @@ type TaskTemplateResult = std::result::Result<JsonValue, String>;
 
 /// mtime of the marker recording that the task's work is done, if there is one.
 ///
-/// Absent means mise has never seen this task up to date here, so there is no
+/// Absent means pakro has never seen this task up to date here, so there is no
 /// baseline to compare against and every source is outstanding work.
 fn last_success_time(marker: &Path) -> Option<SystemTime> {
     std::fs::metadata(marker).and_then(|m| m.modified()).ok()
@@ -664,7 +664,7 @@ impl TaskScriptParser {
 
     pub(crate) fn validate_template_syntax(&self, task: &Task, input: &str) -> Result<()> {
         let (mut tera, _, _, _) = self.setup_tera_for_spec_parsing(task);
-        tera.validate_template_syntax("__mise_validate", input)
+        tera.validate_template_syntax("__pakro_validate", input)
             .map_err(Self::task_script_tera_error)
     }
 
@@ -1419,7 +1419,7 @@ mod tests {
         let task = Task::default();
         let parser = TaskScriptParser::new(None);
         let scripts = vec![
-            "{% macro greet(name) %}hi {{ name }}{% endmacro %}echo {{ self::greet(name=arg(name='name', default='mise')) }} {{ now(timestamp=true) }}"
+            "{% macro greet(name) %}hi {{ name }}{% endmacro %}echo {{ self::greet(name=arg(name='name', default='pakro')) }} {{ now(timestamp=true) }}"
                 .to_string(),
         ];
         let (_, spec) = parser
@@ -1431,7 +1431,7 @@ mod tests {
             .await
             .unwrap();
         let (greeting, timestamp) = parsed_scripts[0].rsplit_once(' ').unwrap();
-        assert_eq!(greeting, "echo hi mise");
+        assert_eq!(greeting, "echo hi pakro");
         assert!(timestamp.chars().all(|c| c.is_ascii_digit()));
     }
 
@@ -1454,7 +1454,7 @@ mod tests {
             (
                 &["**/filetask"],
                 "echo {{ task_source_files() | first }}",
-                native("echo .mise/tasks/filetask"), // created by constructor in `src/test.rs`, guaranteed to exist
+                native("echo .pakro/tasks/filetask"), // created by constructor in `src/test.rs`, guaranteed to exist
             ),
             (
                 &["nonexistent/*.xyz"],
@@ -1462,9 +1462,9 @@ mod tests {
                 native("echo []"),
             ),
             (
-                &["../../Cargo.toml"],
+                &["../../../Cargo.toml"],
                 "echo {{ task_source_files() | first }}",
-                native("echo ../../Cargo.toml"),
+                native("echo ../../../Cargo.toml"),
             ),
             (
                 &[concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")],
@@ -1547,7 +1547,7 @@ mod tests {
         assert_eq!(parsed, vec!["echo input.txt"]);
     }
 
-    /// `only_changed=true` compares each source against the marker mise writes
+    /// `only_changed=true` compares each source against the marker pakro writes
     /// when a task's work is done. These tests place that marker by hand and
     /// drive the parser directly, so the comparison is exercised without
     /// running a task.
@@ -1757,12 +1757,12 @@ mod tests {
                 &task,
                 &scripts,
                 &Default::default(),
-                &["mise.toml".to_string()],
+                &["pakro.toml".to_string()],
                 &spec,
             )
             .await
             .unwrap();
-        assert_eq!(parsed, vec!["echo mise.toml"]);
+        assert_eq!(parsed, vec!["echo pakro.toml"]);
     }
 
     #[tokio::test]

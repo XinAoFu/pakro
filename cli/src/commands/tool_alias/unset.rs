@@ -6,10 +6,10 @@ use crate::config::config_file::ConfigFile;
 
 /// Clear an alias for a tool/backend
 ///
-/// This modifies the contents of ~/.config/mise/config.toml
+/// This modifies the contents of ~/.config/pakro/config.toml
 #[derive(Debug, usage_rs::Args)]
-#[usage(visible_aliases = ["rm", "remove", "delete", "del"], example(r###"mise tool-alias unset ripgrep
-mise tool-alias unset node project"###), verbatim_doc_comment)]
+#[usage(visible_aliases = ["rm", "remove", "delete", "del"], example(r###"pakro tool-alias unset ripgrep
+pakro tool-alias unset node project"###), verbatim_doc_comment)]
 pub(super) struct ToolAliasUnset {
     /// The tool/backend to remove the alias from
     #[usage(value_name = "TOOL")]

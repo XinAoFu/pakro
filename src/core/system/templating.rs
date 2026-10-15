@@ -180,7 +180,7 @@ mod tests {
             "#,
         );
         let rendered = unit
-            .render_with(&ctx(), Path::new("/home/u/proj/mise.toml"))
+            .render_with(&ctx(), Path::new("/home/u/proj/pakro.toml"))
             .unwrap();
         assert_eq!(
             rendered.exec_start.as_deref(),
@@ -205,7 +205,7 @@ mod tests {
         );
         assert!(!value_contains_template_syntax(&unit.raw));
         let rendered = unit
-            .render_with(&ctx(), Path::new("/home/u/proj/mise.toml"))
+            .render_with(&ctx(), Path::new("/home/u/proj/pakro.toml"))
             .unwrap();
         assert_eq!(rendered.exec_start.as_deref(), Some("/bin/true"));
         assert_eq!(rendered.environment_file, vec!["-%h/.config/svc.env"]);
@@ -241,7 +241,7 @@ mod tests {
             "#,
         );
         let rendered = unit
-            .render_with(&ctx(), Path::new("/home/u/proj/mise.toml"))
+            .render_with(&ctx(), Path::new("/home/u/proj/pakro.toml"))
             .unwrap();
         assert_eq!(
             rendered.exec_start.as_deref(),
@@ -258,7 +258,7 @@ mod tests {
             "#,
         );
         let rendered = unit
-            .render_with(&ctx(), Path::new("/home/u/proj/mise.toml"))
+            .render_with(&ctx(), Path::new("/home/u/proj/pakro.toml"))
             .unwrap();
         assert_eq!(
             rendered.exec_start.as_deref(),
@@ -270,7 +270,7 @@ mod tests {
     fn test_exec_is_not_available_in_resource_values() {
         let unit = templated(r#"exec_start = "{{ exec(command='echo hi') }}""#);
         let err = unit
-            .render_with(&ctx(), Path::new("/home/u/proj/mise.toml"))
+            .render_with(&ctx(), Path::new("/home/u/proj/pakro.toml"))
             .unwrap_err()
             .to_string();
         assert!(err.contains("exec() is not available"), "{err}");
@@ -280,9 +280,9 @@ mod tests {
     fn test_render_failure_is_reported_with_the_config_path() {
         let unit = templated(r#"exec_start = "{{ unterminated""#);
         let err = unit
-            .render_with(&ctx(), Path::new("/home/u/proj/mise.toml"))
+            .render_with(&ctx(), Path::new("/home/u/proj/pakro.toml"))
             .unwrap_err()
             .to_string();
-        assert!(err.contains("/home/u/proj/mise.toml"), "{err}");
+        assert!(err.contains("/home/u/proj/pakro.toml"), "{err}");
     }
 }

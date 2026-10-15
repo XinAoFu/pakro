@@ -2,7 +2,7 @@
 
 # The remote-versions cache must not be shared between runs with and without
 # the versions host: a list the host served lags new releases, and
-# MISE_USE_VERSIONS_HOST=0 is how users go straight to the source (#13604).
+# PAKRO_USE_VERSIONS_HOST=0 is how users go straight to the source (#13604).
 #
 # A local stand-in serves both the versions host and the GitHub API. The host
 # only knows 0.0.10; GitHub already has 0.0.11.
@@ -58,17 +58,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
         pass
 PY
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [settings]
 url_replacements = { "https://mise-versions.jdx.dev" = "http://127.0.0.1:$HTTP_PORT/versions", "https://api.github.com" = "http://127.0.0.1:$HTTP_PORT/github" }
 EOF
 
 # Warm the cache from the versions host.
-assert "mise ls-remote tak" "0.0.10"
+assert "pakro ls-remote tak" "0.0.10"
 
-# With the host off, mise lists from GitHub instead of the cached host list.
-assert "MISE_USE_VERSIONS_HOST=0 mise ls-remote tak" "0.0.10
+# With the host off, pakro lists from GitHub instead of the cached host list.
+assert "PAKRO_USE_VERSIONS_HOST=0 pakro ls-remote tak" "0.0.10
 0.0.11"
 
 # The host-on entry is still cached separately.
-assert "mise ls-remote tak" "0.0.10"
+assert "pakro ls-remote tak" "0.0.10"

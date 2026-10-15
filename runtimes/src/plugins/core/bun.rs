@@ -99,7 +99,7 @@ impl BunPlugin {
     /// by the bun PowerShell installer (which invokes `bun completions`,
     /// see oven-sh/bun:src/cli/install_completions_command.zig
     /// `installBunxSymlinkWindows`). Mirror that step here so users get a
-    /// working `bunx` after `mise install bun`.
+    /// working `bunx` after `pakro install bun`.
     #[cfg(windows)]
     fn install_bunx_windows(&self, tv: &ToolVersion) -> Result<()> {
         let bin_dir = tv.install_path().join("bin");
@@ -131,7 +131,7 @@ impl BunPlugin {
                 // (e.g. `C:\Users\First Last\...`) don't make cmd.exe
                 // split the command at the first space. Upstream's
                 // literal omits the quotes — that's a latent bug there
-                // too, but mise install paths under `%LOCALAPPDATA%`
+                // too, but pakro install paths under `%LOCALAPPDATA%`
                 // commonly contain a user name with spaces, so we cannot
                 // rely on the upstream form being safe in practice.
                 file::write(&bunx_cmd, b"@\"%~dp0bun.exe\" x %*\r\n")
@@ -427,7 +427,7 @@ impl BunPlugin {
 
     /// Get the platform variant suffix for the current system
     /// Returns Some("baseline"), Some("musl"), Some("musl-baseline"), or None
-    /// Uses runtime detection for AVX2 capability and Settings::get().arch() for MISE_ARCH support
+    /// Uses runtime detection for AVX2 capability and Settings::get().arch() for PAKRO_ARCH support
     fn get_platform_variant() -> Option<&'static str> {
         let settings = Settings::get();
         match settings.arch() {
@@ -458,7 +458,7 @@ impl BunPlugin {
     /// Get the full Bun arch string with variants (musl, baseline, etc.) for the
     /// current system and the given Bun version.
     ///
-    /// Uses Settings::get().arch() to respect MISE_ARCH overrides and runtime AVX2
+    /// Uses Settings::get().arch() to respect PAKRO_ARCH overrides and runtime AVX2
     /// detection (both encapsulated in `current_platform_target`), then delegates to
     /// the shared `get_bun_arch_for_target` so the Windows ARM64 cutover logic lives
     /// in a single place.

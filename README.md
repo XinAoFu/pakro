@@ -1,4 +1,4 @@
-# mise
+# pakro
 
 面向 macOS 和 Linux 的开发环境命令行工具，负责语言运行时、项目依赖包、环境变量和任务执行。
 
@@ -14,7 +14,15 @@
 | `packaging/` | 打包、安装、签名、发布配置及脚本 |
 | `docs/` | 仅保留 `devlog/` 中的需求、架构、计划、决策、开发日志和交接记录 |
 
-Cargo、mise 和 Nix 的根入口，以及工具自动发现所需的隐藏配置，保留在根目录。
+Cargo、pakro 和 Nix 的根入口，以及工具自动发现所需的隐藏配置，保留在根目录。
+
+## 命名与当前状态
+
+主命令、Cargo package 和 library 均为 `pakro`；自有 crate 使用 `pakro-*`。项目配置为 `pakro.toml`，工具锁为 `pakro.lock`，包图目前仍使用 `pakro.packages.lock` 边车；项目状态为 `.pakro/`，早期设置为 `.pakrorc.toml`。公开环境变量使用 `PAKRO_*`，内部协议使用 `__PAKRO_*`。
+
+当前提供本地源码构建。独立发行仓库、下载域名和信任根尚未建立，产品自更新和默认远端自动下载暂不可用；保留的上游链接仅用于真实第三方来源、开发设施或历史验证资料。
+
+Python 原生管理已完成到 H1-d1 基础接口。完整目标观测、生产 wheel 选择、环境事务、统一锁、无 pip 源码构建及 Conda 后续仍在开发；本次更名不代表这些功能完成。
 
 ## 开发
 
@@ -22,26 +30,27 @@ Cargo、mise 和 Nix 的根入口，以及工具自动发现所需的隐藏配�
 
 ```sh
 cargo build --all-features
-target/debug/mise --help
+./target/debug/pakro --help
 cargo test --workspace --all-features
 cargo clippy --workspace --all-features --all-targets -- -D warnings
 ```
 
-项目任务也可通过 mise 执行：
+本地构建后，将 `target/debug` 加入当前终端的 PATH，再执行项目任务：
 
 ```sh
-mise run build
-mise run test:unit
-mise run test:e2e --all
-mise run lint
+export PATH="$PWD/target/debug:$PATH"
+pakro run build
+pakro run test:unit
+pakro run test:e2e --all
+pakro run lint
 ```
 
-指定端到端测试时，将测试名称传给 `mise run test:e2e`；测试由统一入口运行。
+指定端到端测试时，将测试名称传给 `pakro run test:e2e`；测试由统一入口运行。
 
 生成 CLI usage 规格、Bash/Zsh/Fish 补全、manpage 和配置 Schema：
 
 ```sh
-mise run render
+pakro run render
 ```
 
 Schema 生成器使用 Rust；仓库不再维护文档网站或文档 Node 依赖。

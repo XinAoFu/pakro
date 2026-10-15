@@ -14,22 +14,22 @@ use crate::toolset::{InstallOptions, ResolveOptions, ToolVersion, Toolset};
 
 /// Switch tools to the backend the registry now installs them from
 ///
-/// When the registry moves a tool to another backend, mise keeps installing it
-/// from the backend recorded in mise.lock and warns that the registry has a
+/// When the registry moves a tool to another backend, pakro keeps installing it
+/// from the backend recorded in pakro.lock and warns that the registry has a
 /// newer one. This moves those lock entries to the registry's backend at the
 /// same versions, relocks them to record the new backend's checksums and URLs,
 /// and reinstalls installed versions so they come from the new backend.
 ///
-/// It covers the lockfiles `mise lock` writes: the current project's, or the
+/// It covers the lockfiles `pakro lock` writes: the current project's, or the
 /// global config's with `--global`.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     example(
-        r###"mise backends switch communique"###,
+        r###"pakro backends switch communique"###,
         help = r###"Move communique to the registry's current backend"###
     ),
     example(
-        r###"mise backends switch --dry-run"###,
+        r###"pakro backends switch --dry-run"###,
         help = r###"List every locked tool the registry now installs from another backend"###
     ),
     verbatim_doc_comment
@@ -70,7 +70,7 @@ impl BackendsSwitch {
         if switches.is_empty() {
             let scope = if self.global { "global" } else { "project" };
             if self.tool.is_empty() {
-                miseprintln!(
+                pakroprintln!(
                     "every tool in the {scope} lockfile already uses the registry's backend"
                 );
                 return Ok(());
@@ -85,7 +85,7 @@ impl BackendsSwitch {
         let missing = self.switch(switches).await?;
         if !missing.is_empty() {
             bail!(
-                "did not switch {}: the entry is not in that lockfile yet (a legacy monorepo lockfile, for example); run `mise lock` first",
+                "did not switch {}: the entry is not in that lockfile yet (a legacy monorepo lockfile, for example); run `pakro lock` first",
                 missing.join(", ")
             );
         }
@@ -266,7 +266,7 @@ impl BackendsSwitch {
                 .collect::<Vec<_>>()
                 .join(" ");
             return Err(err.wrap_err(format!(
-                "switched the lockfiles, but reinstalling from the new backend failed; run `mise install --force {tools}` to finish"
+                "switched the lockfiles, but reinstalling from the new backend failed; run `pakro install --force {tools}` to finish"
             )));
         }
         Ok(missing)
@@ -323,7 +323,7 @@ impl BackendsSwitch {
         Ok(())
     }
 
-    /// The `mise lock` run whose scope this command covers.
+    /// The `pakro lock` run whose scope this command covers.
     fn lock(&self, tool: Vec<ToolArg>) -> Lock {
         Lock {
             tool,
@@ -349,9 +349,9 @@ impl BackendsSwitch {
     }
 
     /// The versions each lockfile in this command's scope locks, resolved from
-    /// every config source (mise.toml, idiomatic version files, .tool-versions)
+    /// every config source (pakro.toml, idiomatic version files, .tool-versions)
     /// on its own, so a project tool cannot hide a global one with the same
-    /// name. Each tool maps to its lockfile the way `mise lock` maps it.
+    /// name. Each tool maps to its lockfile the way `pakro lock` maps it.
     async fn scoped_versions(&self, config: &Arc<Config>) -> Result<Vec<(PathBuf, ToolVersion)>> {
         let targets: BTreeSet<PathBuf> = self
             .lock(vec![])

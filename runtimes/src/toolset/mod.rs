@@ -398,7 +398,7 @@ impl Toolset {
     }
 
     /// Whether any configured tool is declared `lazy = true`. Such a tool installs the
-    /// first time one of its bootstrap shims runs, so environments mise builds for this
+    /// first time one of its bootstrap shims runs, so environments pakro builds for this
     /// toolset have to make those shims reachable behind the real tool paths.
     pub fn has_lazy_declarations(&self) -> bool {
         self.list_current_requests()
@@ -780,7 +780,7 @@ impl Toolset {
 
     /// [`Self::which_bin`] narrowed to a path the OS can spawn, for
     /// [`Backend::spawn_program`] and [`Backend::spawnable_dependency`]. `which_bin` itself
-    /// is untouched because `mise which`, shim dispatch and auto-install all depend on its
+    /// is untouched because `pakro which`, shim dispatch and auto-install all depend on its
     /// answer.
     pub(crate) async fn which_bin_spawnable(
         &self,
@@ -841,7 +841,7 @@ impl Toolset {
                 }
             }
         }
-        if missing.is_empty() || *crate::env::__MISE_SHIM {
+        if missing.is_empty() || *crate::env::__PAKRO_SHIM {
             return;
         }
         let versions = missing
@@ -897,8 +897,8 @@ impl From<ToolRequestSet> for Toolset {
 /// Tool versions that some tracked file still needs, keyed by
 /// (short_name, tv_pathname) and mapped to the files that need them.
 ///
-/// `mise prune` and `mise upgrade` only ask whether a key is present. The paths
-/// exist so `mise prune --dry-run` can say *which* config keeps a version
+/// `pakro prune` and `pakro upgrade` only ask whether a key is present. The paths
+/// exist so `pakro prune --dry-run` can say *which* config keeps a version
 /// alive, since the decision to remove one is otherwise made by absence and
 /// leaves nothing to point at (discussion #9045).
 pub type NeededVersions = HashMap<(String, String), BTreeSet<PathBuf>>;
@@ -917,7 +917,7 @@ pub fn needed_key(tv: &ToolVersion) -> (String, String) {
 }
 
 /// Get all tool versions that are needed by tracked config files.
-/// This is used by both `mise prune` and `mise upgrade` to avoid
+/// This is used by both `pakro prune` and `pakro upgrade` to avoid
 /// uninstalling versions that other projects still need.
 pub(crate) async fn get_versions_needed_by_tracked_configs(
     config: &Arc<Config>,
@@ -942,7 +942,7 @@ pub async fn get_versions_needed_by_tracked_configs_excluding_locks(
     exclude_locked_config_paths: &HashSet<PathBuf>,
 ) -> Result<NeededVersions> {
     let mut needed = NeededVersions::new();
-    // `mise prune` should keep versions pinned by lockfiles. `mise upgrade`
+    // `pakro prune` should keep versions pinned by lockfiles. `pakro upgrade`
     // also protects lockfiles for other tracked projects, but excludes configs
     // it just upgraded so stale locks there do not keep the old version alive.
     // Prune also passes offline=true: it only protects installed versions, so
@@ -1017,10 +1017,10 @@ pub async fn get_versions_needed_by_tracked_configs_excluding_locks(
 }
 
 /// Get all tool versions that are needed by tracked tool stub files.
-/// Stubs are tracked in ~/.local/state/mise/tracked-stubs when they are
+/// Stubs are tracked in ~/.local/state/pakro/tracked-stubs when they are
 /// executed. Returns (short_name, tv_pathname) pairs like
-/// [`get_versions_needed_by_tracked_configs`] so `mise prune` and
-/// `mise upgrade` do not delete versions still referenced by a stub.
+/// [`get_versions_needed_by_tracked_configs`] so `pakro prune` and
+/// `pakro upgrade` do not delete versions still referenced by a stub.
 pub async fn get_versions_needed_by_tracked_stubs(config: &Arc<Config>) -> Result<NeededVersions> {
     let mut needed = NeededVersions::new();
     // Like prune's tracked-config resolution, only installed versions need

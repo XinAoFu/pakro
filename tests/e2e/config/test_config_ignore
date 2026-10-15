@@ -1,46 +1,46 @@
 #!/usr/bin/env bash
 
-export MISE_TRUSTED_CONFIG_PATHS=""
+export PAKRO_TRUSTED_CONFIG_PATHS=""
 
 mkdir subdir
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools]
 dummy = "1.0.0"
 [settings]
-go.download_mirror = "mise.toml"
+go.download_mirror = "pakro.toml"
 EOF
-cat <<EOF >subdir/mise.toml
+cat <<EOF >subdir/pakro.toml
 [tools]
 dummy = "2.0.0"
 [settings]
-go.download_mirror = "subdir/mise.toml"
+go.download_mirror = "subdir/pakro.toml"
 EOF
 
 cd subdir || exit 1
 
-assert "mise trust --all"
-assert "mise cfg" "~/workdir/mise.toml         dummy
-~/workdir/subdir/mise.toml  dummy"
-assert "mise ls dummy" "dummy  2.0.0 (missing)  ~/workdir/subdir/mise.toml  2.0.0"
-assert "mise settings get go.download_mirror" "subdir/mise.toml"
-assert "mise trust --ignore"
-assert "mise cfg" "~/workdir/mise.toml  dummy"
-assert "mise settings get go.download_mirror" "mise.toml"
-assert "mise ls dummy" "dummy  1.0.0 (missing)  ~/workdir/mise.toml  1.0.0"
-assert "mise trust ."
-assert "mise cfg" "~/workdir/mise.toml         dummy
-~/workdir/subdir/mise.toml  dummy"
-assert "MISE_IGNORED_CONFIG_PATHS=~/workdir/subdir mise cfg" "~/workdir/mise.toml  dummy"
-assert "MISE_IGNORED_CONFIG_PATHS=~ mise cfg" ""
-assert "mise trust --ignore mise.toml"
-assert "mise trust --ignore .."
-assert "mise cfg" ""
-assert "mise trust --all"
-assert "mise cfg" "~/workdir/mise.toml         dummy
-~/workdir/subdir/mise.toml  dummy"
+assert "pakro trust --all"
+assert "pakro cfg" "~/workdir/pakro.toml         dummy
+~/workdir/subdir/pakro.toml  dummy"
+assert "pakro ls dummy" "dummy  2.0.0 (missing)  ~/workdir/subdir/pakro.toml  2.0.0"
+assert "pakro settings get go.download_mirror" "subdir/pakro.toml"
+assert "pakro trust --ignore"
+assert "pakro cfg" "~/workdir/pakro.toml  dummy"
+assert "pakro settings get go.download_mirror" "pakro.toml"
+assert "pakro ls dummy" "dummy  1.0.0 (missing)  ~/workdir/pakro.toml  1.0.0"
+assert "pakro trust ."
+assert "pakro cfg" "~/workdir/pakro.toml         dummy
+~/workdir/subdir/pakro.toml  dummy"
+assert "PAKRO_IGNORED_CONFIG_PATHS=~/workdir/subdir pakro cfg" "~/workdir/pakro.toml  dummy"
+assert "PAKRO_IGNORED_CONFIG_PATHS=~ pakro cfg" ""
+assert "pakro trust --ignore pakro.toml"
+assert "pakro trust --ignore .."
+assert "pakro cfg" ""
+assert "pakro trust --all"
+assert "pakro cfg" "~/workdir/pakro.toml         dummy
+~/workdir/subdir/pakro.toml  dummy"
 
-rm -rf "$MISE_STATE_DIR"
-export MISE_PARANOID=1
-assert "mise trust --all"
-assert "mise cfg" "~/workdir/mise.toml         dummy
-~/workdir/subdir/mise.toml  dummy"
+rm -rf "$PAKRO_STATE_DIR"
+export PAKRO_PARANOID=1
+assert "pakro trust --all"
+assert "pakro cfg" "~/workdir/pakro.toml         dummy
+~/workdir/subdir/pakro.toml  dummy"

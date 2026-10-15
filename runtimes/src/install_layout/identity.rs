@@ -6,7 +6,7 @@
 //! themselves, so the digest is a name, not an integrity check.
 //!
 //! The encoding is versioned and canonical: every field is length-prefixed and
-//! every map is sorted, so two machines (or two releases of mise) that describe
+//! every map is sorted, so two machines (or two releases of pakro) that describe
 //! the same request produce the same digest. Changing the encoding requires a
 //! new [`IDENTITY_FORMAT`] and a new domain tag; existing digests must keep
 //! meaning what they meant.
@@ -20,8 +20,8 @@ pub(crate) const IDENTITY_FORMAT: u32 = 1;
 /// Digest algorithm recorded next to every digest.
 pub(crate) const IDENTITY_ALGORITHM: &str = "blake3";
 /// Domain separation so an identity digest is never confused with another
-/// BLAKE3 use in mise.
-const DOMAIN: &[u8] = b"mise-install-identity\0";
+/// BLAKE3 use in pakro.
+const DOMAIN: &[u8] = b"pakro-install-identity\0";
 
 /// How completely the identity describes what was installed.
 ///

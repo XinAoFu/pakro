@@ -11,7 +11,7 @@ use crate::system;
 /// Applies configured whole-file entries and edits that aren't in their
 /// desired state. Whole-file entries may symlink, copy, or render templates.
 /// Edit entries manage a marker-delimited block or a single line in a file
-/// mise doesn't otherwise own.
+/// pakro doesn't otherwise own.
 ///
 /// With `--prune`, files deployed by dotfile groups that are no longer
 /// selected or declared are removed too.
@@ -19,10 +19,10 @@ use crate::system;
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise dot apply
-mise dot apply --dry-run
-mise dot apply --prune
-mise dot apply --force --yes"###
+        r###"pakro dot apply
+pakro dot apply --dry-run
+pakro dot apply --prune
+pakro dot apply --force --yes"###
     )
 )]
 pub(crate) struct DotfilesApply {
@@ -172,8 +172,8 @@ impl DotfilesApply {
 }
 
 /// Runs `write`, then the `[history.reload]` commands matching the targets it
-/// recorded, and returns its result. Shared by `mise dot apply` and the
-/// dotfiles phase of `mise bootstrap`.
+/// recorded, and returns its result. Shared by `pakro dot apply` and the
+/// dotfiles phase of `pakro bootstrap`.
 pub(crate) fn write_and_reload(
     dry_run: bool,
     write: impl FnOnce(&mut Vec<PathBuf>) -> Result<bool>,

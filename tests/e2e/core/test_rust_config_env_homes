@@ -2,8 +2,8 @@
 
 set -euo pipefail
 
-unset MISE_CARGO_HOME MISE_RUSTUP_HOME
-export MISE_OFFLINE=1
+unset PAKRO_CARGO_HOME PAKRO_RUSTUP_HOME
+export PAKRO_OFFLINE=1
 
 CONFIG_CARGO_HOME="$PWD/config-cargo"
 CONFIG_RUSTUP_HOME="$PWD/config-rustup"
@@ -47,28 +47,28 @@ EOF
 
 chmod +x "$CONFIG_CARGO_HOME/bin/cargo" "$CONFIG_CARGO_HOME/bin/rustc" "$CONFIG_CARGO_HOME/bin/rustup"
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [env]
-MISE_CARGO_HOME = "$CONFIG_CARGO_HOME"
-MISE_RUSTUP_HOME = "$CONFIG_RUSTUP_HOME"
+PAKRO_CARGO_HOME = "$CONFIG_CARGO_HOME"
+PAKRO_RUSTUP_HOME = "$CONFIG_RUSTUP_HOME"
 
 [tools]
 rust = { version = "1.81.0", components = ["rustfmt"] }
 EOF
 
-mise install
+pakro install
 assert_contains "cat '$CONFIG_CARGO_HOME/rustup.log'" "toolchain install 1.81.0"
-assert "mise exec -- rustc -V" "rustc 1.81.0"
+assert "pakro exec -- rustc -V" "rustc 1.81.0"
 
-assert_contains "mise env --dotenv" "CARGO_HOME=$CONFIG_CARGO_HOME"
-assert_contains "mise env --dotenv" "RUSTUP_HOME=$CONFIG_RUSTUP_HOME"
-assert_contains "mise env --dotenv" "MISE_CARGO_HOME=$CONFIG_CARGO_HOME"
-assert_contains "mise env --dotenv" "MISE_RUSTUP_HOME=$CONFIG_RUSTUP_HOME"
+assert_contains "pakro env --dotenv" "CARGO_HOME=$CONFIG_CARGO_HOME"
+assert_contains "pakro env --dotenv" "RUSTUP_HOME=$CONFIG_RUSTUP_HOME"
+assert_contains "pakro env --dotenv" "PAKRO_CARGO_HOME=$CONFIG_CARGO_HOME"
+assert_contains "pakro env --dotenv" "PAKRO_RUSTUP_HOME=$CONFIG_RUSTUP_HOME"
 
-INSTALL_PATH=$(mise where rust@1.81.0)
+INSTALL_PATH=$(pakro where rust@1.81.0)
 assert "readlink '$INSTALL_PATH'" "$CONFIG_CARGO_HOME/bin"
 
-mise install
+pakro install
 assert "grep -c '^toolchain install' '$CONFIG_CARGO_HOME/rustup.log'" "1"
 
 DIRECT_CARGO_HOME="$PWD/direct-cargo"
@@ -77,10 +77,10 @@ mkdir -p "$DIRECT_CARGO_HOME/bin" "$DIRECT_RUSTUP_HOME"
 cp "$CONFIG_CARGO_HOME/bin/cargo" "$CONFIG_CARGO_HOME/bin/rustc" "$CONFIG_CARGO_HOME/bin/rustup" "$DIRECT_CARGO_HOME/bin/"
 touch "$DIRECT_RUSTUP_HOME/settings.toml"
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [env]
-MISE_CARGO_HOME = "$CONFIG_CARGO_HOME"
-MISE_RUSTUP_HOME = "$CONFIG_RUSTUP_HOME"
+PAKRO_CARGO_HOME = "$CONFIG_CARGO_HOME"
+PAKRO_RUSTUP_HOME = "$CONFIG_RUSTUP_HOME"
 CARGO_HOME = "$DIRECT_CARGO_HOME"
 RUSTUP_HOME = "$DIRECT_RUSTUP_HOME"
 
@@ -88,13 +88,13 @@ RUSTUP_HOME = "$DIRECT_RUSTUP_HOME"
 rust = { version = "1.81.0", components = ["rustfmt"] }
 EOF
 
-mise install
+pakro install
 assert_contains "cat '$DIRECT_CARGO_HOME/rustup.log'" "toolchain install 1.81.0"
-INSTALL_PATH=$(mise where rust@1.81.0)
+INSTALL_PATH=$(pakro where rust@1.81.0)
 assert "readlink '$INSTALL_PATH'" "$DIRECT_CARGO_HOME/bin"
-assert "mise exec -- rustc -V" "rustc 1.81.0"
-assert_contains "mise env --dotenv" "CARGO_HOME=$DIRECT_CARGO_HOME"
-assert_contains "mise env --dotenv" "RUSTUP_HOME=$DIRECT_RUSTUP_HOME"
+assert "pakro exec -- rustc -V" "rustc 1.81.0"
+assert_contains "pakro env --dotenv" "CARGO_HOME=$DIRECT_CARGO_HOME"
+assert_contains "pakro env --dotenv" "RUSTUP_HOME=$DIRECT_RUSTUP_HOME"
 
-mise uninstall --yes rust@1.81.0
+pakro uninstall --yes rust@1.81.0
 assert_contains "cat '$DIRECT_CARGO_HOME/rustup.log'" "toolchain uninstall 1.81.0"

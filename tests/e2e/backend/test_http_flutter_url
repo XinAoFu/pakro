@@ -4,7 +4,7 @@
 # See: https://github.com/jdx/mise/discussions/7863
 
 # Test that flutter versions can be listed (verifies registry parsing)
-assert_contains "mise ls-remote flutter" "3.22.1"
+assert_contains "pakro ls-remote flutter" "3.22.1"
 
 # Test that the URL template handles versions correctly
 # The fix uses replace filter to strip -stable suffix before adding it back
@@ -12,4 +12,4 @@ assert_contains "mise ls-remote flutter" "3.22.1"
 
 # Quick verification that flutter@3.22.1 resolves without error
 # Using --dry-run to avoid actual download
-assert_succeed "mise install flutter@3.22.1 --dry-run"
+assert_succeed "pakro install flutter@3.22.1 --dry-run"

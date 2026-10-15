@@ -1,4 +1,4 @@
-//! S3 backend for mise - downloads tools from Amazon S3 or S3-compatible storage
+//! S3 backend for pakro - downloads tools from Amazon S3 or S3-compatible storage
 //!
 //! This backend allows installing tools from private or public S3 buckets.
 //! It supports version discovery via S3 object listing or manifest files.
@@ -124,7 +124,7 @@ impl<'a> S3Options<'a> {
         self.values.platform_string("checksum")
     }
 
-    // Target-aware accessors for cross-platform `mise lock`. These resolve
+    // Target-aware accessors for cross-platform `pakro lock`. These resolve
     // `platforms.<key>.<opt>` for an arbitrary target rather than the host.
     fn url_for_target(&self, target: &PlatformTarget) -> Option<String> {
         self.values.platform_string_for_target("url", target)
@@ -549,7 +549,7 @@ impl Backend for S3Backend {
         super::http_install_operation_count(opts.checksum().is_some(), &self.get_platform_key(), tv)
     }
 
-    /// Resolve URL + configured checksum for a target platform during `mise lock`,
+    /// Resolve URL + configured checksum for a target platform during `pakro lock`,
     /// without downloading the artifact. Fails closed when no URL is configured
     /// for the target so the lock run reports it as skipped rather than writing
     /// nothing under a success count.

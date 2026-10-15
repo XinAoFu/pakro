@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Regression test: a config_root that only overrides
 # idiomatic_version_file_disable_files (not idiomatic_version_file_enable_tools) must
-# still have that override applied by `mise ls --monorepo`, instead of being ignored
+# still have that override applied by `pakro ls --monorepo`, instead of being ignored
 # because idiomatic_filenames_for_root() only tracked enable_tools overrides as
 # "overridden" and fell back to the cached global default otherwise.
-export MISE_EXPERIMENTAL=1
-export MISE_IDIOMATIC_VERSION_FILE_ENABLE_TOOLS=tiny
+export PAKRO_EXPERIMENTAL=1
+export PAKRO_IDIOMATIC_VERSION_FILE_ENABLE_TOOLS=tiny
 
 # Install the tiny plugin, which supports idiomatic .tiny-version files
-mise plugin install tiny
+pakro plugin install tiny
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 monorepo_root = true
 
 [monorepo]
@@ -22,7 +22,7 @@ EOF
 # version should NOT show up.
 mkdir -p packages/app1
 echo "9.9.9" >packages/app1/.tiny-version
-cat <<EOF >packages/app1/mise.toml
+cat <<EOF >packages/app1/pakro.toml
 [settings]
 idiomatic_version_file_disable_files = ["tiny:.tiny-version"]
 EOF
@@ -32,6 +32,6 @@ mkdir -p packages/app2
 echo "1.2.3" >packages/app2/.tiny-version
 
 echo "=== ls --monorepo applies a config_root-only idiomatic_version_file_disable_files override ==="
-output=$(mise ls --monorepo tiny 2>&1)
+output=$(pakro ls --monorepo tiny 2>&1)
 assert_not_contains "echo '$output'" "9.9.9"
 assert_contains "echo '$output'" "1.2.3"

@@ -11,7 +11,7 @@ mkdir -p src
 # key that locates the baseline hashes `run` and `sources`, so editing either
 # would point at a fresh marker and make every file look changed. `fail` is a
 # sentinel file instead, so a run can be made to fail without touching this.
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.lint]
 run = "echo 'checked:{{ task_source_files(only_changed=true) | join(sep=\" \") }}' >>log.txt && test ! -f fail"
 sources = ["src/*.txt"]
@@ -21,7 +21,7 @@ echo a >src/a.txt
 echo b >src/b.txt
 
 # No marker exists before the first success, so every source is outstanding.
-assert_succeed "mise run lint"
+assert_succeed "pakro run lint"
 assert_contains "cat log.txt" "checked:src/a.txt src/b.txt"
 rm -f log.txt
 
@@ -30,7 +30,7 @@ sleep 1
 echo changed >src/b.txt
 
 # Only the file written since that success is reported.
-assert_succeed "mise run lint"
+assert_succeed "pakro run lint"
 assert_contains "cat log.txt" "checked:src/b.txt"
 assert_not_contains "cat log.txt" "src/a.txt"
 rm -f log.txt
@@ -40,10 +40,10 @@ rm -f log.txt
 sleep 1
 echo changed-again >src/b.txt
 touch fail
-assert_fail "mise run lint"
+assert_fail "pakro run lint"
 rm -f log.txt fail
 
-assert_succeed "mise run lint"
+assert_succeed "pakro run lint"
 assert_contains "cat log.txt" "checked:src/b.txt"
 assert_not_contains "cat log.txt" "src/a.txt"
 rm -f log.txt
@@ -51,7 +51,7 @@ rm -f log.txt
 # Once it succeeds with nothing newly written, there is no outstanding work.
 sleep 1
 touch src/a.txt
-assert_succeed "mise run lint"
+assert_succeed "pakro run lint"
 assert_contains "cat log.txt" "checked:src/a.txt"
 assert_not_contains "cat log.txt" "src/b.txt"
 rm -f log.txt
@@ -60,7 +60,7 @@ rm -f log.txt
 # written since the success above, so the baseline accounts for none of this
 # run — and a task handed no files does none of the work it was run to do.
 sleep 1
-assert_succeed "mise run --force lint"
+assert_succeed "pakro run --force lint"
 assert_contains "cat log.txt" "checked:src/a.txt src/b.txt"
 rm -f log.txt
 
@@ -69,10 +69,10 @@ rm -f log.txt
 # content-hash mode it can reach that point with the sources matching and the
 # *outputs* stale, which is where it used to write the marker anyway.
 #
-# This needs its own task: `lint` has no declared outputs, so mise touches an
+# This needs its own task: `lint` has no declared outputs, so pakro touches an
 # automatic one and the check comes out fresh. Appending a task and a setting
 # leaves `lint`'s own definition, and so its state key, alone.
-cat <<'EOF' >>mise.toml
+cat <<'EOF' >>pakro.toml
 
 [tasks.hashed]
 run = "echo 'hashed:{{ task_source_files(only_changed=true) | join(sep=\" \") }}' >>hashed-log.txt && cp gen/x.txt out.txt"
@@ -87,7 +87,7 @@ mkdir -p gen
 echo x >gen/x.txt
 echo y >gen/y.txt
 
-assert_succeed "mise run hashed"
+assert_succeed "pakro run hashed"
 assert_contains "cat hashed-log.txt" "hashed:gen/x.txt gen/y.txt"
 rm -f hashed-log.txt
 
@@ -98,6 +98,6 @@ sleep 1
 touch gen/y.txt
 rm -f out.txt
 
-assert_succeed "mise run hashed"
+assert_succeed "pakro run hashed"
 assert_contains "cat hashed-log.txt" "hashed:gen/y.txt"
 assert_not_contains "cat hashed-log.txt" "gen/x.txt"

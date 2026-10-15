@@ -5,7 +5,7 @@
 # take precedence over system defaults.
 #
 # Regression test for PATH ordering bug where env._.path entries were being
-# filtered out if they already existed in __MISE_ORIG_PATH.
+# filtered out if they already existed in __PAKRO_ORIG_PATH.
 # Related to commit f4dca1b512321fce097125d06be6de8654361536
 
 # Create a test directory structure to simulate custom and system bin dirs
@@ -29,15 +29,15 @@ chmod +x "$HOME/system/bin/test-tool"
 # Add system/bin to PATH (simulating a system-provided tool that's already in PATH)
 export PATH="$HOME/system/bin:$PATH"
 
-# Verify system tool is found first before mise config
+# Verify system tool is found first before pakro config
 assert_contains "test-tool" "system version"
 
-# Activate mise shell integration
-eval "$(mise activate bash)"
+# Activate pakro shell integration
+eval "$(pakro activate bash)"
 
-# Create a mise config that explicitly prepends custom/bin via env._.path
+# Create a pakro config that explicitly prepends custom/bin via env._.path
 # This should work even though system/bin is already in the original PATH
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [env]
 _.path = [
   "$HOME/custom/bin",
@@ -46,10 +46,10 @@ _.path = [
 EOF
 
 # Apply the configuration via hook-env
-eval "$(mise hook-env)"
+eval "$(pakro hook-env)"
 
 echo "DEBUG: Final PATH=$PATH"
-echo "DEBUG: __MISE_ORIG_PATH=${__MISE_ORIG_PATH:-not set}"
+echo "DEBUG: __PAKRO_ORIG_PATH=${__PAKRO_ORIG_PATH:-not set}"
 
 # Now the test-tool from custom/bin should be found first
 assert_contains "test-tool" "custom version"

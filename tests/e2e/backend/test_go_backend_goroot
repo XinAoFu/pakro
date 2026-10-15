@@ -2,7 +2,7 @@
 # Regression test for https://github.com/jdx/mise/discussions/8261
 # (and https://github.com/jdx/mise/discussions/8877, the same failure).
 #
-# mise exports GOROOT for the Go it manages, and `mise activate` carries it
+# pakro exports GOROOT for the Go it manages, and `pakro activate` carries it
 # into the shell. On unix the go backend spawns the bare name `go`, so which
 # Go actually runs is up to PATH. If a different Go runs while that GOROOT is
 # still in the environment, every compile fails with
@@ -29,29 +29,29 @@ GO
 chmod +x "$HOME/bin/go"
 export PATH="$HOME/bin:$PATH"
 
-# The environment a user gets from `mise activate` with a mise-managed Go,
+# The environment a user gets from `pakro activate` with a pakro-managed Go,
 # while the `go` that PATH resolves belongs to a different installation.
 export GOROOT="$HOME/some-other-go"
 
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [settings]
 experimental = true
 TOML
 
 # An exact version keeps this off the `go list` path, which needs the network.
-assert "mise install go:github.com/jdx/go-example@0.1.0"
+assert "pakro install go:github.com/jdx/go-example@0.1.0"
 assert_contains "cat \"$HOME/go-invocations\"" "GOROOT=<unset>"
 assert_not_contains "cat \"$HOME/go-invocations\"" "some-other-go"
 
 # An explicitly configured GOROOT is still the user's call.
 rm -f "$HOME/go-invocations"
-mise uninstall "go:github.com/jdx/go-example@0.1.0"
-cat >mise.toml <<'TOML'
+pakro uninstall "go:github.com/jdx/go-example@0.1.0"
+cat >pakro.toml <<'TOML'
 [settings]
 experimental = true
 
 [tools]
 "go:github.com/jdx/go-example" = { version = "0.1.0", install_env = { GOROOT = "/explicitly/set" } }
 TOML
-assert_fail "mise install"
+assert_fail "pakro install"
 assert_contains "cat \"$HOME/go-invocations\"" "GOROOT=/explicitly/set"

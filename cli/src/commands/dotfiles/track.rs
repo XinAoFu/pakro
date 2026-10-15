@@ -21,10 +21,10 @@ use crate::system::history::tracked::{
 /// Adds a `[dotfiles]` entry with `mode = "track"`: the file stays where it
 /// is, nothing is copied or linked, and history saves a checkpoint of it
 /// right away. With the history watcher service running, later edits are
-/// saved automatically; without it, `mise dot save` saves them.
+/// saved automatically; without it, `pakro dot save` saves them.
 ///
 /// `--os` and `--profile` declare a variant: a separate shared stream for
-/// machines matching that platform or mise environment, so a Mac and a
+/// machines matching that platform or pakro environment, so a Mac and a
 /// Linux box can share the same live path with different contents.
 #[derive(Debug, usage_rs::Args)]
 #[usage(verbatim_doc_comment, after_long_help = AFTER_LONG_HELP)]
@@ -37,11 +37,11 @@ pub(crate) struct DotfilesTrack {
     #[usage(long, value_name = "OS")]
     os: Option<String>,
 
-    /// Declare a variant for this mise environment
+    /// Declare a variant for this pakro environment
     #[usage(long, value_name = "PROFILE")]
     profile: Option<String>,
 
-    /// Save only on `mise dot save <path>`, never automatically
+    /// Save only on `pakro dot save <path>`, never automatically
     #[usage(long)]
     no_autosave: bool,
 
@@ -85,7 +85,7 @@ impl DotfilesTrack {
         }
         if self.encrypt && inside_capture()? {
             bail!(
-                "dotfiles: cannot enroll encrypted paths inside an active history capture; run `mise dot track --encrypt` separately so its baseline can be verified"
+                "dotfiles: cannot enroll encrypted paths inside an active history capture; run `pakro dot track --encrypt` separately so its baseline can be verified"
             );
         }
         let managed = crate::system::files::composed_files_from_config(&config)?;
@@ -149,7 +149,7 @@ impl DotfilesTrack {
                 bail!("{target_raw}: target must be absolute or start with ~/");
             }
             crate::system::history::tracked::ensure_portable_ancestors(&target)?;
-            // **A declaration mise could not read is never rewritten.**
+            // **A declaration pakro could not read is never rewritten.**
             // An entry whose `include` or `exclude` list has a typo in
             // it does not load, so it is not among the managed requests
             // — and writing a fresh `{ mode = "track" }` over it would
@@ -159,7 +159,7 @@ impl DotfilesTrack {
             if let Some(invalid) = crate::system::files::invalid_declarations()
                 .into_iter()
                 .find(|invalid| {
-                    // **Only a declaration mise could not read blocks a
+                    // **Only a declaration pakro could not read blocks a
                     // rewrite.** One that reads fine and does not apply
                     // here — a `mode = "track"` entry in project
                     // configuration, ignored by policy and always was —
@@ -374,7 +374,7 @@ impl DotfilesTrack {
                 let owner = &set.entries[entry_index];
                 if let Some(reason) = owner.capture_exclusion(&normalized) {
                     let advice = if reason == CREDENTIAL_REASON {
-                        "; `mise dot track --encrypt` saves it encrypted"
+                        "; `pakro dot track --encrypt` saves it encrypted"
                     } else {
                         ""
                     };
@@ -392,36 +392,36 @@ impl DotfilesTrack {
             let preview = preview_walk.preview_of(set, entry_index);
             let summary = preview.summary();
             if self.dry_run {
-                miseprintln!("{target_key}: {summary}");
+                pakroprintln!("{target_key}: {summary}");
                 // what an exclusion glob left out is not walked at all, so
                 // the globs in force are the only account of it
                 for glob in &set.exclude {
-                    miseprintln!("  exclude: {glob}");
+                    pakroprintln!("  exclude: {glob}");
                 }
                 for glob in set.entries[entry_index].exclude.iter().flatten() {
-                    miseprintln!("  exclude ({target_key}): {glob}");
+                    pakroprintln!("  exclude ({target_key}): {glob}");
                 }
                 for glob in set.entries[entry_index].include.iter().flatten() {
-                    miseprintln!("  include ({target_key}): {glob}");
+                    pakroprintln!("  include ({target_key}): {glob}");
                 }
                 if let Some(considered) = preview_walk.considered.get(&entry_index) {
                     // a total only when the walk saw the whole tree; a
                     // directory the list could not reach into was skipped
                     // unopened and nothing in it was counted
                     if preview_walk.skipped.contains(&entry_index) {
-                        miseprintln!(
+                        pakroprintln!(
                             "  {target_key}: {} files (include list)",
                             crate::system::history::tracked::with_separators(preview.files),
                         );
                     } else {
-                        miseprintln!(
+                        pakroprintln!(
                             "  {target_key}: {} of {} files (include list)",
                             crate::system::history::tracked::with_separators(preview.files),
                             crate::system::history::tracked::with_separators(*considered as usize)
                         );
                     }
                 }
-                // nothing is enrolled yet, so `mise dot paths` cannot list
+                // nothing is enrolled yet, so `pakro dot paths` cannot list
                 // these until the path is tracked: a bounded list here
                 let lines: Vec<String> =
                     preview
@@ -440,16 +440,16 @@ impl DotfilesTrack {
                         )
                         .collect();
                 for line in lines.iter().take(DRY_RUN_LINES) {
-                    miseprintln!("  {line}");
+                    pakroprintln!("  {line}");
                 }
                 if lines.len() > DRY_RUN_LINES {
-                    miseprintln!(
-                        "  ... {} more; `mise dot paths` lists them all once the path is tracked",
+                    pakroprintln!(
+                        "  ... {} more; `pakro dot paths` lists them all once the path is tracked",
                         lines.len() - DRY_RUN_LINES
                     );
                 }
                 for incomplete in &preview.incomplete {
-                    miseprintln!("  incomplete: {} ({})", incomplete.path, incomplete.reason);
+                    pakroprintln!("  incomplete: {} ({})", incomplete.path, incomplete.reason);
                 }
             }
             // a truncated tree must be visible before it is approved, since
@@ -464,7 +464,7 @@ impl DotfilesTrack {
             }
             if preview.is_large() {
                 warn!(
-                    "dotfiles: {target_key} is a large tree ({summary}); exclude what does not belong in history, for example `mise dot exclude '{target_key}/<subdir>/**'`, or track its files individually"
+                    "dotfiles: {target_key} is a large tree ({summary}); exclude what does not belong in history, for example `pakro dot exclude '{target_key}/<subdir>/**'`, or track its files individually"
                 );
             }
             previews.push(summary);
@@ -523,7 +523,7 @@ impl DotfilesTrack {
         }
         if !manual.is_empty() {
             info!(
-                "history: manual saving selected for {}; run `mise dot save <path>` after editing",
+                "history: manual saving selected for {}; run `pakro dot save <path>` after editing",
                 manual.join(", ")
             );
         }
@@ -773,7 +773,7 @@ fn commit_declaration(
     prepared: file::PreparedAtomicWrite,
 ) -> Result<()> {
     // Check after formatting, directory creation, writing, and fsync. The
-    // declaration lock coordinates mise writers; unrelated editors do not
+    // declaration lock coordinates pakro writers; unrelated editors do not
     // participate, so this is not a filesystem compare-and-swap guarantee.
     check_declaration(path, expected)?;
     prepared.commit()
@@ -819,7 +819,7 @@ async fn activate_and_baseline(declared: &[(String, PathBuf)], only_retracks: bo
             };
             if !tracked.would_capture(&source)? {
                 warn!(
-                    "dotfiles: {key} is a symlink; history saves and syncs the link, not its contents. Its source {} is not tracked for capture; track the source with `mise dot track {}` (and check any exclusions) to include its contents",
+                    "dotfiles: {key} is a symlink; history saves and syncs the link, not its contents. Its source {} is not tracked for capture; track the source with `pakro dot track {}` (and check any exclusions) to include its contents",
                     display_path(&source),
                     shell_words::quote(&source.to_string_lossy()),
                 );
@@ -944,11 +944,11 @@ fn string(text: &str) -> Value {
 static AFTER_LONG_HELP: &str = color_print::cstr!(
     r#"<bold><underline>Examples:</underline></bold>
 
-    $ <bold>mise dot track ~/.zshrc ~/.config/hypr</bold>
-    $ <bold>mise dot track --dry-run ~/.codex</bold>
-    $ <bold>mise dot track ~/.zshrc --os macos</bold>
-    $ <bold>mise dot track ~/.config/app/credentials --encrypt</bold>
-    $ <bold>mise dot track ~/.config/app/state.json --no-autosave</bold>
+    $ <bold>pakro dot track ~/.zshrc ~/.config/hypr</bold>
+    $ <bold>pakro dot track --dry-run ~/.codex</bold>
+    $ <bold>pakro dot track ~/.zshrc --os macos</bold>
+    $ <bold>pakro dot track ~/.config/app/credentials --encrypt</bold>
+    $ <bold>pakro dot track ~/.config/app/state.json --no-autosave</bold>
 "#
 );
 
@@ -957,7 +957,7 @@ static AFTER_LONG_HELP: &str = color_print::cstr!(
 /// The `[history] exclude` rule that names exactly `key` and nothing
 /// else.
 ///
-/// **A path is a literal; the list holds globs.** `mise dot untrack`
+/// **A path is a literal; the list holds globs.** `pakro dot untrack`
 /// writes the path it can no longer track, and written as-is a name
 /// holding `[` is an unclosed character class the matcher refuses, while
 /// one holding `*` or `?` silently matches the neighbours too. The glob
@@ -987,14 +987,14 @@ pub(crate) struct ExcludeEdit {
 
 pub(crate) fn edit_exclude(glob: &str, add: bool) -> Result<ExcludeEdit> {
     use toml_edit::{Item, Value};
-    // **mise never writes a rule mise would refuse to load.** Every
-    // writer of this list arrives here — `mise dot exclude`, and
-    // `mise dot untrack` covering a path it can no longer track — and a
+    // **pakro never writes a rule pakro would refuse to load.** Every
+    // writer of this list arrives here — `pakro dot exclude`, and
+    // `pakro dot untrack` covering a path it can no longer track — and a
     // rule the matcher cannot compile stops every later capture until
     // someone edits the file by hand. So the check belongs at the write,
     // not at one caller: `untrack` had no check, and untracking a file
     // whose name held a `[` or a `$` wrote configuration that disabled
-    // `mise dot save`.
+    // `pakro dot save`.
     if add
         && let Some(reason) = crate::system::history::tracked::unusable_pattern(
             glob.strip_prefix('!').unwrap_or(glob),
@@ -1038,7 +1038,7 @@ pub(crate) fn edit_exclude(glob: &str, add: bool) -> Result<ExcludeEdit> {
 /// The rules that mean `argument` and are still in the list.
 ///
 /// **A removal that leaves a sibling spelling behind has not
-/// re-included the path.** `mise dot untrack` writes the escaped rule
+/// re-included the path.** `pakro dot untrack` writes the escaped rule
 /// for a path, so a list can hold both a glob a user typed and the
 /// escaped rule for a file of that name; taking back the glob leaves the
 /// file excluded. Saying "is captured again" there was simply false, and
@@ -1080,8 +1080,8 @@ fn list_entries(array: &toml_edit::Array) -> Vec<Option<String>> {
 /// change any other path's outcome either, because a pattern bears only
 /// on the paths it matches and the appended copy already decides those.
 fn append_rule(array: &mut toml_edit::Array, glob: &str) -> bool {
-    // compared without its polarity on both sides: `mise dot exclude
-    // '!foo'` and `mise dot exclude foo` are the same rule written two
+    // compared without its polarity on both sides: `pakro dot exclude
+    // '!foo'` and `pakro dot exclude foo` are the same rule written two
     // ways, and either one appended must take the other's earlier copy
     // with it — otherwise the list keeps a stale entry the doc above
     // says it removes
@@ -1097,8 +1097,8 @@ fn append_rule(array: &mut toml_edit::Array, glob: &str) -> bool {
 }
 
 /// Removes `glob` from the list, and reports whether that changed
-/// anything. This is not [`append_rule`] with a negation: `mise dot
-/// include` takes back a glob the user wrote with `mise dot exclude`, so
+/// anything. This is not [`append_rule`] with a negation: `pakro dot
+/// include` takes back a glob the user wrote with `pakro dot exclude`, so
 /// it removes that entry rather than appending `!glob` beside it, and it
 /// leaves a hand-written `!glob` alone — that entry already re-includes,
 /// which is what the caller wants.
@@ -1106,11 +1106,11 @@ fn append_rule(array: &mut toml_edit::Array, glob: &str) -> bool {
 /// written in.
 ///
 /// **What the user names is a path or a glob; what the list holds may be
-/// the escaped form of it.** `mise dot exclude` writes a glob as typed,
-/// while `mise dot untrack` writes a literal path with its glob
+/// the escaped form of it.** `pakro dot exclude` writes a glob as typed,
+/// while `pakro dot untrack` writes a literal path with its glob
 /// metacharacters escaped, so the rule for `~/.codex/cache[1]` is on disk
 /// as `~/.codex/cache[[]1[]]`. Matching only the exact string left
-/// `mise dot include '~/.codex/cache[1]'` reporting that the path was not
+/// `pakro dot include '~/.codex/cache[1]'` reporting that the path was not
 /// excluded while the escaped rule went on matching it — the undo for
 /// `untrack` simply did not work. Escaping a real glob produces something
 /// no list holds, so trying both spellings cannot remove a rule the user
@@ -1128,8 +1128,8 @@ fn drop_glob(array: &mut toml_edit::Array, rule: &str) -> bool {
 ///
 /// **What the user typed wins over what it could be derived into.** A
 /// rooted argument is both a possible glob and a possible path:
-/// `~/.codex/foo*` is the rule a user typed with `mise dot exclude`, and
-/// it is also what `mise dot untrack` would have written for a file
+/// `~/.codex/foo*` is the rule a user typed with `pakro dot exclude`, and
+/// it is also what `pakro dot untrack` would have written for a file
 /// literally named `foo*` — escaped, as `~/.codex/foo[*]`. Removing both
 /// derivations unconditionally meant taking back a glob silently
 /// re-included a file someone had untracked by name, which is the same
@@ -1157,7 +1157,7 @@ fn remove_argument(array: &mut toml_edit::Array, argument: &str) -> bool {
 /// The list entries [`exclude_rule_for_path`] could have written for an
 /// argument that names a path.
 ///
-/// `mise dot untrack` writes a path through that function, the single
+/// `pakro dot untrack` writes a path through that function, the single
 /// one that turns a path into a rule, so the same function says what to
 /// remove — both forms it can produce, since which one was written
 /// depended on whether the path was a directory then, and the answer now
@@ -1209,10 +1209,10 @@ mod exclude_list_tests {
 
     /// **A rooted glob and the escaped rule for a file of that name are
     /// two different rules, and taking one back must not take the
-    /// other.** `~/.codex/foo*` is what `mise dot exclude` writes for a
-    /// glob; `~/.codex/foo[*]` is what `mise dot untrack` writes for a
+    /// other.** `~/.codex/foo*` is what `pakro dot exclude` writes for a
+    /// glob; `~/.codex/foo[*]` is what `pakro dot untrack` writes for a
     /// file literally named `foo*`. Deriving both from the argument
-    /// removed the literal rule too, so `mise dot include` on the glob
+    /// removed the literal rule too, so `pakro dot include` on the glob
     /// silently re-included a file someone had untracked by name. This
     /// is the `foo*` / `foo[*]` collision one spelling further up: bare
     /// arguments never derive, so only the rooted form still had it.
@@ -1291,7 +1291,7 @@ mod exclude_list_tests {
         assert_eq!(entries(&list), ["*.key", "sessions/**", "foo"]);
     }
 
-    /// `mise dot include` takes back a glob `mise dot exclude` wrote, so
+    /// `pakro dot include` takes back a glob `pakro dot exclude` wrote, so
     /// it removes that entry rather than negating it.
     #[test]
     fn an_include_removes_the_glob_rather_than_negating_it() {
@@ -1342,8 +1342,8 @@ mod declaration_tests {
             permissions: None,
             base: PathBuf::from("/home/test"),
             origin: ResourceOrigin {
-                config: PathBuf::from("/home/test/.config/mise/config.toml"),
-                config_root: PathBuf::from("/home/test/.config/mise"),
+                config: PathBuf::from("/home/test/.config/pakro/config.toml"),
+                config_root: PathBuf::from("/home/test/.config/pakro"),
                 environment: vec![],
                 source: None,
             },
@@ -1492,7 +1492,7 @@ mod declaration_tests {
         let temporary = tempfile::tempdir().unwrap();
         let path = temporary.path().join("config.toml");
         std::fs::write(&path, "# original\n").unwrap();
-        let prepared = file::prepare_atomic_write(&path, "# mise replacement\n").unwrap();
+        let prepared = file::prepare_atomic_write(&path, "# pakro replacement\n").unwrap();
         std::fs::write(&path, "# external editor\n").unwrap();
         assert!(commit_declaration(&path, Some("# original\n"), prepared).is_err());
         assert_eq!(

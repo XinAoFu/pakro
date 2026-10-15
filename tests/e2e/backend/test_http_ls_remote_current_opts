@@ -12,8 +12,8 @@ JSON
 
 start_http_server --dir "$VERSION_LIST_DIR"
 
-mkdir -p "$MISE_DATA_DIR/installs"
-cat <<EOF >"$MISE_DATA_DIR/installs/.mise-installs.toml"
+mkdir -p "$PAKRO_DATA_DIR/installs"
+cat <<EOF >"$PAKRO_DATA_DIR/installs/.pakro-installs.toml"
 [http-tool-opts]
 short = "http:tool-opts"
 full = "http:tool-opts"
@@ -24,12 +24,12 @@ version_list_url = "http://localhost:$HTTP_PORT/versions.json"
 version_json_path = ".old"
 EOF
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools."http:tool-opts"]
 version = "1.0.0"
 version_list_url = "http://localhost:$HTTP_PORT/versions.json"
 version_json_path = ".current"
 EOF
 
-assert "mise ls-remote http:tool-opts" "1.0.0
+assert "pakro ls-remote http:tool-opts" "1.0.0
 2.0.0"

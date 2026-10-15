@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.example1]
 run = "echo example1"
 
@@ -37,5 +37,5 @@ expected_run='[
   }
 ]'
 
-assert_json "mise tasks ls --json | jq '.[] | select(.name == \"one_by_one\") | .run'" "$expected_run"
-assert_json "mise tasks info one_by_one --json | jq '.run'" "$expected_run"
+assert_json "pakro tasks ls --json | jq '.[] | select(.name == \"one_by_one\") | .run'" "$expected_run"
+assert_json "pakro tasks info one_by_one --json | jq '.run'" "$expected_run"

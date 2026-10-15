@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# This script wraps npm so to run `mise reshim` after global installs and uninstalls
+# This script wraps npm so to run `pakro reshim` after global installs and uninstalls
 # Any other cases are passed-through to npm
 
 this_dir=$(dirname "${BASH_SOURCE[0]}")
@@ -12,7 +12,7 @@ this_dir=$(cd "$this_dir" && pwd -P) # Normalizes the directory
 plugin_dir="${this_dir}/.."
 
 should_reshim() {
-  if [ "${MISE_SKIP_RESHIM:-}" ]; then
+  if [ "${PAKRO_SKIP_RESHIM:-}" ]; then
     return 1
   fi
 
@@ -96,9 +96,9 @@ wrap_npm_if_reshim_is_needed() {
     # Run npm and capture exit code without exiting on failure (set -e)
     "$node_bin" "$npm_cli" "$@"
     local npm_exit=$?
-    printf "Reshimming mise %s...\n" "$plugin_name" >&2
-    # Run mise reshim, ignore its exit code
-    mise reshim || true
+    printf "Reshimming pakro %s...\n" "$plugin_name" >&2
+    # Run pakro reshim, ignore its exit code
+    pakro reshim || true
     # Return npm's exit code
     return $npm_exit
   else

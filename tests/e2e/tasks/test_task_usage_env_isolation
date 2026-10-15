@@ -3,16 +3,16 @@
 # usage_* values are outputs of one task invocation and must not leak into the
 # next task's optional arguments. Explicit env= inputs remain supported.
 
-mkdir -p .mise/tasks
+mkdir -p .pakro/tasks
 
-cat <<'EOF' >.mise/tasks/file-child
+cat <<'EOF' >.pakro/tasks/file-child
 #!/usr/bin/env bash
 #USAGE arg "[model]"
 printf 'file model=%s\n' "${usage_model-UNSET}"
 EOF
-chmod +x .mise/tasks/file-child
+chmod +x .pakro/tasks/file-child
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.toml-child]
 usage = 'arg "[model]"'
 run = 'printf "toml model=%s\n" "${usage_model-UNSET}"'
@@ -66,39 +66,39 @@ run = ':'
 EOF
 
 # Ambient values from a shell or parent task do not satisfy omitted arguments.
-assert "usage_model=ambient mise run file-child" "file model=UNSET"
-assert "usage_model=ambient mise run toml-child" "toml model=UNSET"
-assert "usage_model=ambient mise run tera-child" "tera model=UNSET"
-assert "usage_model=ambient mise run flag-child" "flag model=UNSET"
-assert "usage_model=ambient mise run tera-spec-child" "spec env=UNSET"
-assert "usage_model=ambient mise run tera-vars-spec-child" "vars spec=UNSET"
-assert "usage_model=ambient mise run plain-child" "plain model=UNSET"
+assert "usage_model=ambient pakro run file-child" "file model=UNSET"
+assert "usage_model=ambient pakro run toml-child" "toml model=UNSET"
+assert "usage_model=ambient pakro run tera-child" "tera model=UNSET"
+assert "usage_model=ambient pakro run flag-child" "flag model=UNSET"
+assert "usage_model=ambient pakro run tera-spec-child" "spec env=UNSET"
+assert "usage_model=ambient pakro run tera-vars-spec-child" "vars spec=UNSET"
+assert "usage_model=ambient pakro run plain-child" "plain model=UNSET"
 
 # Display-only spec discovery uses the same clean environment as execution.
-assert_contains "usage_model=ambient mise run tera-spec-child --help 2>&1" "--baseline"
-assert_not_contains "usage_model=ambient mise run tera-spec-child --help 2>&1" "<leaked>"
+assert_contains "usage_model=ambient pakro run tera-spec-child --help 2>&1" "--baseline"
+assert_not_contains "usage_model=ambient pakro run tera-spec-child --help 2>&1" "<leaked>"
 
 # raw_args is the compatibility escape hatch for inherited usage_* values.
-assert "usage_model=ambient mise run raw-child" "raw model=ambient"
-assert "usage_model=ambient mise run help-child -- --help" "help model=UNSET"
+assert "usage_model=ambient pakro run raw-child" "raw model=ambient"
+assert "usage_model=ambient pakro run help-child -- --help" "help model=UNSET"
 
 # Values parsed for this invocation still win.
-assert "usage_model=ambient mise run file-child explicit" "file model=explicit"
-assert "usage_model=ambient mise run toml-child explicit" "toml model=explicit"
-assert "usage_model=ambient mise run flag-child --model explicit" "flag model=explicit"
+assert "usage_model=ambient pakro run file-child explicit" "file model=explicit"
+assert "usage_model=ambient pakro run toml-child explicit" "toml model=explicit"
+assert "usage_model=ambient pakro run flag-child --model explicit" "flag model=explicit"
 
 # Intentional inheritance uses a separate, explicitly declared input variable.
-assert "usage_model=ambient MODEL=inherited mise run env-child" "env model=inherited"
-assert_contains "mise run dep-parent forwarded" "env model=forwarded"
+assert "usage_model=ambient MODEL=inherited pakro run env-child" "env model=inherited"
+assert_contains "pakro run dep-parent forwarded" "env model=forwarded"
 
-cat <<'EOF' >.mise/tasks/parent
+cat <<'EOF' >.pakro/tasks/parent
 #!/usr/bin/env bash
 #USAGE arg "<model>"
-mise run file-child
-mise run toml-child
+pakro run file-child
+pakro run toml-child
 EOF
-chmod +x .mise/tasks/parent
+chmod +x .pakro/tasks/parent
 
-# A nested mise process does not leak the parent task's parsed argument.
-assert "mise run parent parent-value" "file model=UNSET
+# A nested pakro process does not leak the parent task's parsed argument.
+assert "pakro run parent parent-value" "file model=UNSET
 toml model=UNSET"

@@ -201,7 +201,7 @@ impl GoPlugin {
         if settings.go.set_gopath {
             set("GOPATH", self.gopath(tv));
         }
-        // the mise store is the global module cache; go projects share it
+        // the pakro store is the global module cache; go projects share it
         if let Some(store) = crate::dirs::INSTALLS.parent() {
             set("GOMODCACHE", store.join("store/go/mod"));
         }
@@ -236,9 +236,9 @@ impl Backend for GoPlugin {
             .trim_end_matches(".git")
             .trim_end_matches('/');
 
-        // Go uses tags, not releases. When MISE_LIST_ALL_VERSIONS is set,
+        // Go uses tags, not releases. When PAKRO_LIST_ALL_VERSIONS is set,
         // we fetch tags with dates (slower). Otherwise, use fast method without dates.
-        let versions: Vec<VersionInfo> = if *env::MISE_LIST_ALL_VERSIONS {
+        let versions: Vec<VersionInfo> = if *env::PAKRO_LIST_ALL_VERSIONS {
             // Slow path: fetch tags with commit dates for versions host
             github::list_tags_with_dates(repo)
                 .await?
@@ -345,7 +345,7 @@ impl Backend for GoPlugin {
         if let ToolRequest::System { .. } = tv.request {
             return Ok(vec![]);
         }
-        // goroot/bin must always be included, irrespective of MISE_GO_SET_GOROOT
+        // goroot/bin must always be included, irrespective of PAKRO_GO_SET_GOROOT
         Ok(vec![self.gobin(tv)])
     }
 
@@ -476,7 +476,7 @@ fn go_workspace() -> GoWorkspace {
         Ok("" | "auto") | Err(_) => GoWorkspace::Search,
         // Go requires an explicit `GOWORK` to be absolute and refuses to run otherwise
         // ("go: invalid GOWORK: not an absolute path"). A relative value therefore names no
-        // workspace at all, so mise ignores it rather than honouring a setting that would
+        // workspace at all, so pakro ignores it rather than honouring a setting that would
         // stop `go` from running. Go does not require a `.work` suffix, and neither does
         // this -- and it does not require the file to exist either: the workspace is
         // selected first, and only reading it fails.
@@ -492,7 +492,7 @@ fn go_workspace() -> GoWorkspace {
 /// Compared by canonical path so two spellings of one file -- a symlinked checkout, a path
 /// through `..` -- do not read as different workspaces. A `GOWORK` naming a file that does
 /// not exist canonicalizes to nothing and so matches nothing, which is the intent: the
-/// workspace is real as far as selection goes, but no file mise reads is it.
+/// workspace is real as far as selection goes, but no file pakro reads is it.
 fn is_named_workspace(path: &Path, named: &Path) -> bool {
     match (path.canonicalize(), named.canonicalize()) {
         (Ok(path), Ok(named)) => path == named,
@@ -505,13 +505,13 @@ fn is_named_workspace(path: &Path, named: &Path) -> bool {
 /// Workspace mode is not a merge: the `go` command "consults the `toolchain` and `go` lines
 /// in the current workspace's `go.work` file or, when there is no workspace, the main
 /// module's `go.mod` file". A member module's own directives are not consulted at all, so a
-/// `go.mod` under a workspace is not a version source for mise either. Without this, a
+/// `go.mod` under a workspace is not a version source for pakro either. Without this, a
 /// member module nearer the working directory would outrank the workspace above it, and
-/// mise would activate a different toolchain from the one `go` selects.
+/// pakro would activate a different toolchain from the one `go` selects.
 ///
-/// Go looks for the workspace by walking up from the working directory. mise only ever
+/// Go looks for the workspace by walking up from the working directory. pakro only ever
 /// reads config files at or above the working directory, so walking up from the `go.mod`
-/// reaches the same `go.work`, and stops at the same ceiling as the rest of mise's config
+/// reaches the same `go.work`, and stops at the same ceiling as the rest of pakro's config
 /// discovery.
 fn go_workspace_file(go_mod: &Path) -> Option<PathBuf> {
     match go_workspace() {
@@ -519,7 +519,7 @@ fn go_workspace_file(go_mod: &Path) -> Option<PathBuf> {
         // Naming a workspace is what turns workspace mode on, whether or not the file is
         // there. `go` selects it the same way and only fails later, when it reads it.
         GoWorkspace::File(named) => Some(named),
-        GoWorkspace::Search => file::all_dirs(go_mod.parent()?, &env::MISE_CEILING_PATHS)
+        GoWorkspace::Search => file::all_dirs(go_mod.parent()?, &env::PAKRO_CEILING_PATHS)
             .ok()?
             .into_iter()
             .map(|dir| dir.join("go.work"))
@@ -529,14 +529,14 @@ fn go_workspace_file(go_mod: &Path) -> Option<PathBuf> {
 
 /// Whether a discovered `go.work` is the workspace Go would actually use.
 ///
-/// mise finds config files by walking up from the working directory, which is also how Go
+/// pakro finds config files by walking up from the working directory, which is also how Go
 /// finds a workspace -- but only when `GOWORK` leaves it to that search. `GOWORK=off` means
 /// a `go.work` in the tree is just a file, and `GOWORK=<file>` means some *other* `go.work`
 /// is the workspace. Reading a discovered file in either case would pin the toolchain from a
 /// workspace the `go` command is ignoring.
 ///
-/// A `GOWORK=<file>` outside the directories mise reads is never discovered, so mise selects
-/// no version rather than the wrong one; pin it in `mise.toml` if that is your setup.
+/// A `GOWORK=<file>` outside the directories pakro reads is never discovered, so pakro selects
+/// no version rather than the wrong one; pin it in `pakro.toml` if that is your setup.
 fn is_active_workspace(go_work: &Path) -> bool {
     match go_workspace() {
         GoWorkspace::Off => false,
@@ -568,11 +568,11 @@ fn parse_gowork(body: &str) -> String {
 ///
 /// `toolchain goX.Y.Z` is the *exact* toolchain the module builds and tests with (what
 /// `go version` reports inside the repo), so it is a real version declaration and is
-/// what mise reads.
+/// what pakro reads.
 ///
 /// `go X.Y` declares only the *minimum* Go version the module is compatible with. That
 /// is a consumer compatibility floor, the same kind of declaration as `package.json`'s
-/// `engines` field, which mise ignores — it says nothing about which version the project
+/// `engines` field, which pakro ignores — it says nothing about which version the project
 /// is developed with, so it should never have selected a version to install. It is
 /// deprecated and still resolves (as a prefix, to the latest matching patch) until
 /// 2026.11.0, or until `ignore_minimums` opts a project into the final behavior early.
@@ -599,7 +599,7 @@ fn parse_gomod(body: &str, ignore_minimums: bool) -> String {
                 "2026.8.10",
                 "2026.11.0",
                 "idiomatic.go.mod.go-directive",
-                "the `go` directive in go.mod is only a minimum compatible version, not the version this project is built with, so mise will stop reading it. Add a `toolchain goX.Y.Z` line to go.mod, or set the version in .go-version or mise.toml."
+                "the `go` directive in go.mod is only a minimum compatible version, not the version this project is built with, so pakro will stop reading it. Add a `toolchain goX.Y.Z` line to go.mod, or set the version in .go-version or pakro.toml."
             );
             minimum
         }
@@ -661,7 +661,7 @@ mod tests {
     /// still resolves until 2026.11.0; every case here goes away with it.
     #[test]
     fn test_parse_gomod_deprecated_go_directive() {
-        // bare `go` directive -> minor version (mise resolves to the latest patch)
+        // bare `go` directive -> minor version (pakro resolves to the latest patch)
         assert_eq!(
             parse_gomod(
                 indoc! {r#"

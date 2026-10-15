@@ -10,7 +10,7 @@
 //! and parses a few hundred bytes. Homebrew does the same thing for its own
 //! bundle (`.payload.index`, entries like `"0-ad": [7422487, 596]`).
 //!
-//! Deliberately mise's own cache rather than Homebrew's. Homebrew keeps a signed
+//! Deliberately pakro's own cache rather than Homebrew's. Homebrew keeps a signed
 //! JWS bundle under a per-architecture name it has changed at least once, and
 //! validates it against a size and mtime it records itself, so both reading that
 //! file and writing beside it would couple correctness here to another tool's
@@ -35,7 +35,7 @@ const BULK_URL: &str = "https://formulae.brew.sh/api/cask.json";
 ///
 /// Homebrew's `HOMEBREW_API_AUTO_UPDATE_SECS` default, which is 450s and not the
 /// 24h of the similarly named `HOMEBREW_AUTO_UPDATE_SECS`. The distinction
-/// matters: mise resolves metadata afresh on every run today, so a window of a
+/// matters: pakro resolves metadata afresh on every run today, so a window of a
 /// day would be a real regression rather than a cache. It hides a version
 /// published this morning, and it breaks any cask whose vendor drops the old
 /// download URL on release, which is common enough to be the usual reason a
@@ -85,7 +85,7 @@ const INDEX_VERSION: u32 = 1;
 /// Cache directory for the bulk document, keyed to where the document actually
 /// came from.
 ///
-/// `url_replacements` can point mise at a mirror or, in the e2e suite, at a
+/// `url_replacements` can point pakro at a mirror or, in the e2e suite, at a
 /// local fixture. Those are different documents, so they cannot share a cache
 /// file: one run would otherwise answer from bytes another run fetched
 /// somewhere else. The canonical endpoint keeps the plain path so the common
@@ -173,7 +173,7 @@ fn stored_last_modified() -> Option<chrono::DateTime<chrono::FixedOffset>> {
 ///
 /// `create_dir_all` returns `Ok` the moment the directory exists, which says
 /// nothing about being allowed to put anything in it, so on a read-only cache
-/// it is not a preflight at all. The probe is named per process so two mise
+/// it is not a preflight at all. The probe is named per process so two pakro
 /// runs cannot delete each other's.
 ///
 /// Deliberately not a test for free space: an empty file needs no data blocks,
@@ -282,7 +282,7 @@ async fn refresh() -> Result<()> {
     // Before the request, not after it. Every byte downloaded into a cache that
     // cannot be written is waste paid again by the next process, and nothing is
     // learned afterwards that was not knowable beforehand. Failing here sends
-    // every lookup to the per-cask endpoint, which is what mise did before this
+    // every lookup to the per-cask endpoint, which is what pakro did before this
     // cache existed.
     crate::file::create_dir_all(dir()).wrap_err("the Homebrew cask index cache is not writable")?;
     eyre::ensure!(
@@ -462,7 +462,7 @@ fn mark_checked_best_effort() {
 fn write_index(index: &Index) -> Result<()> {
     crate::file::create_dir_all(dir())?;
     // `write_atomic` rather than a fixed `.part` name plus rename: concurrent
-    // mise processes would otherwise share one temporary path and clobber each
+    // pakro processes would otherwise share one temporary path and clobber each
     // other's partial writes. It also carries the Windows sharing-violation
     // retry that a raw rename does not.
     crate::file::write_atomic(index_path(), serde_json::to_vec(index)?)?;
@@ -704,7 +704,7 @@ pub(super) async fn cask(token: &str) -> Option<Cask> {
     // records `old_tokens: ["foo"]`, and a later, unrelated `foo` can be
     // published. Consulting the alias map first would resolve `foo` to
     // `foo@legacy`, and `validate_cask_identity` would accept it, because on the
-    // official API it trusts `old_tokens` — so mise would install the wrong
+    // official API it trusts `old_tokens` — so pakro would install the wrong
     // software, silently, where the per-cask endpoint would have been right.
     let canonical = if index.casks.contains_key(token) {
         token
@@ -718,7 +718,7 @@ pub(super) async fn cask(token: &str) -> Option<Cask> {
     let &(offset, len) = index.casks.get(canonical)?;
 
     // Read and parse are fallible for a reason that is nobody's fault: another
-    // mise process can replace the document between `load_index` validating it
+    // pakro process can replace the document between `load_index` validating it
     // and this read, leaving these offsets pointing at different bytes.
     // Propagating that would abort the whole resolution, which is precisely what
     // this optimization must never do, so it falls back like every other failure

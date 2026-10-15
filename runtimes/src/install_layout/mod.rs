@@ -12,9 +12,9 @@
 //!   identity, locates or allocates its directory, and keeps links, receipt and
 //!   selection in step.
 //! * [`catalog`] allocates collision-free directory names under
-//!   `installs/.mise/` and remembers unlocked selections.
+//!   `installs/.pakro/` and remembers unlocked selections.
 //!
-//! Nothing here reads mise settings or backends; callers hand in the inputs.
+//! Nothing here reads pakro settings or backends; callers hand in the inputs.
 
 pub(crate) mod catalog;
 pub(crate) mod identity;

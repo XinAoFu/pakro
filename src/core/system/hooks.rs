@@ -1,8 +1,8 @@
 //! Bootstrap phase hooks for `[bootstrap.hooks]`.
 //!
 //! Hooks are imperative commands that run at named points during
-//! `mise bootstrap`. They are intentionally explicit bootstrap behavior, not
-//! part of `mise install` or shell activation.
+//! `pakro bootstrap`. They are intentionally explicit bootstrap behavior, not
+//! part of `pakro install` or shell activation.
 
 use std::fmt;
 use std::path::PathBuf;
@@ -166,7 +166,7 @@ pub async fn run_phase(
             hook.run.clone()
         };
         if dry_run {
-            miseprintln!("{} {}", shell.join(" "), shell_words::quote(&run));
+            pakroprintln!("{} {}", shell.join(" "), shell_words::quote(&run));
             continue;
         }
         info!("$ {run}");
@@ -202,7 +202,7 @@ mod tests {
         let err = BootstrapHook::from_toml(
             "pre-things",
             toml::Value::String("echo nope".into()),
-            "mise.toml".into(),
+            "pakro.toml".into(),
         )
         .unwrap_err();
         let msg = err.to_string();
@@ -216,7 +216,7 @@ mod tests {
         let hooks = BootstrapHook::from_toml(
             "pre-packages",
             toml::Value::String("echo preparing".into()),
-            "mise.toml".into(),
+            "pakro.toml".into(),
         )
         .unwrap();
         assert_eq!(
@@ -224,7 +224,7 @@ mod tests {
             vec![BootstrapHook {
                 phase: BootstrapHookPhase::PrePackages,
                 run: "echo preparing".into(),
-                config_path: "mise.toml".into(),
+                config_path: "pakro.toml".into(),
             }]
         );
 
@@ -237,7 +237,7 @@ mod tests {
             ]),
         );
         let hooks =
-            BootstrapHook::from_toml("final", toml::Value::Table(table), "mise.toml".into())
+            BootstrapHook::from_toml("final", toml::Value::Table(table), "pakro.toml".into())
                 .unwrap();
         assert_eq!(hooks.len(), 2);
         assert_eq!(hooks[1].run, "echo two");

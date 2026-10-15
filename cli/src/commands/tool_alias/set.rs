@@ -6,10 +6,10 @@ use crate::config::config_file::ConfigFile;
 
 /// Add/update an alias for a tool/backend
 ///
-/// This modifies the contents of ~/.config/mise/config.toml
+/// This modifies the contents of ~/.config/pakro/config.toml
 #[derive(Debug, usage_rs::Args)]
-#[usage(visible_aliases = ["add", "create"], example(r###"mise tool-alias set ripgrep aqua:BurntSushi/ripgrep
-mise tool-alias set node project 20"###), verbatim_doc_comment)]
+#[usage(visible_aliases = ["add", "create"], example(r###"pakro tool-alias set ripgrep aqua:BurntSushi/ripgrep
+pakro tool-alias set node project 20"###), verbatim_doc_comment)]
 pub(super) struct ToolAliasSet {
     /// The tool/backend to set the alias for
     #[usage(value_name = "TOOL")]

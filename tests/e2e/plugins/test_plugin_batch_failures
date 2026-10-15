@@ -26,20 +26,20 @@ git config --global \
   url."file://$PWD/sources/missing-zeta".insteadOf \
   "https://gitlab.com/td7x/asdf/adr-tools"
 
-if output="$(mise plugins install adr-tools action-validator act --jobs 0 2>&1)"; then
+if output="$(pakro plugins install adr-tools action-validator act --jobs 0 2>&1)"; then
   fail "expected batch plugin install to fail"
 fi
 assert_contains_text "$output" \
   "Failed to install plugins: act, adr-tools"
-[[ -d $MISE_DATA_DIR/plugins/action-validator/.git ]] ||
+[[ -d $PAKRO_DATA_DIR/plugins/action-validator/.git ]] ||
   fail "expected successful plugin install to complete"
 
 create_plugin_repo "$PWD/sources/update-bad"
 create_plugin_repo "$PWD/sources/update-good"
 
-mise plugins install update-bad "file://$PWD/sources/update-bad"
-mise plugins install update-good "file://$PWD/sources/update-good"
-git -C "$MISE_DATA_DIR/plugins/update-bad" remote set-url origin \
+pakro plugins install update-bad "file://$PWD/sources/update-bad"
+pakro plugins install update-good "file://$PWD/sources/update-good"
+git -C "$PAKRO_DATA_DIR/plugins/update-bad" remote set-url origin \
   "file://$PWD/sources/missing-update"
 
 echo updated >"$PWD/sources/update-good/updated"
@@ -47,8 +47,8 @@ git -C "$PWD/sources/update-good" add updated
 git -C "$PWD/sources/update-good" commit -qm "update plugin"
 expected_sha="$(git -C "$PWD/sources/update-good" rev-parse HEAD)"
 
-if output="$(mise plugins update update-bad update-good --jobs 0 2>&1)"; then
+if output="$(pakro plugins update update-bad update-good --jobs 0 2>&1)"; then
   fail "expected batch plugin update to fail"
 fi
 assert_contains_text "$output" "[update-bad] plugin update"
-assert "git -C \"$MISE_DATA_DIR/plugins/update-good\" rev-parse HEAD" "$expected_sha"
+assert "git -C \"$PAKRO_DATA_DIR/plugins/update-good\" rev-parse HEAD" "$expected_sha"

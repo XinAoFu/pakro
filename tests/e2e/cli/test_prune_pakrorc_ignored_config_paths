@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+# A project's `.pakrorc.toml` `ignored_config_paths` applies to that project's
+# own config discovery. It must not hide other tracked configs from prune.
+
+mkdir project-a project-b
+cat <<'EOF2' >project-a/pakro.toml
+[tools]
+dummy = "1.0.0"
+EOF2
+pakro -C project-a trust
+pakro -C project-a install
+
+echo 'ignored_config_paths = ["../project-a"]' >project-b/.pakrorc.toml
+
+assert_not_contains "cd project-b && pakro ls --prunable" "dummy"
+assert_not_contains "cd project-b && pakro prune --dry-run --tools --raw 2>&1" "dummy@1.0.0"
+(cd project-b && pakro prune --yes --tools)
+assert "pakro -C project-a which dummy" "$PAKRO_DATA_DIR/installs/dummy/1.0.0/bin/dummy"
+
+# A machine-wide ignore in the global pakrorc still excludes the config.
+echo "ignored_config_paths = [\"$PWD/project-a\"]" >"$PAKRO_CONFIG_DIR/pakrorc.toml"
+assert_contains "cd project-b && pakro prune --dry-run --tools --raw 2>&1" "dummy@1.0.0"

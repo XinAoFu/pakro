@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 
-# Test that `mise activate --shims` keeps shims at the front of PATH without
+# Test that `pakro activate --shims` keeps shims at the front of PATH without
 # adding another entry on every re-source.
 
-SHIMS_DIR="$MISE_DATA_DIR/shims"
+SHIMS_DIR="$PAKRO_DATA_DIR/shims"
 mkdir -p "$SHIMS_DIR"
 
-MISE_BIN=$(command -v mise)
+PAKRO_BIN=$(command -v pakro)
 BASH_BIN=$(command -v bash)
 CUSTOM_PATH="/some/other/bin:$SHIMS_DIR:/usr/bin"
 
 # Shims later in PATH: should be emitted as a prepend with shims first
-assert_contains "env PATH='$CUSTOM_PATH' $MISE_BIN activate bash --shims" "export PATH=\"$SHIMS_DIR:"
+assert_contains "env PATH='$CUSTOM_PATH' $PAKRO_BIN activate bash --shims" "export PATH=\"$SHIMS_DIR:"
 
-# Shims already first and the mise executable dir already present: no PATH
+# Shims already first and the pakro executable dir already present: no PATH
 # change is needed, so activation emits no prepend.
-EXE_DIR="$(dirname "$MISE_BIN")"
-assert_not_contains "env PATH='$SHIMS_DIR:$EXE_DIR:/usr/bin' $MISE_BIN activate bash --shims" "export PATH="
+EXE_DIR="$(dirname "$PAKRO_BIN")"
+assert_not_contains "env PATH='$SHIMS_DIR:$EXE_DIR:/usr/bin' $PAKRO_BIN activate bash --shims" "export PATH="
 
 check_repeated_source() {
   local shell_type="$1"
@@ -26,7 +26,7 @@ check_repeated_source() {
   local result count first
 
   result="$(env PATH="$initial_path" "$shell_bin" \
-    "$TEST_DIR/shims_repeated_source.sh" "$MISE_BIN" "$shell_type")"
+    "$TEST_DIR/shims_repeated_source.sh" "$PAKRO_BIN" "$shell_type")"
 
   first="${result%%:*}"
   if [[ $first != "$SHIMS_DIR" ]]; then
@@ -51,19 +51,19 @@ check_repeated_source() {
 # the normal PR test suite.
 check_repeated_source bash "$BASH_BIN" "$EXE_DIR:/some/other/bin:$SHIMS_DIR:/usr/bin" 2
 
-# Regression #10264: when the dir containing the mise executable is already in
+# Regression #10264: when the dir containing the pakro executable is already in
 # PATH (e.g. a deb install at /usr/bin), --shims must NOT re-prepend it, which
 # would reorder PATH (moving /usr/bin ahead of /usr/local/bin). Only the shims
 # dir should be prepended, so exactly one `export PATH=` line is emitted.
-if ! out="$(env PATH="$EXE_DIR:/usr/local/bin:/usr/bin" "$MISE_BIN" activate bash --shims 2>&1)"; then
-  echo "FAIL: 'mise activate bash --shims' exited non-zero:"
+if ! out="$(env PATH="$EXE_DIR:/usr/local/bin:/usr/bin" "$PAKRO_BIN" activate bash --shims 2>&1)"; then
+  echo "FAIL: 'pakro activate bash --shims' exited non-zero:"
   printf '%s\n' "$out"
   exit 1
 fi
 assert_contains_text "$out" "export PATH=\"$SHIMS_DIR:"
 path_lines="$(printf '%s\n' "$out" | grep -c 'export PATH=' || true)"
 if [[ $path_lines != "1" ]]; then
-  echo "FAIL: expected exactly one 'export PATH=' line (shims only) since the mise dir is already in PATH, got $path_lines:"
+  echo "FAIL: expected exactly one 'export PATH=' line (shims only) since the pakro dir is already in PATH, got $path_lines:"
   printf '%s\n' "$out"
   exit 1
 fi

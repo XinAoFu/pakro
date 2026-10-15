@@ -7,23 +7,23 @@
   outputs = { self, nixpkgs, flake-utils }:
     {
       overlay = final: prev: {
-        mise = prev.callPackage ./packaging/nix/default.nix { };
+        pakro = prev.callPackage ./packaging/nix/default.nix { };
       };
     } // flake-utils.lib.eachDefaultSystem(system:
       let
         pkgs = import nixpkgs { inherit system; };
-        mise = pkgs.callPackage ./packaging/nix/default.nix { };
+        pakro = pkgs.callPackage ./packaging/nix/default.nix { };
       in
         {
           packages = {
-            inherit mise;
-            default = mise;
+            inherit pakro;
+            default = pakro;
           };
 
           devShells.default = pkgs.mkShell {
-            name = "mise-develop";
+            name = "pakro-develop";
 
-            inputsFrom = [ mise ];
+            inputsFrom = [ pakro ];
 
             nativeBuildInputs = with pkgs; [
               clippy

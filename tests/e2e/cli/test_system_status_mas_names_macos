@@ -16,17 +16,17 @@ exit 1
 SCRIPT
 chmod +x mas-tool/bin/mas
 export PATH="$PWD/mas-tool/bin:$PATH"
-cat <<TOML >mise.toml
+cat <<TOML >pakro.toml
 [bootstrap.packages]
 "mas:497799835" = "latest"
 "mas:409203825" = "latest"
 TOML
 
-assert_contains "mise bootstrap packages status" "497799835 (Xcode)"
-assert_not_contains "mise bootstrap packages status" "409203825 ("
+assert_contains "pakro bootstrap packages status" "497799835 (Xcode)"
+assert_not_contains "pakro bootstrap packages status" "409203825 ("
 assert \
-  "mise bootstrap packages status --json | jq -r '.mas.packages[] | select(.package == \"497799835\") | .name'" \
+  "pakro bootstrap packages status --json | jq -r '.mas.packages[] | select(.package == \"497799835\") | .name'" \
   "Xcode"
 assert \
-  "mise bootstrap packages status --json | jq -r '.mas.packages[] | select(.package == \"409203825\") | has(\"name\")'" \
+  "pakro bootstrap packages status --json | jq -r '.mas.packages[] | select(.package == \"409203825\") | has(\"name\")'" \
   "false"

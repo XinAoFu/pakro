@@ -1,5 +1,5 @@
 //! The unit-test fixture both test binaries start from: the library's
-//! (`src/core/util/test.rs`) and the `mise` binary's (`src/main.rs`). Each calls [`init`]
+//! (`src/core/util/test.rs`) and the `pakro` binary's (`src/main.rs`). Each calls [`init`]
 //! from its own constructor, since `cfg(test)` does not reach across crates.
 
 use std::path::PathBuf;
@@ -9,9 +9,9 @@ use indoc::indoc;
 use crate::{env, file};
 
 /// Set once the harness has written the fixture tree; see [`init`].
-const FIXTURES_READY_ENV: &str = "__MISE_TEST_FIXTURES_READY";
+const FIXTURES_READY_ENV: &str = "__PAKRO_TEST_FIXTURES_READY";
 
-/// Point mise at the `tests/support/` fixture tree and write its config files.
+/// Point pakro at the `tests/support/` fixture tree and write its config files.
 pub fn init() {
     // Invocations that only list tests (`--list`, which nextest runs twice per
     // binary, concurrently) must not reset the shared fixture tree: one
@@ -20,13 +20,13 @@ pub fn init() {
     if std::env::args_os().any(|a| a == "--list") {
         return;
     }
-    mise_util::testing::enable(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/support"));
+    pakro_util::testing::enable(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/support"));
     crate::register_util_hooks();
     // Tests must start from the environment nextest gives their process, not
     // from an activation diff inherited from the process that launched it.
     // This has to happen before the first access to env::HOME initializes
     // PRISTINE_ENV.
-    env::remove_var("__MISE_DIFF");
+    env::remove_var("__PAKRO_DIFF");
     if env::var("RUST_LOG").is_err() {
         env::set_var("RUST_LOG", "debug")
     }
@@ -42,27 +42,27 @@ pub fn init() {
     // which `tests/support/.gitignore` already covers, and away from the developer's
     // own cache when their shell sets XDG_CACHE_HOME.
     env::set_var("XDG_CACHE_HOME", env::HOME.join(".cache"));
-    env::remove_var("MISE_TRUSTED_CONFIG_PATHS");
-    env::remove_var("MISE_DISABLE_TOOLS");
+    env::remove_var("PAKRO_TRUSTED_CONFIG_PATHS");
+    env::remove_var("PAKRO_DISABLE_TOOLS");
     env::set_var("NO_COLOR", "1");
-    env::set_var("MISE_CACHE_PRUNE_AGE", "0");
-    env::set_var("MISE_CACHE_DIR", env::HOME.join("data").join("cache"));
-    env::set_var("MISE_CONFIG_DIR", env::HOME.join("config"));
-    env::set_var("MISE_ENV", "");
-    env::set_var("MISE_DATA_DIR", env::HOME.join("data"));
-    env::set_var("MISE_GLOBAL_CONFIG_FILE", "~/config/config.toml");
-    env::set_var("MISE_SYSTEM_CONFIG_FILE", "nonexistent");
+    env::set_var("PAKRO_CACHE_PRUNE_AGE", "0");
+    env::set_var("PAKRO_CACHE_DIR", env::HOME.join("data").join("cache"));
+    env::set_var("PAKRO_CONFIG_DIR", env::HOME.join("config"));
+    env::set_var("PAKRO_ENV", "");
+    env::set_var("PAKRO_DATA_DIR", env::HOME.join("data"));
+    env::set_var("PAKRO_GLOBAL_CONFIG_FILE", "~/config/config.toml");
+    env::set_var("PAKRO_SYSTEM_CONFIG_FILE", "nonexistent");
     env::set_var(
-        "MISE_OVERRIDE_CONFIG_FILENAMES",
-        ".test.mise.toml:test.config.toml",
+        "PAKRO_OVERRIDE_CONFIG_FILENAMES",
+        ".test.pakro.toml:test.config.toml",
     );
     env::set_var(
-        "MISE_OVERRIDE_TOOL_VERSIONS_FILENAMES",
+        "PAKRO_OVERRIDE_TOOL_VERSIONS_FILENAMES",
         ".test-tool-versions",
     );
-    env::set_var("MISE_STATE_DIR", env::HOME.join("state"));
-    env::set_var("MISE_USE_TOML", "0");
-    env::set_var("MISE_YES", "1");
+    env::set_var("PAKRO_STATE_DIR", env::HOME.join("state"));
+    env::set_var("PAKRO_USE_TOML", "0");
+    env::set_var("PAKRO_YES", "1");
     // A test that re-runs this binary as a child (to get fresh process-wide
     // statics) inherits this variable. The child must reuse the fixture tree
     // rather than reset it: remove_all() would unlink the directory the parent
@@ -72,7 +72,7 @@ pub fn init() {
         return;
     }
     file::remove_all(&*env::HOME.join("cwd")).unwrap();
-    file::create_dir_all(&*env::HOME.join("cwd").join(".mise").join("tasks")).unwrap();
+    file::create_dir_all(&*env::HOME.join("cwd").join(".pakro").join("tasks")).unwrap();
     env::set_current_dir(env::HOME.join("cwd")).unwrap();
     file::write(
         env::HOME.join("config").join("config.toml"),
@@ -114,25 +114,25 @@ pub fn init() {
     )
     .unwrap();
     file::write(
-        ".mise/tasks/filetask",
+        ".pakro/tasks/filetask",
         indoc! {r#"#!/usr/bin/env bash
-        #MISE alias="ft"
-        #MISE description="This is a test build script"
-        #MISE depends=["lint", "test"]
-        #MISE sources=[".test-tool-versions"]
-        #MISE outputs=["$MISE_PROJECT_ROOT/test/test-build-output.txt"]
-        #MISE env={TEST_BUILDSCRIPT_ENV_VAR = "VALID", BOOLEAN_VAR = true}
+        #PAKRO alias="ft"
+        #PAKRO description="This is a test build script"
+        #PAKRO depends=["lint", "test"]
+        #PAKRO sources=[".test-tool-versions"]
+        #PAKRO outputs=["$PAKRO_PROJECT_ROOT/test/test-build-output.txt"]
+        #PAKRO env={TEST_BUILDSCRIPT_ENV_VAR = "VALID", BOOLEAN_VAR = true}
 
         #USAGE flag "--user <user>" help="The user to run as"
 
         set -exo pipefail
-        cd "$MISE_PROJECT_ROOT" || exit 1
+        cd "$PAKRO_PROJECT_ROOT" || exit 1
         echo "running test-build script"
         echo "TEST_BUILDSCRIPT_ENV_VAR: $TEST_BUILDSCRIPT_ENV_VAR" > test-build-output.txt
         echo "user=$usage_user"
         "#},
     )
     .unwrap();
-    file::make_executable(".mise/tasks/filetask").unwrap();
+    file::make_executable(".pakro/tasks/filetask").unwrap();
     env::set_var(FIXTURES_READY_ENV, "1");
 }

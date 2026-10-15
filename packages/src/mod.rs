@@ -1,5 +1,5 @@
-//! mise-native package management: request parsing, config tables, and the
-//! glue between resolver/index/store and the rest of mise.
+//! pakro-native package management: request parsing, config tables, and the
+//! glue between resolver/index/store and the rest of pakro.
 
 pub(crate) mod binding;
 pub mod install;
@@ -11,7 +11,7 @@ pub mod request;
 pub(crate) mod system;
 pub(crate) mod venv;
 
-// the surface the rest of mise consumes: CLI arg rewriting (cli/mod.rs),
+// the surface the rest of pakro consumes: CLI arg rewriting (cli/mod.rs),
 // bare-name binding (cli/install.rs), config tables (config/), env injection
 // (toolset/). The request/venv internals stay reachable through their modules.
 pub use request::{

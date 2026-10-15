@@ -4,31 +4,31 @@
 set -euo pipefail
 
 # Test: Dry-run should show what would be installed without actually installing
-assert_contains "mise install tiny@3.1.0 --dry-run 2>&1" "would install"
+assert_contains "pakro install tiny@3.1.0 --dry-run 2>&1" "would install"
 
 # Verify tiny is NOT actually installed
-assert_fail "mise which tiny"
+assert_fail "pakro which tiny"
 
 # Test: Dry-run should show already installed for existing tools
-mise install jq@latest --force
-assert_contains "mise install jq@latest --dry-run 2>&1" "already installed"
+pakro install jq@latest --force
+assert_contains "pakro install jq@latest --dry-run 2>&1" "already installed"
 
 # Test: Dry-run should work with multiple tools
-assert_contains "mise install tiny@3.1.0 shfmt@3.10.0 --dry-run 2>&1" "would install"
+assert_contains "pakro install tiny@3.1.0 shfmt@3.10.0 --dry-run 2>&1" "would install"
 
 # Verify neither tool was actually installed
-assert_fail "mise which tiny"
+assert_fail "pakro which tiny"
 
 # Test: --dry-run-code should exit non-zero when there are tools to install
-assert_fail_contains "mise install tiny@3.1.0 --dry-run-code 2>&1" "would install"
+assert_fail_contains "pakro install tiny@3.1.0 --dry-run-code 2>&1" "would install"
 
 # Test: --dry-run-code should exit 0 when all tools are already installed
-assert_contains "mise install jq@latest --dry-run-code 2>&1" "already installed"
+assert_contains "pakro install jq@latest --dry-run-code 2>&1" "already installed"
 
 # Test: --dry-run-code with no args should exit non-zero when config has missing tools
 TEST_DIR=$(mktemp -d)
 cd "$TEST_DIR"
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tools]
 tiny = "3.1.0"
 
@@ -36,17 +36,17 @@ tiny = "3.1.0"
 preinstall = "touch preinstall_ran"
 postinstall = "touch postinstall_ran"
 EOF
-mise uninstall tiny@3.1.0 2>/dev/null || true
+pakro uninstall tiny@3.1.0 2>/dev/null || true
 rm -f preinstall_ran postinstall_ran
-assert_fail_contains "mise install --dry-run-code 2>&1" "Would run preinstall hook"
-assert_fail_contains "mise install --dry-run-code 2>&1" "Would run postinstall hook"
+assert_fail_contains "pakro install --dry-run-code 2>&1" "Would run preinstall hook"
+assert_fail_contains "pakro install --dry-run-code 2>&1" "Would run postinstall hook"
 assert_fail "test -f preinstall_ran"
 assert_fail "test -f postinstall_ran"
 
 # Test: --dry-run-code with no args should exit 0 when all config tools are installed
-mise install
+pakro install
 rm -f preinstall_ran postinstall_ran
-assert_contains "mise install --dry-run-code 2>&1" "all tools are installed"
-assert_contains "mise install --dry-run-code 2>&1" "Would run postinstall hook"
+assert_contains "pakro install --dry-run-code 2>&1" "all tools are installed"
+assert_contains "pakro install --dry-run-code 2>&1" "Would run postinstall hook"
 assert_fail "test -f preinstall_ran"
 assert_fail "test -f postinstall_ran"

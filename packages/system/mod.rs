@@ -167,7 +167,7 @@ pub trait SystemPackageManager: Send + Sync {
 
     /// Return why this manager cannot run, or `None` when it is available.
     ///
-    /// The async form lets plugin managers resolve host binaries from mise's
+    /// The async form lets plugin managers resolve host binaries from pakro's
     /// global toolset as well as the process PATH and shims. Built-in managers
     /// use the synchronous checks above by default.
     async fn unavailable_reason_async(&self) -> Option<String> {

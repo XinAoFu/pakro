@@ -16,12 +16,12 @@ use eyre::Report;
 use indoc::indoc;
 
 #[macro_use]
-extern crate mise;
+extern crate pakro;
 
-// Everything outside `cli` lives in the `mise` library (`src/lib.rs`). Importing
+// Everything outside `cli` lives in the `pakro` library (`src/lib.rs`). Importing
 // its root here lets `cli` keep addressing it as `crate::config`, `crate::toolset`
 // and so on.
-use mise::*;
+use pakro::*;
 
 #[path = "../cli/src/commands/mod.rs"]
 mod cli;
@@ -30,7 +30,7 @@ use crate::ui::multi_progress_report::MultiProgressReport;
 
 #[cfg(test)]
 mod test {
-    // See `mise::testing::init`; this is the same constructor for the binary's
+    // See `pakro::testing::init`; this is the same constructor for the binary's
     // own tests, which also need the frontend hooks that only `cli` can register.
     #[cfg_attr(
         target_vendor = "apple",
@@ -39,7 +39,7 @@ mod test {
     #[cfg_attr(not(target_vendor = "apple"), ctor::ctor(unsafe))]
     fn init() {
         crate::cli::register_frontend();
-        mise::testing::init();
+        pakro::testing::init();
     }
 }
 
@@ -51,7 +51,7 @@ fn main() -> ExitCode {
     cli::register_frontend();
     register_util_hooks();
     // Same reason, different caller: `self-replace` spawns a copy of this binary under a generated
-    // name to finish an update, and when its own init hook does not intercept that, mise would run
+    // name to finish an update, and when its own init hook does not intercept that, pakro would run
     // its shim path and report the generated name as a broken shim. There is nothing for `main` to
     // do here — the copy exists to be deleted — so leave before anything else starts.
     #[cfg(windows)]
@@ -61,8 +61,8 @@ fn main() -> ExitCode {
     // A timed-out command on Windows runs under this binary as its Ctrl+C group
     // leader, and exits with the command's full 32-bit exit code.
     #[cfg(windows)]
-    if let Some(code) = mise_util::cmd::ctrl_c_group::try_run() {
-        mise::exit::exit_with_windows_status(code as u32);
+    if let Some(code) = pakro_util::cmd::ctrl_c_group::try_run() {
+        pakro::exit::exit_with_windows_status(code as u32);
     }
     let early_args = env::args_safe();
     if cli::Cli::exit_early_for_unchanged_hook_env(&early_args) {
@@ -76,8 +76,8 @@ fn main() -> ExitCode {
     // clone + stack + TLS per thread before any work happens. Async I/O
     // doesn't need a worker per core (blocking work uses tokio's separate
     // on-demand pool), so cap the default on many-core machines. An explicit
-    // MISE_JOBS still raises it without limit.
-    let threads = crate::env::MISE_JOBS
+    // PAKRO_JOBS still raises it without limit.
+    let threads = crate::env::PAKRO_JOBS
         .unwrap_or_else(|| nprocs.min(16))
         .max(8);
     let runtime = match tokio::runtime::Builder::new_multi_thread()
@@ -156,7 +156,7 @@ fn handle_err(err: Report) -> eyre::Result<()> {
     // Re-init the logger first so the flush below runs at whatever level is knowable now.
     // `auto_update` and `trust_active_config` fail *after* `add_cli_matches` but before startup
     // reaches its second `logger::init()`, so without this `--quiet` would not reach them. It
-    // cannot help a command whose flags never parsed; `MISE_QUIET` still can, since that is read
+    // cannot help a command whose flags never parsed; `PAKRO_QUIET` still can, since that is read
     // from the environment during the first settings build. If the settings cannot be built at all,
     // `init` leaves the level where it is rather than resetting it to the default.
     crate::logger::init();
@@ -175,7 +175,7 @@ fn handle_err(err: Report) -> eyre::Result<()> {
     }
 
     // Check for miette diagnostic errors and render them specially
-    if let Some(diagnostic) = err.downcast_ref::<config::config_file::diagnostic::MiseDiagnostic>()
+    if let Some(diagnostic) = err.downcast_ref::<config::config_file::diagnostic::PakroDiagnostic>()
     {
         safe_eprintln!("{}", diagnostic.render());
         return Err(request_exit(1));
@@ -184,7 +184,7 @@ fn handle_err(err: Report) -> eyre::Result<()> {
     if !config::Settings::is_package_query() {
         show_github_rate_limit_err(&err);
     }
-    if *env::MISE_FRIENDLY_ERROR {
+    if *env::PAKRO_FRIENDLY_ERROR {
         display_friendly_err(&err);
         return Err(request_exit(1));
     }
@@ -200,7 +200,7 @@ fn show_github_rate_limit_err(err: &Report) {
         );
         if github::resolve_token("github.com").is_none() {
             warn!(indoc!(
-                r#"No GitHub token was found, so mise is making unauthenticated requests to GitHub which have a much lower rate limit.
+                r#"No GitHub token was found, so pakro is making unauthenticated requests to GitHub which have a much lower rate limit.
                    Create a token at https://github.com/settings/tokens (no scopes required) and set it as GITHUB_TOKEN in your environment.
                    See https://mise.jdx.dev/dev-tools/github-tokens.html for all supported token sources (env vars, gh CLI, credential_command, etc.)."#
             ));
@@ -213,7 +213,7 @@ fn display_friendly_err(err: &Report) {
         error!("{err}");
     }
     error!("Version: {}", *VERSION);
-    let msg = ui::style::edim("Run with --verbose or MISE_VERBOSE=1 for more information");
+    let msg = ui::style::edim("Run with --verbose or PAKRO_VERBOSE=1 for more information");
     error!("{msg}");
 }
 

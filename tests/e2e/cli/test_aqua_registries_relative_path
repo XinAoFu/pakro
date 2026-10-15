@@ -7,21 +7,21 @@
 # declared them.
 
 touch registry.yaml
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [settings]
 aqua.registries = ["registry.yaml"]
 EOF
 
 # Resolution happens while the config file is parsed, so the setting itself shows
 # the result -- no registry fetch, and no network.
-assert_contains "mise settings get aqua.registries 2>&1" "file://"
-assert_contains "mise settings get aqua.registries 2>&1" "registry.yaml"
+assert_contains "pakro settings get aqua.registries 2>&1" "file://"
+assert_contains "pakro settings get aqua.registries 2>&1" "registry.yaml"
 
 # Absolute URLs must pass through untouched.
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [settings]
 aqua.registries = ["https://github.com/aquaproj/aqua-registry"]
 EOF
 
-assert_contains "mise settings get aqua.registries 2>&1" "https://github.com/aquaproj/aqua-registry"
-assert_not_contains "mise settings get aqua.registries 2>&1" "file://"
+assert_contains "pakro settings get aqua.registries 2>&1" "https://github.com/aquaproj/aqua-registry"
+assert_not_contains "pakro settings get aqua.registries 2>&1" "file://"

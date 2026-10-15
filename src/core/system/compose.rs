@@ -256,7 +256,7 @@ pub fn apply_with_dry_run_actions(
         let action = apply_action(request, dry_run_actions, dry_run);
         match action {
             ResourceAction::Unknown => bail!(
-                "refusing unsafe change to bootstrap compose project '{}'; inspect `mise bootstrap plan`",
+                "refusing unsafe change to bootstrap compose project '{}'; inspect `pakro bootstrap plan`",
                 request.name
             ),
             ResourceAction::Noop => {}
@@ -272,7 +272,7 @@ pub fn apply_with_dry_run_actions(
     if dry_run {
         for request in changes {
             for argv in request.dry_run_action_argvs()? {
-                miseprintln!("would run {}", shell_words::join(argv));
+                pakroprintln!("would run {}", shell_words::join(argv));
             }
         }
         return Ok(());
@@ -1215,10 +1215,10 @@ mod tests {
         ComposeRequest::from_toml(
             "cache".to_string(),
             ComposeTomlConfig {
-                project_dir: std::env::temp_dir().join("mise-cache"),
+                project_dir: std::env::temp_dir().join("pakro-cache"),
                 files: vec![PathBuf::from("compose.yaml")],
                 env_files: vec![],
-                project_name: Some("mise-cache".to_string()),
+                project_name: Some("pakro-cache".to_string()),
                 profiles: vec![],
                 services: vec![],
                 oneshot: vec![],
@@ -1244,7 +1244,7 @@ mod tests {
 
     #[test]
     fn renders_template_values_before_validating_project_dir() {
-        let config_root = std::env::temp_dir().join("mise-compose-template");
+        let config_root = std::env::temp_dir().join("pakro-compose-template");
         let project: Templated<ComposeTomlConfig> = toml::from_str(
             r#"
             project_dir = "{{ config_root }}/compose"
@@ -1265,7 +1265,7 @@ mod tests {
         );
 
         let project = project
-            .render_with(&ctx, &config_root.join("mise.toml"))
+            .render_with(&ctx, &config_root.join("pakro.toml"))
             .unwrap();
         let request = ComposeRequest::from_toml("cache".to_string(), project).unwrap();
 
@@ -1501,7 +1501,7 @@ mod tests {
 
         assert_eq!(default_compose_command(), ["docker", "compose"]);
 
-        request.command = vec!["mise-compose-command-that-does-not-exist".to_string()];
+        request.command = vec!["pakro-compose-command-that-does-not-exist".to_string()];
         assert!(
             request
                 .dry_run_action_commands()

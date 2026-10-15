@@ -6,7 +6,7 @@
 # mtime reset to the restore time, making source mtimes appear newer than
 # output mtimes even though nothing has changed.
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [settings.task]
 source_freshness_hash_contents = true
 
@@ -19,22 +19,22 @@ EOF
 echo "hello" >src.txt
 
 # First run: no stored hash, no output → stale → runs
-assert "mise run -q build" "built"
+assert "pakro run -q build" "built"
 
 # Epoch timestamp (common for tarball-extracted files): without the fix the
 # epoch guard would force a rebuild; with it, hash match wins.
 TZ=UTC touch -t 197001010000 src.txt
-assert_empty "mise run -q build"
+assert_empty "pakro run -q build"
 
 # Simulate CI cache restore: same content, but mtime of src set to a future
 # date (newer than out.txt). With the fix, hash match wins; mtime is ignored.
 touch -t 203001010000 src.txt
-assert_empty "mise run -q build"
+assert_empty "pakro run -q build"
 
 # Changing content must still trigger a rebuild
 echo "changed" >src.txt
-assert "mise run -q build" "built"
+assert "pakro run -q build" "built"
 
 # Deleting outputs must trigger a rebuild even when content hash matches
 rm out.txt
-assert "mise run -q build" "built"
+assert "pakro run -q build" "built"

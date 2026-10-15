@@ -31,7 +31,7 @@ impl SelfUpdate {
         if let Some(instructions) = upgrade_instructions_text() {
             warn!("{}", instructions);
         }
-        eyre::bail!("mise's self-update feature has been disabled at build time, cannot update");
+        eyre::bail!("pakro's self-update feature has been disabled at build time, cannot update");
     }
     pub(crate) fn is_available() -> bool {
         false

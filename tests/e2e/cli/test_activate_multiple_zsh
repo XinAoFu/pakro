@@ -2,21 +2,21 @@
 # shellcheck disable=SC1071
 set -euo pipefail
 
-# Test that calling mise activate multiple times preserves user-added paths at the front
-# while properly handling mise paths (env._.path and tool installs)
+# Test that calling pakro activate multiple times preserves user-added paths at the front
+# while properly handling pakro paths (env._.path and tool installs)
 #
 # Expected behavior:
 # - Start: A
-# - mise activate: env_path:mise_tools:A
-# - add B: B:env_path:mise_tools:A
-# - mise activate + hook-env: B:env_path:mise_tools:A (user path B preserved at front)
-# - add C: C:B:env_path:mise_tools:A
-# - mise activate + hook-env: C:B:env_path:mise_tools:A (user paths C,B preserved at front)
-# - deactivate: C:B:A (mise_tools and env_path removed, user paths preserved)
+# - pakro activate: env_path:pakro_tools:A
+# - add B: B:env_path:pakro_tools:A
+# - pakro activate + hook-env: B:env_path:pakro_tools:A (user path B preserved at front)
+# - add C: C:B:env_path:pakro_tools:A
+# - pakro activate + hook-env: C:B:env_path:pakro_tools:A (user paths C,B preserved at front)
+# - deactivate: C:B:A (pakro_tools and env_path removed, user paths preserved)
 
-# Create a mise config with a tool, env._.path, and env.FOO
+# Create a pakro config with a tool, env._.path, and env.FOO
 mkdir -p custom_bin
-cat >.mise.toml <<EOF
+cat >.pakro.toml <<EOF
 [tools]
 tiny = "latest"
 
@@ -26,13 +26,13 @@ FOO = "bar"
 BAZ = "qux"
 EOF
 
-mise install
+pakro install
 
 # Save the original PATH for verification
 ORIGINAL_PATH="$PATH"
 
 # First activation
-eval "$(mise activate zsh --status)" && _mise_hook
+eval "$(pakro activate zsh --status)" && _pakro_hook
 
 # Verify env variables were set
 [[ $FOO == "bar" ]] || {
@@ -44,10 +44,10 @@ eval "$(mise activate zsh --status)" && _mise_hook
   exit 1
 }
 
-# Get the mise tool path - it should be somewhere in PATH
-MISE_TOOL_PATH=$(echo "$PATH" | tr ':' '\n' | grep "/mise/installs/tiny" | head -1)
-[[ $MISE_TOOL_PATH =~ "/mise/installs/tiny" ]] || {
-  echo "MISE_TOOL_PATH not found"
+# Get the pakro tool path - it should be somewhere in PATH
+PAKRO_TOOL_PATH=$(echo "$PATH" | tr ':' '\n' | grep "/pakro/installs/tiny" | head -1)
+[[ $PAKRO_TOOL_PATH =~ "/pakro/installs/tiny" ]] || {
+  echo "PAKRO_TOOL_PATH not found"
   exit 1
 }
 
@@ -58,7 +58,7 @@ MISE_TOOL_PATH=$(echo "$PATH" | tr ':' '\n' | grep "/mise/installs/tiny" | head 
 }
 
 # env._.path (custom_bin) should come BEFORE tool paths
-# (both are part of mise installs, so custom_bin is first in installs)
+# (both are part of pakro installs, so custom_bin is first in installs)
 PATH_BEFORE_ORIGINAL="${PATH%%:"${ORIGINAL_PATH}"*}"
 [[ $PATH_BEFORE_ORIGINAL =~ "custom_bin" ]] || {
   echo "custom_bin not before original PATH"
@@ -67,7 +67,7 @@ PATH_BEFORE_ORIGINAL="${PATH%%:"${ORIGINAL_PATH}"*}"
 
 # Tool path should come after custom_bin
 PATH_AFTER_CUSTOM="${PATH#*custom_bin:}"
-[[ $PATH_AFTER_CUSTOM =~ "/mise/installs/tiny" ]] || {
+[[ $PATH_AFTER_CUSTOM =~ "/pakro/installs/tiny" ]] || {
   echo "Tool path not after custom_bin"
   exit 1
 }
@@ -85,10 +85,10 @@ export PATH="/path_b:$PATH"
 # User modifies FOO
 export FOO="user_modified"
 
-# Second activation - user path preserved at front, mise paths follow
-eval "$(mise activate zsh --status)" && _mise_hook
+# Second activation - user path preserved at front, pakro paths follow
+eval "$(pakro activate zsh --status)" && _pakro_hook
 
-# FOO should be reset to "bar" by mise
+# FOO should be reset to "bar" by pakro
 [[ $FOO == "bar" ]] || {
   echo "FOO should be bar after reactivation, got: $FOO"
   exit 1
@@ -100,7 +100,7 @@ eval "$(mise activate zsh --status)" && _mise_hook
   exit 1
 }
 
-# Verify PATH structure: /path_b (user addition) should be first, then mise paths, then original
+# Verify PATH structure: /path_b (user addition) should be first, then pakro paths, then original
 FIRST_PATH=$(echo "$PATH" | cut -d: -f1)
 [[ $FIRST_PATH =~ "/path_b" ]] || {
   echo "First path should be /path_b, got: $FIRST_PATH"
@@ -110,7 +110,7 @@ FIRST_PATH=$(echo "$PATH" | cut -d: -f1)
   echo "custom_bin not in PATH"
   exit 1
 }
-[[ $PATH =~ "/mise/installs/tiny" ]] || {
+[[ $PATH =~ "/pakro/installs/tiny" ]] || {
   echo "Tool path not in PATH"
   exit 1
 }
@@ -133,10 +133,10 @@ PATH_COUNT=$(echo "$PATH" | tr ':' '\n' | sort | uniq -d | wc -l | tr -d ' ')
 # User adds path C
 export PATH="/path_c:$PATH"
 
-# Third activation - user paths preserved at front, mise paths follow
-eval "$(mise activate zsh --status)" && _mise_hook
+# Third activation - user paths preserved at front, pakro paths follow
+eval "$(pakro activate zsh --status)" && _pakro_hook
 
-# Verify user paths are first (C, B), then mise paths, then original
+# Verify user paths are first (C, B), then pakro paths, then original
 FIRST_PATH=$(echo "$PATH" | cut -d: -f1)
 [[ $FIRST_PATH =~ "/path_c" ]] || {
   echo "First path should be /path_c, got: $FIRST_PATH"
@@ -150,7 +150,7 @@ FIRST_PATH=$(echo "$PATH" | cut -d: -f1)
   echo "custom_bin not in PATH"
   exit 1
 }
-[[ $PATH =~ "/mise/installs/tiny" ]] || {
+[[ $PATH =~ "/pakro/installs/tiny" ]] || {
   echo "Tool path not in PATH"
   exit 1
 }
@@ -174,8 +174,8 @@ PATH_COUNT=$(echo "$PATH" | tr ':' '\n' | sort | uniq -d | wc -l | tr -d ' ')
   exit 1
 }
 
-# Test deactivation - unsets mise shell functions and variables
+# Test deactivation - unsets pakro shell functions and variables
 # (Comprehensive deactivation tests are in test_deactivate)
-mise deactivate
+pakro deactivate
 
 echo "All tests passed!"

@@ -8,7 +8,7 @@ pub(super) mod untap;
 /// Manage Homebrew taps used by bootstrap packages
 ///
 /// These commands edit `[bootstrap.brew.taps]` so tapped formulae and casks
-/// can be fetched directly by mise without a Homebrew installation.
+/// can be fetched directly by pakro without a Homebrew installation.
 #[derive(Debug, usage_rs::Args)]
 #[usage(verbatim_doc_comment)]
 pub(crate) struct SystemBrew {

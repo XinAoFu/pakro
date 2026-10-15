@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-mise i dummy@3 tiny@2
-mise use dummy@3
+pakro i dummy@3 tiny@2
+pakro use dummy@3
 
-assert "mise current" "dummy 3"
-assert "mise current dummy" "3"
-assert "mise current tiny" ""
+assert "pakro current" "dummy 3"
+assert "pakro current dummy" "3"
+assert "pakro current tiny" ""

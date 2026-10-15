@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
 
-eval "$(mise activate bash)" && eval "$(mise hook-env)"
-mise plugin install https://github.com/kachick/asdf-zigmod
-assert_contains "mise x zigmod@latest -- zigmod version" "zigmod"
+eval "$(pakro activate bash)" && eval "$(pakro hook-env)"
+pakro plugin install https://github.com/kachick/asdf-zigmod
+assert_contains "pakro x zigmod@latest -- zigmod version" "zigmod"

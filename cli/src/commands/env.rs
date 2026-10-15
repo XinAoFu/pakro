@@ -13,20 +13,20 @@ use indexmap::IndexSet;
 ///
 /// Evaluate the shell output to load tools and variables once, without installing
 /// prompt hooks. Changing directories afterward does not recompute this environment.
-/// Use `mise exec -- command` to apply it to one child process instead.
+/// Use `pakro exec -- command` to apply it to one child process instead.
 ///
 /// JSON, dotenv, and shell output contain actual variable values, including secrets.
 /// `--redacted` selects variables marked for redaction; it does not mask their values.
-/// Environment construction may install missing tools according to mise's settings.
+/// Environment construction may install missing tools according to pakro's settings.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     visible_alias = "e",
     verbatim_doc_comment,
     example(
-        r###"eval "$(mise env -s bash)"
-eval "$(mise env -s zsh)"
-mise env -s fish | source
-execx($(mise env -s xonsh))"###
+        r###"eval "$(pakro env -s bash)"
+eval "$(pakro env -s zsh)"
+pakro env -s fish | source
+execx($(pakro env -s xonsh))"###
     )
 )]
 pub(crate) struct Env {
@@ -127,7 +127,7 @@ impl Env {
             env.retain(|k, _| self.should_include_key(k, keys));
         }
 
-        miseprintln!("{}", serde_json::to_string_pretty(&env)?);
+        pakroprintln!("{}", serde_json::to_string_pretty(&env)?);
         Ok(())
     }
 
@@ -193,7 +193,7 @@ impl Env {
             res.retain(|k, _| self.should_include_key(k, keys));
         }
 
-        miseprintln!("{}", serde_json::to_string_pretty(&res)?);
+        pakroprintln!("{}", serde_json::to_string_pretty(&res)?);
         Ok(())
     }
 
@@ -213,12 +213,12 @@ impl Env {
         }
 
         for k in env_remove {
-            miseprint!("{}", shell.unset_env(&k))?;
+            pakroprint!("{}", shell.unset_env(&k))?;
         }
         for (k, v) in env {
             let k = k.to_string();
             let v = v.to_string();
-            miseprint!("{}", shell.set_env(&k, &v))?;
+            pakroprint!("{}", shell.set_env(&k, &v))?;
         }
         Ok(())
     }
@@ -235,7 +235,7 @@ impl Env {
         for (k, v) in env {
             let k = k.to_string();
             let v = v.to_string();
-            miseprint!("{}={}\n", k, v)?;
+            pakroprint!("{}={}\n", k, v)?;
         }
         Ok(())
     }
@@ -253,7 +253,7 @@ impl Env {
         }
 
         for (_, v) in env {
-            miseprintln!("{}", v);
+            pakroprintln!("{}", v);
         }
         Ok(())
     }
@@ -267,17 +267,17 @@ impl Env {
 
 /// The shell to emit for when there is nothing to detect from.
 ///
-/// Detection is `MISE_SHELL`, then `SHELL`. On unix that always resolves — an unset `SHELL` falls
+/// Detection is `PAKRO_SHELL`, then `SHELL`. On unix that always resolves — an unset `SHELL` falls
 /// back to `sh` — so this is reached only on Windows, where PowerShell and cmd set neither and the
-/// value mise would otherwise read, `COMSPEC`, names cmd.exe. mise has no cmd implementation, so
+/// value pakro would otherwise read, `COMSPEC`, names cmd.exe. pakro has no cmd implementation, so
 /// bash was being printed into a PowerShell session:
 ///
 /// ```console
-/// PS> mise env
+/// PS> pakro env
 /// export MY_PATH='C:\Users\me'
 /// ```
 ///
-/// pwsh is the only shell mise can emit for that a Windows user is likely to be in. It is not
+/// pwsh is the only shell pakro can emit for that a Windows user is likely to be in. It is not
 /// right for a cmd user, but neither was bash, and there is no third answer available.
 fn fallback_shell() -> ShellType {
     match cfg!(windows) {

@@ -5,12 +5,12 @@ if [[ "$(uname -s)" != "Linux" ]]; then
   exit 0
 fi
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [settings.erlang]
 compile = false
 EOF
 
-if output="$(MISE_FRIENDLY_ERROR=1 RUST_BACKTRACE=0 ImageOS=nobara-43 mise install erlang@28.5 2>&1)"; then
+if output="$(PAKRO_FRIENDLY_ERROR=1 RUST_BACKTRACE=0 ImageOS=nobara-43 pakro install erlang@28.5 2>&1)"; then
   fail "expected erlang install to fail when precompiled binaries are unavailable"
 fi
 
@@ -20,10 +20,10 @@ fi
 [[ $output != *"build-install"* ]] ||
   fail "erlang.compile=false should not fall back to kerl build-install: $output"
 
-export MISE_LOCKFILE=1
+export PAKRO_LOCKFILE=1
 detect_platform
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tools]
 erlang = "28.5"
 
@@ -32,12 +32,12 @@ compile = false
 precompiled_os = "ubuntu-22.04"
 EOF
 
-mise lock --platform "$MISE_PLATFORM"
-assert_contains "cat mise.lock" 'precompiled_os = "ubuntu-22.04"'
-assert_matches "cat mise.lock" 'url = "https://builds\.hex\.pm/builds/otp/(amd64|arm64)/ubuntu-22\.04/OTP-28\.5\.tar\.gz"'
+pakro lock --platform "$PAKRO_PLATFORM"
+assert_contains "cat pakro.lock" 'precompiled_os = "ubuntu-22.04"'
+assert_matches "cat pakro.lock" 'url = "https://builds\.hex\.pm/builds/otp/(amd64|arm64)/ubuntu-22\.04/OTP-28\.5\.tar\.gz"'
 
-rm -f mise.lock
-sed -i 's/ubuntu-22\.04/ubuntu-26.04/' mise.toml
-mise lock --platform "$MISE_PLATFORM"
-assert_contains "cat mise.lock" 'precompiled_os = "ubuntu-26.04"'
-assert_matches "cat mise.lock" 'url = "https://builds\.hex\.pm/builds/otp/(amd64|arm64)/ubuntu-26\.04/OTP-28\.5\.tar\.gz"'
+rm -f pakro.lock
+sed -i 's/ubuntu-22\.04/ubuntu-26.04/' pakro.toml
+pakro lock --platform "$PAKRO_PLATFORM"
+assert_contains "cat pakro.lock" 'precompiled_os = "ubuntu-26.04"'
+assert_matches "cat pakro.lock" 'url = "https://builds\.hex\.pm/builds/otp/(amd64|arm64)/ubuntu-26\.04/OTP-28\.5\.tar\.gz"'

@@ -44,7 +44,7 @@ exec "$@"
 EOF
 chmod +x bin/strace
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [settings]
 experimental = true
 
@@ -64,7 +64,7 @@ printf 'declared\n' >pkg/input.txt
 printf 'workspace source\n' >shared.txt
 printf 'undeclared\n' >pkg/secret.txt
 
-output=$(PATH="$PWD/bin:$PATH" mise run --force build 2>&1)
+output=$(PATH="$PWD/bin:$PATH" pakro run --force build 2>&1)
 assert_contains "echo \"$output\"" "cache audit detected undeclared read: secret.txt"
 assert_contains "echo \"$output\"" "cache audit detected undeclared write: leak.txt"
 assert_not_contains "echo \"$output\"" "undeclared read: input.txt"
@@ -73,4 +73,4 @@ assert_not_contains "echo \"$output\"" "undeclared write: dist/result.txt"
 
 # Audit mode is advisory: successful tasks still publish cache entries.
 rm -rf pkg/dist pkg/leak.txt
-assert_contains "PATH=\"$PWD/bin:$PATH\" mise run build 2>&1" "restored outputs from cache"
+assert_contains "PATH=\"$PWD/bin:$PATH\" pakro run build 2>&1" "restored outputs from cache"

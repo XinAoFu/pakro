@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export MISE_TRUSTED_CONFIG_PATHS=""
+export PAKRO_TRUSTED_CONFIG_PATHS=""
 unset CI GITHUB_ACTIONS GITHUB_ACTION
 
 contains_trust_warning() {
@@ -14,14 +14,14 @@ run_hook_env() {
   local stderr_file="$2"
   : >"$stdout_file"
   : >"$stderr_file"
-  mise hook-env -s bash >"$stdout_file" 2>"$stderr_file" || true
+  pakro hook-env -s bash >"$stdout_file" 2>"$stderr_file" || true
   # Apply the marker exported by hook-env so the next prompt in this shell can
   # suppress the same warning without trusting or ignoring the config.
   eval "$(cat "$stdout_file")"
 }
 
 mkdir -p project
-cat >project/.mise.toml <<'EOF'
+cat >project/.pakro.toml <<'EOF'
 [env]
 FOO = "bar"
 
@@ -75,7 +75,7 @@ if contains_trust_warning "$second_stderr"; then
 fi
 
 sleep 1
-echo "# changed" >>.mise.toml
+echo "# changed" >>.pakro.toml
 
 run_hook_env "$changed_stdout" "$changed_stderr"
 if ! contains_trust_warning "$changed_stderr"; then
@@ -104,7 +104,7 @@ fi
 # [settings] quiet/log_level, since settings are applied before the trust check.
 cd ..
 mkdir -p quiet-project
-cat >quiet-project/.mise.toml <<'EOF'
+cat >quiet-project/.pakro.toml <<'EOF'
 [settings]
 quiet = true
 
@@ -120,13 +120,13 @@ if ! contains_trust_warning "$quiet_stderr"; then
 fi
 cd ../project
 
-if ! MISE_YES=0 mise run make 2>"$explicit_stderr" >/dev/null; then
-  echo "expected explicit mise run to trust the active config"
+if ! PAKRO_YES=0 pakro run make 2>"$explicit_stderr" >/dev/null; then
+  echo "expected explicit pakro run to trust the active config"
   cat "$explicit_stderr"
   exit 1
 fi
 if contains_trust_warning "$explicit_stderr"; then
-  echo "expected explicit mise run not to report an untrusted config"
+  echo "expected explicit pakro run not to report an untrusted config"
   cat "$explicit_stderr"
   exit 1
 fi

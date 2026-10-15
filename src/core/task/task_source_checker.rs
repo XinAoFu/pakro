@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use walkdir::{DirEntry, Error as WalkError, WalkDir};
 
-/// Remove mise's automatic output before rerunning a task so an earlier
+/// Remove pakro's automatic output before rerunning a task so an earlier
 /// success cannot make a failed attempt look fresh.
 pub(crate) async fn remove_auto_output(task: &Task, config: &Arc<Config>) -> Result<()> {
     if !task.outputs.is_auto() {
@@ -693,7 +693,7 @@ async fn collect_source_metadatas(
     //
     // config.project_root cannot be used directly: BTreeMap iterates by
     // lexicographic path order, so a subproject config may be returned
-    // before the workspace root config (mise.toml) even though
+    // before the workspace root config (pakro.toml) even though
     // the workspace root has a shorter path.
     let match_root_owned = task_source_match_root(&root, config);
     let match_root = match_root_owned.as_path();
@@ -701,7 +701,7 @@ async fn collect_source_metadatas(
     let glob_patterns = source_glob_patterns(&task.sources);
     let mut source_metadatas = get_file_metadatas(&root, &glob_patterns, &matcher)?;
     // Always include every file that contributed to the task definition,
-    // regardless of excludes — a stray `!mise.toml` must not silently
+    // regardless of excludes — a stray `!pakro.toml` must not silently
     // disable invalidation.
     for config_source in task.config_sources() {
         let config_path = if config_source.is_absolute() {
@@ -1043,7 +1043,7 @@ fn sources_hash_path(task: &Task, root: &Path, content_hash: bool) -> PathBuf {
 }
 
 /// Path of the marker recording that this task's work is done. Its mtime is
-/// the baseline for "changed since mise last considered this task up to date":
+/// the baseline for "changed since pakro last considered this task up to date":
 /// `save_checksum` writes it after a successful run, and `sources_are_fresh`
 /// writes it when a freshness check finds there is nothing to do. A *failed*
 /// run advances neither, so its sources stay outstanding until it passes.
@@ -1995,13 +1995,13 @@ mod tests {
         let root = Path::new("/project");
         let mut task = Task {
             name: "build".to_string(),
-            config_source: PathBuf::from(".mise/tasks/build"),
+            config_source: PathBuf::from(".pakro/tasks/build"),
             ..Default::default()
         };
         let primary_key = task_state_key(&task, root);
 
         task.additional_config_sources
-            .push(PathBuf::from("mise.toml"));
+            .push(PathBuf::from("pakro.toml"));
 
         assert_ne!(primary_key, task_state_key(&task, root));
     }
@@ -2012,7 +2012,7 @@ mod tests {
         let root = Path::new("/project");
         let mut task = Task {
             name: "build".to_string(),
-            config_source: PathBuf::from("mise.toml"),
+            config_source: PathBuf::from("pakro.toml"),
             run: vec![RunEntry::Script("echo v1".to_string())],
             ..Default::default()
         };
@@ -2026,7 +2026,7 @@ mod tests {
         let root = Path::new("/project");
         let mut task = Task {
             name: "build".to_string(),
-            config_source: PathBuf::from("mise.toml"),
+            config_source: PathBuf::from("pakro.toml"),
             sources: vec!["src.txt".to_string()],
             ..Default::default()
         };

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 env.BAR = "bar"
 tasks.a = "echo {{ env.BAR }}"
 EOF
-assert "mise run a" "bar"
+assert "pakro run a" "bar"
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 env.BAR = "a"
 tasks.a = "echo a"
 tasks.b.depends = ["{{ env.BAR }}"]
 EOF
-assert "mise run b" "a"
+assert "pakro run b" "a"

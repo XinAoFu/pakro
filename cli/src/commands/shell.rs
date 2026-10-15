@@ -10,16 +10,16 @@ use crate::toolset::{InstallOptions, ToolSource, ToolsetBuilder, tool_env_var_na
 
 /// Set a tool version for the current shell session
 ///
-/// Only works in a session where mise is already activated.
+/// Only works in a session where pakro is already activated.
 ///
 /// This works by setting environment variables for the current shell session
-/// such as `MISE_NODE_VERSION=20` which is "eval"ed as a shell function created by `mise activate`.
+/// such as `PAKRO_NODE_VERSION=20` which is "eval"ed as a shell function created by `pakro activate`.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
     visible_alias = "sh",
     example(
-        r###"mise shell node@20
+        r###"pakro shell node@20
 node -v
 v20.0.0"###
     )
@@ -32,7 +32,7 @@ pub(crate) struct Shell {
     /// Number of jobs to run in parallel
     /// Values below 1 are treated as 1
     /// Defaults to the `jobs` setting
-    #[usage(long, short, env = "MISE_JOBS", verbatim_doc_comment)]
+    #[usage(long, short, env = "PAKRO_JOBS", verbatim_doc_comment)]
     jobs: Option<usize>,
 
     /// Remove a previously set version
@@ -54,13 +54,13 @@ impl Shell {
 
         let shell = require_shell(
             None,
-            &format!("Re-run `mise activate {EXAMPLE_SHELL}` in your shell rc file."),
+            &format!("Re-run `pakro activate {EXAMPLE_SHELL}` in your shell rc file."),
         )?;
 
         if self.unset {
             for ta in &self.tool {
                 let op = shell.unset_env(&tool_env_var_name(&ta.ba.short));
-                miseprint!("{op}")?;
+                pakroprint!("{op}")?;
             }
             return Ok(());
         }
@@ -68,7 +68,7 @@ impl Shell {
         for ta in &self.tool {
             if ta.tvr.is_none() {
                 bail!(
-                    "no version specified for tool {tool}\nuse `mise shell {tool}@VERSION` to set a version",
+                    "no version specified for tool {tool}\nuse `pakro shell {tool}@VERSION` to set a version",
                     tool = ta.ba.short,
                 );
             }
@@ -92,7 +92,7 @@ impl Shell {
             if matches!(source, ToolSource::Argument) {
                 let k = tool_env_var_name(p.id());
                 let op = shell.set_env(&k, &tv.version);
-                miseprint!("{op}")?;
+                pakroprint!("{op}")?;
             }
         }
 
@@ -103,9 +103,9 @@ impl Shell {
 fn err_inactive() -> Result<()> {
     Err(eyre!(formatdoc!(
         r#"
-                mise is not activated in this shell session.
+                pakro is not activated in this shell session.
                 Please run `{}` first in your shell rc file.
                 "#,
-        style("mise activate").yellow()
+        style("pakro activate").yellow()
     )))
 }

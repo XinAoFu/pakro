@@ -72,8 +72,8 @@ impl AsdfPlugin {
             let env = [
                 ("ASDF_PLUGIN_PREV_REF", pre.clone()),
                 ("ASDF_PLUGIN_POST_REF", post.clone()),
-                ("MISE_PLUGIN_PREV_REF", pre),
-                ("MISE_PLUGIN_POST_REF", post),
+                ("PAKRO_PLUGIN_PREV_REF", pre),
+                ("PAKRO_PLUGIN_POST_REF", post),
             ]
             .into_iter()
             .map(|(k, v)| (k.into(), v.into()))
@@ -448,7 +448,7 @@ impl Plugin for AsdfPlugin {
     fn external_commands(&self) -> eyre::Result<Vec<super::ExternalCommand>> {
         let command_path = self.plugin_path.join("lib/commands");
         if !self.is_installed() || !command_path.exists() || self.name == "direnv" {
-            // asdf-direnv is disabled since it conflicts with mise's built-in direnv functionality
+            // asdf-direnv is disabled since it conflicts with pakro's built-in direnv functionality
             return Ok(vec![]);
         }
         let mut commands = vec![];
@@ -499,9 +499,9 @@ fn build_script_man(name: &str, plugin_path: &Path) -> ScriptManager {
     let token = env::GITHUB_TOKEN.as_deref().unwrap_or("");
     ScriptManager::new(plugin_path.to_path_buf())
         .with_env("ASDF_PLUGIN_PATH", plugin_path_s)
-        .with_env("MISE_PLUGIN_NAME", name.to_string())
-        .with_env("MISE_PLUGIN_PATH", plugin_path)
-        .with_env("MISE_SHIMS_DIR", dirs::shims())
+        .with_env("PAKRO_PLUGIN_NAME", name.to_string())
+        .with_env("PAKRO_PLUGIN_PATH", plugin_path)
+        .with_env("PAKRO_SHIMS_DIR", dirs::shims())
         .with_env("GITHUB_TOKEN", token)
         // asdf plugins often use GITHUB_API_TOKEN as the env var for GitHub API token
         .with_env("GITHUB_API_TOKEN", token)

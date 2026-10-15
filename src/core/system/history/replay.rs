@@ -31,7 +31,7 @@ use super::tracked::{
 };
 use crate::file::{self, display_path};
 use crate::ui::prompt;
-use crate::ui::table::MiseTable;
+use crate::ui::table::PakroTable;
 
 /// How many times the protective capture is retaken when files keep
 /// changing while the plan is verified.
@@ -135,7 +135,7 @@ pub async fn rollback(req: RollbackRequest) -> Result<()> {
     for path in &paths {
         if tracked.entry_for(path).is_none() {
             bail!(
-                "{} is not tracked; `mise dot paths` lists what is",
+                "{} is not tracked; `pakro dot paths` lists what is",
                 display_path(path)
             );
         }
@@ -517,7 +517,7 @@ async fn apply_steps(
         let changed = actionable(&fresh) != actionable(steps);
         if changed {
             *steps = fresh.clone();
-            miseprintln!("history: the working tree changed since the plan was shown:");
+            pakroprintln!("history: the working tree changed since the plan was shown:");
             print_plan(steps, exec, tracked)?;
             if steps
                 .iter()
@@ -1360,7 +1360,7 @@ fn classify(checkpoint: &Checkpoint, display: &str) -> PathState {
 /// user sees the difference: `Omitted` carries the record's own
 /// explanation for a path the checkpoint deliberately left out — most
 /// often a repository it skipped, which is an explanation a user can act
-/// on — while `Unevaluable` means this mise cannot interpret the record
+/// on — while `Unevaluable` means this pakro cannot interpret the record
 /// at all, because a newer matcher wrote it or a rule in it cannot be
 /// read. Either way the answer to a question that cannot be answered is
 /// never "delete this file".
@@ -1463,7 +1463,7 @@ pub(crate) fn classify_coverage(coverage: &super::store::Coverage, display: &str
 }
 
 fn print_plan(steps: &[Step], exec: &Execution, tracked: &TrackedSet) -> Result<()> {
-    let mut table = MiseTable::new(false, &["Path", "Action", "From", "To"]);
+    let mut table = PakroTable::new(false, &["Path", "Action", "From", "To"]);
     for step in steps {
         if matches!(step.action, Action::Unchanged) {
             continue;
@@ -1492,7 +1492,7 @@ fn print_plan(steps: &[Step], exec: &Execution, tracked: &TrackedSet) -> Result<
         .count();
     table.print()?;
     if unchanged > 0 {
-        miseprintln!("  {unchanged} path(s) already match");
+        pakroprintln!("  {unchanged} path(s) already match");
     }
     // a directory being replaced or removed takes files no checkpoint holds
     // with it: said before the plan is accepted, not after
@@ -1505,7 +1505,7 @@ fn print_plan(steps: &[Step], exec: &Execution, tracked: &TrackedSet) -> Result<
         }
         let inside = directory_contents(&step.path, steps, tracked)?;
         if !inside.uncovered.is_empty() {
-            miseprintln!(
+            pakroprintln!(
                 "  {} contains files history does not cover; they are removed with it and cannot be undone: {}",
                 display_path(&step.path),
                 inside
@@ -1518,7 +1518,7 @@ fn print_plan(steps: &[Step], exec: &Execution, tracked: &TrackedSet) -> Result<
         }
     }
     if exec.dry_run {
-        miseprintln!("history: dry run; nothing was changed");
+        pakroprintln!("history: dry run; nothing was changed");
     }
     Ok(())
 }
@@ -1625,7 +1625,7 @@ fn refuse_unusable(entry: &Entry) -> Result<()> {
     }
     if entry.checkpoint.schema_version > super::store::SCHEMA_VERSION {
         bail!(
-            "checkpoint {} was written by a newer mise (schema {})",
+            "checkpoint {} was written by a newer pakro (schema {})",
             entry.id,
             entry.checkpoint.schema_version
         );
@@ -1882,7 +1882,7 @@ pub fn run_reload(reload: &IndexMap<String, String>, touched: &[PathBuf]) {
 
 /// The form [`run_reload`] matches a written path in: a symlinked `$HOME`
 /// resolved like the globs' home, the rest kept as written so a file behind a
-/// directory link mise itself created still matches a glob under the link.
+/// directory link pakro itself created still matches a glob under the link.
 pub fn reload_path(path: &Path) -> PathBuf {
     match path.strip_prefix(*crate::dirs::HOME) {
         Ok(rest) => normalize(&crate::dirs::HOME).join(rest),
@@ -1903,7 +1903,7 @@ fn config_hint(touched: &[PathBuf]) {
         .collect();
     if !config_files.is_empty() {
         info!(
-            "history: {} changed; declarations may differ from the applied setup — run `mise bootstrap --dry-run` to see",
+            "history: {} changed; declarations may differ from the applied setup — run `pakro bootstrap --dry-run` to see",
             config_files.join(", ")
         );
     }

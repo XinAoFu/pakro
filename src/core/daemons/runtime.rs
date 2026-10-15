@@ -17,7 +17,7 @@ use tokio::process::Command;
 /// How to give one checkout a port of its own. A `[daemons.<name>]` declared in a
 /// higher-precedence file replaces the whole daemon, so the other keys are
 /// repeated there.
-const PIN_A_PORT: &str = "declare the daemon again in a gitignored mise.local.toml with a fixed `port = <n>`, or with `port = { auto = true, base = <n> }` to move its range. That declaration replaces the whole daemon, so repeat its other keys.";
+const PIN_A_PORT: &str = "declare the daemon again in a gitignored pakro.local.toml with a fixed `port = <n>`, or with `port = { auto = true, base = <n> }` to move its range. That declaration replaces the whole daemon, so repeat its other keys.";
 
 /// Whether something already listens on this loopback port, on either family.
 /// Binding is what a daemon would do next, so a failure to bind is the same
@@ -109,11 +109,11 @@ fn config_add_takes_label(usage: &str) -> bool {
         })
 }
 
-/// What mise knows about one project's daemons, as written beside them.
+/// What pakro knows about one project's daemons, as written beside them.
 ///
 /// Every field defaults, so a state file written by another version still
 /// parses. The alternative is that adding a field turns every existing
-/// `state.json` into something `mise daemons prune` cannot read, and therefore
+/// `state.json` into something `pakro daemons prune` cannot read, and therefore
 /// into data nothing will ever clean up. What the missing fields cost is
 /// bounded: an empty root is never selected for removal, and an empty id list
 /// only means there is nothing to stop.
@@ -139,7 +139,7 @@ pub struct State {
     #[serde(default)]
     pub ports_scan: String,
     /// The project hostname label this registration wants pitchfork to serve.
-    /// Empty when mise could not name the project.
+    /// Empty when pakro could not name the project.
     #[serde(default)]
     pub label: String,
     /// Whether that label was actually passed to `pitchfork config add`. Only a
@@ -153,7 +153,7 @@ pub struct State {
     /// wanted, or the executable could not be examined.
     #[serde(default)]
     pub label_unsupported_by: String,
-    /// The registry still holds a label mise no longer wants, and removing it
+    /// The registry still holds a label pakro no longer wants, and removing it
     /// was postponed because the project's daemons are running. `config remove`
     /// would orphan them, so it waits for a later registration that finds them
     /// stopped; until then the unchanged fast path must not be taken.
@@ -231,7 +231,7 @@ pub fn read_state(root: &Path) -> Result<State> {
 /// port. Discarding its claim would hide that port from every other project's
 /// scan, and the next project to resolve it would be told the port is free. A
 /// claim is dropped only when the daemon is still declared and no longer has a
-/// port mise resolves, since nothing manages one for it any more. Stale entries
+/// port pakro resolves, since nothing manages one for it any more. Stale entries
 /// cost nothing because a conflict is only reported once the daemon holding the
 /// port answers as running.
 fn carry_port_claims(
@@ -253,7 +253,7 @@ fn carry_port_claims(
 
 /// The subset of a project's claims belonging to daemons this operation will
 /// launch. Registration covers the whole project, so checking every claim would
-/// let one project's Postgres on 5432 block `mise daemons start redis`, which
+/// let one project's Postgres on 5432 block `pakro daemons start redis`, which
 /// never binds that port.
 fn ports_being_started(
     ports: &BTreeMap<String, PortClaim>,
@@ -337,7 +337,7 @@ pub(crate) async fn toolset_resolved(
     };
     // Resolve from what is on disk. `install_missing_versions` re-resolves the
     // specific requests it has to fetch, so an already-satisfied project costs
-    // no network round trip -- which matters when this runs on every `mise run`
+    // no network round trip -- which matters when this runs on every `pakro run`
     // of a task that requires daemons.
     ToolsetBuilder::new()
         .with_args(&args)
@@ -450,7 +450,7 @@ impl Runtime {
         .or_else(|| fallback.filter(|p| p.is_file()).map(Path::to_path_buf))
         .ok_or_else(|| {
             eyre::eyre!(
-                "daemons require pitchfork; run `mise use pitchfork` or `mise daemons start`"
+                "daemons require pitchfork; run `pakro use pitchfork` or `pakro daemons start`"
             )
         })?;
         Ok(Self { bin, env })
@@ -512,7 +512,7 @@ impl Runtime {
         let schema = self.output(root, &["schema".into()]).await?;
         if !serde_json::from_str(&schema).is_ok_and(|schema| schema_accepts_argv_run(&schema)) {
             bail!(
-                "daemon {daemon} runs a task, which needs pitchfork 2.28.0 or later; upgrade pitchfork, for example with `mise use pitchfork@latest`"
+                "daemon {daemon} runs a task, which needs pitchfork 2.28.0 or later; upgrade pitchfork, for example with `pakro use pitchfork@latest`"
             );
         }
         Ok(())
@@ -574,7 +574,7 @@ impl Runtime {
     /// `starting` names the daemons this operation will actually launch. Only
     /// their ports are checked: registration covers every daemon in the project,
     /// so checking all of them would let one project's Postgres on 5432 block
-    /// `mise daemons start redis`, which never binds that port.
+    /// `pakro daemons start redis`, which never binds that port.
     async fn check_port_conflicts(
         &self,
         root: &Path,
@@ -668,7 +668,7 @@ impl Runtime {
         let profile = if root.starts_with(crate::dirs::STATE.join("daemon-providers")) {
             vec![]
         } else {
-            crate::env::MISE_ENV.clone()
+            crate::env::PAKRO_ENV.clone()
         };
         if !previous.namespace.is_empty()
             && previous.profile != profile
@@ -679,12 +679,12 @@ impl Runtime {
             // than refusing, so an importer is refused too, and told why.
             if owns_profile {
                 bail!(
-                    "another daemon profile is active for {}; stop its daemons and leave its shell sessions before switching MISE_ENV",
+                    "another daemon profile is active for {}; stop its daemons and leave its shell sessions before switching PAKRO_ENV",
                     root.display()
                 );
             }
             bail!(
-                "{} has daemons running under MISE_ENV {:?}, and this project would register it under {:?}; stop them, or match that profile, before starting a daemon imported from it",
+                "{} has daemons running under PAKRO_ENV {:?}, and this project would register it under {:?}; stop them, or match that profile, before starting a daemon imported from it",
                 root.display(),
                 previous.profile.join(","),
                 profile.join(",")
@@ -709,7 +709,7 @@ impl Runtime {
         // would hide that port from every other project's scan, and the next
         // project to resolve it would be told the port is free. A claim is
         // dropped only when the daemon is still declared and no longer has a
-        // port mise resolves, since nothing manages one for it any more. Stale
+        // port pakro resolves, since nothing manages one for it any more. Stale
         // entries cost nothing because a conflict is only reported once the
         // daemon holding the port answers as running.
         let ports = carry_port_claims(&previous.ports, set);
@@ -717,7 +717,7 @@ impl Runtime {
             // Canonical, like the directory this state lives in: recording an
             // alias against a directory named for its target leaves a record
             // that cannot be tied back to the path that created it, which is
-            // what `mise daemons prune` needs before it deletes anything.
+            // what `pakro daemons prune` needs before it deletes anything.
             root: root.canonicalize().unwrap_or_else(|_| root.to_path_buf()),
             profile,
             namespace: desired,
@@ -797,7 +797,7 @@ impl Runtime {
             && std::fs::read(&file).ok().as_deref() == Some(content.as_bytes())
         {
             // Profile and executable ownership may change without affecting the
-            // rendered daemon configuration (for example with mise = false).
+            // rendered daemon configuration (for example with pakro = false).
             state.label_registered = previous.label_registered;
             state.label_unsupported_by = previous.label_unsupported_by.clone();
             write_if_changed(
@@ -870,7 +870,7 @@ impl Runtime {
 
     /// Run pitchfork with the terminal, so its own output reaches the user.
     ///
-    /// A failing command has therefore already said why, in its own words. mise
+    /// A failing command has therefore already said why, in its own words. pakro
     /// keeps its status and adds nothing: the error it would otherwise raise
     /// reads `pitchfork exited with non-zero status`, then the version and a
     /// pointer to `--verbose`, none of which the user can act on.
@@ -897,8 +897,8 @@ impl Runtime {
     /// `ids` are the daemons to check when the start fails: the ones `args` names
     /// and the dependencies pitchfork starts with them. `ports` are the claims this
     /// project recorded. Pitchfork reports a busy port in its own words, which
-    /// cannot know that mise chose the number and that it can be pinned
-    /// somewhere else, so mise adds that once pitchfork has said its part.
+    /// cannot know that pakro chose the number and that it can be pinned
+    /// somewhere else, so pakro adds that once pitchfork has said its part.
     pub async fn start(
         &self,
         root: &Path,
@@ -1004,11 +1004,11 @@ fn plan_label(stale: bool, removing: bool, running: bool) -> LabelPlan {
     }
 }
 
-/// The hostname label mise advertises for a project, empty when it has none.
+/// The hostname label pakro advertises for a project, empty when it has none.
 ///
 /// Pitchfork treats a registered namespace as the project's hostname label, and
 /// the default namespace is a hash that keeps unrelated checkouts apart. Left
-/// to itself it would serve `web.shop-528f92b13a6784f0.localhost` while mise
+/// to itself it would serve `web.shop-528f92b13a6784f0.localhost` while pakro
 /// prints and exports `web.shop.localhost`, so the registration says what the
 /// label is.
 fn project_label(set: &DaemonSet, root: &Path) -> String {
@@ -1087,14 +1087,14 @@ pub fn namespace(root: &Path) -> Result<String> {
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("-");
-    let base = if base.is_empty() { "mise" } else { &base };
+    let base = if base.is_empty() { "pakro" } else { &base };
     Ok(format!("{base}-{}", crate::hash::hash_to_str(&root)))
 }
 
 pub(crate) fn render(set: &DaemonSet, state: &State) -> Result<String> {
     let mut daemons = toml::Table::new();
     let mut header =
-        String::from("# Generated by mise; edit [daemons] in the source configuration.\n");
+        String::from("# Generated by pakro; edit [daemons] in the source configuration.\n");
     // Hostname routing is what an older supervisor silently lacks: it starts
     // the daemons either way, so the only symptom is a URL that never
     // resolves. Say which release understands these keys.
@@ -1121,25 +1121,25 @@ pub(crate) fn render(set: &DaemonSet, state: &State) -> Result<String> {
                 toml::Value::Array(vec![binding.provider.id().into()]),
             );
         }
-        // Pitchfork wraps the main process in mise, but runs readiness probes
+        // Pitchfork wraps the main process in pakro, but runs readiness probes
         // directly. Resolve custom probes in this checkout too: the supervisor
         // may have inherited another worktree's tools and endpoint variables.
         // Preset and task probes already carry their own environment wrapper.
         if cfg!(unix)
             && daemon.preset.is_none()
             && daemon.task.is_none()
-            && table.get("mise").and_then(toml::Value::as_bool) != Some(false)
+            && table.get("pakro").and_then(toml::Value::as_bool) != Some(false)
         {
             super::presets::wrap_probe_commands(&mut table);
         }
-        // Ensure mise sees the profile that generated this definition, even at
-        // boot. A task-backed daemon runs mise itself rather than being wrapped
-        // in `mise x`, so it needs the profile even though it sets mise = false;
+        // Ensure pakro sees the profile that generated this definition, even at
+        // boot. A task-backed daemon runs pakro itself rather than being wrapped
+        // in `pakro x`, so it needs the profile even though it sets pakro = false;
         // without it a supervisor restart would resolve the task against the
         // default configuration.
         if !state.profile.is_empty()
             && (daemon.task.is_some()
-                || table.get("mise").and_then(toml::Value::as_bool) != Some(false))
+                || table.get("pakro").and_then(toml::Value::as_bool) != Some(false))
         {
             let env = table
                 .entry("env".to_string())
@@ -1147,7 +1147,7 @@ pub(crate) fn render(set: &DaemonSet, state: &State) -> Result<String> {
                 .as_table_mut()
                 .ok_or_else(|| eyre::eyre!("daemon env must be a table"))?;
             env.insert(
-                "MISE_ENV".into(),
+                "PAKRO_ENV".into(),
                 toml::Value::String(state.profile.join(",")),
             );
         }
@@ -1181,8 +1181,8 @@ pub(crate) fn render(set: &DaemonSet, state: &State) -> Result<String> {
         toml::Value::Table(toml::Table::from_iter([(
             "general".into(),
             toml::Value::Table(toml::Table::from_iter([(
-                "mise_bin".into(),
-                toml::Value::String(crate::env::MISE_BIN.to_string_lossy().into_owned()),
+                "pakro_bin".into(),
+                toml::Value::String(crate::env::PAKRO_BIN.to_string_lossy().into_owned()),
             )])),
         )])),
     );
@@ -1218,7 +1218,7 @@ pub async fn validate_tools(set: &DaemonSet, config: &Arc<Config>, ts: &Toolset)
         let requested = ToolRequest::new(
             ba.into(),
             version,
-            ToolSource::MiseTomlDaemon(daemon.source.clone()),
+            ToolSource::PakroTomlDaemon(daemon.source.clone()),
         )?
         .resolve(
             config,
@@ -1312,7 +1312,7 @@ mod tests {
     }
 
     /// A failing pitchfork has already explained itself on the terminal, so the
-    /// error mise raises is only the status it exits with. A signal has no
+    /// error pakro raises is only the status it exits with. A signal has no
     /// status to hand on and stays an ordinary error.
     #[cfg(unix)]
     #[tokio::test]
@@ -1453,7 +1453,7 @@ cmd config help="Attach externally generated configuration to a project." {
             &wanted,
             ""
         ));
-        // A project mise cannot name never has a label to retry.
+        // A project pakro cannot name never has a label to retry.
         let unnamed = label_state("", false, "");
         assert!(label_is_current(
             &unnamed,
@@ -1841,7 +1841,7 @@ cmd config help="Attach externally generated configuration to a project." {
     fn a_removed_daemon_keeps_its_claim_while_it_may_still_run() {
         let with_port = |name: &str, port: u16| super::super::Daemon {
             name: name.to_string(),
-            source: PathBuf::from("/project/mise.toml"),
+            source: PathBuf::from("/project/pakro.toml"),
             root: PathBuf::from("/project"),
             table: toml::Table::new(),
             preset: None,
@@ -1873,7 +1873,7 @@ cmd config help="Attach externally generated configuration to a project." {
         let moved = carry_port_claims(&previous, &set(vec![with_port("redis", 6400)]));
         assert_eq!(moved["redis"].port, 6400);
 
-        // Still declared but no longer holding a mise-resolved port: nothing
+        // Still declared but no longer holding a pakro-resolved port: nothing
         // manages one for it, so the stale claim goes.
         let mut bare = with_port("redis", 0);
         bare.port = None;
@@ -1980,7 +1980,7 @@ cmd config help="Attach externally generated configuration to a project." {
         std::fs::create_dir_all(&root).unwrap();
         let daemon = |name: &str, proxy: toml::Value, host: Option<&str>| super::super::Daemon {
             name: name.to_string(),
-            source: root.join("mise.toml"),
+            source: root.join("pakro.toml"),
             root: root.clone(),
             table: toml::Table::from_iter([
                 ("run".into(), toml::Value::String(format!("run {name}"))),
@@ -2025,7 +2025,7 @@ cmd config help="Attach externally generated configuration to a project." {
         let rendered = render(&set, &state).unwrap();
         // Both keys reach pitchfork verbatim, so it routes each daemon and
         // handles TLS the way the declaration asked. The hostname itself is
-        // pitchfork's to derive; mise only supplies the label.
+        // pitchfork's to derive; pakro only supplies the label.
         let parsed: toml::Table = toml::from_str(&rendered).unwrap();
         assert_eq!(parsed["daemons"]["api"]["proxy"].as_str(), Some("front"));
         assert_eq!(
@@ -2057,7 +2057,7 @@ cmd config help="Attach externally generated configuration to a project." {
     fn groups_render_with_qualified_daemon_ids() {
         let daemon = |name: &str| super::super::Daemon {
             name: name.to_string(),
-            source: PathBuf::from("/project/mise.toml"),
+            source: PathBuf::from("/project/pakro.toml"),
             root: PathBuf::from("/project"),
             table: toml::Table::from_iter([(
                 "run".into(),
@@ -2080,7 +2080,7 @@ cmd config help="Attach externally generated configuration to a project." {
                 .collect(),
             groups: vec![super::super::Group {
                 name: "web".into(),
-                source: PathBuf::from("/project/mise.toml"),
+                source: PathBuf::from("/project/pakro.toml"),
                 root: PathBuf::from("/project"),
                 members: vec!["api".into(), "worker".into()],
                 daemons: vec!["api".into(), "worker".into()],
@@ -2116,14 +2116,14 @@ cmd config help="Attach externally generated configuration to a project." {
     }
 
     #[test]
-    fn task_daemons_carry_the_profile_despite_opting_out_of_mise() {
-        let daemon = |task: Option<&str>, mise: bool| super::super::Daemon {
+    fn task_daemons_carry_the_profile_despite_opting_out_of_pakro() {
+        let daemon = |task: Option<&str>, pakro: bool| super::super::Daemon {
             name: "core".into(),
-            source: PathBuf::from("/project/mise.toml"),
+            source: PathBuf::from("/project/pakro.toml"),
             root: PathBuf::from("/project"),
             table: toml::Table::from_iter([
                 ("run".into(), toml::Value::String("server".into())),
-                ("mise".into(), toml::Value::Boolean(mise)),
+                ("pakro".into(), toml::Value::Boolean(pakro)),
             ]),
             preset: None,
             data_dir: None,
@@ -2149,12 +2149,12 @@ cmd config help="Attach externally generated configuration to a project." {
             )
             .unwrap()
         };
-        // A task daemon runs mise itself, so it needs the profile that resolved
+        // A task daemon runs pakro itself, so it needs the profile that resolved
         // the task even though pitchfork is told not to wrap it.
-        assert!(rendered(daemon(Some("dev"), false)).contains("MISE_ENV = \"dev\""));
-        // A daemon that is not mise at all still opts out.
-        assert!(!rendered(daemon(None, false)).contains("MISE_ENV"));
-        assert!(rendered(daemon(None, true)).contains("MISE_ENV = \"dev\""));
+        assert!(rendered(daemon(Some("dev"), false)).contains("PAKRO_ENV = \"dev\""));
+        // A daemon that is not pakro at all still opts out.
+        assert!(!rendered(daemon(None, false)).contains("PAKRO_ENV"));
+        assert!(rendered(daemon(None, true)).contains("PAKRO_ENV = \"dev\""));
     }
 
     #[test]

@@ -23,8 +23,8 @@ use std::sync::Arc;
 /// Run the Model Context Protocol server over stdin/stdout
 ///
 /// Exposes project tools, tasks, environment, and configuration to an MCP client.
-/// Resources use `mise://tools`, `mise://tasks`, `mise://env`, and `mise://config`.
-/// `mise://tools?include_inactive=true` also includes inactive installations.
+/// Resources use `pakro://tools`, `pakro://tasks`, `pakro://env`, and `pakro://config`.
+/// `pakro://tools?include_inactive=true` also includes inactive installations.
 ///
 /// The `list_commands` tool describes commands and their declared effects. `run_task`
 /// executes project tasks with the user's permissions and can change files or invoke
@@ -32,15 +32,15 @@ use std::sync::Arc;
 /// Environment resources contain real values, including secrets.
 ///
 /// Resources available:
-/// - mise://tools - List all tools (use ?include_inactive=true to include inactive tools)
-/// - mise://tasks - List all tasks with their configurations
-/// - mise://env - List all environment variables
-/// - mise://config - Show configuration files and project root
+/// - pakro://tools - List all tools (use ?include_inactive=true to include inactive tools)
+/// - pakro://tasks - List all tasks with their configurations
+/// - pakro://env - List all environment variables
+/// - pakro://config - Show configuration files and project root
 ///
 /// Tools available:
-/// - list_commands - Every mise command, with its declared effect on the world
+/// - list_commands - Every pakro command, with its declared effect on the world
 /// - install_tool - Install a tool with an optional version (not yet implemented)
-/// - run_task - Execute a mise task with optional arguments
+/// - run_task - Execute a pakro task with optional arguments
 ///
 /// Note: This is primarily intended for integration with AI assistants like Claude,
 /// Cursor, or other tools that support the Model Context Protocol.
@@ -49,16 +49,16 @@ use std::sync::Arc;
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise -C /path/to/project mcp"###,
+        r###"pakro -C /path/to/project mcp"###,
         help = r###"Start from the project directory; an MCP client handles the protocol exchange"###
     )
 )]
 pub(crate) struct Mcp {}
 
 #[derive(Clone)]
-struct MiseServer {
+struct PakroServer {
     tool_router: ToolRouter<Self>,
-    /// mise's own usage spec, built once. Deriving it walks the whole clap
+    /// pakro's own usage spec, built once. Deriving it walks the whole clap
     /// command tree, which is not work to repeat per request.
     spec: Arc<usage::Spec>,
 }
@@ -74,7 +74,7 @@ struct InstallToolParams {
     version: Option<String>,
 }
 
-/// Parameters for listing mise's commands
+/// Parameters for listing pakro's commands
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 struct ListCommandsParams {
@@ -83,7 +83,7 @@ struct ListCommandsParams {
     include_hidden: bool,
 }
 
-/// Parameters for running a mise task
+/// Parameters for running a pakro task
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 struct RunTaskParams {
@@ -106,7 +106,7 @@ fn json_result(value: Value) -> std::result::Result<CallToolResult, ErrorData> {
 }
 
 #[tool_router]
-impl MiseServer {
+impl PakroServer {
     fn new() -> Self {
         Self {
             tool_router: Self::tool_router(),
@@ -114,9 +114,9 @@ impl MiseServer {
         }
     }
 
-    /// Every mise command, with what running it does to the world
+    /// Every pakro command, with what running it does to the world
     #[tool(
-        description = "Every mise command, with what running it does: `read` only inspects state, `write` changes it, `destructive` removes something that is work to get back. A command with no effect listed is unclassified — treat it as needing confirmation, not as safe. Call this before running an unfamiliar mise command."
+        description = "Every pakro command, with what running it does: `read` only inspects state, `write` changes it, `destructive` removes something that is work to get back. A command with no effect listed is unclassified — treat it as needing confirmation, not as safe. Call this before running an unfamiliar pakro command."
     )]
     async fn list_commands(
         &self,
@@ -149,7 +149,7 @@ impl MiseServer {
 
         let mut commands = vec![];
         walk(&self.spec.cmd, &mut vec![], include_hidden, &mut commands);
-        json_result(json!({ "bin": "mise", "commands": commands }))
+        json_result(json!({ "bin": "pakro", "commands": commands }))
     }
 
     /// Install a tool with an optional version
@@ -163,8 +163,8 @@ impl MiseServer {
         )]))
     }
 
-    /// Execute a mise task with optional arguments
-    #[tool(description = "Execute a mise task with optional arguments")]
+    /// Execute a pakro task with optional arguments
+    #[tool(description = "Execute a pakro task with optional arguments")]
     async fn run_task(
         &self,
         Parameters(RunTaskParams { task, args }): Parameters<RunTaskParams>,
@@ -187,7 +187,7 @@ impl MiseServer {
         command
             .args(&cmd_args)
             .env("NO_COLOR", "1")
-            .env("MISE_YES", "1")
+            .env("PAKRO_YES", "1")
             .kill_on_drop(true)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
@@ -195,7 +195,7 @@ impl MiseServer {
         prepare_noninteractive_child(command.as_std_mut());
         let child = command.spawn().map_err(|e| ErrorData {
             code: ErrorCode::INTERNAL_ERROR,
-            message: Cow::Owned(format!("Failed to spawn mise run: {e}")),
+            message: Cow::Owned(format!("Failed to spawn pakro run: {e}")),
             data: None,
         })?;
         let _running_pid = RunningPidGuard::new(child.id());
@@ -212,7 +212,7 @@ impl MiseServer {
         }
         .map_err(|e| ErrorData {
             code: ErrorCode::INTERNAL_ERROR,
-            message: Cow::Owned(format!("Failed to execute mise run: {e}")),
+            message: Cow::Owned(format!("Failed to execute pakro run: {e}")),
             data: None,
         })?;
 
@@ -242,7 +242,7 @@ impl MiseServer {
     }
 }
 
-impl ServerHandler for MiseServer {
+impl ServerHandler for PakroServer {
     fn get_info(&self) -> ServerConfig {
         let capabilities = ServerCapabilities::builder()
             .enable_resources()
@@ -250,10 +250,10 @@ impl ServerHandler for MiseServer {
             .build();
         ServerConfig::new(capabilities)
             .with_protocol_version(ProtocolVersion::V_2025_03_26)
-            .with_server_info(Implementation::new("mise", env!("CARGO_PKG_VERSION")))
+            .with_server_info(Implementation::new("pakro", env!("CARGO_PKG_VERSION")))
             .with_instructions(
-                "Mise MCP server provides access to tools, tasks, environment variables, and \
-                 configuration. Call list_commands before running an unfamiliar mise command: \
+                "Pakro MCP server provides access to tools, tasks, environment variables, and \
+                 configuration. Call list_commands before running an unfamiliar pakro command: \
                  every command declares its effect on the world (`read`, `write`, \
                  `destructive`), and a command with no effect listed is unclassified rather \
                  than safe.",
@@ -266,10 +266,10 @@ impl ServerHandler for MiseServer {
         _context: RequestContext<RoleServer>,
     ) -> std::result::Result<ListResourcesResult, ErrorData> {
         let resources = vec![
-            Resource::new("mise://tools", "Installed Tools"),
-            Resource::new("mise://tasks", "Available Tasks"),
-            Resource::new("mise://env", "Environment Variables"),
-            Resource::new("mise://config", "Configuration"),
+            Resource::new("pakro://tools", "Installed Tools"),
+            Resource::new("pakro://tasks", "Available Tasks"),
+            Resource::new("pakro://env", "Environment Variables"),
+            Resource::new("pakro://config", "Configuration"),
         ];
 
         Ok(ListResourcesResult::with_all_items(resources))
@@ -281,7 +281,7 @@ impl ServerHandler for MiseServer {
         _context: RequestContext<RoleServer>,
     ) -> std::result::Result<ReadResourceResponse, ErrorData> {
         // Parse URI to extract query parameters
-        // Example: mise://tools?include_inactive=true
+        // Example: pakro://tools?include_inactive=true
         let url = url::Url::parse(&params.uri).map_err(|e| ErrorData {
             code: ErrorCode::INVALID_REQUEST,
             message: Cow::Owned(format!("Invalid URI: {e}")),
@@ -295,9 +295,9 @@ impl ServerHandler for MiseServer {
             .any(|(key, value)| key == "include_inactive" && value == "true");
 
         match (url.scheme(), url.host_str()) {
-            ("mise", Some("tools")) => {
+            ("pakro", Some("tools")) => {
                 // Return tool information
-                // By default only shows active tools (those in current .mise.toml)
+                // By default only shows active tools (those in current .pakro.toml)
                 // With ?include_inactive=true, shows all installed tools
                 let config = Config::get().await.map_err(|e| ErrorData {
                     code: ErrorCode::INTERNAL_ERROR,
@@ -374,7 +374,7 @@ impl ServerHandler for MiseServer {
 
                 Ok(ReadResourceResult::new(contents).into())
             }
-            ("mise", Some("tasks")) => {
+            ("pakro", Some("tasks")) => {
                 let config = Config::get().await.map_err(|e| ErrorData {
                     code: ErrorCode::INTERNAL_ERROR,
                     message: Cow::Owned(format!("Failed to load config: {e}")),
@@ -428,7 +428,7 @@ impl ServerHandler for MiseServer {
 
                 Ok(ReadResourceResult::new(contents).into())
             }
-            ("mise", Some("env")) => {
+            ("pakro", Some("env")) => {
                 let config = Config::get().await.map_err(|e| ErrorData {
                     code: ErrorCode::INTERNAL_ERROR,
                     message: Cow::Owned(format!("Failed to load config: {e}")),
@@ -456,7 +456,7 @@ impl ServerHandler for MiseServer {
 
                 Ok(ReadResourceResult::new(contents).into())
             }
-            ("mise", Some("config")) => {
+            ("pakro", Some("config")) => {
                 let config = Config::get().await.map_err(|e| ErrorData {
                     code: ErrorCode::INTERNAL_ERROR,
                     message: Cow::Owned(format!("Failed to load config: {e}")),
@@ -507,9 +507,9 @@ impl ServerHandler for MiseServer {
 
 impl Mcp {
     pub(crate) async fn run(self) -> Result<()> {
-        eprintln!("Starting mise MCP server...");
+        eprintln!("Starting pakro MCP server...");
 
-        let server = MiseServer::new();
+        let server = PakroServer::new();
 
         // Create stdio transport and serve
         let service = server
@@ -527,7 +527,7 @@ impl Mcp {
     }
 }
 
-/// `task` is handed to `mise run` as an argument, so a leading dash would be
+/// `task` is handed to `pakro run` as an argument, so a leading dash would be
 /// parsed as a flag (`--raw`, `--cd=...`) instead of naming a task.
 fn validate_task_name(task: &str) -> std::result::Result<(), ErrorData> {
     let message = if task.is_empty() {
@@ -569,7 +569,7 @@ mod tests {
 
     /// The text of every command row `list_commands` returns.
     async fn commands(include_hidden: bool) -> Vec<Value> {
-        let res = MiseServer::new()
+        let res = PakroServer::new()
             .list_commands(Parameters(ListCommandsParams { include_hidden }))
             .await
             .unwrap();
@@ -637,7 +637,7 @@ mod tests {
     async fn nothing_is_unclassified_by_accident() {
         // command_effects tests its own table, but nothing there proves the
         // classification survives into what an agent is actually served. A
-        // missing effect reads as "unknown, ask" — fine for `mise run`, whose
+        // missing effect reads as "unknown, ask" — fine for `pakro run`, whose
         // effect really is whatever the task does, and a silent gap for
         // anything else.
         let deliberate: std::collections::HashSet<_> = crate::cli::command_effects::UNCLASSIFIED
@@ -658,11 +658,11 @@ mod tests {
     }
 
     #[test]
-    fn server_info_identifies_mise() {
+    fn server_info_identifies_pakro() {
         // rmcp defaults server_info to its own crate name/version, which would
         // make every MCP client see the server as "rmcp".
-        let info = MiseServer::new().get_info();
-        assert_eq!(info.server_info.name, "mise");
+        let info = PakroServer::new().get_info();
+        assert_eq!(info.server_info.name, "pakro");
         assert_eq!(info.server_info.version, env!("CARGO_PKG_VERSION"));
     }
 }

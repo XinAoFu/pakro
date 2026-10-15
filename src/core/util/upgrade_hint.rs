@@ -1,4 +1,4 @@
-//! What to tell a user whose mise is out of date: run `mise self-update`, or
+//! What to tell a user whose pakro is out of date: run `pakro self-update`, or
 //! follow the instructions the packager shipped.
 
 use std::collections::BTreeMap;
@@ -7,20 +7,8 @@ use std::path::PathBuf;
 
 use crate::env;
 
-/// Whether `mise self-update` can update this install. Packagers turn it off
-/// with a marker file, an instructions file or `MISE_SELF_UPDATE_AVAILABLE`,
-/// and a build without the `self_update` feature never has it.
-#[cfg(feature = "self_update")]
-pub fn self_update_available() -> bool {
-    if let Some(b) = *env::MISE_SELF_UPDATE_AVAILABLE {
-        return b;
-    }
-    let has_disable = env::MISE_SELF_UPDATE_DISABLED_PATH.is_some();
-    let has_instructions = env::MISE_SELF_UPDATE_INSTRUCTIONS.is_some();
-    !(has_disable || has_instructions)
-}
-
-#[cfg(not(feature = "self_update"))]
+/// pakro has no published release identity yet. Neither a feature flag nor an
+/// environment override can authorize replacing it with an upstream binary.
 pub fn self_update_available() -> bool {
     false
 }
@@ -45,7 +33,7 @@ fn read_instructions_file(path: &PathBuf) -> Option<String> {
 }
 
 pub fn upgrade_instructions_text() -> Option<String> {
-    if let Some(path) = &*env::MISE_SELF_UPDATE_INSTRUCTIONS
+    if let Some(path) = &*env::PAKRO_SELF_UPDATE_INSTRUCTIONS
         && let Some(msg) = read_instructions_file(path)
     {
         return Some(msg);
@@ -53,17 +41,13 @@ pub fn upgrade_instructions_text() -> Option<String> {
     None
 }
 
-/// Shown when mise cannot update itself and the packager shipped no instructions
-/// file. Without it, telling the user their mise is out of date is a dead end on
-/// every install that disables self-update: a marker file (Homebrew, the AUR
-/// `mise-bin` package), a build without the `self_update` feature (Arch, or a
-/// local `--no-default-features` build), or `MISE_SELF_UPDATE_AVAILABLE=false`.
-/// The wording stays neutral about which of those applies — being unable to
-/// self-update is not by itself proof that a package manager owns the install.
+/// Shown when pakro cannot update itself and the packager shipped no instructions
+/// file. Local builds and package-manager installs need to follow their own
+/// update method until pakro publishes verified release artifacts.
 pub(crate) const SELF_UPDATE_DISABLED_HINT: &str =
-    "self-update is disabled for this install, update mise the same way you installed it";
+    "pakro release updates are not configured; update pakro the same way you installed it";
 
-/// How to update mise when `mise self-update` is not available: the packager's
+/// How to update pakro when `pakro self-update` is not available: the packager's
 /// instructions when they shipped some, otherwise the generic hint.
 pub fn upgrade_instructions_or_hint() -> String {
     upgrade_instructions_text().unwrap_or_else(|| SELF_UPDATE_DISABLED_HINT.to_string())
@@ -72,7 +56,7 @@ pub fn upgrade_instructions_or_hint() -> String {
 /// Appends self-update guidance and packaging instructions (if any) to a message.
 pub(crate) fn append_self_update_instructions(mut message: String) -> String {
     if self_update_available() {
-        message.push_str("\nRun `mise self-update` to update mise");
+        message.push_str("\nRun `pakro self-update` to update pakro");
     }
     if let Some(instructions) = upgrade_instructions_text() {
         message.push('\n');

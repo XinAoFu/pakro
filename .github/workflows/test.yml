@@ -3,7 +3,7 @@ name: test
 on:
   push:
     tags: ["v*"]
-    branches: ["main", "mise", "release"]
+    branches: ["main", "pakro", "release"]
   pull_request:
     # Stacked PRs need the same platform checks before their base reaches main.
     branches: ["main", "codex/**"]
@@ -12,16 +12,16 @@ on:
     secrets:
       FORGEJO_TOKEN:
         required: false
-      MISE_GH_TOKEN:
+      PAKRO_GH_TOKEN:
         required: false
-      MISE_VERSIONS_API_SECRET:
+      PAKRO_VERSIONS_API_SECRET:
         required: false
 
 permissions: {}
 
 jobs:
   trusted:
-    if: ${{ (github.actor == 'jdx' || github.actor == 'mise-en-dev') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.user.login == 'jdx' || github.event.pull_request.user.login == 'mise-en-dev'))) }}
+    if: ${{ vars.PAKRO_ENABLE_TRUSTED_RUNNERS == 'true' && github.actor == github.repository_owner && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == github.repository_owner)) }}
     permissions:
       contents: read
     uses: $/.github/workflows/test-impl.yml
@@ -29,11 +29,11 @@ jobs:
       trusted: true
     secrets:
       FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
-      MISE_GH_TOKEN: ${{ secrets.MISE_GH_TOKEN }}
-      MISE_VERSIONS_API_SECRET: ${{ secrets.MISE_VERSIONS_API_SECRET }}
+      PAKRO_GH_TOKEN: ${{ secrets.PAKRO_GH_TOKEN }}
+      PAKRO_VERSIONS_API_SECRET: ${{ secrets.PAKRO_VERSIONS_API_SECRET }}
 
   untrusted:
-    if: ${{ (github.actor != 'jdx' && github.actor != 'mise-en-dev') || (github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name != github.repository || (github.event.pull_request.user.login != 'jdx' && github.event.pull_request.user.login != 'mise-en-dev'))) }}
+    if: ${{ vars.PAKRO_ENABLE_TRUSTED_RUNNERS != 'true' || github.actor != github.repository_owner || (github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login != github.repository_owner)) }}
     permissions:
       contents: read
     uses: $/.github/workflows/test-impl.yml

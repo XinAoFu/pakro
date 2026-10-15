@@ -30,7 +30,7 @@ impl PacmanManager {
     fn refresh(&self, opts: &InstallOpts) -> Result<()> {
         let args = vec!["-Sy".to_string()];
         if opts.dry_run {
-            miseprintln!("{}", sudo::argv("pacman", &args).join(" "));
+            pakroprintln!("{}", sudo::argv("pacman", &args).join(" "));
             return Ok(());
         }
         sudo::run("pacman", &args, &[])
@@ -509,7 +509,7 @@ impl SystemPackageManager for PacmanManager {
         ];
         args.extend(pkgs.iter().map(|p| p.name.clone()));
         if opts.dry_run {
-            miseprintln!("{}", sudo::argv("pacman", &args).join(" "));
+            pakroprintln!("{}", sudo::argv("pacman", &args).join(" "));
             return Ok(());
         }
         sudo::run("pacman", &args, &[])
@@ -526,7 +526,7 @@ impl SystemPackageManager for PacmanManager {
         let names = concrete_remove_names(pkgs).await?;
         let args = remove_args(&names);
         if opts.dry_run {
-            miseprintln!("{}", sudo::argv("pacman", &args).join(" "));
+            pakroprintln!("{}", sudo::argv("pacman", &args).join(" "));
             return Ok(());
         }
         sudo::run("pacman", &args, &[])
@@ -565,7 +565,7 @@ impl SystemPackageManager for PacmanManager {
         ];
         args.extend(pkgs.iter().map(|p| p.name.clone()));
         if opts.dry_run {
-            miseprintln!("{}", sudo::argv("pacman", &args).join(" "));
+            pakroprintln!("{}", sudo::argv("pacman", &args).join(" "));
             return Ok(());
         }
         sudo::run("pacman", &args, &[])

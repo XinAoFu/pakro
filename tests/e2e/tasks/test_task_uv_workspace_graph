@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 monorepo_root = true
 EOF
 
@@ -54,13 +54,13 @@ version = "0.1.0"
 EOF
 done
 
-assert_contains "mise tasks graph" "uv:app"
-assert_contains "mise tasks graph" "packages/app"
-assert_contains "mise tasks graph" '"workspace_source":"pyproject.toml"'
-assert_contains "mise tasks graph --explain" "Project: uv:app"
-assert_contains "mise tasks graph --explain" "uv:shared-lib — uv (packages/app/pyproject.toml)"
+assert_contains "pakro tasks graph" "uv:app"
+assert_contains "pakro tasks graph" "packages/app"
+assert_contains "pakro tasks graph" '"workspace_source":"pyproject.toml"'
+assert_contains "pakro tasks graph --explain" "Project: uv:app"
+assert_contains "pakro tasks graph --explain" "uv:shared-lib — uv (packages/app/pyproject.toml)"
 
-assert_json "mise tasks graph --json | jq '.projects | map({id, root, dependencies})'" '[
+assert_json "pakro tasks graph --json | jq '.projects | map({id, root, dependencies})'" '[
   {
     "id": "uv:app",
     "root": "packages/app",
@@ -92,7 +92,7 @@ assert_json "mise tasks graph --json | jq '.projects | map({id, root, dependenci
   }
 ]'
 
-assert_json "mise tasks graph --json | jq '.projects[] | select(.id == \"uv:app\") | {
+assert_json "pakro tasks graph --json | jq '.projects[] | select(.id == \"uv:app\") | {
   project: .provenance,
   dependency: .dependency_provenance[\"uv:local-helper\"]
 }'" '{

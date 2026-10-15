@@ -18,7 +18,7 @@ use crate::dirs;
 use crate::file;
 
 fn get_encryption_key() -> Option<[u8; 32]> {
-    std::env::var("__MISE_ENV_CACHE_KEY").ok().and_then(|s| {
+    std::env::var("__PAKRO_ENV_CACHE_KEY").ok().and_then(|s| {
         let bytes = BASE64_STANDARD.decode(&s).ok()?;
         bytes.try_into().ok()
     })
@@ -102,8 +102,8 @@ pub struct CachedEnv {
     pub watch_files: Vec<PathBuf>,
     /// mtimes of watch files at cache creation time
     pub watch_file_mtimes: Vec<u64>,
-    /// mise version when cache was created
-    pub mise_version: String,
+    /// pakro version when cache was created
+    pub pakro_version: String,
     /// SHA256 of the original cache key inputs (for debugging)
     pub cache_key_debug: String,
 }
@@ -136,8 +136,8 @@ pub(crate) struct CachedNonToolEnv {
     pub watch_file_mtimes: Vec<u64>,
     /// Time when the cache was created
     pub created_at: u64,
-    /// mise version when cache was created
-    pub mise_version: String,
+    /// pakro version when cache was created
+    pub pakro_version: String,
     /// SHA256 of the original cache key inputs (for debugging)
     pub cache_key_debug: String,
 }
@@ -161,7 +161,7 @@ impl CachedEnv {
         // Bump when CachedEnv gains fields whose absence changes behavior.
         hasher.update(b"env-cache-v2");
 
-        // mise version
+        // pakro version
         hasher.update(env!("CARGO_PKG_VERSION").as_bytes());
 
         // config files and their mtimes
@@ -202,7 +202,7 @@ impl CachedEnv {
 
     /// Ensures an encryption key exists, returns one if not set
     pub fn ensure_encryption_key() -> String {
-        std::env::var("__MISE_ENV_CACHE_KEY").unwrap_or_else(|_| Self::generate_encryption_key())
+        std::env::var("__PAKRO_ENV_CACHE_KEY").unwrap_or_else(|_| Self::generate_encryption_key())
     }
 
     /// Loads a cached environment from disk
@@ -244,11 +244,11 @@ impl CachedEnv {
             }
         };
 
-        // Validate mise version
-        if cached.mise_version != env!("CARGO_PKG_VERSION") {
+        // Validate pakro version
+        if cached.pakro_version != env!("CARGO_PKG_VERSION") {
             debug!(
-                "env_cache: mise version mismatch (cached: {}, current: {})",
-                cached.mise_version,
+                "env_cache: pakro version mismatch (cached: {}, current: {})",
+                cached.pakro_version,
                 env!("CARGO_PKG_VERSION")
             );
             let _ = file::remove_file(&cache_file);
@@ -334,7 +334,7 @@ impl CachedNonToolEnv {
         // scope to non-tool env cache
         hasher.update(b"non-tool-env");
 
-        // mise version
+        // pakro version
         hasher.update(env!("CARGO_PKG_VERSION").as_bytes());
 
         // config files and their mtimes
@@ -391,11 +391,11 @@ impl CachedNonToolEnv {
             }
         };
 
-        // Validate mise version
-        if cached.mise_version != env!("CARGO_PKG_VERSION") {
+        // Validate pakro version
+        if cached.pakro_version != env!("CARGO_PKG_VERSION") {
             debug!(
-                "env_cache: mise version mismatch (cached: {}, current: {})",
-                cached.mise_version,
+                "env_cache: pakro version mismatch (cached: {}, current: {})",
+                cached.pakro_version,
                 env!("CARGO_PKG_VERSION")
             );
             let _ = file::remove_file(&cache_file);
@@ -497,7 +497,10 @@ mod tests {
 
     #[test]
     fn test_cache_key_computation() {
-        let config_files = vec![(PathBuf::from("/home/user/project/mise.toml"), 1234567890u64)];
+        let config_files = vec![(
+            PathBuf::from("/home/user/project/pakro.toml"),
+            1234567890u64,
+        )];
         let tool_versions = vec![("node".to_string(), "20.0.0".to_string())];
         let settings_hash = "abc123";
         let base_path = "/usr/bin:/bin";
@@ -521,8 +524,10 @@ mod tests {
         assert_eq!(key1, key2);
 
         // Different mtime should produce different key
-        let config_files_changed =
-            vec![(PathBuf::from("/home/user/project/mise.toml"), 1234567891u64)];
+        let config_files_changed = vec![(
+            PathBuf::from("/home/user/project/pakro.toml"),
+            1234567891u64,
+        )];
         let key3 = CachedEnv::compute_cache_key(
             &config_files_changed,
             &tool_versions,

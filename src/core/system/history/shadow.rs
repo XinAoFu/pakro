@@ -1,11 +1,11 @@
-//! The bare repository mise owns under `$MISE_STATE_DIR/history/repo.git`.
+//! The bare repository pakro owns under `$PAKRO_STATE_DIR/history/repo.git`.
 //!
 //! Tracked-file versions form ordinary parented commits on the local branch.
 //! The files are the commit tree itself, not a snapshot wrapper. Boundary
 //! metadata is recorded in a commit-message trailer, never a recovery tree.
 //!
 //! Files are captured as raw blobs under a scratch index from literal
-//! pathspecs mise's own walker produced: the root's `.gitignore` is bypassed
+//! pathspecs pakro's own walker produced: the root's `.gitignore` is bypassed
 //! on purpose (an ignored file is often exactly the secret a rollback must
 //! restore), git never indexes a `.git` component so the user's own
 //! repositories are untouched, and nested repositories become gitlinks
@@ -176,7 +176,7 @@ impl ScratchIndex {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         sweep_scratch_indexes(dir);
         let path = dir.join(format!(
-            "mise-index-{}-{purpose}-{}",
+            "pakro-index-{}-{purpose}-{}",
             scratch_nonce(),
             NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
@@ -244,7 +244,7 @@ fn sweep_scratch_indexes(dir: &Path) {
     let mut indexes: BTreeSet<String> = BTreeSet::new();
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if !name.starts_with("mise-index-") {
+        if !name.starts_with("pakro-index-") {
             continue;
         }
         // an index and its adjuncts belong to one composition
@@ -305,14 +305,14 @@ fn encryption_cache_key(dir: &Path) -> Result<[u8; 32]> {
 
 impl HistoryRepo {
     pub(crate) const HISTORY_REF: &'static str = "refs/heads/main";
-    const MATCHER_TRAILER: &'static str = "Mise-History-Matcher: ";
-    const RECORD_TRAILER: &'static str = "Mise-History: ";
+    const MATCHER_TRAILER: &'static str = "Pakro-History-Matcher: ";
+    const RECORD_TRAILER: &'static str = "Pakro-History: ";
     pub fn path_in(state_dir: &Path) -> PathBuf {
         repo_dir_in(state_dir)
     }
 
     /// Opens the repository, creating it on first use. `Ok(None)` means no
-    /// git binary mise is willing to run is available.
+    /// git binary pakro is willing to run is available.
     pub(crate) fn open_or_init_in(state_dir: &Path) -> Result<Option<Self>> {
         if crate::git::plumbing_binary().is_none() {
             return Ok(None);
@@ -330,7 +330,7 @@ impl HistoryRepo {
         };
         if !repo.list_refs("refs/checkpoints/")?.is_empty() {
             bail!(
-                "this store uses the old unreleased checkpoint format; use a separate MISE_STATE_DIR for the new history format; existing data has not been changed"
+                "this store uses the old unreleased checkpoint format; use a separate PAKRO_STATE_DIR for the new history format; existing data has not been changed"
             );
         }
         Ok(Some(repo))
@@ -440,7 +440,7 @@ impl HistoryRepo {
                 let oid = match cached {
                     Some(entry)
                         if self
-                            .blob_starts_with(&entry.oid, b"mise-encrypted-file-v1\n")
+                            .blob_starts_with(&entry.oid, b"pakro-encrypted-file-v1\n")
                             .unwrap_or(false) =>
                     {
                         entry.oid.clone()
@@ -668,7 +668,7 @@ impl HistoryRepo {
             serde_json::to_string(&record)?
         );
         // A separate trailer preserves compatibility with older clients,
-        // whose Mise-History JSON record rejects unknown fields.
+        // whose Pakro-History JSON record rejects unknown fields.
         if let Some(matcher) = checkpoint.tree.coverage.matcher {
             message.push_str(&format!("\n{}{matcher}", Self::MATCHER_TRAILER));
         }
@@ -766,7 +766,7 @@ impl HistoryRepo {
                 name: "git".into(),
             },
             created_at: String::new(),
-            mise_version: String::new(),
+            pakro_version: String::new(),
             trigger: super::store::Trigger::Edit,
             description: String::new(),
             description_source: super::store::DescriptionSource::User,
@@ -826,7 +826,7 @@ impl HistoryRepo {
             .map(|commit| commit.tree())
             .transpose()?;
         for change in Self::gix_changes(&repo, parent_tree.as_ref(), &tree)? {
-            if change.path.starts_with(".mise-history/") {
+            if change.path.starts_with(".pakro-history/") {
                 continue;
             }
             let path = super::tracked::tree_path_to_display(&change.path);
@@ -1214,7 +1214,7 @@ impl HistoryRepo {
             (b, opts.paths.as_ref().map(|p| p.1.as_str())),
         ] {
             for entry in self.ls_tree(tree)? {
-                if entry.path.starts_with(".mise-history/") {
+                if entry.path.starts_with(".pakro-history/") {
                     continue;
                 }
                 if let Some(prefix) = prefix {
@@ -1668,7 +1668,7 @@ impl HistoryRepo {
         self.git.network_output(PlumbingCall::new(args))
     }
 
-    const ANNOTATION_TRAILER: &'static str = "Mise-Annotation: ";
+    const ANNOTATION_TRAILER: &'static str = "Pakro-Annotation: ";
 
     /// An annotation is an empty ordinary child commit, so labels and
     /// descriptions travel with the same ancestry without rewriting it.
@@ -2371,7 +2371,7 @@ mod tests {
         assert!(
             repo.cat_object(&encrypted)
                 .unwrap()
-                .starts_with(b"mise-encrypted-file-v1\n")
+                .starts_with(b"pakro-encrypted-file-v1\n")
         );
         let plaintext_oid = repo
             .output_str(PlumbingCall::new(["hash-object", "--stdin"]).stdin(plaintext))
@@ -2627,7 +2627,7 @@ mod tests {
             .unwrap()
             .flatten()
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
-            .filter(|name| name.starts_with("mise-index-"))
+            .filter(|name| name.starts_with("pakro-index-"))
             .collect();
         assert!(
             left.is_empty(),
@@ -2639,10 +2639,10 @@ mod tests {
     fn abandoned_scratch_indexes_are_swept_and_live_ones_are_kept() {
         let dir = tempfile::tempdir().unwrap();
         let other = "00000000000000000000000000000001";
-        let live = format!("mise-index-{other}-compose-0");
-        let dead = format!("mise-index-{other}-compose-1");
-        let unowned = format!("mise-index-{other}-compose-2");
-        let starting = format!("mise-index-{other}-compose-3");
+        let live = format!("pakro-index-{other}-compose-0");
+        let dead = format!("pakro-index-{other}-compose-1");
+        let unowned = format!("pakro-index-{other}-compose-2");
+        let starting = format!("pakro-index-{other}-compose-3");
         let unrelated = "packed-refs".to_string();
         for name in [&live, &dead, &unowned, &unrelated] {
             std::fs::write(dir.path().join(name), b"index").unwrap();

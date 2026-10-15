@@ -9,7 +9,7 @@ pub(super) struct CachePath {}
 
 impl CachePath {
     pub(super) fn run(self) -> Result<()> {
-        miseprintln!("{}", env::MISE_CACHE_DIR.display());
+        pakroprintln!("{}", env::PAKRO_CACHE_DIR.display());
         Ok(())
     }
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 tasks.multi = ['echo a', 'echo b']
 [tasks.configtask]
 run = 'echo "configtask:"'
@@ -19,28 +19,28 @@ env = { DEBUG = 0 } # should be parsed as a string
 run = 'echo DEBUG=\$DEBUG'
 EOF
 
-assert "mise run multi c" "a
+assert "pakro run multi c" "a
 b c"
-assert "mise run test arg1 arg2 arg3" "testing! arg1 arg2 arg3"
-assert "mise run test-with-args foo --force --user=user" "foo true user"
-assert "mise run test-with-defaults" "arg1 user1"
-assert "mise run test-with-defaults arg2 --user=user2" "arg2 user2"
-assert "mise run test-with-template" "2"
-assert "mise int" "DEBUG=0"
+assert "pakro run test arg1 arg2 arg3" "testing! arg1 arg2 arg3"
+assert "pakro run test-with-args foo --force --user=user" "foo true user"
+assert "pakro run test-with-defaults" "arg1 user1"
+assert "pakro run test-with-defaults arg2 --user=user2" "arg2 user2"
+assert "pakro run test-with-template" "2"
+assert "pakro int" "DEBUG=0"
 
-cat <<EOF >mise.windows.toml
+cat <<EOF >pakro.windows.toml
 tasks.configtask = "echo configtask:windows"
 EOF
-assert "mise run -E windows configtask" "configtask:windows"
-assert "mise run -P windows configtask" "configtask:windows"
-MISE_ENV=windows assert "mise run configtask" "configtask:windows"
-MISE_PROFILE=windows assert "mise run configtask" "configtask:windows"
+assert "pakro run -E windows configtask" "configtask:windows"
+assert "pakro run -P windows configtask" "configtask:windows"
+PAKRO_ENV=windows assert "pakro run configtask" "configtask:windows"
+PAKRO_PROFILE=windows assert "pakro run configtask" "configtask:windows"
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.a]
 usage = '''
 arg "myarg" "myarg description" default="foo"
 '''
 run = 'echo {{arg(name="myarg")}}'
 EOF
-assert "mise run a" "foo"
+assert "pakro run a" "foo"

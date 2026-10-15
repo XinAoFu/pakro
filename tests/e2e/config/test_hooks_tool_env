@@ -1,83 +1,83 @@
 #!/usr/bin/env bash
 
-# Test that tool-level postinstall hooks receive MISE_TOOL_NAME and MISE_TOOL_VERSION
+# Test that tool-level postinstall hooks receive PAKRO_TOOL_NAME and PAKRO_TOOL_VERSION
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools]
-dummy = { version = "latest", postinstall = "echo TOOL_NAME=\$MISE_TOOL_NAME TOOL_VERSION=\$MISE_TOOL_VERSION INSTALL_PATH=\$MISE_TOOL_INSTALL_PATH CONFIG_FILE=\$MISE_CONFIG_FILE" }
+dummy = { version = "latest", postinstall = "echo TOOL_NAME=\$PAKRO_TOOL_NAME TOOL_VERSION=\$PAKRO_TOOL_VERSION INSTALL_PATH=\$PAKRO_TOOL_INSTALL_PATH CONFIG_FILE=\$PAKRO_CONFIG_FILE" }
 EOF
 
 # Remove any existing dummy installation to force reinstall
-mise uninstall dummy --all >/dev/null 2>&1 || true
+pakro uninstall dummy --all >/dev/null 2>&1 || true
 
 # Run install and capture output
-output=$(mise install dummy 2>&1)
+output=$(pakro install dummy 2>&1)
 
-# Check that MISE_TOOL_NAME is set
+# Check that PAKRO_TOOL_NAME is set
 if [[ $output == *"TOOL_NAME=dummy"* ]]; then
-  echo "✓ MISE_TOOL_NAME is set correctly"
+  echo "✓ PAKRO_TOOL_NAME is set correctly"
 else
-  echo "✗ MISE_TOOL_NAME is NOT set correctly"
+  echo "✗ PAKRO_TOOL_NAME is NOT set correctly"
   echo "Output: $output"
   exit 1
 fi
 
-# Check that MISE_TOOL_VERSION is set (should be a version string)
+# Check that PAKRO_TOOL_VERSION is set (should be a version string)
 if [[ $output == *"TOOL_VERSION="* ]] && [[ $output != *"TOOL_VERSION= "* ]]; then
-  echo "✓ MISE_TOOL_VERSION is set"
+  echo "✓ PAKRO_TOOL_VERSION is set"
 else
-  echo "✗ MISE_TOOL_VERSION is NOT set"
+  echo "✗ PAKRO_TOOL_VERSION is NOT set"
   echo "Output: $output"
   exit 1
 fi
 
-# Check that MISE_TOOL_INSTALL_PATH is set (contains mise/installs/dummy)
-if [[ $output == *"INSTALL_PATH="* ]] && [[ $output == *"/mise/installs/dummy"* ]]; then
-  echo "✓ MISE_TOOL_INSTALL_PATH is set"
+# Check that PAKRO_TOOL_INSTALL_PATH is set (contains pakro/installs/dummy)
+if [[ $output == *"INSTALL_PATH="* ]] && [[ $output == *"/pakro/installs/dummy"* ]]; then
+  echo "✓ PAKRO_TOOL_INSTALL_PATH is set"
 else
-  echo "✗ MISE_TOOL_INSTALL_PATH is NOT set correctly"
+  echo "✗ PAKRO_TOOL_INSTALL_PATH is NOT set correctly"
   echo "Output: $output"
   exit 1
 fi
 
-if [[ $output == *"CONFIG_FILE=$PWD/mise.toml"* ]]; then
-  echo "✓ MISE_CONFIG_FILE identifies the declaring config"
+if [[ $output == *"CONFIG_FILE=$PWD/pakro.toml"* ]]; then
+  echo "✓ PAKRO_CONFIG_FILE identifies the declaring config"
 else
-  echo "✗ MISE_CONFIG_FILE is not the declaring config"
+  echo "✗ PAKRO_CONFIG_FILE is not the declaring config"
   echo "Output: $output"
   exit 1
 fi
 
 # A tool declared globally receives the exact global source path as well.
-rm mise.toml
-mkdir -p "$MISE_CONFIG_DIR"
-cat <<EOF >"$MISE_CONFIG_DIR/config.toml"
+rm pakro.toml
+mkdir -p "$PAKRO_CONFIG_DIR"
+cat <<EOF >"$PAKRO_CONFIG_DIR/config.toml"
 [tools]
-dummy = { version = "latest", postinstall = "mise config set --global env.HOOK_NESTED hooked && echo GLOBAL_CONFIG_FILE=\$MISE_CONFIG_FILE PROJECT_ROOT=\$MISE_PROJECT_ROOT" }
+dummy = { version = "latest", postinstall = "pakro config set --global env.HOOK_NESTED hooked && echo GLOBAL_CONFIG_FILE=\$PAKRO_CONFIG_FILE PROJECT_ROOT=\$PAKRO_PROJECT_ROOT" }
 EOF
 mkdir -p project
 cd project
-printf '[env]\nPROJECT_MARKER = "local"\n' >mise.toml
-mise uninstall dummy --all >/dev/null 2>&1 || true
-output=$(mise install dummy 2>&1)
-if [[ $output == *"GLOBAL_CONFIG_FILE=$MISE_CONFIG_DIR/config.toml"* ]]; then
-  echo "✓ MISE_CONFIG_FILE identifies the global declaring config"
+printf '[env]\nPROJECT_MARKER = "local"\n' >pakro.toml
+pakro uninstall dummy --all >/dev/null 2>&1 || true
+output=$(pakro install dummy 2>&1)
+if [[ $output == *"GLOBAL_CONFIG_FILE=$PAKRO_CONFIG_DIR/config.toml"* ]]; then
+  echo "✓ PAKRO_CONFIG_FILE identifies the global declaring config"
 else
-  echo "✗ MISE_CONFIG_FILE is not the global declaring config"
+  echo "✗ PAKRO_CONFIG_FILE is not the global declaring config"
   echo "Output: $output"
   exit 1
 fi
 if [[ $output == *"PROJECT_ROOT=$PWD"* ]]; then
-  echo "✓ MISE_PROJECT_ROOT identifies the active project"
+  echo "✓ PAKRO_PROJECT_ROOT identifies the active project"
 else
-  echo "✗ MISE_PROJECT_ROOT is not the active project"
+  echo "✗ PAKRO_PROJECT_ROOT is not the active project"
   echo "Output: $output"
   exit 1
 fi
-if [[ $(mise config get --file "$MISE_CONFIG_DIR/config.toml" env.HOOK_NESTED) == "hooked" ]]; then
-  echo "✓ nested mise calls retain the actual global config"
+if [[ $(pakro config get --file "$PAKRO_CONFIG_DIR/config.toml" env.HOOK_NESTED) == "hooked" ]]; then
+  echo "✓ nested pakro calls retain the actual global config"
 else
-  echo "✗ nested mise calls treat the declaring config as global"
+  echo "✗ nested pakro calls treat the declaring config as global"
   echo "Output: $output"
   exit 1
 fi

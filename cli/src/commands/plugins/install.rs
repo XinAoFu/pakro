@@ -19,15 +19,15 @@ use super::{PluginTaskNames, PluginTaskResult, join_plugin_tasks, spawn_plugin_t
 /// Install a plugin from a configured source, Git URL, or supported archive
 ///
 /// Most registry tools use built-in backends and need no plugin. When a selected
-/// backend does require a plugin, mise normally installs it with the tool.
+/// backend does require a plugin, pakro normally installs it with the tool.
 /// Use this command to install it ahead of time or choose a custom source.
 ///
 /// A Git URL may end in `#ref` to select a plugin commit, tag, or branch. This selects
-/// the plugin implementation, separately from the tool version installed by `mise use`.
+/// the plugin implementation, separately from the tool version installed by `pakro use`.
 #[derive(Debug, usage_rs::Args)]
-#[usage(visible_aliases = ["i", "a", "add"], verbatim_doc_comment, example(r###"mise plugins install postgres https://github.com/smashedtoatoms/asdf-postgres.git"###, help = r###"Install an asdf-compatible plugin from its upstream repository"###),
-    example(r###"mise plugins install my-tool file:///path/to/mise-my-tool#v1.0.0"###, help = r###"Use a local plugin repository at a tag you created"###),
-    example(r###"mise plugins install --all"###, help = r###"Install missing plugins that have configured shorthands"###)
+#[usage(visible_aliases = ["i", "a", "add"], verbatim_doc_comment, example(r###"pakro plugins install postgres https://github.com/smashedtoatoms/asdf-postgres.git"###, help = r###"Install an asdf-compatible plugin from its upstream repository"###),
+    example(r###"pakro plugins install my-tool file:///path/to/pakro-my-tool#v1.0.0"###, help = r###"Use a local plugin repository at a tag you created"###),
+    example(r###"pakro plugins install --all"###, help = r###"Install missing plugins that have configured shorthands"###)
 )]
 pub(crate) struct PluginsInstall {
     /// The name of the plugin to install
@@ -118,7 +118,7 @@ impl PluginsInstall {
             spawn_plugin_task(&mut jset, &mut task_names, plugin_name, async move {
                 let _permit = semaphore.acquire_owned().await?;
                 // Progress only: a closed stdout must not skip the install.
-                let _ = miseprint!("installing {plugin}\n");
+                let _ = pakroprint!("installing {plugin}\n");
                 this.install_one(&config, plugin, None).await
             });
         }
@@ -224,7 +224,11 @@ fn get_name_from_url(url: &str) -> Result<String> {
         return Err(eyre!("could not infer plugin name from url: {}", url));
     };
     let name = name.strip_prefix("asdf-").unwrap_or(&name);
-    let name = name.strip_prefix("mise-").unwrap_or(name);
+    // ASDF plugin repositories retain their actual upstream prefix.
+    let name = name
+        .strip_prefix("pakro-")
+        .or_else(|| name.strip_prefix("mise-"))
+        .unwrap_or(name);
     Ok(unalias_backend(name).to_string())
 }
 

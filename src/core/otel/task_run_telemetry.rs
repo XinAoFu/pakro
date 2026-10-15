@@ -1,6 +1,6 @@
 //! Task-aware OpenTelemetry integration.
 //!
-//! This module owns the per-`mise run` telemetry lifecycle so that `cli::run`
+//! This module owns the per-`pakro run` telemetry lifecycle so that `cli::run`
 //! and `task_executor` don't have to reach into OTEL internals.
 //!
 //! Spans are real SDK spans: started when the task starts, ended when it
@@ -30,7 +30,7 @@ use std::time::SystemTime;
 /// if the task future is cancelled instead, the SDK ends it on drop.
 pub(crate) type TaskSpan = opentelemetry_sdk::trace::Span;
 
-/// All OpenTelemetry state attached to a single `mise run` invocation.
+/// All OpenTelemetry state attached to a single `pakro run` invocation.
 ///
 /// Cheap to clone (`Arc` inner) so per-task code can hold one. The root span
 /// is alive for the whole invocation and is finalized by [`Self::finish`] on
@@ -52,7 +52,7 @@ struct Inner {
     /// `Some` only when log export is explicitly opted in via `otel.logs`.
     /// Installed on the task executor so it can forward stdout/stderr lines.
     output_forwarder: Option<TaskOutputForwarder>,
-    /// Held when an ancestor `mise` is capturing our output: tells it to stop
+    /// Held when an ancestor `pakro` is capturing our output: tells it to stop
     /// exporting these lines, since we report them against our own (more
     /// granular) task spans. Released when this run is dropped.
     _log_claim: Option<LogClaim>,
@@ -69,7 +69,7 @@ impl TaskRunTelemetry {
     ///
     /// Returns `None` when neither signal is enabled.
     ///
-    /// When mise is invoked from another mise run (or any OTEL-aware
+    /// When pakro is invoked from another pakro run (or any OTEL-aware
     /// parent), the `TRACEPARENT` env var carries W3C Traceparent so
     /// the nested run joins the same distributed trace.
     ///
@@ -86,7 +86,7 @@ impl TaskRunTelemetry {
         } else {
             format!(" {}", requested_task_names.join(" "))
         };
-        let root_span_name = format!("mise run{suffix}");
+        let root_span_name = format!("pakro run{suffix}");
 
         let resource = crate::otel::build_resource();
         // The two signals are built independently, so a trace exporter that
@@ -107,7 +107,7 @@ impl TaskRunTelemetry {
         // trace context.
         let provider = exporting_provider
             .unwrap_or_else(|| SdkTracerProvider::builder().with_resource(resource).build());
-        // Take over log reporting from an ancestor `mise` — but only once we
+        // Take over log reporting from an ancestor `pakro` — but only once we
         // know we can actually export, otherwise the lines would be dropped
         // on both sides.
         let log_claim = (captures_output && output_forwarder.is_some())
@@ -130,9 +130,9 @@ impl TaskRunTelemetry {
         output_forwarder: Option<TaskOutputForwarder>,
         log_claim: Option<LogClaim>,
     ) -> Self {
-        let tracer = provider.tracer("mise.tasks");
+        let tracer = provider.tracer("pakro.tasks");
         let mut root_span = tracer.start_with_context(root_span_name.to_string(), &parent_cx);
-        root_span.set_attribute(KeyValue::new("mise.span_type", "run"));
+        root_span.set_attribute(KeyValue::new("pakro.span_type", "run"));
         Self {
             inner: Arc::new(Inner {
                 provider,
@@ -183,9 +183,9 @@ impl TaskRunTelemetry {
                     monorepo_group_display_name(config_root, project_root),
                     &self.inner.root_cx,
                 );
-                span.set_attribute(KeyValue::new("mise.span_type", "monorepo_group"));
+                span.set_attribute(KeyValue::new("pakro.span_type", "monorepo_group"));
                 span.set_attribute(KeyValue::new(
-                    "mise.config_root",
+                    "pakro.config_root",
                     config_root.display().to_string(),
                 ));
                 // Status is deliberately left unset: a group is a grouping,
@@ -224,12 +224,12 @@ impl TaskRunTelemetry {
                 span.set_status(Status::Ok);
             }
             Ok(_) => {
-                span.set_attribute(KeyValue::new("mise.task.skipped", true));
+                span.set_attribute(KeyValue::new("pakro.task.skipped", true));
                 // Skipped tasks didn't run; per CLI semconv, exit code is 0.
                 span.set_attribute(KeyValue::new("process.exit.code", 0i64));
             }
             Err(err) if cancelled => {
-                span.set_attribute(KeyValue::new("mise.task.cancelled", true));
+                span.set_attribute(KeyValue::new("pakro.task.cancelled", true));
                 // A task killed by the sibling-shutdown signal usually has no
                 // exit code at all — only record one when the OS gave us one,
                 // rather than inventing a failure code.
@@ -246,7 +246,7 @@ impl TaskRunTelemetry {
         span.end_with_timestamp(end_time);
     }
 
-    /// Run one of `mise run`'s setup phases (resolving tasks, installing
+    /// Run one of `pakro run`'s setup phases (resolving tasks, installing
     /// tools, running deps providers, starting daemons) under its own span,
     /// a child of the root span. The span is marked as an error when the
     /// phase fails. Without telemetry this just awaits `fut`.
@@ -259,7 +259,7 @@ impl TaskRunTelemetry {
             return fut.await;
         };
         let mut span = t.inner.tracer.start_with_context(name, &t.inner.root_cx);
-        span.set_attribute(KeyValue::new("mise.span_type", "setup"));
+        span.set_attribute(KeyValue::new("pakro.span_type", "setup"));
         let result = fut.await;
         match &result {
             Ok(_) => span.set_status(Status::Ok),
@@ -359,23 +359,26 @@ fn monorepo_group_display_name(config_root: &Path, project_root: Option<&PathBuf
 fn task_attributes(task: &Task, args: &[String]) -> Vec<KeyValue> {
     let display_name = task_span_name(task, args);
     let mut attrs = vec![
-        KeyValue::new("mise.task.name", task.name.clone()),
-        KeyValue::new("mise.task.display_name", display_name),
-        KeyValue::new("mise.task.source", task.config_source.display().to_string()),
+        KeyValue::new("pakro.task.name", task.name.clone()),
+        KeyValue::new("pakro.task.display_name", display_name),
+        KeyValue::new(
+            "pakro.task.source",
+            task.config_source.display().to_string(),
+        ),
     ];
     if !args.is_empty() {
-        attrs.push(KeyValue::new("mise.task.args", args.join(" ")));
+        attrs.push(KeyValue::new("pakro.task.args", args.join(" ")));
     }
     if let Some(ref cr) = task.config_root {
         attrs.push(KeyValue::new(
-            "mise.task.config_root",
+            "pakro.task.config_root",
             cr.display().to_string(),
         ));
     }
     // CLI semantic conventions: full argv (executable + args) per
     // https://opentelemetry.io/docs/specs/semconv/cli/cli-spans
     let mut argv: Vec<StringValue> = Vec::with_capacity(2 + args.len());
-    argv.push(StringValue::from("mise"));
+    argv.push(StringValue::from("pakro"));
     argv.push(StringValue::from(task.name.clone()));
     for a in args {
         argv.push(StringValue::from(a.clone()));
@@ -402,7 +405,7 @@ pub(crate) fn inject_otel_context(env: &mut BTreeMap<String, String>, span_cx: &
 }
 
 /// Parent context extracted from the `TRACEPARENT`/`TRACESTATE` env vars,
-/// set by an OTEL-aware parent (CI, or an outer `mise run`). An invalid or
+/// set by an OTEL-aware parent (CI, or an outer `pakro run`). An invalid or
 /// absent traceparent yields an empty context, i.e. a new root trace.
 fn parent_cx_from_env() -> Context {
     match std::env::var("TRACEPARENT") {
@@ -476,7 +479,7 @@ mod tests {
             name: name.to_string(),
             display_name: display.to_string(),
             args: args.iter().map(|s| s.to_string()).collect(),
-            config_source: PathBuf::from("/tmp/mise.toml"),
+            config_source: PathBuf::from("/tmp/pakro.toml"),
             ..Default::default()
         }
     }
@@ -518,7 +521,7 @@ mod tests {
     }
 
     fn end_one_task(result: Result<TaskRunOutcome>, cancelled: bool) -> SpanData {
-        let (t, exporter) = test_telemetry("mise run build");
+        let (t, exporter) = test_telemetry("pakro run build");
         let task = task_for("build", "", &[]);
         let span = t.start_task(&task, &task.args, None);
         t.end_task(
@@ -534,7 +537,7 @@ mod tests {
 
     #[test]
     fn finish_builds_root_and_monorepo_hierarchy() {
-        let (t, exporter) = test_telemetry("mise run");
+        let (t, exporter) = test_telemetry("pakro run");
         let project_root = PathBuf::from("/workspace");
 
         // Direct task (config_root == project_root → child of root).
@@ -567,7 +570,7 @@ mod tests {
         let spans = exporter.finished_spans();
         assert_eq!(spans.len(), 4, "expected root + group + 2 task spans");
 
-        let root = span_by_name(&spans, "mise run");
+        let root = span_by_name(&spans, "pakro run");
         let group = span_by_name(&spans, "packages/frontend");
         let lint = span_by_name(&spans, "lint");
         let build = span_by_name(&spans, "build");
@@ -592,7 +595,7 @@ mod tests {
 
     #[test]
     fn group_span_spans_its_children() {
-        let (t, exporter) = test_telemetry("mise run");
+        let (t, exporter) = test_telemetry("pakro run");
         let project_root = PathBuf::from("/workspace");
         let task = task_in("build", "/workspace/packages/frontend");
 
@@ -604,7 +607,7 @@ mod tests {
         // Live spans mean group/root timing needs no aggregation: each is
         // simply alive for as long as its children are.
         let spans = exporter.finished_spans();
-        let root = span_by_name(&spans, "mise run");
+        let root = span_by_name(&spans, "pakro run");
         let group = span_by_name(&spans, "packages/frontend");
         let build = span_by_name(&spans, "build");
         assert!(root.start_time <= group.start_time);
@@ -615,7 +618,7 @@ mod tests {
 
     #[test]
     fn finish_has_failures_does_not_taint_ok_group() {
-        let (t, exporter) = test_telemetry("mise run");
+        let (t, exporter) = test_telemetry("pakro run");
         let project_root = PathBuf::from("/workspace");
         let task = task_in("build", "/workspace/packages/frontend");
 
@@ -632,12 +635,12 @@ mod tests {
             span_by_name(&spans, "packages/frontend").status,
             Status::Unset
         );
-        assert!(is_error(&span_by_name(&spans, "mise run").status));
+        assert!(is_error(&span_by_name(&spans, "pakro run").status));
     }
 
     #[test]
     fn finish_group_stays_unset_even_when_child_fails() {
-        let (t, exporter) = test_telemetry("mise run");
+        let (t, exporter) = test_telemetry("pakro run");
         let project_root = PathBuf::from("/workspace");
         let task = task_in("build", "/workspace/packages/frontend");
 
@@ -658,12 +661,12 @@ mod tests {
             span_by_name(&spans, "packages/frontend").status,
             Status::Unset
         );
-        assert!(is_error(&span_by_name(&spans, "mise run").status));
+        assert!(is_error(&span_by_name(&spans, "pakro run").status));
     }
 
     #[test]
     fn task_without_config_root_is_direct_child_of_root() {
-        let (t, exporter) = test_telemetry("mise run");
+        let (t, exporter) = test_telemetry("pakro run");
         let task = task_for("lint", "", &[]);
         let span = t.start_task(&task, &task.args, None);
         t.end_task(span, &task, &task.args, SystemTime::now(), &ran(), false);
@@ -671,22 +674,23 @@ mod tests {
         t.finish();
 
         let spans = exporter.finished_spans();
-        let root = span_by_name(&spans, "mise run");
+        let root = span_by_name(&spans, "pakro run");
         assert_eq!(
             span_by_name(&spans, "lint").parent_span_id,
             root.span_context.span_id()
         );
         // No monorepo groups were created.
         assert!(
-            !spans.iter().any(|s| attr(s, "mise.span_type")
-                == Some(&Value::String("monorepo_group".into()))),
+            !spans.iter().any(
+                |s| attr(s, "pakro.span_type") == Some(&Value::String("monorepo_group".into()))
+            ),
             "unexpected monorepo group span in non-monorepo run"
         );
     }
 
     #[test]
     fn tasks_sharing_a_config_root_share_one_group_span() {
-        let (t, exporter) = test_telemetry("mise run");
+        let (t, exporter) = test_telemetry("pakro run");
         let project_root = PathBuf::from("/workspace");
         for name in ["build", "test"] {
             let task = task_in(name, "/workspace/packages/frontend");
@@ -728,19 +732,19 @@ mod tests {
             true,
             TraceState::default(),
         ));
-        let (t, exporter) = test_telemetry_with_parent("mise run nested", parent_cx);
+        let (t, exporter) = test_telemetry_with_parent("pakro run nested", parent_cx);
         t.set_succeeded();
         t.finish();
 
         let spans = exporter.finished_spans();
-        let root = span_by_name(&spans, "mise run nested");
+        let root = span_by_name(&spans, "pakro run nested");
         assert_eq!(root.span_context.trace_id(), parent_trace_id);
         assert_eq!(root.parent_span_id, parent_span_id);
     }
 
     #[tokio::test]
     async fn phase_is_a_child_of_root_and_records_failure() {
-        let (t, exporter) = test_telemetry("mise run build");
+        let (t, exporter) = test_telemetry("pakro run build");
         TaskRunTelemetry::phase(Some(&t), "install tools", async { Ok(()) })
             .await
             .unwrap();
@@ -752,12 +756,12 @@ mod tests {
         t.finish();
 
         let spans = exporter.finished_spans();
-        let root = span_by_name(&spans, "mise run build");
+        let root = span_by_name(&spans, "pakro run build");
         let install = span_by_name(&spans, "install tools");
         let daemons = span_by_name(&spans, "start daemons");
         for phase in [install, daemons] {
             assert_eq!(phase.parent_span_id, root.span_context.span_id());
-            assert_eq!(attr(phase, "mise.span_type"), Some(&Value::from("setup")));
+            assert_eq!(attr(phase, "pakro.span_type"), Some(&Value::from("setup")));
         }
         assert_eq!(install.status, Status::Ok);
         assert!(is_error(&daemons.status));
@@ -771,7 +775,7 @@ mod tests {
 
     #[test]
     fn finish_is_idempotent() {
-        let (t, exporter) = test_telemetry("mise run");
+        let (t, exporter) = test_telemetry("pakro run");
         t.finish();
         t.finish();
         drop(t);
@@ -779,7 +783,7 @@ mod tests {
             exporter
                 .finished_spans()
                 .iter()
-                .filter(|s| s.name == "mise run")
+                .filter(|s| s.name == "pakro run")
                 .count(),
             1,
             "root span must be emitted exactly once"
@@ -788,12 +792,12 @@ mod tests {
 
     #[test]
     fn drop_without_finish_emits_errored_root_span() {
-        let (t, exporter) = test_telemetry("mise run //ci");
+        let (t, exporter) = test_telemetry("pakro run //ci");
         // Simulate timeout/cancellation: drop without finishing.
         drop(t);
 
         let spans = exporter.finished_spans();
-        let root = span_by_name(&spans, "mise run //ci");
+        let root = span_by_name(&spans, "pakro run //ci");
         assert!(
             is_error(&root.status),
             "expected errored root span on cancelled drop, got {:?}",
@@ -803,19 +807,19 @@ mod tests {
 
     #[test]
     fn drop_after_set_succeeded_emits_ok_root_span() {
-        let (t, exporter) = test_telemetry("mise run //ci");
+        let (t, exporter) = test_telemetry("pakro run //ci");
         t.set_succeeded();
         drop(t);
 
         assert_eq!(
-            span_by_name(&exporter.finished_spans(), "mise run //ci").status,
+            span_by_name(&exporter.finished_spans(), "pakro run //ci").status,
             Status::Ok
         );
     }
 
     #[test]
     fn cancelled_task_span_is_still_exported() {
-        let (t, exporter) = test_telemetry("mise run");
+        let (t, exporter) = test_telemetry("pakro run");
         let task = task_for("build", "", &[]);
         // Task future cancelled mid-flight: the span is dropped, not ended.
         drop(t.start_task(&task, &task.args, None));
@@ -825,7 +829,7 @@ mod tests {
         let spans = exporter.finished_spans();
         assert_eq!(
             span_by_name(&spans, "build").parent_span_id,
-            span_by_name(&spans, "mise run").span_context.span_id()
+            span_by_name(&spans, "pakro run").span_context.span_id()
         );
     }
 
@@ -838,7 +842,7 @@ mod tests {
             span.status
         );
         assert_eq!(attr(&span, "process.exit.code"), Some(&Value::I64(1)));
-        assert!(attr(&span, "mise.task.cancelled").is_none());
+        assert!(attr(&span, "pakro.task.cancelled").is_none());
     }
 
     #[test]
@@ -847,7 +851,10 @@ mod tests {
         // reported as a failure of its own.
         let span = end_one_task(Err(eyre::eyre!("boom")), true);
         assert_eq!(span.status, Status::Unset);
-        assert_eq!(attr(&span, "mise.task.cancelled"), Some(&Value::Bool(true)));
+        assert_eq!(
+            attr(&span, "pakro.task.cancelled"),
+            Some(&Value::Bool(true))
+        );
         // No exit code was reported by the OS, so none is invented.
         assert!(attr(&span, "process.exit.code").is_none());
     }
@@ -857,20 +864,20 @@ mod tests {
         let span = end_one_task(ran(), true);
         assert_eq!(span.status, Status::Ok);
         assert_eq!(attr(&span, "process.exit.code"), Some(&Value::I64(0)));
-        assert!(attr(&span, "mise.task.cancelled").is_none());
+        assert!(attr(&span, "pakro.task.cancelled").is_none());
     }
 
     #[test]
     fn skipped_task_span_is_marked_skipped() {
         let span = end_one_task(skipped(), false);
         assert_eq!(span.status, Status::Unset);
-        assert_eq!(attr(&span, "mise.task.skipped"), Some(&Value::Bool(true)));
+        assert_eq!(attr(&span, "pakro.task.skipped"), Some(&Value::Bool(true)));
         assert_eq!(attr(&span, "process.exit.code"), Some(&Value::I64(0)));
     }
 
     #[test]
     fn end_task_honours_the_supplied_end_time() {
-        let (t, exporter) = test_telemetry("mise run");
+        let (t, exporter) = test_telemetry("pakro run");
         let task = task_for("build", "", &[]);
         let span = t.start_task(&task, &task.args, None);
         let end_time = SystemTime::now();
@@ -888,7 +895,7 @@ mod tests {
         // Logs-only mode: no span processor at all, but log records still
         // need real trace/span IDs to correlate against.
         let provider = SdkTracerProvider::builder().build();
-        let t = TaskRunTelemetry::new("mise run", provider, Context::new(), None, None);
+        let t = TaskRunTelemetry::new("pakro run", provider, Context::new(), None, None);
         let span = t.start_task(&task_for("build", "", &[]), &[], None);
         let cx = span.span_context().clone();
         assert!(cx.is_valid(), "log correlation needs valid ids");
@@ -922,14 +929,14 @@ mod tests {
                 }
             })
         };
-        assert_eq!(find_str("mise.task.name").as_deref(), Some("build"));
+        assert_eq!(find_str("pakro.task.name").as_deref(), Some("build"));
         assert_eq!(
-            find_str("mise.task.display_name").as_deref(),
+            find_str("pakro.task.display_name").as_deref(),
             Some("Build x y")
         );
-        assert_eq!(find_str("mise.task.args").as_deref(), Some("x y"));
+        assert_eq!(find_str("pakro.task.args").as_deref(), Some("x y"));
         assert_eq!(
-            find_str("mise.task.config_root").as_deref(),
+            find_str("pakro.task.config_root").as_deref(),
             Some("/workspace/packages/a")
         );
         // CLI semconv: process.command_args is an array of [exe, task name, ...args]
@@ -939,7 +946,7 @@ mod tests {
             .expect("missing process.command_args");
         if let Value::Array(Array::String(items)) = &argv.value {
             let strs: Vec<&str> = items.iter().map(|s| s.as_str()).collect();
-            assert_eq!(strs, vec!["mise", "build", "x", "y"]);
+            assert_eq!(strs, vec!["pakro", "build", "x", "y"]);
         } else {
             panic!("process.command_args should be a string array");
         }
@@ -947,7 +954,7 @@ mod tests {
 
     #[test]
     fn span_uses_the_supplied_redacted_args() {
-        let (t, exporter) = test_telemetry("mise run deploy");
+        let (t, exporter) = test_telemetry("pakro run deploy");
         let task = task_for("deploy", "", &["--token=hunter2"]);
         let args = vec!["--token=[redacted]".to_string()];
         let span = t.start_task(&task, &args, None);
@@ -956,7 +963,7 @@ mod tests {
         let spans = exporter.finished_spans();
         let span = span_by_name(&spans, "deploy --token=[redacted]");
         assert_eq!(
-            attr(span, "mise.task.args"),
+            attr(span, "pakro.task.args"),
             Some(&Value::from("--token=[redacted]"))
         );
         assert!(!format!("{:?}", span.attributes).contains("hunter2"));
@@ -965,11 +972,11 @@ mod tests {
     #[test]
     fn attributes_omit_args_when_empty() {
         let attrs = task_attributes(&task_for("build", "", &[]), &[]);
-        assert!(attrs.iter().all(|kv| kv.key.as_str() != "mise.task.args"));
+        assert!(attrs.iter().all(|kv| kv.key.as_str() != "pakro.task.args"));
         assert!(
             attrs
                 .iter()
-                .all(|kv| kv.key.as_str() != "mise.task.config_root")
+                .all(|kv| kv.key.as_str() != "pakro.task.config_root")
         );
         // process.command_args is still emitted (just exe + task name).
         let argv = attrs
@@ -978,7 +985,7 @@ mod tests {
             .expect("missing process.command_args");
         if let Value::Array(Array::String(items)) = &argv.value {
             let strs: Vec<&str> = items.iter().map(|s| s.as_str()).collect();
-            assert_eq!(strs, vec!["mise", "build"]);
+            assert_eq!(strs, vec!["pakro", "build"]);
         } else {
             panic!("process.command_args should be a string array");
         }
@@ -1006,14 +1013,14 @@ mod tests {
 
     #[test]
     fn inject_otel_context_round_trips_through_a_live_span() {
-        let (t, _exporter) = test_telemetry("mise run");
+        let (t, _exporter) = test_telemetry("pakro run");
         let span = t.start_task(&task_for("build", "", &[]), &[], None);
         let span_cx = span.span_context().clone();
 
         let mut env = BTreeMap::new();
         inject_otel_context(&mut env, &span_cx);
 
-        // What a nested `mise run` parses back out of its environment.
+        // What a nested `pakro run` parses back out of its environment.
         let parsed = extract_parent_cx(env.get("TRACEPARENT").unwrap(), None);
         let parsed = parsed.span().span_context().clone();
         assert_eq!(parsed.trace_id(), span_cx.trace_id());

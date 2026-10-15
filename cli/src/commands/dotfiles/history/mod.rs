@@ -1,4 +1,4 @@
-//! `mise dot history`: the checkpoint browser for the tracked
+//! `pakro dot history`: the checkpoint browser for the tracked
 //! configuration files, and the helpers every history command shares.
 
 use eyre::Result;
@@ -69,13 +69,13 @@ pub(crate) fn local_time(rfc3339: &str) -> String {
 static AFTER_LONG_HELP: &str = color_print::cstr!(
     r#"<bold><underline>Examples:</underline></bold>
 
-    $ <bold>mise dot history</bold>
-    $ <bold>mise dot history --path ~/.config/hypr/bindings.lua</bold>
-    $ <bold>mise dot history show latest</bold>
-    $ <bold>mise dot history diff</bold>          # the working tree against the latest checkpoint
-    $ <bold>mise dot history diff 11 12 --patch</bold>
-    $ <bold>mise dot save --description "before the theme change"</bold>
-    $ <bold>mise dot rollback ~/.config/hypr/bindings.lua</bold>
-    $ <bold>mise dot undo</bold>
+    $ <bold>pakro dot history</bold>
+    $ <bold>pakro dot history --path ~/.config/hypr/bindings.lua</bold>
+    $ <bold>pakro dot history show latest</bold>
+    $ <bold>pakro dot history diff</bold>          # the working tree against the latest checkpoint
+    $ <bold>pakro dot history diff 11 12 --patch</bold>
+    $ <bold>pakro dot save --description "before the theme change"</bold>
+    $ <bold>pakro dot rollback ~/.config/hypr/bindings.lua</bold>
+    $ <bold>pakro dot undo</bold>
 "#
 );

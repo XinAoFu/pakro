@@ -22,7 +22,7 @@ use crate::system::history::watch::runtime::{self, WatchOptions};
 ///
 /// The `history-watch` built-in service runs this for you:
 ///
-///     [bootstrap.services.mise-history]
+///     [bootstrap.services.pakro-history]
 ///     builtin = "history-watch"
 ///
 /// Exit codes: 0 when history is disabled or another watcher already runs;
@@ -59,8 +59,8 @@ impl DotfilesWatch {
 static AFTER_LONG_HELP: &str = color_print::cstr!(
     r#"<bold><underline>Examples:</underline></bold>
 
-    $ <bold>mise dot watch</bold>
-    $ <bold>mise dot watch --once</bold>      # one reconcile, for a timer
-    $ <bold>mise dot watch --json</bold>
+    $ <bold>pakro dot watch</bold>
+    $ <bold>pakro dot watch --once</bold>      # one reconcile, for a timer
+    $ <bold>pakro dot watch --json</bold>
 "#
 );

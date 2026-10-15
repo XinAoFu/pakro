@@ -13,7 +13,7 @@ use crate::{env, file};
 pub(crate) fn setup() -> color_eyre::Result<PathBuf> {
     static SETUP: OnceCell<PathBuf> = OnceCell::new();
     let path = SETUP.get_or_try_init(|| {
-        let path = env::MISE_DATA_DIR.join(".fake-asdf");
+        let path = env::PAKRO_DATA_DIR.join(".fake-asdf");
         let asdf_bin = path.join("asdf");
         if !asdf_bin.exists() {
             file::create_dir_all(&path)?;
@@ -21,7 +21,7 @@ pub(crate) fn setup() -> color_eyre::Result<PathBuf> {
                 &asdf_bin,
                 formatdoc! {r#"
                 #!/bin/sh
-                mise asdf "$@"
+                pakro asdf "$@"
             "#},
             )?;
             let mut perms = asdf_bin.metadata()?.permissions();

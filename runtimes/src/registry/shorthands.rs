@@ -13,7 +13,7 @@ pub(crate) type Shorthands = HashMap<String, Vec<String>>;
 
 /// The asdf backends of every registry tool that has one. Walking the
 /// whole registry through `backends()` would check every tool for a
-/// MISE_BACKENDS_* override and filter every backend it lists, so unless an
+/// PAKRO_BACKENDS_* override and filter every backend it lists, so unless an
 /// override may apply this asks each tool for its plugin backends directly.
 fn registry_shorthands(has_backend_overrides: bool) -> Shorthands {
     let is_plugin_backend = |full: &str| full.starts_with("asdf:");

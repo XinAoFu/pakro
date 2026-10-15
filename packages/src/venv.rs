@@ -1,7 +1,7 @@
-//! Package-venv visibility to the rest of mise (ADR-0007): the venvs
+//! Package-venv visibility to the rest of pakro (ADR-0007): the venvs
 //! `[packages]` materializes are part of the project environment, so their
 //! bin dirs join PATH through the same `Toolset` env assembly that serves
-//! activate, `mise x` and shims.
+//! activate, `pakro x` and shims.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -35,7 +35,7 @@ pub(crate) fn venv_bin_dirs_for(
         .map(|(name, version)| {
             (
                 format!("{name}@{version}"),
-                root.join(format!(".mise/venvs/{name}-{version}"))
+                root.join(format!(".pakro/venvs/{name}-{version}"))
                     .join("bin"),
             )
         })
@@ -55,7 +55,7 @@ mod tests {
     #[test]
     fn venv_bin_dirs_derivation() {
         let root = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(root.path().join(".mise/venvs/python-3.10.14/bin")).unwrap();
+        std::fs::create_dir_all(root.path().join(".pakro/venvs/python-3.10.14/bin")).unwrap();
         let req = |runtime: &str, version: &str, name: &str| PackageInstallRequest {
             runtime_name: runtime.to_string(),
             runtime_version: version.to_string(),
@@ -71,7 +71,7 @@ mod tests {
         let dirs = venv_bin_dirs_for(Some(root.path()), &requests);
         assert_eq!(dirs.len(), 1, "{dirs:?}");
         assert_eq!(dirs[0].0, "python@3.10.14");
-        assert!(dirs[0].1.ends_with(".mise/venvs/python-3.10.14/bin"));
+        assert!(dirs[0].1.ends_with(".pakro/venvs/python-3.10.14/bin"));
         assert!(venv_bin_dirs_for(None, &requests).is_empty());
     }
 }

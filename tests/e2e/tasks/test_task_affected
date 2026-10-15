@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 export AFFECTED_LOG="$PWD/affected.log"
 
 cat <<'EOF' >.gitignore
@@ -8,7 +8,7 @@ affected.log
 Cargo.lock
 EOF
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 monorepo_root = true
 
 [monorepo]
@@ -43,16 +43,16 @@ EOF
 done
 
 for crate in app core other; do
-  cat <<EOF >"crates/$crate/mise.toml"
+  cat <<EOF >"crates/$crate/pakro.toml"
 [tasks.build]
 run = "echo $crate >> \"\$AFFECTED_LOG\""
 EOF
   echo "$crate" >"crates/$crate/src/lib.rs"
 done
-cat <<'EOF' >>crates/app/mise.toml
+cat <<'EOF' >>crates/app/pakro.toml
 depends = ["//crates/other:prepare"]
 EOF
-cat <<'EOF' >>crates/other/mise.toml
+cat <<'EOF' >>crates/other/pakro.toml
 
 [tasks.prepare]
 run = "echo other-prepare >> \"$AFFECTED_LOG\""
@@ -68,7 +68,7 @@ git commit -qm initial
 echo changed >>crates/core/src/lib.rs
 git add .
 git commit -qm core-change
-assert_json "mise run --affected --affected-json build" '{
+assert_json "pakro run --affected --affected-json build" '{
   "base": "HEAD~1",
   "head": "HEAD",
   "projects": [
@@ -105,7 +105,7 @@ assert_json "mise run --affected --affected-json build" '{
   ]
 }'
 assert "test ! -e affected.log"
-output=$(mise run --affected --affected-explain --jobs 1 build)
+output=$(pakro run --affected --affected-explain --jobs 1 build)
 assert_contains "echo \"$output\"" "Affected projects (HEAD~1...HEAD):"
 assert_contains "echo \"$output\"" "changed path: crates/core/src/lib.rs"
 assert_contains "echo \"$output\"" "depends on affected project: cargo:core"
@@ -117,18 +117,18 @@ assert "sort affected.log" $'app\ncore\nother-prepare'
 echo changed >>crates/app/src/lib.rs
 git add .
 git commit -qm app-change
-mise run --affected --affected-base HEAD~1 --affected-head HEAD --jobs 1 build
+pakro run --affected --affected-base HEAD~1 --affected-head HEAD --jobs 1 build
 assert "sort affected.log" $'app\nother-prepare'
 
 : >affected.log
 echo changed >>crates/core/global.txt
 git add .
 git commit -qm global-change
-mise run --affected --jobs 1 build
+pakro run --affected --jobs 1 build
 assert "sort affected.log" $'app\ncore\nother\nother-prepare'
 
 : >affected.log
-mise run --affected --affected-base HEAD --affected-head HEAD --jobs 1 build
+pakro run --affected --affected-base HEAD --affected-head HEAD --jobs 1 build
 assert "cat affected.log" ""
 
 # A pnpm lockfile in a workspace without Node projects falls back to ordinary
@@ -144,7 +144,7 @@ EOF
 git add pnpm-lock.yaml
 git commit -qm change-unrelated-pnpm-lockfile
 : >affected.log
-output=$(mise run --affected --affected-explain --jobs 1 build)
+output=$(pakro run --affected --affected-explain --jobs 1 build)
 assert_contains "echo \"$output\"" "workspace-global path: pnpm-lock.yaml"
 assert "sort affected.log" $'app\ncore\nother\nother-prepare'
 
@@ -155,7 +155,7 @@ export AFFECTED_LOG="$PWD/affected.log"
 cat <<'EOF' >.gitignore
 affected.log
 EOF
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 monorepo_root = true
 
 [monorepo]
@@ -176,7 +176,7 @@ cat <<'EOF' >packages/other/package.json
 {"name":"other"}
 EOF
 for package in app lib other; do
-  cat <<EOF >"packages/$package/mise.toml"
+  cat <<EOF >"packages/$package/pakro.toml"
 [tasks.build]
 run = "echo $package >> \"\$AFFECTED_LOG\""
 EOF
@@ -204,7 +204,7 @@ sed -i 's/1\.0\.0/2.0.0/g' pnpm-lock.yaml
 git add pnpm-lock.yaml
 git commit -qm lockfile-change
 
-output=$(mise run --affected --affected-explain --jobs 1 build)
+output=$(pakro run --affected --affected-explain --jobs 1 build)
 assert_contains "echo \"$output\"" "lockfile change: pnpm-lock.yaml"
 assert_contains "echo \"$output\"" "depends on affected project: node:lib"
 assert "sort affected.log" $'app\nlib'

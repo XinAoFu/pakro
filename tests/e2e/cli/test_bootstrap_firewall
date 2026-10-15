@@ -5,7 +5,7 @@ if [[ "$(uname -s)" != "Linux" ]]; then
   exit 0
 fi
 
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [bootstrap.linux.firewall]
 backend = "nftables"
 default_incoming = "deny"
@@ -20,10 +20,10 @@ TOML
 
 # Lockout validation happens before backend inspection or privilege elevation.
 assert_fail \
-  "SSH_CONNECTION='203.0.113.10 54321 192.0.2.20 2222' mise bootstrap firewall apply --dry-run --yes" \
+  "SSH_CONNECTION='203.0.113.10 54321 192.0.2.20 2222' pakro bootstrap firewall apply --dry-run --yes" \
   "no incoming TCP allow rule covers peer 203.0.113.10 on server port 2222"
 
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [bootstrap.linux.firewall]
 backend = "nftables"
 default_incoming = "deny"
@@ -38,10 +38,10 @@ action = "allow"
 TOML
 
 assert_fail \
-  "SSH_CONNECTION='203.0.113.10 54321 192.0.2.20 2222' mise bootstrap firewall apply --dry-run --yes" \
+  "SSH_CONNECTION='203.0.113.10 54321 192.0.2.20 2222' pakro bootstrap firewall apply --dry-run --yes" \
   "no incoming TCP allow rule covers peer"
 
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [bootstrap.linux.firewall]
 backend = "nftables"
 default_incoming = "deny"
@@ -56,10 +56,10 @@ action = "allow"
 TOML
 
 assert_fail \
-  "SSH_CONNECTION='203.0.113.10 54321 192.0.2.20 2222' mise bootstrap firewall apply --dry-run --yes" \
+  "SSH_CONNECTION='203.0.113.10 54321 192.0.2.20 2222' pakro bootstrap firewall apply --dry-run --yes" \
   "no incoming TCP allow rule covers peer"
 
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [bootstrap.linux.firewall]
 allow_lockout = true
 
@@ -68,6 +68,6 @@ name = "invalid-port"
 port = 443
 TOML
 
-assert_fail "mise bootstrap firewall apply --dry-run --yes" "sets port without protocol"
-assert_contains "mise bootstrap --help" "firewall"
-assert_contains "mise bootstrap firewall --help" "Linux host firewall"
+assert_fail "pakro bootstrap firewall apply --dry-run --yes" "sets port without protocol"
+assert_contains "pakro bootstrap --help" "firewall"
+assert_contains "pakro bootstrap firewall --help" "Linux host firewall"

@@ -2,9 +2,9 @@
 
 set -euo pipefail
 
-# Test that mise handles commands from nonexistent directories gracefully
-# This test validates that when a directory is deleted while mise is running from it,
-# mise shows a warning but continues execution
+# Test that pakro handles commands from nonexistent directories gracefully
+# This test validates that when a directory is deleted while pakro is running from it,
+# pakro shows a warning but continues execution
 
 # Test helper function to run commands from a nonexistent directory
 run_from_nonexistent() {
@@ -21,10 +21,10 @@ run_from_nonexistent() {
   # Remove the directory while we're still in it
   rmdir "$temp_dir"
 
-  # Now we're in a nonexistent directory - run the mise command
+  # Now we're in a nonexistent directory - run the pakro command
   local status=0
   local output
-  output=$(MISE_FRIENDLY_ERROR=1 RUST_BACKTRACE=0 bash -c "$cmd 2>&1") || status=$?
+  output=$(PAKRO_FRIENDLY_ERROR=1 RUST_BACKTRACE=0 bash -c "$cmd 2>&1") || status=$?
 
   # Check for the warning about nonexistent directory
   if [[ $output == *"Current directory does not exist"* ]] || [[ $output == *"WARNING"* ]]; then
@@ -53,33 +53,33 @@ run_from_nonexistent() {
   cd "$HOME" || cd / || true
 }
 
-echo "Testing mise commands from nonexistent directories..."
+echo "Testing pakro commands from nonexistent directories..."
 
 # Test various commands - they should all show a warning but may still work
-echo "Test 1: mise --version from nonexistent directory"
-run_from_nonexistent "mise --version" "true"
+echo "Test 1: pakro --version from nonexistent directory"
+run_from_nonexistent "pakro --version" "true"
 
-echo "Test 2: mise ls from nonexistent directory"
-run_from_nonexistent "mise ls" "true"
+echo "Test 2: pakro ls from nonexistent directory"
+run_from_nonexistent "pakro ls" "true"
 
-echo "Test 3: mise current from nonexistent directory"
-run_from_nonexistent "mise current" "true"
+echo "Test 3: pakro current from nonexistent directory"
+run_from_nonexistent "pakro current" "true"
 
-echo "Test 4: mise env from nonexistent directory"
-run_from_nonexistent "mise env" "true"
+echo "Test 4: pakro env from nonexistent directory"
+run_from_nonexistent "pakro env" "true"
 
-echo "Test 5: mise doctor from nonexistent directory"
-run_from_nonexistent "mise doctor" "true"
+echo "Test 5: pakro doctor from nonexistent directory"
+run_from_nonexistent "pakro doctor" "true"
 
-echo "Test 6: mise plugins from nonexistent directory"
-run_from_nonexistent "mise plugins" "true"
+echo "Test 6: pakro plugins from nonexistent directory"
+run_from_nonexistent "pakro plugins" "true"
 
 # Commands that need to write to cwd might fail
-echo "Test 7: mise use from nonexistent directory"
-run_from_nonexistent "mise use node@20" "false"
+echo "Test 7: pakro use from nonexistent directory"
+run_from_nonexistent "pakro use node@20" "false"
 
-echo "Test 8: mise install from nonexistent directory"
-run_from_nonexistent "mise install" "true" # Should work for global tools
+echo "Test 8: pakro install from nonexistent directory"
+run_from_nonexistent "pakro install" "true" # Should work for global tools
 
 # Test that the warning appears consistently
 echo "Test 9: Verify warning message format"
@@ -87,7 +87,7 @@ temp_dir=$(mktemp -d)
 cd "$temp_dir"
 rmdir "$temp_dir"
 
-output=$(mise --version 2>&1) || true
+output=$(pakro --version 2>&1) || true
 if [[ $output == *"WARNING"* ]] && [[ $output == *"Current directory does not exist"* ]]; then
   ok "Warning message has proper format"
 elif [[ $output == *"current directory"* ]]; then

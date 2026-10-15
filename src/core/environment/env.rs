@@ -1,11 +1,11 @@
 use crate::Result;
-use crate::config::miserc;
+use crate::config::pakrorc;
 use crate::file::replace_path;
 use crate::shell::ShellType;
 use crate::{args::ToolArg, file::display_path};
 use eyre::Context;
 use indexmap::IndexSet;
-pub use mise_util::env::*;
+pub use pakro_util::env::*;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::LazyLock as Lazy;
@@ -13,27 +13,27 @@ use std::sync::RwLock;
 use std::{path::Path, string::ToString};
 
 pub static TOOL_ARGS: RwLock<Vec<ToolArg>> = RwLock::new(vec![]);
-pub static MISE_SHELL: Lazy<Option<ShellType>> =
-    Lazy::new(|| detect_shell(var("MISE_SHELL").ok(), var("SHELL").ok(), &SHELL));
+pub static PAKRO_SHELL: Lazy<Option<ShellType>> =
+    Lazy::new(|| detect_shell(var("PAKRO_SHELL").ok(), var("SHELL").ok(), &SHELL));
 
-/// Which shell mise should speak, from the environment.
+/// Which shell pakro should speak, from the environment.
 ///
 /// `SHELL` is consulted here but deliberately *not* through [`SHELL`], which on Windows reads
 /// `COMSPEC`. Git Bash, MSYS2 and Cygwin all set `SHELL` to a real shell there, and
 /// [`ShellType::from_str`] already understands the form they use, but nothing ever looked. Reading
 /// it through [`SHELL`] instead would be wrong: [`SHELL_COMMAND_FLAG`] is `/c` on Windows and
-/// `mise exec -c` and `mise en` pair the two, so `bash.exe /c …` is what that would run.
+/// `pakro exec -c` and `pakro en` pair the two, so `bash.exe /c …` is what that would run.
 ///
 /// Split out from the `Lazy` because that is process-wide and reads the real environment, so the
 /// precedence below cannot be exercised from a test any other way.
 fn detect_shell(
-    mise_shell: Option<String>,
+    pakro_shell: Option<String>,
     shell_var: Option<String>,
     fallback: &str,
 ) -> Option<ShellType> {
-    // What `mise activate` exports, so it decides on its own. Set but unparseable is an answer,
+    // What `pakro activate` exports, so it decides on its own. Set but unparseable is an answer,
     // not a reason to start guessing.
-    if let Some(s) = mise_shell {
+    if let Some(s) = pakro_shell {
         return s.parse().ok();
     }
     // On unix `SHELL` *is* the fallback, so consulting it separately would be the same lookup
@@ -50,57 +50,57 @@ fn detect_shell(
 
 // data subdirs
 
-pub static MISE_DEFAULT_TOOL_VERSIONS_FILENAME: Lazy<String> = Lazy::new(|| {
-    var("MISE_DEFAULT_TOOL_VERSIONS_FILENAME")
+pub static PAKRO_DEFAULT_TOOL_VERSIONS_FILENAME: Lazy<String> = Lazy::new(|| {
+    var("PAKRO_DEFAULT_TOOL_VERSIONS_FILENAME")
         .ok()
-        .or(MISE_OVERRIDE_TOOL_VERSIONS_FILENAMES
+        .or(PAKRO_OVERRIDE_TOOL_VERSIONS_FILENAMES
             .as_ref()
             .and_then(|v| v.first().cloned()))
-        .or(var("MISE_DEFAULT_TOOL_VERSIONS_FILENAME").ok())
+        .or(var("PAKRO_DEFAULT_TOOL_VERSIONS_FILENAME").ok())
         .unwrap_or_else(|| ".tool-versions".into())
 });
-pub static MISE_DEFAULT_CONFIG_FILENAME: Lazy<String> = Lazy::new(|| {
-    var("MISE_DEFAULT_CONFIG_FILENAME")
+pub static PAKRO_DEFAULT_CONFIG_FILENAME: Lazy<String> = Lazy::new(|| {
+    var("PAKRO_DEFAULT_CONFIG_FILENAME")
         .ok()
-        .or(MISE_OVERRIDE_CONFIG_FILENAMES.first().cloned())
-        .unwrap_or_else(|| "mise.toml".into())
+        .or(PAKRO_OVERRIDE_CONFIG_FILENAMES.first().cloned())
+        .unwrap_or_else(|| "pakro.toml".into())
 });
-pub(crate) static MISE_OVERRIDE_TOOL_VERSIONS_FILENAMES: Lazy<Option<IndexSet<String>>> =
-    Lazy::new(|| match var("MISE_OVERRIDE_TOOL_VERSIONS_FILENAMES") {
+pub(crate) static PAKRO_OVERRIDE_TOOL_VERSIONS_FILENAMES: Lazy<Option<IndexSet<String>>> =
+    Lazy::new(|| match var("PAKRO_OVERRIDE_TOOL_VERSIONS_FILENAMES") {
         Ok(v) if v == "none" => Some([].into()),
         Ok(v) => Some(split_colon_list(&v)),
         Err(_) => {
-            miserc::get_override_tool_versions_filenames().map(|v| v.iter().cloned().collect())
+            pakrorc::get_override_tool_versions_filenames().map(|v| v.iter().cloned().collect())
         }
     });
-pub(crate) static MISE_OVERRIDE_CONFIG_FILENAMES: Lazy<IndexSet<String>> =
-    Lazy::new(|| match var("MISE_OVERRIDE_CONFIG_FILENAMES") {
+pub(crate) static PAKRO_OVERRIDE_CONFIG_FILENAMES: Lazy<IndexSet<String>> =
+    Lazy::new(|| match var("PAKRO_OVERRIDE_CONFIG_FILENAMES") {
         Ok(v) => split_colon_list(&v),
-        Err(_) => miserc::get_override_config_filenames()
+        Err(_) => pakrorc::get_override_config_filenames()
             .map(|v| v.iter().cloned().collect())
             .unwrap_or_default(),
     });
-pub static MISE_ENV: Lazy<Vec<String>> = Lazy::new(|| environment(&ARGS.read().unwrap()));
+pub static PAKRO_ENV: Lazy<Vec<String>> = Lazy::new(|| environment(&ARGS.read().unwrap()));
 
-/// The tri-state auto_env setting: MISE_AUTO_ENV env var > .miserc.toml > unset
+/// The tri-state auto_env setting: PAKRO_AUTO_ENV env var > .pakrorc.toml > unset
 pub(crate) fn auto_env_setting() -> Option<bool> {
-    if var_is_true("MISE_AUTO_ENV") {
+    if var_is_true("PAKRO_AUTO_ENV") {
         Some(true)
-    } else if var_is_false("MISE_AUTO_ENV") {
+    } else if var_is_false("PAKRO_AUTO_ENV") {
         Some(false)
     } else {
-        miserc::get_auto_env()
+        pakrorc::get_auto_env()
     }
 }
 
-/// The tri-state env_conf_d setting: MISE_ENV_CONF_D env var > .miserc.toml > unset.
+/// The tri-state env_conf_d setting: PAKRO_ENV_CONF_D env var > .pakrorc.toml > unset.
 pub(crate) fn env_conf_d_setting() -> Option<bool> {
-    if var_is_true("MISE_ENV_CONF_D") {
+    if var_is_true("PAKRO_ENV_CONF_D") {
         Some(true)
-    } else if var_is_false("MISE_ENV_CONF_D") {
+    } else if var_is_false("PAKRO_ENV_CONF_D") {
         Some(false)
     } else {
-        miserc::get_env_conf_d()
+        pakrorc::get_env_conf_d()
     }
 }
 
@@ -115,7 +115,7 @@ pub(crate) fn env_conf_d() -> bool {
     env_conf_d_setting().unwrap_or_else(|| env_conf_d_default_for_version(&crate::version::V))
 }
 
-/// Default for auto_env when the setting is unset: off until mise 2027.6.0
+/// Default for auto_env when the setting is unset: off until pakro 2027.6.0
 pub(crate) fn auto_env_default_for_version(v: &versions::Versioning) -> bool {
     *v >= versions::Versioning::new("2027.6.0").unwrap()
 }
@@ -138,10 +138,10 @@ pub(crate) fn platform_env_names() -> Vec<String> {
 }
 
 /// Platform environments active for config file discovery and lockfile selection.
-/// Empty unless auto_env is enabled. Names already in MISE_ENV are excluded so
+/// Empty unless auto_env is enabled. Names already in PAKRO_ENV are excluded so
 /// explicit environments keep their user-specified (higher) precedence.
-/// These are deliberately not part of MISE_ENV: they do not affect the
-/// `{{ mise_env }}` template variable or MISE_ENV propagation to subprocesses.
+/// These are deliberately not part of PAKRO_ENV: they do not affect the
+/// `{{ pakro_env }}` template variable or PAKRO_ENV propagation to subprocesses.
 pub(crate) static AUTO_ENV_NAMES: Lazy<Vec<String>> = Lazy::new(|| {
     let enabled =
         auto_env_setting().unwrap_or_else(|| auto_env_default_for_version(&crate::version::V));
@@ -150,48 +150,50 @@ pub(crate) static AUTO_ENV_NAMES: Lazy<Vec<String>> = Lazy::new(|| {
     }
     platform_env_names()
         .into_iter()
-        .filter(|name| !MISE_ENV.contains(name))
+        .filter(|name| !PAKRO_ENV.contains(name))
         .collect()
 });
 
-/// Auto platform envs followed by explicit MISE_ENV entries, for "later wins"
+/// Auto platform envs followed by explicit PAKRO_ENV entries, for "later wins"
 /// consumers like config filename enumeration.
-pub(crate) static MISE_ENV_WITH_AUTO: Lazy<Vec<String>> = Lazy::new(|| {
+pub(crate) static PAKRO_ENV_WITH_AUTO: Lazy<Vec<String>> = Lazy::new(|| {
     AUTO_ENV_NAMES
         .iter()
-        .chain(MISE_ENV.iter())
+        .chain(PAKRO_ENV.iter())
         .cloned()
         .collect()
 });
 
-pub(crate) static MISE_IGNORED_CONFIG_PATHS: Lazy<Vec<PathBuf>> = Lazy::new(|| {
-    env_ignored_config_paths()
-        .or_else(|| miserc::get_ignored_config_paths().map(|paths| paths.iter().cloned().collect()))
-        .unwrap_or_default()
-});
-/// `ignored_config_paths` without project `.miserc.toml` files, for operations
-/// over every tracked config whose result must not depend on the working directory.
-pub(crate) static MISE_GLOBAL_IGNORED_CONFIG_PATHS: Lazy<Vec<PathBuf>> = Lazy::new(|| {
+pub(crate) static PAKRO_IGNORED_CONFIG_PATHS: Lazy<Vec<PathBuf>> = Lazy::new(|| {
     env_ignored_config_paths()
         .or_else(|| {
-            miserc::get_global_ignored_config_paths().map(|paths| paths.iter().cloned().collect())
+            pakrorc::get_ignored_config_paths().map(|paths| paths.iter().cloned().collect())
+        })
+        .unwrap_or_default()
+});
+/// `ignored_config_paths` without project `.pakrorc.toml` files, for operations
+/// over every tracked config whose result must not depend on the working directory.
+pub(crate) static PAKRO_GLOBAL_IGNORED_CONFIG_PATHS: Lazy<Vec<PathBuf>> = Lazy::new(|| {
+    env_ignored_config_paths()
+        .or_else(|| {
+            pakrorc::get_global_ignored_config_paths().map(|paths| paths.iter().cloned().collect())
         })
         .unwrap_or_default()
 });
 fn env_ignored_config_paths() -> Option<Vec<PathBuf>> {
-    let invocation_cwd = miserc::invocation_cwd()
+    let invocation_cwd = pakrorc::invocation_cwd()
         .map(Path::to_path_buf)
         .or_else(|| current_dir().ok())
         .unwrap_or_default();
-    var_os("MISE_IGNORED_CONFIG_PATHS").map(|v| {
+    var_os("PAKRO_IGNORED_CONFIG_PATHS").map(|v| {
         split_paths(&v)
             .filter(|p| !p.as_os_str().is_empty())
-            .map(|p| miserc::resolve_ignored_config_path(p, &invocation_cwd))
+            .map(|p| pakrorc::resolve_ignored_config_path(p, &invocation_cwd))
             .collect()
     })
 }
-pub(crate) static MISE_CEILING_PATHS: Lazy<HashSet<PathBuf>> = Lazy::new(|| {
-    var_os("MISE_CEILING_PATHS")
+pub(crate) static PAKRO_CEILING_PATHS: Lazy<HashSet<PathBuf>> = Lazy::new(|| {
+    var_os("PAKRO_CEILING_PATHS")
         .map(|v| {
             split_paths(&v)
                 .filter(|p| !p.as_os_str().is_empty())
@@ -199,38 +201,15 @@ pub(crate) static MISE_CEILING_PATHS: Lazy<HashSet<PathBuf>> = Lazy::new(|| {
                 .collect()
         })
         .or_else(|| {
-            miserc::get_ceiling_paths()
+            pakrorc::get_ceiling_paths()
                 .map(|paths| paths.iter().cloned().map(replace_path).collect())
         })
         .unwrap_or_default()
 });
 
-#[cfg(feature = "self_update")]
-pub(crate) static MISE_SELF_UPDATE_AVAILABLE: Lazy<Option<bool>> = Lazy::new(|| {
-    if var_is_true("MISE_SELF_UPDATE_AVAILABLE") {
-        Some(true)
-    } else if var_is_false("MISE_SELF_UPDATE_AVAILABLE") {
-        Some(false)
-    } else {
-        None
-    }
-});
-#[cfg(feature = "self_update")]
-pub(crate) static MISE_SELF_UPDATE_DISABLED_PATH: Lazy<Option<PathBuf>> = Lazy::new(|| {
-    let base = mise_install_base()?;
-    find_in_tree(
-        &base,
-        &[
-            &["lib", ".disable-self-update"],
-            &["lib", "mise", ".disable-self-update"],
-            &["lib64", "mise", ".disable-self-update"],
-        ],
-    )
-});
-
 // true if running inside a shim
 
-// true if the current process is running as a shim (not direct mise invocation)
+// true if the current process is running as a shim (not direct pakro invocation)
 
 pub(crate) static LINUX_DISTRO: Lazy<Option<String>> = Lazy::new(linux_distro);
 
@@ -245,7 +224,7 @@ fn environment(args: &[String]) -> Vec<String> {
     let arg_defs = HashSet::from(["--profile", "-P", "--env", "-E"]);
 
     // Get environment value from args or env vars
-    // Precedence: CLI args > env vars > .miserc.toml
+    // Precedence: CLI args > env vars > .pakrorc.toml
     let from_args = if *IS_RUNNING_AS_SHIM {
         // When running as shim, ignore command line args and use env vars only
         vec![]
@@ -302,17 +281,17 @@ fn environment(args: &[String]) -> Vec<String> {
     if !from_args.is_empty() {
         return from_args;
     }
-    var("MISE_ENV")
+    var("PAKRO_ENV")
         .ok()
-        .or_else(|| var("MISE_PROFILE").ok())
-        .or_else(|| var("MISE_ENVIRONMENT").ok())
+        .or_else(|| var("PAKRO_PROFILE").ok())
+        .or_else(|| var("PAKRO_ENVIRONMENT").ok())
         .map(|s| {
             s.split(',')
                 .filter(|s| !s.is_empty())
                 .map(String::from)
                 .collect()
         })
-        .or_else(|| miserc::get_env().cloned())
+        .or_else(|| pakrorc::get_env().cloned())
         .unwrap_or_default()
 }
 
@@ -349,23 +328,23 @@ mod tests {
     #[tokio::test]
     async fn test_var_path() {
         let _config = Config::get().await.unwrap();
-        set_var("MISE_TEST_PATH", "/foo/bar");
+        set_var("PAKRO_TEST_PATH", "/foo/bar");
         assert_eq!(
-            var_path("MISE_TEST_PATH").unwrap(),
+            var_path("PAKRO_TEST_PATH").unwrap(),
             PathBuf::from("/foo/bar")
         );
-        remove_var("MISE_TEST_PATH");
+        remove_var("PAKRO_TEST_PATH");
     }
 
     /// An empty value is not a directory. Callers all join onto the result, so returning
     /// `Some("")` would hand them a relative path resolved against the cwd — e.g. an empty
-    /// `XDG_CONFIG_HOME` turning `MISE_CONFIG_DIR` into the relative `mise`.
+    /// `XDG_CONFIG_HOME` turning `PAKRO_CONFIG_DIR` into the relative `pakro`.
     #[tokio::test]
     async fn test_var_path_treats_empty_as_unset() {
         let _config = Config::get().await.unwrap();
-        set_var("MISE_TEST_EMPTY_PATH", "");
-        assert_eq!(var_path("MISE_TEST_EMPTY_PATH"), None);
-        remove_var("MISE_TEST_EMPTY_PATH");
+        set_var("PAKRO_TEST_EMPTY_PATH", "");
+        assert_eq!(var_path("PAKRO_TEST_EMPTY_PATH"), None);
+        remove_var("PAKRO_TEST_EMPTY_PATH");
     }
 
     /// vars_safe() must skip pairs whose key or value is not valid UTF-8 rather
@@ -377,9 +356,9 @@ mod tests {
         use std::os::unix::ffi::OsStringExt;
 
         // 0xff can never appear in valid UTF-8.
-        let bad_value_key = "MISE_TEST_VARS_SAFE_BAD_VALUE";
-        let bad_key = OsString::from_vec(b"MISE_TEST_VARS_SAFE_BAD_KEY_\xff".to_vec());
-        let good_key = "MISE_TEST_VARS_SAFE_GOOD";
+        let bad_value_key = "PAKRO_TEST_VARS_SAFE_BAD_VALUE";
+        let bad_key = OsString::from_vec(b"PAKRO_TEST_VARS_SAFE_BAD_KEY_\xff".to_vec());
+        let good_key = "PAKRO_TEST_VARS_SAFE_GOOD";
 
         // the guard restores the previous environment on drop, so even a failing
         // assertion below cannot leak a non-UTF-8 var into the test process
@@ -399,7 +378,7 @@ mod tests {
         assert!(
             !safe
                 .iter()
-                .any(|(k, _)| k.starts_with("MISE_TEST_VARS_SAFE_BAD_KEY_"))
+                .any(|(k, _)| k.starts_with("PAKRO_TEST_VARS_SAFE_BAD_KEY_"))
         );
         // Valid neighbours are still returned.
         assert!(safe.iter().any(|(k, v)| k == good_key && v == "1"));
@@ -486,7 +465,7 @@ mod tests {
             ("", vec![]),    // empty string — was causing panic
             (":", vec![]),   // colon only
             (":::", vec![]), // multiple colons
-            ("mise.toml", vec!["mise.toml"]),
+            ("pakro.toml", vec!["pakro.toml"]),
             ("a:b", vec!["a", "b"]),
             (":a:b:", vec!["a", "b"]), // leading/trailing colons
             ("a::b", vec!["a", "b"]),  // consecutive colons
@@ -499,47 +478,47 @@ mod tests {
     }
 
     #[test]
-    fn test_is_mise_binary() {
-        // The spellings mise is actually invoked under, on every platform.
-        assert!(is_mise_binary("mise"));
-        assert!(is_mise_binary("mise.exe"));
-        assert!(is_mise_binary("mise.cmd"));
-        assert!(is_mise_binary("mise-doctor"));
+    fn test_is_pakro_binary() {
+        // The spellings pakro is actually invoked under, on every platform.
+        assert!(is_pakro_binary("pakro"));
+        assert!(is_pakro_binary("pakro.exe"));
+        assert!(is_pakro_binary("pakro.cmd"));
+        assert!(is_pakro_binary("pakro-doctor"));
         // The controls. Real shim names must stay shims, or this stops being a test of anything:
         // a version that always returned true would pass every assertion above.
-        assert!(!is_mise_binary("node"));
-        assert!(!is_mise_binary("node.exe"));
-        assert!(!is_mise_binary("misex"));
-        assert!(!is_mise_binary("misex.exe"));
+        assert!(!is_pakro_binary("node"));
+        assert!(!is_pakro_binary("node.exe"));
+        assert!(!is_pakro_binary("pakrox"));
+        assert!(!is_pakro_binary("pakrox.exe"));
     }
 
-    /// Windows resolves `MISE.EXE` to the same file as `mise.exe` and hands the process `argv[0]`
+    /// Windows resolves `PAKRO.EXE` to the same file as `pakro.exe` and hands the process `argv[0]`
     /// with the casing the caller wrote, so the test has to ignore case there. See the pair below.
     #[cfg(windows)]
     #[test]
-    fn test_is_mise_binary_ignores_case_on_windows() {
-        assert!(is_mise_binary("MISE.EXE"));
-        assert!(is_mise_binary("Mise.exe"));
-        assert!(is_mise_binary("MISE"));
-        assert!(is_mise_binary("MISE-DOCTOR"));
-        // Case-insensitivity must not widen what counts as mise.
-        assert!(!is_mise_binary("NODE.EXE"));
-        assert!(!is_mise_binary("MISEX.EXE"));
+    fn test_is_pakro_binary_ignores_case_on_windows() {
+        assert!(is_pakro_binary("PAKRO.EXE"));
+        assert!(is_pakro_binary("Pakro.exe"));
+        assert!(is_pakro_binary("PAKRO"));
+        assert!(is_pakro_binary("PAKRO-DOCTOR"));
+        // Case-insensitivity must not widen what counts as pakro.
+        assert!(!is_pakro_binary("NODE.EXE"));
+        assert!(!is_pakro_binary("PAKROX.EXE"));
     }
 
-    /// The other half. On unix `MISE` is a different file from `mise`, so a shim by that name has
-    /// to keep being treated as a shim; ignoring case here would make mise run itself instead.
+    /// The other half. On unix `PAKRO` is a different file from `pakro`, so a shim by that name has
+    /// to keep being treated as a shim; ignoring case here would make pakro run itself instead.
     #[cfg(unix)]
     #[test]
-    fn test_is_mise_binary_is_case_sensitive_on_unix() {
-        assert!(!is_mise_binary("MISE"));
-        assert!(!is_mise_binary("Mise"));
-        assert!(!is_mise_binary("MISE-DOCTOR"));
+    fn test_is_pakro_binary_is_case_sensitive_on_unix() {
+        assert!(!is_pakro_binary("PAKRO"));
+        assert!(!is_pakro_binary("Pakro"));
+        assert!(!is_pakro_binary("PAKRO-DOCTOR"));
     }
 
-    fn detect(mise_shell: Option<&str>, shell_var: Option<&str>, fallback: &str) -> String {
+    fn detect(pakro_shell: Option<&str>, shell_var: Option<&str>, fallback: &str) -> String {
         detect_shell(
-            mise_shell.map(str::to_string),
+            pakro_shell.map(str::to_string),
             shell_var.map(str::to_string),
             fallback,
         )
@@ -547,11 +526,11 @@ mod tests {
         .unwrap_or_else(|| "(none)".to_string())
     }
 
-    /// `mise activate` exports `MISE_SHELL`, so it decides on its own — including deciding that
+    /// `pakro activate` exports `PAKRO_SHELL`, so it decides on its own — including deciding that
     /// the answer is nothing. Falling back after an unparseable value would start guessing at a
     /// shell the session has already named.
     #[test]
-    fn mise_shell_wins_and_an_unparseable_one_is_still_the_answer() {
+    fn pakro_shell_wins_and_an_unparseable_one_is_still_the_answer() {
         assert_eq!(detect(Some("zsh"), Some("/bin/bash"), "/bin/bash"), "zsh");
         assert_eq!(
             detect(Some("nonsense"), Some("/bin/bash"), "/bin/bash"),
@@ -579,7 +558,7 @@ mod tests {
                 "{shell_var}"
             );
         }
-        // Unchanged where there is nothing to find: cmd.exe is not a shell mise generates for.
+        // Unchanged where there is nothing to find: cmd.exe is not a shell pakro generates for.
         assert_eq!(detect(None, None, r"C:\WINDOWS\system32\cmd.exe"), "(none)");
     }
 
@@ -595,23 +574,23 @@ mod tests {
         assert_eq!(detect(None, None, "sh"), "bash");
     }
 
-    /// The names `self-replace` generates, which mise used to report as broken shims. Measured with
+    /// The names `self-replace` generates, which pakro used to report as broken shims. Measured with
     /// `TEMP` at 199 and 201 characters, where the copy's own init hook stops recognising itself.
     #[test]
     fn a_self_replace_copy_of_this_binary_is_recognised() {
         let rand = "qzcdgqhxhqwhzdwyqchsmdxcqouxxche";
         assert!(is_self_replace_helper(
-            &format!(".mise.{rand}.__selfdelete__.exe"),
-            "mise"
+            &format!(".pakro.{rand}.__selfdelete__.exe"),
+            "pakro"
         ));
         assert!(is_self_replace_helper(
-            &format!(".mise.{rand}.__relocated__.exe"),
-            "mise"
+            &format!(".pakro.{rand}.__relocated__.exe"),
+            "pakro"
         ));
-        // The stem follows the binary, so a renamed mise is still recognised.
+        // The stem follows the binary, so a renamed pakro is still recognised.
         assert!(is_self_replace_helper(
-            &format!(".mise-dev.{rand}.__selfdelete__.exe"),
-            "mise-dev"
+            &format!(".pakro-dev.{rand}.__selfdelete__.exe"),
+            "pakro-dev"
         ));
     }
 
@@ -619,17 +598,17 @@ mod tests {
     #[test]
     fn ordinary_names_and_other_applications_are_not() {
         let rand = "qzcdgqhxhqwhzdwyqchsmdxcqouxxche";
-        // mise itself, and a genuine shim.
-        assert!(!is_self_replace_helper("mise.exe", "mise"));
-        assert!(!is_self_replace_helper("node.exe", "mise"));
+        // pakro itself, and a genuine shim.
+        assert!(!is_self_replace_helper("pakro.exe", "pakro"));
+        assert!(!is_self_replace_helper("node.exe", "pakro"));
         // Another application's orphan, sitting in the same TEMP. Matching the suffix alone would
         // claim it — and the sweep would delete it.
         assert!(!is_self_replace_helper(
             &format!(".node.{rand}.__selfdelete__.exe"),
-            "mise"
+            "pakro"
         ));
         // Ours by name, but not one of these copies.
-        assert!(!is_self_replace_helper(".mise.something.exe", "mise"));
+        assert!(!is_self_replace_helper(".pakro.something.exe", "pakro"));
     }
 
     /// The segment between the stem and the suffix has to be the one `self-replace` generates —
@@ -640,44 +619,50 @@ mod tests {
         let ok = "qzcdgqhxhqwhzdwyqchsmdxcqouxxche";
         assert_eq!(ok.len(), SELF_REPLACE_RANDOM_LEN, "premise");
         assert!(is_self_replace_helper(
-            &format!(".mise.{ok}.__selfdelete__.exe"),
-            "mise"
+            &format!(".pakro.{ok}.__selfdelete__.exe"),
+            "pakro"
         ));
 
         // No segment at all.
-        assert!(!is_self_replace_helper(".mise..__selfdelete__.exe", "mise"));
-        assert!(!is_self_replace_helper(".mise.__selfdelete__.exe", "mise"));
-        // Too short, and too long.
         assert!(!is_self_replace_helper(
-            ".mise.abc.__selfdelete__.exe",
-            "mise"
+            ".pakro..__selfdelete__.exe",
+            "pakro"
         ));
         assert!(!is_self_replace_helper(
-            &format!(".mise.{ok}x.__selfdelete__.exe"),
-            "mise"
+            ".pakro.__selfdelete__.exe",
+            "pakro"
+        ));
+        // Too short, and too long.
+        assert!(!is_self_replace_helper(
+            ".pakro.abc.__selfdelete__.exe",
+            "pakro"
+        ));
+        assert!(!is_self_replace_helper(
+            &format!(".pakro.{ok}x.__selfdelete__.exe"),
+            "pakro"
         ));
         // Right length, wrong alphabet — a digit and an uppercase letter.
         let digits = format!("{}1", &ok[..SELF_REPLACE_RANDOM_LEN - 1]);
         assert!(!is_self_replace_helper(
-            &format!(".mise.{digits}.__selfdelete__.exe"),
-            "mise"
+            &format!(".pakro.{digits}.__selfdelete__.exe"),
+            "pakro"
         ));
         let upper = format!("{}A", &ok[..SELF_REPLACE_RANDOM_LEN - 1]);
         assert!(!is_self_replace_helper(
-            &format!(".mise.{upper}.__selfdelete__.exe"),
-            "mise"
+            &format!(".pakro.{upper}.__selfdelete__.exe"),
+            "pakro"
         ));
     }
 
-    /// The stem carries whatever casing the caller used to start mise — measured: `current_exe()`
+    /// The stem carries whatever casing the caller used to start pakro — measured: `current_exe()`
     /// returns `CASEPROBE` for a `caseprobe.exe` started as `CASEPROBE.EXE`. So an update launched
     /// one way writes an orphan the next one, launched the other way, has to still recognise.
     #[cfg(windows)]
     #[test]
     fn an_orphan_from_a_differently_cased_launch_is_still_ours() {
         let rand = "qzcdgqhxhqwhzdwyqchsmdxcqouxxche";
-        for stem in ["mise", "MISE", "Mise"] {
-            for written in ["mise", "MISE", "Mise"] {
+        for stem in ["pakro", "PAKRO", "Pakro"] {
+            for written in ["pakro", "PAKRO", "Pakro"] {
                 assert!(
                     is_self_replace_helper(&format!(".{written}.{rand}.__selfdelete__.exe"), stem),
                     "stem {stem} should claim an orphan written as {written}"
@@ -687,23 +672,23 @@ mod tests {
         // Still not another application's, however it is cased.
         assert!(!is_self_replace_helper(
             &format!(".NODE.{rand}.__selfdelete__.exe"),
-            "mise"
+            "pakro"
         ));
     }
 
-    /// The control for the rule above: unix filesystems are case-sensitive, so `MISE` and `mise`
+    /// The control for the rule above: unix filesystems are case-sensitive, so `PAKRO` and `pakro`
     /// are different files and an orphan of one is not an orphan of the other.
     #[cfg(unix)]
     #[test]
     fn casing_still_separates_names_on_unix() {
         let rand = "qzcdgqhxhqwhzdwyqchsmdxcqouxxche";
         assert!(is_self_replace_helper(
-            &format!(".mise.{rand}.__selfdelete__.exe"),
-            "mise"
+            &format!(".pakro.{rand}.__selfdelete__.exe"),
+            "pakro"
         ));
         assert!(!is_self_replace_helper(
-            &format!(".MISE.{rand}.__selfdelete__.exe"),
-            "mise"
+            &format!(".PAKRO.{rand}.__selfdelete__.exe"),
+            "pakro"
         ));
     }
 }

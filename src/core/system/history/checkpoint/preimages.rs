@@ -366,7 +366,7 @@ mod tests {
             .unwrap();
         assert!(
             repo.cat_object(&oid)?
-                .starts_with(b"mise-encrypted-file-v1\n")
+                .starts_with(b"pakro-encrypted-file-v1\n")
         );
         let plaintext = repo.transient_blob_id(secret)?;
         assert!(

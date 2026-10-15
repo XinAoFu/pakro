@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.echo-args]
 run = 'echo args:'
 
@@ -9,7 +9,7 @@ run = 'echo hello'
 
 [tasks.check-tiny]
 # tiny is not installed, so this would fail without --skip-tools
-# if tools were being installed, mise would try to install tiny
+# if tools were being installed, pakro would try to install tiny
 tools = { tiny = "1.0.0" }
 run = 'echo ran'
 
@@ -21,19 +21,19 @@ run = 'echo deferred ran'
 run = [{ task = "deferred-check" }]
 EOF
 
-# --skip-tools before task name is a mise flag (skips tool install, task runs)
-assert "mise run --skip-tools hello" "hello"
+# --skip-tools before task name is a pakro flag (skips tool install, task runs)
+assert "pakro run --skip-tools hello" "hello"
 
 # --skip-tools after task name is a task arg (passed through to task)
-assert "mise run echo-args --skip-tools" "args: --skip-tools"
+assert "pakro run echo-args --skip-tools" "args: --skip-tools"
 
 # verify --skip-tools skips task-level tool installation
 # task declares tools = { tiny = "1.0.0" } but --skip-tools prevents install attempt
-assert "mise run --skip-tools check-tiny" "ran"
+assert "pakro run --skip-tools check-tiny" "ran"
 
 # --skip-tools also applies to tasks resolved later from run entries.
-assert "mise run --skip-tools deferred-parent" "deferred ran"
-assert_fail "test -d '$MISE_DATA_DIR/installs/tiny/2.0.0'"
+assert "pakro run --skip-tools deferred-parent" "deferred ran"
+assert_fail "test -d '$PAKRO_DATA_DIR/installs/tiny/2.0.0'"
 
 credential_marker="$HOME/github-credential-command-called"
 credential_command="$HOME/fake-github-credential-command"
@@ -44,15 +44,15 @@ echo fake-token
 EOF
 chmod +x "$credential_command"
 
-mkdir -p "$MISE_CONFIG_DIR"
-cat >"$MISE_CONFIG_DIR/config.toml" <<EOF
+mkdir -p "$PAKRO_CONFIG_DIR"
+cat >"$PAKRO_CONFIG_DIR/config.toml" <<EOF
 [settings]
 auto_install = false
 github.credential_command = "$credential_command"
 minimum_release_age = "3d"
 EOF
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools]
 "github:cli/cli" = "latest"
 
@@ -60,10 +60,10 @@ cat >mise.toml <<EOF
 run = "echo Hello World!"
 EOF
 
-assert "mise run --skip-tools nop-test" "Hello World!"
+assert "pakro run --skip-tools nop-test" "Hello World!"
 assert_fail "test -f '$credential_marker'"
 
 rm -f "$credential_marker"
 
-assert "mise run nop-test" "Hello World!"
+assert "pakro run nop-test" "Hello World!"
 assert_fail "test -f '$credential_marker'"

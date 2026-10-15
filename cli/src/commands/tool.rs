@@ -14,12 +14,12 @@ use crate::ui::table;
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise tool node
+        r###"pakro tool node
 Backend:            core
 Installed Versions: 20.0.0 22.0.0
 Active Version:     20.0.0
 Requested Version:  20
-Config Source:      ~/.config/mise/mise.toml
+Config Source:      ~/.config/pakro/pakro.toml
 Tool Options:       [none]"###
     )
 )]
@@ -133,41 +133,41 @@ impl Tool {
 
     fn output_json(&self, info: ToolInfo) -> Result<()> {
         if self.filter.backend_ {
-            miseprintln!("{}", serde_json::to_string_pretty(&info.backend)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&info.backend)?);
         } else if self.filter.description {
-            miseprintln!("{}", serde_json::to_string_pretty(&info.description)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&info.description)?);
         } else if self.filter.installed {
-            miseprintln!(
+            pakroprintln!(
                 "{}",
                 serde_json::to_string_pretty(&info.installed_versions)?
             );
         } else if self.filter.active {
-            miseprintln!("{}", serde_json::to_string_pretty(&info.active_versions)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&info.active_versions)?);
         } else if self.filter.requested {
-            miseprintln!(
+            pakroprintln!(
                 "{}",
                 serde_json::to_string_pretty(&info.requested_versions)?
             );
         } else if self.filter.config_source {
-            miseprintln!("{}", serde_json::to_string_pretty(&info.config_source)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&info.config_source)?);
         } else if self.filter.tool_options {
-            miseprintln!("{}", serde_json::to_string_pretty(&info.tool_options)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&info.tool_options)?);
         } else if self.filter.url {
-            miseprintln!("{}", serde_json::to_string_pretty(&info.url)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&info.url)?);
         } else {
-            miseprintln!("{}", serde_json::to_string_pretty(&info)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&info)?);
         }
         Ok(())
     }
 
     fn output_user(&self, info: ToolInfo) -> Result<()> {
         if self.filter.backend_ {
-            miseprintln!("{}", info.backend);
+            pakroprintln!("{}", info.backend);
         } else if self.filter.description {
             if let Some(description) = info.description {
-                miseprintln!("{}", description);
+                pakroprintln!("{}", description);
             } else {
-                miseprintln!("[none]");
+                pakroprintln!("[none]");
             }
         } else if self.filter.installed {
             let active_set = info
@@ -186,38 +186,38 @@ impl Tool {
                     }
                 })
                 .join(" ");
-            miseprintln!("{}", installed_with_bold);
+            pakroprintln!("{}", installed_with_bold);
         } else if self.filter.active {
             if let Some(active_versions) = info.active_versions {
-                miseprintln!("{}", active_versions.join(" "));
+                pakroprintln!("{}", active_versions.join(" "));
             } else {
-                miseprintln!("[none]");
+                pakroprintln!("[none]");
             }
         } else if self.filter.requested {
             if let Some(requested_versions) = info.requested_versions {
-                miseprintln!("{}", requested_versions.join(" "));
+                pakroprintln!("{}", requested_versions.join(" "));
             } else {
-                miseprintln!("[none]");
+                pakroprintln!("[none]");
             }
         } else if self.filter.config_source {
             if let Some(config_source) = info.config_source {
-                miseprintln!("{}", config_source);
+                pakroprintln!("{}", config_source);
             } else {
-                miseprintln!("[none]");
+                pakroprintln!("[none]");
             }
         } else if self.filter.tool_options {
             if info.tool_options.is_empty() {
-                miseprintln!("[none]");
+                pakroprintln!("[none]");
             } else {
                 for (k, v) in info.tool_options.opts {
-                    miseprintln!("{k}={v:?}");
+                    pakroprintln!("{k}={v:?}");
                 }
             }
         } else if self.filter.url {
             if let Some(url) = info.url {
-                miseprintln!("{}", url);
+                pakroprintln!("{}", url);
             } else {
-                miseprintln!("[none]");
+                pakroprintln!("[none]");
             }
         } else {
             let mut table = vec![];

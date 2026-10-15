@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.build]
 run = 'echo build'
 [tasks.all]
 depends = ['build a', 'build b', 'build c']
 EOF
-assert "mise run all | sort" "[build a] build a
+assert "pakro run all | sort" "[build a] build a
 [build b] build b
 [build c] build c"
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.build1]
 run = 'echo build'
 [tasks.build2]
@@ -20,6 +20,6 @@ run = 'echo build'
 depends = ['build1 a', 'build2 b']
 run = "echo all"
 EOF
-assert "mise run all" "build a
+assert "pakro run all" "build a
 build b
 all"

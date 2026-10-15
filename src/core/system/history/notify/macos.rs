@@ -1,5 +1,5 @@
 //! A real application identity is required for a custom notification icon.
-//! The small native helper is embedded in mise, not compiled on the user's Mac.
+//! The small native helper is embedded in pakro, not compiled on the user's Mac.
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -9,40 +9,40 @@ use eyre::{Result, bail};
 
 const HELPER: &[u8] = include_bytes!(concat!(
     env!("OUT_DIR"),
-    "/mise-notify.app/Contents/MacOS/mise-notify"
+    "/pakro-notify.app/Contents/MacOS/pakro-notify"
 ));
 const INFO: &[u8] = include_bytes!(concat!(
     env!("OUT_DIR"),
-    "/mise-notify.app/Contents/Info.plist"
+    "/pakro-notify.app/Contents/Info.plist"
 ));
 const ICON: &[u8] = include_bytes!(concat!(
     env!("OUT_DIR"),
-    "/mise-notify.app/Contents/Resources/mise.icns"
+    "/pakro-notify.app/Contents/Resources/pakro.icns"
 ));
 const CODE_RESOURCES: &[u8] = include_bytes!(concat!(
     env!("OUT_DIR"),
-    "/mise-notify.app/Contents/_CodeSignature/CodeResources"
+    "/pakro-notify.app/Contents/_CodeSignature/CodeResources"
 ));
 
 pub(super) fn release_signed() -> bool {
-    env!("MISE_NOTIFICATION_RELEASE_SIGNED") == "1"
+    env!("PAKRO_NOTIFICATION_RELEASE_SIGNED") == "1"
 }
 
 fn app_path(root: &Path) -> PathBuf {
     // A versioned directory permits safe replacement without modifying a
     // running helper. The bundle identifier remains stable across versions.
     let fingerprint = crate::hash::hash_to_str(&(HELPER, INFO, ICON, CODE_RESOURCES));
-    root.join(fingerprint).join("mise.app")
+    root.join(fingerprint).join("pakro.app")
 }
 
 fn executable(app: &Path) -> PathBuf {
-    app.join("Contents/MacOS/mise-notify")
+    app.join("Contents/MacOS/pakro-notify")
 }
 
 fn complete(app: &Path) -> bool {
     executable(app).is_file()
         && app.join("Contents/Info.plist").is_file()
-        && app.join("Contents/Resources/mise.icns").is_file()
+        && app.join("Contents/Resources/pakro.icns").is_file()
         && app.join("Contents/_CodeSignature/CodeResources").is_file()
 }
 
@@ -68,13 +68,13 @@ fn ensure_app(root: &Path) -> Result<PathBuf> {
     crate::file::create_dir_all(root)?;
     let mut lock = fslock::LockFile::open(&root.join("install.lock"))?;
     if !lock.try_lock()? {
-        bail!("another process is installing the mise notification helper");
+        bail!("another process is installing the pakro notification helper");
     }
     if complete(&app) {
         return Ok(app);
     }
     let staging = tempfile::tempdir_in(root)?;
-    let staged = staging.path().join("mise.app");
+    let staged = staging.path().join("pakro.app");
     let contents = staged.join("Contents");
     std::fs::create_dir_all(contents.join("MacOS"))?;
     std::fs::create_dir_all(contents.join("Resources"))?;
@@ -82,7 +82,7 @@ fn ensure_app(root: &Path) -> Result<PathBuf> {
     std::fs::write(executable(&staged), HELPER)?;
     std::fs::set_permissions(executable(&staged), std::fs::Permissions::from_mode(0o755))?;
     std::fs::write(contents.join("Info.plist"), INFO)?;
-    std::fs::write(contents.join("Resources/mise.icns"), ICON)?;
+    std::fs::write(contents.join("Resources/pakro.icns"), ICON)?;
     std::fs::write(
         contents.join("_CodeSignature/CodeResources"),
         CODE_RESOURCES,
@@ -91,11 +91,11 @@ fn ensure_app(root: &Path) -> Result<PathBuf> {
     if app.symlink_metadata().is_ok() {
         // Preserve an incomplete installation for inspection, rather than
         // deleting anything a user may have placed in it. The install lock
-        // serializes repair with other mise processes.
+        // serializes repair with other pakro processes.
         let quarantine = tempfile::Builder::new()
             .prefix("incomplete-")
             .tempdir_in(root)?;
-        std::fs::rename(&app, quarantine.path().join("mise.app"))?;
+        std::fs::rename(&app, quarantine.path().join("pakro.app"))?;
         let preserved = quarantine.keep();
         debug!(
             "preserved incomplete notification helper at {}",
@@ -136,13 +136,13 @@ mod tests {
     #[test]
     fn notification_text_is_literal_and_install_failure_is_reported() {
         let command = notification_command(
-            Path::new("/app with spaces/mise.app"),
-            "[mise]",
+            Path::new("/app with spaces/pakro.app"),
+            "[pakro]",
             "\"file\"; $(touch unwanted)",
         );
         assert_eq!(
             command.get_args().collect::<Vec<_>>(),
-            ["[mise]", "\"file\"; $(touch unwanted)"]
+            ["[pakro]", "\"file\"; $(touch unwanted)"]
         );
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("not-a-directory");
@@ -152,7 +152,10 @@ mod tests {
 
     #[test]
     fn incomplete_installation_is_repaired_without_discarding_its_contents() {
-        for missing in ["Contents/MacOS/mise-notify", "Contents/Resources/mise.icns"] {
+        for missing in [
+            "Contents/MacOS/pakro-notify",
+            "Contents/Resources/pakro.icns",
+        ] {
             let temp = tempfile::tempdir().unwrap();
             let app = ensure_app(temp.path()).unwrap();
             std::fs::remove_file(app.join(missing)).unwrap();
@@ -170,7 +173,7 @@ mod tests {
                 })
                 .unwrap();
             assert_eq!(
-                std::fs::read_to_string(preserved.join("mise.app/inspection.txt")).unwrap(),
+                std::fs::read_to_string(preserved.join("pakro.app/inspection.txt")).unwrap(),
                 "preserve me"
             );
         }

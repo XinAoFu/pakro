@@ -9,7 +9,7 @@ permissions: {}
 
 jobs:
   warn:
-    if: github.event.pull_request.user.login != 'jdx' && github.event.pull_request.user.login != 'mise-en-dev'
+    if: github.event.pull_request.user.login != github.repository_owner
     runs-on: ubuntu-latest
     steps:
       - name: Fail on vendored file changes

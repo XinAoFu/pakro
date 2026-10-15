@@ -11,7 +11,7 @@ use crate::toolset::env_cache::CachedEnv;
 use crate::{dirs, env};
 use eyre::Result;
 
-/// Print the script to activate mise in an interactive shell
+/// Print the script to activate pakro in an interactive shell
 ///
 /// Evaluate this command's output with the syntax for your shell; running it alone
 /// only prints the script. Activation updates tools and environment variables as
@@ -21,21 +21,21 @@ use eyre::Result;
 /// ~/.bashrc for Bash, ~/.zshrc for Zsh, ~/.config/fish/config.fish for Fish,
 /// or $PROFILE for PowerShell. See the getting-started guide for other shells.
 ///
-/// The mise executable must be on PATH before that line runs. Otherwise use its
-/// absolute path, for example `eval "$(~/.local/bin/mise activate zsh)"`.
+/// The pakro executable must be on PATH before that line runs. Otherwise use its
+/// absolute path, for example `eval "$(~/.local/bin/pakro activate zsh)"`.
 ///
-/// Use `mise exec -- command` for scripts and CI that do not need interactive hooks.
+/// Use `pakro exec -- command` for scripts and CI that do not need interactive hooks.
 /// Customize status output with the `status` settings.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
-    example(r#"eval "$(mise activate bash)""#, help = "Activate mise in Bash."),
-    example(r#"eval "$(mise activate zsh)""#, help = "Activate mise in Zsh."),
-    example("mise activate fish | source", help = "Activate mise in Fish."),
-    example("execx($(mise activate xonsh))", help = "Activate mise in Xonsh."),
+    example(r#"eval "$(pakro activate bash)""#, help = "Activate pakro in Bash."),
+    example(r#"eval "$(pakro activate zsh)""#, help = "Activate pakro in Zsh."),
+    example("pakro activate fish | source", help = "Activate pakro in Fish."),
+    example("execx($(pakro activate xonsh))", help = "Activate pakro in Xonsh."),
     example(
-        "(&mise activate pwsh) | Out-String | Invoke-Expression",
-        help = "Activate mise in PowerShell."
+        "(&pakro activate pwsh) | Out-String | Invoke-Expression",
+        help = "Activate pakro in PowerShell."
     )
 )]
 pub(crate) struct Activate {
@@ -53,9 +53,9 @@ pub(crate) struct Activate {
 
     /// Do not automatically call hook-env
     ///
-    /// This can be helpful for debugging mise. If you run `eval "$(mise activate --no-hook-env)"`, then
-    /// you can call `mise hook-env` manually which will output the env vars to stdout without actually
-    /// modifying the environment. That way you can do things like `mise hook-env --trace` to get more
+    /// This can be helpful for debugging pakro. If you run `eval "$(pakro activate --no-hook-env)"`, then
+    /// you can call `pakro hook-env` manually which will output the env vars to stdout without actually
+    /// modifying the environment. That way you can do things like `pakro hook-env --trace` to get more
     /// information or just see the values that hook-env is outputting.
     #[usage(long)]
     no_hook_env: bool,
@@ -64,14 +64,14 @@ pub(crate) struct Activate {
     ///
     /// Effectively the same as:
     ///
-    ///     PATH="$HOME/.local/share/mise/shims:$PATH"
+    ///     PATH="$HOME/.local/share/pakro/shims:$PATH"
     ///
-    /// `mise activate --shims` does not support all the features of `mise activate`.
+    /// `pakro activate --shims` does not support all the features of `pakro activate`.
     /// See https://mise.jdx.dev/dev-tools/shims.html#shims-vs-path for more information
     #[usage(long, verbatim_doc_comment)]
     shims: bool,
 
-    /// Show "mise: <TOOL>@<VERSION>" message when changing directories
+    /// Show "pakro: <TOOL>@<VERSION>" message when changing directories
     #[usage(long, hide = true)]
     status: bool,
 }
@@ -80,40 +80,40 @@ impl Activate {
     pub(crate) fn run(self) -> Result<()> {
         let shell = require_shell(
             self.shell_type.or(self.shell),
-            &format!("Name the shell: `mise activate {EXAMPLE_SHELL}`."),
+            &format!("Name the shell: `pakro activate {EXAMPLE_SHELL}`."),
         )?;
 
         // touch ROOT to allow hook-env to run
         let _ = touch_dir(&dirs::DATA);
 
-        let mise_bin = if cfg!(target_os = "linux") {
+        let pakro_bin = if cfg!(target_os = "linux") {
             // linux dereferences symlinks, so use argv0 instead
             let argv0 = PathBuf::from(&*env::ARGV0);
             let path = if argv0.is_absolute() {
                 argv0
             } else {
-                which::which(&*env::ARGV0).unwrap_or_else(|_| env::MISE_BIN.clone())
+                which::which(&*env::ARGV0).unwrap_or_else(|_| env::PAKRO_BIN.clone())
             };
             if path.is_absolute() {
                 path
             } else {
                 std::env::current_dir()
                     .map(|cwd| cwd.join(path))
-                    .unwrap_or_else(|_| env::MISE_BIN.clone())
+                    .unwrap_or_else(|_| env::PAKRO_BIN.clone())
             }
         } else {
-            env::MISE_BIN.clone()
+            env::PAKRO_BIN.clone()
         };
         match self.shims {
-            true => self.activate_shims(shell.as_ref(), &mise_bin)?,
-            false => self.activate(shell.as_ref(), &mise_bin)?,
+            true => self.activate_shims(shell.as_ref(), &pakro_bin)?,
+            false => self.activate(shell.as_ref(), &pakro_bin)?,
         }
 
         Ok(())
     }
 
-    fn activate_shims(&self, shell: &dyn Shell, mise_bin: &Path) -> std::io::Result<()> {
-        let exe_dir = mise_bin.parent().unwrap();
+    fn activate_shims(&self, shell: &dyn Shell, pakro_bin: &Path) -> std::io::Result<()> {
+        let exe_dir = pakro_bin.parent().unwrap();
         let user_shims = dirs::shims();
         let system_shims = dirs::system_shims();
         let mut shim_dirs = vec![user_shims];
@@ -123,7 +123,7 @@ impl Activate {
         let mut prelude = vec![];
         // The shims dir is always (move-)prepended so it stays at the front of PATH
         // even when activation is re-sourced (e.g. VS Code terminals) — see #8757.
-        // The mise executable's own dir only needs to be present so `mise` is
+        // The pakro executable's own dir only needs to be present so `pakro` is
         // callable, so it uses the guarded prepend: this avoids re-prepending (and
         // thereby reordering) a system dir such as /usr/bin that is already in PATH
         // for deb/rpm installs, which would otherwise move it ahead of
@@ -156,20 +156,20 @@ impl Activate {
                 prelude.push(p);
             }
         }
-        miseprint!("{}", shell.format_activate_prelude(&prelude))?;
+        pakroprint!("{}", shell.format_activate_prelude(&prelude))?;
         Ok(())
     }
 
-    fn activate(&self, shell: &dyn Shell, mise_bin: &Path) -> std::io::Result<()> {
+    fn activate(&self, shell: &dyn Shell, pakro_bin: &Path) -> std::io::Result<()> {
         let mut prelude = vec![];
         // Preserve the user's PATH before adding the shim boundary. Shell activation
         // normally snapshots this after preludes run, which would otherwise make
-        // `mise deactivate` restore mise's own shim farms.
-        if env::__MISE_ORIG_PATH.is_none() {
+        // `pakro deactivate` restore pakro's own shim farms.
+        if env::__PAKRO_ORIG_PATH.is_none() {
             let path = std::env::join_paths(&*env::PATH)
                 .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
             prelude.push(ActivatePrelude::Set(
-                "__MISE_ORIG_PATH".to_string(),
+                "__PAKRO_ORIG_PATH".to_string(),
                 path.to_string_lossy().to_string(),
             ));
         }
@@ -182,7 +182,7 @@ impl Activate {
         if let Some(set_path) = shim_path_update {
             prelude.push(set_path);
         }
-        let exe_dir = mise_bin.parent().unwrap();
+        let exe_dir = pakro_bin.parent().unwrap();
         let mut flags = vec![];
         if self.quiet {
             flags.push(" --quiet".to_string());
@@ -200,15 +200,15 @@ impl Activate {
         if Settings::get().env_cache {
             let key = CachedEnv::ensure_encryption_key();
             prelude.push(ActivatePrelude::Set(
-                "__MISE_ENV_CACHE_KEY".to_string(),
+                "__PAKRO_ENV_CACHE_KEY".to_string(),
                 key,
             ));
         }
 
-        miseprint!(
+        pakroprint!(
             "{}",
             shell.activate(ActivateOptions {
-                exe: mise_bin.to_path_buf(),
+                exe: pakro_bin.to_path_buf(),
                 flags: flags.join(""),
                 no_hook_env: self.no_hook_env,
                 prelude,
@@ -258,7 +258,7 @@ impl Activate {
     }
 }
 
-/// Logging flags given to `mise activate` that have to keep applying to every later
+/// Logging flags given to `pakro activate` that have to keep applying to every later
 /// `hook-env`, since that — not `activate` — is what prints the per-directory output.
 ///
 /// Only `--quiet` reaches [`Activate`] as a field; `--silent` and `--log-level` are global
@@ -299,7 +299,7 @@ fn position_shims_before_path() -> std::io::Result<Option<ActivatePrelude>> {
     path.extend(
         env::PATH
             .iter()
-            .filter(|path| !file::is_mise_shims_dir(path))
+            .filter(|path| !file::is_pakro_shims_dir(path))
             .cloned(),
     );
     let path = std::env::join_paths(path)
@@ -311,13 +311,13 @@ fn position_shims_before_path() -> std::io::Result<Option<ActivatePrelude>> {
 }
 
 fn remove_shims_from_path() -> std::io::Result<Option<ActivatePrelude>> {
-    if !env::PATH.iter().any(|path| file::is_mise_shims_dir(path)) {
+    if !env::PATH.iter().any(|path| file::is_pakro_shims_dir(path)) {
         return Ok(None);
     }
     let path = std::env::join_paths(
         env::PATH
             .iter()
-            .filter(|path| !file::is_mise_shims_dir(path)),
+            .filter(|path| !file::is_pakro_shims_dir(path)),
     )
     .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
     Ok(Some(ActivatePrelude::Set(
@@ -372,7 +372,7 @@ mod tests {
     #[test]
     fn forwards_silent_so_it_reaches_hook_env() {
         assert_eq!(
-            forwarded_logging_flags(&args(&["mise", "activate", "bash", "--silent"])),
+            forwarded_logging_flags(&args(&["pakro", "activate", "bash", "--silent"])),
             vec![" --silent".to_string()]
         );
     }
@@ -380,17 +380,22 @@ mod tests {
     #[test]
     fn forwards_a_flag_given_before_the_subcommand_too() {
         assert_eq!(
-            forwarded_logging_flags(&args(&["mise", "--silent", "activate", "bash"])),
+            forwarded_logging_flags(&args(&["pakro", "--silent", "activate", "bash"])),
             vec![" --silent".to_string()]
         );
     }
 
     #[test]
     fn normalizes_both_log_level_spellings_to_one_word() {
-        let separate =
-            forwarded_logging_flags(&args(&["mise", "activate", "bash", "--log-level", "error"]));
+        let separate = forwarded_logging_flags(&args(&[
+            "pakro",
+            "activate",
+            "bash",
+            "--log-level",
+            "error",
+        ]));
         let joined =
-            forwarded_logging_flags(&args(&["mise", "activate", "bash", "--log-level=error"]));
+            forwarded_logging_flags(&args(&["pakro", "activate", "bash", "--log-level=error"]));
         assert_eq!(separate, vec![" --log-level=error".to_string()]);
         assert_eq!(separate, joined);
     }
@@ -399,7 +404,7 @@ mod tests {
     fn keeps_the_order_so_hook_env_resolves_overrides_the_same_way() {
         assert_eq!(
             forwarded_logging_flags(&args(&[
-                "mise",
+                "pakro",
                 "activate",
                 "bash",
                 "--silent",
@@ -415,7 +420,7 @@ mod tests {
         // `-v`/`--debug`/`--trace` raise the level rather than suppressing warnings.
         for arg in ["-q", "--quiet", "-v", "--debug", "--trace"] {
             assert!(
-                forwarded_logging_flags(&args(&["mise", "activate", "bash", arg])).is_empty(),
+                forwarded_logging_flags(&args(&["pakro", "activate", "bash", arg])).is_empty(),
                 "{arg} should not be forwarded"
             );
         }
@@ -424,13 +429,14 @@ mod tests {
     #[test]
     fn a_trailing_log_level_without_a_value_is_dropped() {
         assert!(
-            forwarded_logging_flags(&args(&["mise", "activate", "bash", "--log-level"])).is_empty()
+            forwarded_logging_flags(&args(&["pakro", "activate", "bash", "--log-level"]))
+                .is_empty()
         );
     }
 
     #[test]
     fn nothing_is_forwarded_without_a_logging_flag() {
-        assert!(forwarded_logging_flags(&args(&["mise", "activate", "bash"])).is_empty());
+        assert!(forwarded_logging_flags(&args(&["pakro", "activate", "bash"])).is_empty());
     }
 
     #[test]

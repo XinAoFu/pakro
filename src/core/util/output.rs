@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 use std::sync::Mutex;
 
 /// Like `eprintln!`, but ignores write failures instead of panicking when
-/// stderr is unwritable (e.g. the process that spawned mise closed its end
+/// stderr is unwritable (e.g. the process that spawned pakro closed its end
 /// of the pipe).
 #[macro_export]
 macro_rules! safe_eprintln {
@@ -29,9 +29,9 @@ macro_rules! prefix_eprintln {
 
 #[cfg(test)]
 #[macro_export]
-macro_rules! miseprintln {
+macro_rules! pakroprintln {
     () => {
-        miseprint!("\n")?;
+        pakroprint!("\n")?;
     };
     ($($arg:tt)*) => {{
         let mut stdout = $crate::output::tests::STDOUT.lock().unwrap();
@@ -41,7 +41,7 @@ macro_rules! miseprintln {
 
 #[cfg(not(test))]
 #[macro_export]
-macro_rules! miseprintln {
+macro_rules! pakroprintln {
     () => {
         calm_io::stdoutln!()?;
     };
@@ -52,7 +52,7 @@ macro_rules! miseprintln {
 
 #[cfg(test)]
 #[macro_export]
-macro_rules! miseprint {
+macro_rules! pakroprint {
     ($($arg:tt)*) => {{
         let mut stdout = $crate::output::tests::STDOUT.lock().unwrap();
         let cur = stdout.pop().unwrap_or_default();
@@ -63,7 +63,7 @@ macro_rules! miseprint {
 
 #[cfg(not(test))]
 #[macro_export]
-macro_rules! miseprint {
+macro_rules! pakroprint {
     ($($arg:tt)*) => {{
         calm_io::stdout!($($arg)*)
     }}
@@ -74,8 +74,8 @@ macro_rules! miseprint {
 macro_rules! info {
         ($($arg:tt)*) => {{
             let mut stderr = $crate::output::tests::STDERR.lock().unwrap();
-            let mise = console::style("mise").dim().for_stderr();
-            stderr.push(format!("{} {}", mise, format!($($arg)*)));
+            let pakro = console::style("pakro").dim().for_stderr();
+            stderr.push(format!("{} {}", pakro, format!($($arg)*)));
         }};
     }
 
@@ -84,8 +84,8 @@ macro_rules! info {
 macro_rules! warn {
         ($($arg:tt)*) => {{
             let mut stderr = $crate::output::tests::STDERR.lock().unwrap();
-            let mise = console::style("mise").yellow().for_stderr();
-            stderr.push(format!("{} {}", mise, format!($($arg)*)));
+            let pakro = console::style("pakro").yellow().for_stderr();
+            stderr.push(format!("{} {}", pakro, format!($($arg)*)));
         }}
     }
 
@@ -94,8 +94,8 @@ macro_rules! warn {
 macro_rules! error {
         ($($arg:tt)*) => {
             let mut stderr = $crate::output::tests::STDERR.lock().unwrap();
-            let mise = console::style("mise").red().for_stderr();
-            stderr.push(format!("{} {}", mise, format!($($arg)*)));
+            let pakro = console::style("pakro").red().for_stderr();
+            stderr.push(format!("{} {}", pakro, format!($($arg)*)));
         }
     }
 
@@ -172,7 +172,7 @@ macro_rules! deprecated {
     }};
 }
 
-/// Emits a deprecation warning when mise version >= warn_at, and fires a debug_assert
+/// Emits a deprecation warning when pakro version >= warn_at, and fires a debug_assert
 /// when version >= remove_at to remind developers to remove the deprecated code.
 /// The removal version is automatically appended to the warning message.
 ///
@@ -193,7 +193,7 @@ macro_rules! deprecated_at {
         );
         if *$crate::version::V >= warn_version {
             if $crate::output::DEPRECATED.lock().unwrap().insert($id) {
-                warn!("deprecated [{}]: {} This will be removed in mise {}.", $id, format!($($arg)*), $remove_at);
+                warn!("deprecated [{}]: {} This will be removed in pakro {}.", $id, format!($($arg)*), $remove_at);
             }
         }
     }};

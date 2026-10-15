@@ -22,7 +22,7 @@ struct Logger {
 /// Root crate names of third-party dependencies that emit very noisy debug
 /// and trace logs (often per HTTP/2 frame, per socket read, etc.) and would
 /// otherwise overwhelm `-v`/`-vv` output. Debug and Trace records from these
-/// crates are dropped entirely unless `MISE_LOG_VERBOSE_DEPS=1` is set.
+/// crates are dropped entirely unless `PAKRO_LOG_VERBOSE_DEPS=1` is set.
 /// Info/Warn/Error still pass through — those are rare and worth seeing.
 static NOISY_DEP_TARGETS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     [
@@ -58,8 +58,8 @@ impl log::Log for Logger {
         // Drop Debug/Trace spam from noisy third-party crates (e.g. h2 logging
         // every received DATA frame) regardless of terminal/file level, and
         // the solver's per-step info narration, which is never terminal
-        // material. Opt back in with MISE_LOG_VERBOSE_DEPS=1.
-        if !*env::MISE_LOG_VERBOSE_DEPS {
+        // material. Opt back in with PAKRO_LOG_VERBOSE_DEPS=1.
+        if !*env::PAKRO_LOG_VERBOSE_DEPS {
             let noisy_dep = matches!(record.level(), Level::Debug | Level::Trace)
                 && is_noisy_dep_target(record.target());
             let solver_chatter =
@@ -117,12 +117,12 @@ impl Logger {
         };
 
         if !Settings::is_package_query()
-            && let Some(log_file) = &*env::MISE_LOG_FILE
+            && let Some(log_file) = &*env::PAKRO_LOG_FILE
         {
             if let Ok(log_file) = init_log_file(log_file) {
                 logger.log_file = Some(Mutex::new(log_file));
             } else {
-                safe_eprintln!("mise: could not open log file: {log_file:?}");
+                safe_eprintln!("pakro: could not open log file: {log_file:?}");
             }
         }
 
@@ -149,15 +149,15 @@ impl Logger {
                 format!("{level} {args}", level = self.styled_level(record.level()),)
             }
             _ => {
-                let mise = match record.level() {
-                    Level::Error => ui::style::ered("mise"),
-                    Level::Warn => ui::style::eyellow("mise"),
-                    _ => ui::style::edim("mise"),
+                let pakro = match record.level() {
+                    Level::Error => ui::style::ered("pakro"),
+                    Level::Warn => ui::style::eyellow("pakro"),
+                    _ => ui::style::edim("pakro"),
                 };
                 match record.level() {
-                    Level::Info => format!("{mise} {args}"),
+                    Level::Info => format!("{pakro} {args}"),
                     _ => format!(
-                        "{mise} {level} {args}",
+                        "{pakro} {level} {args}",
                         level = self.styled_level(record.level()),
                     ),
                 }
@@ -214,10 +214,10 @@ pub fn init() {
             Ok(settings) => settings.log_level(),
             Err(_) => Settings::cli_log_level().unwrap_or(LevelFilter::Info),
         };
-        let file_level = env::MISE_LOG_FILE_LEVEL.unwrap_or(term_level);
+        let file_level = env::PAKRO_LOG_FILE_LEVEL.unwrap_or(term_level);
         let logger = LOGGER.get_or_init(|| Logger::init(term_level, file_level));
         if let Err(err) = log::set_logger(logger) {
-            safe_eprintln!("mise: could not initialize logger: {err}");
+            safe_eprintln!("pakro: could not initialize logger: {err}");
         }
         log::set_max_level(term_level);
     }

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# One Ctrl-C reached a nested `mise run` twice: from the terminal, and again
-# from the outer mise's `kill_all`. The inner mise took the second as a
+# One Ctrl-C reached a nested `pakro run` twice: from the terminal, and again
+# from the outer pakro's `kill_all`. The inner pakro took the second as a
 # repeated Ctrl-C and killed its task instead of waiting for it to finish.
 #
-# This needs a controlling terminal: tasks then inherit the outer mise's
+# This needs a controlling terminal: tasks then inherit the outer pakro's
 # foreground process group, which is where the terminal delivers Ctrl-C.
 
-cat <<'TOML' >mise.toml
+cat <<'TOML' >pakro.toml
 [tasks.outer]
-run = "mise run inner"
+run = "pakro run inner"
 
 [tasks.inner]
 run = """
@@ -45,7 +45,7 @@ if pid == 0:
         os.dup2(slave, fd)
     os.close(master)
     os.close(slave)
-    os.execvp("mise", ["mise", "run", "outer"])
+    os.execvp("pakro", ["pakro", "run", "outer"])
     os._exit(127)
 
 os.close(slave)
@@ -77,7 +77,7 @@ def wait_for(predicate, what, timeout=30.0):
 exited = []
 
 
-def mise_exited():
+def pakro_exited():
     if not exited and os.waitpid(pid, os.WNOHANG)[0] == pid:
         exited.append(True)
     return bool(exited)
@@ -86,10 +86,10 @@ def mise_exited():
 try:
     wait_for(lambda: os.path.exists(ready), "the inner task to start")
     os.write(master, b"\x03")
-    wait_for(mise_exited, "mise to exit after Ctrl-C")
+    wait_for(pakro_exited, "pakro to exit after Ctrl-C")
     if not os.path.exists(done):
         raise SystemExit(
-            "nested mise killed its task after one Ctrl-C: "
+            "nested pakro killed its task after one Ctrl-C: "
             + output.decode(errors="replace")
         )
 finally:

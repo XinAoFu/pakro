@@ -23,67 +23,67 @@ fi
 
 # Test 1: Install HTTP tool and verify it's a symlink to cache
 echo "Test 1: Install HTTP tool with version_list_url"
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools."http:hello-upgrade"]
 shared_extraction = true
 version = "1.0.0"
 url = "https://mise.jdx.dev/test-fixtures/hello-world-{{version}}.tar.gz"
 version_list_url = "http://localhost:$HTTP_PORT/versions.txt"
 bin_path = "hello-world-1.0.0/bin"
-postinstall = "chmod +x \$MISE_TOOL_INSTALL_PATH/hello-world-1.0.0/bin/hello-world"
+postinstall = "chmod +x \$PAKRO_TOOL_INSTALL_PATH/hello-world-1.0.0/bin/hello-world"
 EOF
 
-mise install
-assert_contains "mise x -- hello-world" "hello world"
+pakro install
+assert_contains "pakro x -- hello-world" "hello world"
 
 # Verify install is a symlink (HTTP backend caching behavior)
-INSTALL_PATH="$MISE_DATA_DIR/installs/http-hello-upgrade/1.0.0"
+INSTALL_PATH="$PAKRO_DATA_DIR/installs/http-hello-upgrade/1.0.0"
 if [[ ! -L $INSTALL_PATH ]]; then
   fail "Expected install path to be a symlink: $INSTALL_PATH"
 fi
 echo "Verified: Install path is a symlink (HTTP backend caching)"
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools."http:hello-upgrade"]
 shared_extraction = true
 version = "1.0.0"
 url = "https://mise.jdx.dev/test-fixtures/hello-world-{{version}}.tar.gz"
 version_list_url = "http://localhost:$HTTP_PORT/versions.txt"
 bin_path = "hello-world-1.0.0/bin"
-postinstall = "chmod +x \$MISE_TOOL_INSTALL_PATH/hello-world-1.0.0/bin/hello-world"
+postinstall = "chmod +x \$PAKRO_TOOL_INSTALL_PATH/hello-world-1.0.0/bin/hello-world"
 
 [tools."http:hello-upgrade-latest"]
 version = "latest"
 url = "https://mise.jdx.dev/test-fixtures/hello-world-{{version}}.tar.gz"
 version_list_url = "http://localhost:$HTTP_PORT/versions.txt"
 bin_path = "hello-world-{{version}}/bin"
-postinstall = "chmod +x \$MISE_TOOL_INSTALL_PATH/hello-world-\$MISE_TOOL_VERSION/bin/hello-world"
+postinstall = "chmod +x \$PAKRO_TOOL_INSTALL_PATH/hello-world-\$PAKRO_TOOL_VERSION/bin/hello-world"
 EOF
 
-mise install
-assert "mise bin-paths http:hello-upgrade-latest" "$MISE_DATA_DIR/installs/http-hello-upgrade-latest/latest/hello-world-2.0.0/bin"
+pakro install
+assert "pakro bin-paths http:hello-upgrade-latest" "$PAKRO_DATA_DIR/installs/http-hello-upgrade-latest/latest/hello-world-2.0.0/bin"
 
-# Test 2: Verify mise latest sees the newer version
-echo "Test 2: Check that mise latest sees version 2.0.0"
-assert "mise latest http:hello-upgrade" "2.0.0"
+# Test 2: Verify pakro latest sees the newer version
+echo "Test 2: Check that pakro latest sees version 2.0.0"
+assert "pakro latest http:hello-upgrade" "2.0.0"
 
-# Test 3: Verify mise outdated --bump shows the tool as outdated
+# Test 3: Verify pakro outdated --bump shows the tool as outdated
 # This is the key test - before the fix, HTTP backend tools were skipped
-echo "Test 3: Check that mise outdated --bump detects outdated version"
-OUTDATED_OUTPUT=$(mise outdated --bump 2>&1)
+echo "Test 3: Check that pakro outdated --bump detects outdated version"
+OUTDATED_OUTPUT=$(pakro outdated --bump 2>&1)
 if [[ $OUTDATED_OUTPUT != *"hello-upgrade"* ]] || [[ $OUTDATED_OUTPUT != *"2.0.0"* ]]; then
   echo "outdated output: $OUTDATED_OUTPUT"
-  fail "mise outdated --bump should show http:hello-upgrade as outdated to 2.0.0"
+  fail "pakro outdated --bump should show http:hello-upgrade as outdated to 2.0.0"
 fi
-echo "Verified: mise outdated --bump correctly detects HTTP backend tool as outdated"
+echo "Verified: pakro outdated --bump correctly detects HTTP backend tool as outdated"
 
-# Test 4: Verify mise upgrade --bump --dry-run shows the upgrade
-echo "Test 4: Check that mise upgrade --bump --dry-run shows the upgrade"
-UPGRADE_OUTPUT=$(mise upgrade --bump --dry-run 2>&1)
+# Test 4: Verify pakro upgrade --bump --dry-run shows the upgrade
+echo "Test 4: Check that pakro upgrade --bump --dry-run shows the upgrade"
+UPGRADE_OUTPUT=$(pakro upgrade --bump --dry-run 2>&1)
 if [[ $UPGRADE_OUTPUT != *"Would install"* ]] || [[ $UPGRADE_OUTPUT != *"hello-upgrade"* ]]; then
   echo "upgrade output: $UPGRADE_OUTPUT"
-  fail "mise upgrade --bump --dry-run should show install for http:hello-upgrade"
+  fail "pakro upgrade --bump --dry-run should show install for http:hello-upgrade"
 fi
-echo "Verified: mise upgrade --bump --dry-run correctly shows upgrade for HTTP backend tool"
+echo "Verified: pakro upgrade --bump --dry-run correctly shows upgrade for HTTP backend tool"
 
 echo "SUCCESS: HTTP backend upgrade test passed!"

@@ -10,7 +10,7 @@ use heck::ToKebabCase;
 /// Remove stale cache files
 ///
 /// By default, this command will remove files that have not been accessed in 30 days.
-/// Change this with the MISE_CACHE_PRUNE_AGE environment variable.
+/// Change this with the PAKRO_CACHE_PRUNE_AGE environment variable.
 #[derive(Debug, usage_rs::Args)]
 #[usage(verbatim_doc_comment, visible_alias = "p")]
 pub(super) struct CachePrune {
@@ -40,7 +40,7 @@ impl CachePrune {
         // state directory under its own TTL and is pruned below either way.
         match settings.cache_prune_age_duration() {
             None => info!(
-                "cache_prune_age is 0s, so cache files are kept indefinitely. Set MISE_CACHE_PRUNE_AGE to prune by age."
+                "cache_prune_age is 0s, so cache files are kept indefinitely. Set PAKRO_CACHE_PRUNE_AGE to prune by age."
             ),
             Some(age) => {
                 let opts = PruneOptions {

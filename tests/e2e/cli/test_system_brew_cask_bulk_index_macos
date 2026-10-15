@@ -20,7 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 # metadata, which is identical either way, so it is asserted here against the
 # requests the fixture actually receives.
 #
-# Two fixtures, distinguished by URL prefix, because mise keys this cache to the
+# Two fixtures, distinguished by URL prefix, because pakro keys this cache to the
 # URL it resolved. That is what gives the second one a cold cache without
 # reaching into the first one's files.
 #
@@ -29,11 +29,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 root = Path(sys.argv[1]).resolve()
 prefix = root / "brew-prefix"
-cache = Path(os.environ["MISE_CACHE_DIR"])
+cache = Path(os.environ["PAKRO_CACHE_DIR"])
 
 BULK_PATH = "/api/cask.json"
 NOBULK = "/nobulk"
-# A real HTTP date: 17 Sep 2026 is a Thursday, and mise parses this value to
+# A real HTTP date: 17 Sep 2026 is a Thursday, and pakro parses this value to
 # order one generation of the document against another, so a wrong weekday
 # would fail to parse and quietly skip the path that comparison guards.
 LAST_MODIFIED = "Thu, 17 Sep 2026 10:00:00 GMT"
@@ -73,7 +73,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         # The no-bulk fixture: no bulk document, per-cask answers normally. This
-        # is an ordinary mirror, not a broken one, and mise is expected to fall
+        # is an ordinary mirror, not a broken one, and pakro is expected to fall
         # back rather than fail.
         if self.path.startswith(NOBULK):
             if self.path == NOBULK + BULK_PATH:
@@ -114,9 +114,9 @@ base = f"http://127.0.0.1:{server.server_port}"
 def env_for(url_base):
     return dict(
         os.environ,
-        MISE_SYSTEM_BREW_PREFIX=str(prefix),
-        MISE_BREW_CASK_OPT_APPDIR=str(prefix / "Applications"),
-        MISE_URL_REPLACEMENTS=json.dumps({"https://formulae.brew.sh": url_base}),
+        PAKRO_SYSTEM_BREW_PREFIX=str(prefix),
+        PAKRO_BREW_CASK_OPT_APPDIR=str(prefix / "Applications"),
+        PAKRO_URL_REPLACEMENTS=json.dumps({"https://formulae.brew.sh": url_base}),
     )
 
 
@@ -125,9 +125,9 @@ thread.start()
 
 
 def run(label, url_base=None):
-    """One `mise` invocation. Returns the requests it alone produced."""
+    """One `pakro` invocation. Returns the requests it alone produced."""
     before = len(requests)
-    command = ["mise", "bootstrap", "packages", "apply", "--yes", "--dry-run"]
+    command = ["pakro", "bootstrap", "packages", "apply", "--yes", "--dry-run"]
     result = subprocess.run(
         command, env=env_for(url_base or base), text=True, capture_output=True, timeout=60
     )
@@ -148,7 +148,7 @@ def last_checked():
 
 
 try:
-    (root / "mise.toml").write_text(
+    (root / "pakro.toml").write_text(
         "[settings]\nexperimental = true\n[bootstrap.packages]\n"
         + "".join(f'"brew-cask:{token}" = "latest"\n' for token in TOKENS)
     )
@@ -185,7 +185,7 @@ try:
     # casks to do it: the refresh failure writes no stamp, so nothing makes the
     # second lookup think the cache is fresh, and a refresh attempted per lookup
     # instead of per process would 404 twice here. Resolution then falls through
-    # to the per-cask endpoint for each cask, which is the behaviour mise had
+    # to the per-cask endpoint for each cask, which is the behaviour pakro had
     # before this cache existed.
     fallback = run("no bulk document", url_base=base + NOBULK)
     bulk_attempts = [r for r in fallback if r[0] == NOBULK + BULK_PATH]

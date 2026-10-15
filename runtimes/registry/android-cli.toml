@@ -21,7 +21,7 @@ version_regex = '(?m)^Version: (\S+)$'
 
 # Google ships only these four targets -- there is no linux-arm64 or
 # windows-arm64 build -- so each URL is declared per platform rather than
-# templated, to keep `mise lock` from recording targets that 404.
+# templated, to keep `pakro lock` from recording targets that 404.
 #
 # windows-arm64 is served the windows-x64 binary on purpose: Windows arm64 runs
 # amd64 executables under emulation, which is the same assumption the aqua

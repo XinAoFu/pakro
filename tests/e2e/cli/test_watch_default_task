@@ -8,7 +8,7 @@ EOF
 chmod +x "$HOME/bin/watchexec"
 export PATH="$HOME/bin:$PATH"
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [tasks.default]
 run = "echo default"
 sources = ["src/**/*.rs"]
@@ -19,16 +19,16 @@ sources = ["named/**/*.rs"]
 EOF
 
 # Omitting a task watches the default task through the same path as an explicit task.
-mise watch --skip-deps
+pakro watch --skip-deps
 assert_contains "cat \"$HOME/watchexec-args\"" "src/**/*.rs"
 assert_contains "cat \"$HOME/watchexec-args\"" "--skip-deps"
 assert "tail -1 \"$HOME/watchexec-args\"" "default"
 
 # Explicit positional and legacy flag task selections must not gain the default task.
-mise watch named
+pakro watch named
 assert_contains "cat \"$HOME/watchexec-args\"" "named/**/*.rs"
 assert_not_contains "cat \"$HOME/watchexec-args\"" "src/**/*.rs"
 assert "tail -1 \"$HOME/watchexec-args\"" "named"
 
-mise watch -t named
+pakro watch -t named
 assert "tail -1 \"$HOME/watchexec-args\"" "named"

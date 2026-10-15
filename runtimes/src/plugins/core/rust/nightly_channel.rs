@@ -1,17 +1,17 @@
-//! Keeps rustup's rolling `nightly` toolchain usable when mise installs the
+//! Keeps rustup's rolling `nightly` toolchain usable when pakro installs the
 //! rolling channel as a dated toolchain.
 //!
-//! mise resolves `rust = "nightly"` to a dated toolchain such as
+//! pakro resolves `rust = "nightly"` to a dated toolchain such as
 //! `nightly-2026-09-26` so installs are reproducible, but `cargo +nightly`
 //! asks rustup for a toolchain literally named `nightly-<host>`. rustup refuses
-//! to link a custom toolchain under a channel name, so mise gives rustup its own
+//! to link a custom toolchain under a channel name, so pakro gives rustup its own
 //! copy of the dated toolchain instead. Files are reflinked when the filesystem
 //! supports copy-on-write clones and hardlinked otherwise, so the copy costs
 //! almost no disk space.
 //!
 //! The copy belongs to rustup once it exists: `rustup update nightly` and
 //! `rustup toolchain uninstall nightly` must never reach the dated toolchain
-//! mise installed. rustup replaces component files by deleting and recreating
+//! pakro installed. rustup replaces component files by deleting and recreating
 //! them, which leaves hardlinked originals alone, but it rewrites its metadata
 //! directly under `lib/rustlib/` in place, so those files are always copied.
 
@@ -27,11 +27,11 @@ use crate::file;
 
 const CHANNEL_MANIFEST: &str = "lib/rustlib/multirust-channel-manifest.toml";
 const COMPONENTS: &str = "lib/rustlib/components";
-/// Records the modification time of rustup's `components` file when mise wrote
+/// Records the modification time of rustup's `components` file when pakro wrote
 /// the copy. rustup rewrites that file on every component or target change, so
-/// a matching time means everything in the copy came from mise. rustup ignores
+/// a matching time means everything in the copy came from pakro. rustup ignores
 /// this file.
-const SEEDED_MARKER: &str = ".mise-seeded";
+const SEEDED_MARKER: &str = ".pakro-seeded";
 
 /// Makes `toolchains/<alias>` a copy of `toolchains/<dated>` when it is
 /// missing, or when it is an older nightly (or the same nightly lacking some of
@@ -53,7 +53,7 @@ pub(super) fn refresh(toolchains: &Path, dated: &str, alias: &str) -> Result<boo
         // `rustup target add` would be lost, so rustup keeps owning updates.
         Ok(meta) if meta.is_dir() && !keeps_rustup_additions(&alias_path, &source) => {
             debug!(
-                "leaving rustup {alias} alone: it has components or targets mise did not install"
+                "leaving rustup {alias} alone: it has components or targets pakro did not install"
             );
             return Ok(false);
         }
@@ -84,7 +84,7 @@ pub(super) fn refresh(toolchains: &Path, dated: &str, alias: &str) -> Result<boo
     }
 
     let staging = tempfile::Builder::new()
-        .prefix(".mise-")
+        .prefix(".pakro-")
         .tempdir_in(toolchains)?;
     let staged = staging.path().join(alias);
     clone_toolchain(&source, &staged, true)?;
@@ -93,7 +93,7 @@ pub(super) fn refresh(toolchains: &Path, dated: &str, alias: &str) -> Result<boo
     }
     if alias_path.exists() {
         if !replace_if_unchanged(staging, alias, &alias_path, &observed)? {
-            debug!("leaving rustup {alias} alone: rustup changed it while mise was copying");
+            debug!("leaving rustup {alias} alone: rustup changed it while pakro was copying");
             return Ok(false);
         }
     } else {
@@ -113,7 +113,7 @@ pub(super) fn refresh(toolchains: &Path, dated: &str, alias: &str) -> Result<boo
 }
 
 /// rustup's record of what a toolchain holds, compared to notice rustup
-/// changing it while mise copies the dated toolchain. rustup has no lock mise
+/// changing it while pakro copies the dated toolchain. rustup has no lock pakro
 /// could take instead.
 #[derive(Debug, PartialEq, Eq)]
 struct AliasState {
@@ -199,7 +199,7 @@ fn put_back_if_changed(
 /// Moves `staged` to `dest`. The old `dest` ends up at `staged` or `previous`,
 /// both inside the staging directory, so it is deleted with it. Where the OS
 /// can swap two paths atomically, `dest` never goes missing, so a concurrent
-/// `cargo +nightly` or an interrupted mise always sees a toolchain.
+/// `cargo +nightly` or an interrupted pakro always sees a toolchain.
 fn replace_dir(staged: &Path, dest: &Path, previous: &Path) -> Result<()> {
     match exchange(staged, dest) {
         // The replacement is complete; nothing is left that could fail.
@@ -281,8 +281,8 @@ fn has_components_of(toolchain: &Path, source: &Path) -> bool {
 }
 
 /// Whether replacing `alias` with a copy of `source` keeps every component
-/// added to it through rustup. A copy rustup has not touched since mise wrote
-/// it holds only what mise put there, which may be dropped, for example after
+/// added to it through rustup. A copy rustup has not touched since pakro wrote
+/// it holds only what pakro put there, which may be dropped, for example after
 /// a profile change. Otherwise, including for a nightly rustup installed
 /// itself, every component it has must be in `source`.
 fn keeps_rustup_additions(alias: &Path, source: &Path) -> bool {
@@ -490,7 +490,7 @@ mod tests {
         let leftovers: Vec<_> = fs::read_dir(&toolchains)
             .unwrap()
             .map(|entry| entry.unwrap().file_name())
-            .filter(|name| name.to_string_lossy().starts_with(".mise-"))
+            .filter(|name| name.to_string_lossy().starts_with(".pakro-"))
             .collect();
         assert!(leftovers.is_empty(), "{leftovers:?}");
     }
@@ -656,7 +656,7 @@ mod tests {
     }
 
     #[test]
-    fn refresh_drops_components_mise_seeded_under_an_earlier_profile() {
+    fn refresh_drops_components_pakro_seeded_under_an_earlier_profile() {
         let dir = tempfile::tempdir().unwrap();
         let toolchains = dir.path().join("toolchains");
         write_toolchain(&toolchains, &dated("2026-09-25"), "2026-09-25");
@@ -705,7 +705,7 @@ mod tests {
         .unwrap();
         assert!(refresh(&toolchains, &dated("2026-09-25"), &alias()).unwrap());
         // `rustup component remove rust-docs`, then `rustup component add
-        // rust-docs`: the same components mise seeded, now chosen by the user.
+        // rust-docs`: the same components pakro seeded, now chosen by the user.
         rustup_writes_components(&toolchains.join(alias()), "rustc\n");
         rustup_writes_components(&toolchains.join(alias()), "rustc\nrust-docs\n");
 

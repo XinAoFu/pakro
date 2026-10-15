@@ -26,14 +26,14 @@ git init -q --bare -b main "$origin"
 
 # reconcile far more often than the publication delay; the first fetch would
 # only come after 15 seconds, so a publication seen sooner is the save's own
-export MISE_HISTORY_SYNC_INTERVAL=3s MISE_HISTORY_FETCH_INTERVAL=30s
-export MISE_HISTORY_WATCH_DEBOUNCE=1s MISE_HISTORY_WATCH_RECONCILE=1s
+export PAKRO_HISTORY_SYNC_INTERVAL=3s PAKRO_HISTORY_FETCH_INTERVAL=30s
+export PAKRO_HISTORY_WATCH_DEBOUNCE=1s PAKRO_HISTORY_WATCH_RECONCILE=1s
 
 mkdir -p ~/.config/hypr
 echo 'bind = SUPER, Q, exec, kitty' >~/.config/hypr/bindings.lua
-assert_succeed "mise bootstrap dotfiles track ~/.config/hypr"
-assert_succeed "mise bootstrap dotfiles origin set file://$origin --yes"
-mise bootstrap dotfiles watch --json >a.log 2>&1 &
+assert_succeed "pakro bootstrap dotfiles track ~/.config/hypr"
+assert_succeed "pakro bootstrap dotfiles origin set file://$origin --yes"
+pakro bootstrap dotfiles watch --json >a.log 2>&1 &
 a_watcher=$!
 cleanup() {
   kill "$a_watcher" 2>/dev/null || true

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Test that tera templating works correctly with {{config_root}} in subdirectory configs
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 
 # Create monorepo root config
-cat <<'TOML' >mise.toml
+cat <<'TOML' >pakro.toml
 monorepo_root = true
 
 [monorepo]
@@ -19,7 +19,7 @@ TOML
 
 # Create frontend with tera templates
 mkdir -p projects/frontend
-cat <<'TOML' >projects/frontend/mise.toml
+cat <<'TOML' >projects/frontend/pakro.toml
 [env]
 FRONTEND_ROOT = "{{config_root}}"
 BUILD_DIR = "{{config_root}}/dist"
@@ -41,7 +41,7 @@ mkdir -p projects/frontend/assets
 
 # Create backend with tera templates
 mkdir -p projects/backend
-cat <<'TOML' >projects/backend/mise.toml
+cat <<'TOML' >projects/backend/pakro.toml
 [env]
 BACKEND_ROOT = "{{config_root}}"
 LOG_FILE = "{{config_root}}/logs/app.log"
@@ -60,7 +60,7 @@ mkdir -p projects/backend/config
 
 # Test 1: Frontend config_root resolves to frontend directory
 echo "=== Test 1: Frontend {{config_root}} resolves to subdirectory ==="
-output=$(mise run '//projects/frontend:build')
+output=$(pakro run '//projects/frontend:build')
 echo "$output"
 echo "$output" | grep -q "FRONTEND_ROOT=.*projects/frontend" || (echo "FAIL: FRONTEND_ROOT should point to projects/frontend" && exit 1)
 echo "$output" | grep -q "BUILD_DIR=.*projects/frontend/dist" || (echo "FAIL: BUILD_DIR incorrect" && exit 1)
@@ -69,7 +69,7 @@ echo "$output" | grep -q "FULL_PATH=.*projects/frontend/src" || (echo "FAIL: Nes
 
 # Test 2: Backend config_root resolves to backend directory
 echo "=== Test 2: Backend {{config_root}} resolves to subdirectory ==="
-output=$(mise run '//projects/backend:start')
+output=$(pakro run '//projects/backend:start')
 echo "$output"
 echo "$output" | grep -q "BACKEND_ROOT=.*projects/backend" || (echo "FAIL: BACKEND_ROOT should point to projects/backend" && exit 1)
 echo "$output" | grep -q "LOG_FILE=.*projects/backend/logs/app.log" || (echo "FAIL: LOG_FILE incorrect" && exit 1)
@@ -77,7 +77,7 @@ echo "$output" | grep -q "CONFIG_PATH=.*projects/backend/config" || (echo "FAIL:
 
 # Test 3: Root task config_root resolves to monorepo root
 echo "=== Test 3: Root {{config_root}} resolves to monorepo root ==="
-output=$(mise run //:root-task)
+output=$(pakro run //:root-task)
 echo "$output"
 # Root DIR should not contain projects/ subdirectory path
 if echo "$output" | grep -q "ROOT_DIR=.*projects/"; then

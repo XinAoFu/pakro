@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-export MISE_LOCKFILE=1
+export PAKRO_LOCKFILE=1
 
-echo "=== Testing mise lock skips global config by default ==="
+echo "=== Testing pakro lock skips global config by default ==="
 # Set up a tool in the global config
-cat >"$MISE_CONFIG_DIR/config.toml" <<EOF
+cat >"$PAKRO_CONFIG_DIR/config.toml" <<EOF
 [tools]
 "aqua:jqlang/jq" = "1.7.1"
 EOF
@@ -14,104 +14,104 @@ cat >system-config/config.toml <<EOF
 [tools]
 "aqua:cli/cli" = "2.65.0"
 EOF
-export MISE_SYSTEM_CONFIG_FILE="$PWD/system-config/config.toml"
+export PAKRO_SYSTEM_CONFIG_FILE="$PWD/system-config/config.toml"
 
 # Set up a tool in the local project config
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools]
 "aqua:mikefarah/yq" = "4.44.6"
 EOF
 
-rm -f mise.lock "$MISE_CONFIG_DIR/mise.lock" system-config/mise.lock
+rm -f pakro.lock "$PAKRO_CONFIG_DIR/pakro.lock" system-config/pakro.lock
 
-# Running mise lock should only create the project lockfile, not the global one
-output=$(mise lock --platform linux-x64 2>&1)
+# Running pakro lock should only create the project lockfile, not the global one
+output=$(pakro lock --platform linux-x64 2>&1)
 assert_contains "echo '$output'" "Processing 1 tool(s)"
 assert_contains "echo '$output'" "mikefarah/yq"
-assert "test -f mise.lock"
-assert "test ! -f $MISE_CONFIG_DIR/mise.lock"
-assert "test ! -f system-config/mise.lock"
+assert "test -f pakro.lock"
+assert "test ! -f $PAKRO_CONFIG_DIR/pakro.lock"
+assert "test ! -f system-config/pakro.lock"
 
-echo "=== Testing mise lock --global targets only global config ==="
-rm -f mise.lock "$MISE_CONFIG_DIR/mise.lock" system-config/mise.lock
+echo "=== Testing pakro lock --global targets only global config ==="
+rm -f pakro.lock "$PAKRO_CONFIG_DIR/pakro.lock" system-config/pakro.lock
 
-output=$(mise lock --global --platform linux-x64 2>&1)
+output=$(pakro lock --global --platform linux-x64 2>&1)
 # Should process only tools from global configs
-assert "test ! -f mise.lock"
-assert "test -f $MISE_CONFIG_DIR/mise.lock"
-assert "test -f system-config/mise.lock"
-assert_contains "cat $MISE_CONFIG_DIR/mise.lock" "jqlang/jq"
-assert_contains "cat system-config/mise.lock" "cli/cli"
+assert "test ! -f pakro.lock"
+assert "test -f $PAKRO_CONFIG_DIR/pakro.lock"
+assert "test -f system-config/pakro.lock"
+assert_contains "cat $PAKRO_CONFIG_DIR/pakro.lock" "jqlang/jq"
+assert_contains "cat system-config/pakro.lock" "cli/cli"
 
-echo "=== Testing mise lock points at --global when only global config has tools ==="
-rm -rf mise.toml mise.lock "$MISE_CONFIG_DIR/mise.lock" system-config
+echo "=== Testing pakro lock points at --global when only global config has tools ==="
+rm -rf pakro.toml pakro.lock "$PAKRO_CONFIG_DIR/pakro.lock" system-config
 
-# jq is still declared in the global config, so `mise lock` has nothing in project
-# scope but `mise lock --global` does. Say so instead of "No tools configured".
-output=$(mise lock 2>&1)
-assert_contains "echo '$output'" "mise lock --global"
-assert "test ! -f mise.lock"
+# jq is still declared in the global config, so `pakro lock` has nothing in project
+# scope but `pakro lock --global` does. Say so instead of "No tools configured".
+output=$(pakro lock 2>&1)
+assert_contains "echo '$output'" "pakro lock --global"
+assert "test ! -f pakro.lock"
 
 echo "=== Testing the dotfiles layout that symlinks the global config to a project config ==="
 # A config reached through both the global path and the project path is merged into
-# a single global entry, so plain `mise lock` finds no project-scoped tools.
+# a single global entry, so plain `pakro lock` finds no project-scoped tools.
 mkdir -p dotfiles
-cat >dotfiles/mise.toml <<EOF
+cat >dotfiles/pakro.toml <<EOF
 [tools]
 "aqua:mikefarah/yq" = "4.44.6"
 EOF
-ln -sf "$PWD/dotfiles/mise.toml" "$MISE_CONFIG_DIR/config.toml"
+ln -sf "$PWD/dotfiles/pakro.toml" "$PAKRO_CONFIG_DIR/config.toml"
 
 ( # subshell to avoid cd'ing back (SC2103)
   cd dotfiles
 
-  output=$(mise lock 2>&1)
-  assert_contains "echo '$output'" "mise lock --global"
-  assert "test ! -f mise.lock"
+  output=$(pakro lock 2>&1)
+  assert_contains "echo '$output'" "pakro lock --global"
+  assert "test ! -f pakro.lock"
 
   # --global locks it, writing the lockfile beside the symlink target
-  assert "mise lock --global --platform linux-x64"
-  assert_contains "cat mise.lock" "mikefarah/yq"
+  assert "pakro lock --global --platform linux-x64"
+  assert_contains "cat pakro.lock" "mikefarah/yq"
 )
 
 echo "=== Testing the hint honors tool selectors ==="
 # Drop the symlink before its target, so the global config path is a real file again
-rm -f "$MISE_CONFIG_DIR/config.toml"
+rm -f "$PAKRO_CONFIG_DIR/config.toml"
 rm -rf dotfiles
 # Global declares jq; a project config with no tools keeps project scope empty.
-cat >"$MISE_CONFIG_DIR/config.toml" <<EOF
+cat >"$PAKRO_CONFIG_DIR/config.toml" <<EOF
 [tools]
 "aqua:jqlang/jq" = "1.7.1"
 EOF
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [env]
 FOO = "bar"
 EOF
 
 # A selector naming a tool that is not in global config must not point at --global
-output=$(mise lock "aqua:mikefarah/yq" 2>&1)
+output=$(pakro lock "aqua:mikefarah/yq" 2>&1)
 assert_contains "echo '$output'" "No tools configured to lock"
-assert_not_contains "echo '$output'" "mise lock --global"
+assert_not_contains "echo '$output'" "pakro lock --global"
 
 # A selector naming a tool that *is* in global config should
-output=$(mise lock "aqua:jqlang/jq" 2>&1)
-assert_contains "echo '$output'" "mise lock --global"
+output=$(pakro lock "aqua:jqlang/jq" 2>&1)
+assert_contains "echo '$output'" "pakro lock --global"
 
 echo "=== Testing the hint stays out of --local runs ==="
-# --local asks for mise.local.lock; there is no global equivalent to point at
-output=$(mise lock --local 2>&1)
+# --local asks for pakro.local.lock; there is no global equivalent to point at
+output=$(pakro lock --local 2>&1)
 assert_contains "echo '$output'" "No tools configured to lock"
-assert_not_contains "echo '$output'" "mise lock --global"
+assert_not_contains "echo '$output'" "pakro lock --global"
 
-echo "=== Testing mise lock with nothing configured anywhere ==="
-rm -f "$MISE_CONFIG_DIR/config.toml" mise.toml
+echo "=== Testing pakro lock with nothing configured anywhere ==="
+rm -f "$PAKRO_CONFIG_DIR/config.toml" pakro.toml
 rm -rf dotfiles
 
-output=$(mise lock 2>&1)
+output=$(pakro lock 2>&1)
 assert_contains "echo '$output'" "No tools configured to lock"
-assert_not_contains "echo '$output'" "mise lock --global"
+assert_not_contains "echo '$output'" "pakro lock --global"
 
 echo "=== Cleanup ==="
-rm -rf mise.toml mise.lock "$MISE_CONFIG_DIR/config.toml" "$MISE_CONFIG_DIR/mise.lock" system-config
+rm -rf pakro.toml pakro.lock "$PAKRO_CONFIG_DIR/config.toml" "$PAKRO_CONFIG_DIR/pakro.lock" system-config
 
-echo "mise lock global tests passed!"
+echo "pakro lock global tests passed!"

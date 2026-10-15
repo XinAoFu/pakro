@@ -1,23 +1,23 @@
 # frozen_string_literal: true
 
-# mise's Homebrew formula build shim.
+# pakro's Homebrew formula build shim.
 #
 # Evaluates a homebrew/core formula .rb file and runs its `install` method
-# against mise's prefix layout, without Homebrew installed. This implements
+# against pakro's prefix layout, without Homebrew installed. This implements
 # the commonly-used subset of the Formula DSL; formulae that reach outside it
 # fail loudly with a clear message rather than miscompiling silently.
 #
 # Contract with the Rust side (src/system/packages/brew/source.rs), all via
 # environment variables:
-#   MISE_BREW_PREFIX        Homebrew prefix (/opt/homebrew, ...)
-#   MISE_BREW_CELLAR        <prefix>/Cellar
-#   MISE_BREW_FORMULA_FILE  path to the formula .rb (sha-verified by Rust)
-#   MISE_BREW_NAME          canonical formula name
-#   MISE_BREW_VERSION       upstream version ("2.12.3")
-#   MISE_BREW_PKG_VERSION   keg directory name ("2.12.3_1")
-#   MISE_BREW_BUILDPATH     staged source directory (also the cwd)
-#   MISE_BREW_CACHE         download cache for resources/patches
-#   MISE_BREW_MAKE_JOBS     build parallelism
+#   PAKRO_BREW_PREFIX        Homebrew prefix (/opt/homebrew, ...)
+#   PAKRO_BREW_CELLAR        <prefix>/Cellar
+#   PAKRO_BREW_FORMULA_FILE  path to the formula .rb (sha-verified by Rust)
+#   PAKRO_BREW_NAME          canonical formula name
+#   PAKRO_BREW_VERSION       upstream version ("2.12.3")
+#   PAKRO_BREW_PKG_VERSION   keg directory name ("2.12.3_1")
+#   PAKRO_BREW_BUILDPATH     staged source directory (also the cwd)
+#   PAKRO_BREW_CACHE         download cache for resources/patches
+#   PAKRO_BREW_MAKE_JOBS     build parallelism
 #
 # The main source archive is downloaded, verified, and staged by Rust before
 # this script runs; the shim only downloads resources and external patches
@@ -33,15 +33,15 @@ require "rbconfig"
 require "shellwords"
 require "tmpdir"
 
-MISE_BREW_PREFIX = Pathname.new(ENV.fetch("MISE_BREW_PREFIX"))
-MISE_BREW_CELLAR = Pathname.new(ENV.fetch("MISE_BREW_CELLAR"))
-MISE_BREW_FORMULA_FILE = Pathname.new(ENV.fetch("MISE_BREW_FORMULA_FILE"))
-MISE_BREW_NAME = ENV.fetch("MISE_BREW_NAME")
-MISE_BREW_VERSION = ENV.fetch("MISE_BREW_VERSION")
-MISE_BREW_PKG_VERSION = ENV.fetch("MISE_BREW_PKG_VERSION")
-MISE_BREW_BUILDPATH = Pathname.new(ENV.fetch("MISE_BREW_BUILDPATH"))
-MISE_BREW_CACHE = Pathname.new(ENV.fetch("MISE_BREW_CACHE"))
-MISE_BREW_MAKE_JOBS = ENV.fetch("MISE_BREW_MAKE_JOBS", "4")
+PAKRO_BREW_PREFIX = Pathname.new(ENV.fetch("PAKRO_BREW_PREFIX"))
+PAKRO_BREW_CELLAR = Pathname.new(ENV.fetch("PAKRO_BREW_CELLAR"))
+PAKRO_BREW_FORMULA_FILE = Pathname.new(ENV.fetch("PAKRO_BREW_FORMULA_FILE"))
+PAKRO_BREW_NAME = ENV.fetch("PAKRO_BREW_NAME")
+PAKRO_BREW_VERSION = ENV.fetch("PAKRO_BREW_VERSION")
+PAKRO_BREW_PKG_VERSION = ENV.fetch("PAKRO_BREW_PKG_VERSION")
+PAKRO_BREW_BUILDPATH = Pathname.new(ENV.fetch("PAKRO_BREW_BUILDPATH"))
+PAKRO_BREW_CACHE = Pathname.new(ENV.fetch("PAKRO_BREW_CACHE"))
+PAKRO_BREW_MAKE_JOBS = ENV.fetch("PAKRO_BREW_MAKE_JOBS", "4")
 
 def ohai(*args)
   $stdout.puts "==> #{args.join(" ")}"
@@ -61,10 +61,10 @@ class ShimUnsupportedError < StandardError; end
 
 def shim_unsupported!(feature)
   raise ShimUnsupportedError,
-        "formula uses `#{feature}`, which mise's source-build shim does not support"
+        "formula uses `#{feature}`, which pakro's source-build shim does not support"
 end
 
-module MiseDownload
+module PakroDownload
   module_function
 
   # download with redirects into the cache, verify, return the path
@@ -73,8 +73,8 @@ module MiseDownload
     sha256 = sha256.to_s.strip.downcase
     raise "#{context}: malformed sha256" unless sha256.match?(/\A[0-9a-f]{64}\z/)
 
-    MISE_BREW_CACHE.mkpath
-    dest = MISE_BREW_CACHE + "#{sha256}--#{File.basename(URI(url).path)}"
+    PAKRO_BREW_CACHE.mkpath
+    dest = PAKRO_BREW_CACHE + "#{sha256}--#{File.basename(URI(url).path)}"
     unless dest.file? && Digest::SHA256.file(dest).hexdigest == sha256
       ohai "Downloading #{url}"
       tmp = Pathname.new("#{dest}.incomplete")
@@ -302,13 +302,13 @@ end
 # brew's Pathname#write creates missing parent directories. It has to be
 # prepended: redefining `write` inside `class Pathname` replaces the core
 # method, leaving `super` nothing to call.
-module MisePathnameWrite
+module PakroPathnameWrite
   def write(...)
     dirname.mkpath
     super
   end
 end
-Pathname.prepend(MisePathnameWrite)
+Pathname.prepend(PakroPathnameWrite)
 
 class BuildOptions
   def with?(_name) = false
@@ -371,7 +371,7 @@ module BrewEnvExtension
   def cppflags = self["CPPFLAGS"]
   def ldflags = self["LDFLAGS"]
 
-  def make_jobs = MISE_BREW_MAKE_JOBS.to_i
+  def make_jobs = PAKRO_BREW_MAKE_JOBS.to_i
 
   def deparallelize
     old = delete("MAKEFLAGS")
@@ -387,7 +387,7 @@ module BrewEnvExtension
 
   def method_missing(name, *_args)
     unless KNOWN_NOOPS.include?(name)
-      opoo "ENV.#{name} is not supported by mise's build shim (ignored)"
+      opoo "ENV.#{name} is not supported by pakro's build shim (ignored)"
     end
     nil
   end
@@ -436,19 +436,19 @@ class Resource
   def stage(target = nil, &block)
     shim_unsupported!("resource with download strategy #{using.inspect}") unless using.nil?
     raise "resource #{name}: missing url" if @url.nil?
-    archive = MiseDownload.fetch(@url, @sha256, "resource #{name}")
+    archive = PakroDownload.fetch(@url, @sha256, "resource #{name}")
     if target
       target = Pathname.new(target.to_s)
-      stage_dir = Pathname.new(Dir.mktmpdir("mise-resource-"))
-      root = MiseDownload.unpack(archive, stage_dir)
+      stage_dir = Pathname.new(Dir.mktmpdir("pakro-resource-"))
+      root = PakroDownload.unpack(archive, stage_dir)
       target.mkpath
       FileUtils.cp_r("#{root}/.", target.to_s)
       FileUtils.remove_entry(stage_dir)
       block&.call(self)
     else
       raise "resource #{name}: stage requires a target or a block" unless block
-      Dir.mktmpdir("mise-resource-") do |dir|
-        root = MiseDownload.unpack(archive, Pathname.new(dir))
+      Dir.mktmpdir("pakro-resource-") do |dir|
+        root = PakroDownload.unpack(archive, Pathname.new(dir))
         Dir.chdir(root) { block.call(self) }
       end
     end
@@ -481,7 +481,7 @@ class PatchSpec
       raise "formula declares a DATA patch but has no __END__ section" if content.nil?
       apply_content(content.sub(/\A\n/, ""))
     elsif @url
-      file = MiseDownload.fetch(@url, @sha256, "patch")
+      file = PakroDownload.fetch(@url, @sha256, "patch")
       apply_content(file.read)
     end
   end
@@ -504,7 +504,7 @@ end
 class DependencyFormula
   def initialize(name) = @name = name
 
-  def opt_prefix = MISE_BREW_PREFIX + "opt" + @name
+  def opt_prefix = PAKRO_BREW_PREFIX + "opt" + @name
   def opt_bin = opt_prefix + "bin"
   def opt_lib = opt_prefix + "lib"
   def opt_include = opt_prefix + "include"
@@ -705,7 +705,7 @@ class Formula
     def patch(strip = :p1, src = nil, &block)
       @patches ||= []
       strip, src = :p1, strip if strip == :DATA || strip.is_a?(String)
-      spec = PatchSpec.new(strip.to_s.delete_prefix("p"), MISE_BREW_FORMULA_FILE)
+      spec = PatchSpec.new(strip.to_s.delete_prefix("p"), PAKRO_BREW_FORMULA_FILE)
       if src == :DATA
         spec.data!
       elsif src.is_a?(String)
@@ -724,7 +724,7 @@ class Formula
     # time brew adds an annotation. Warn so it stays visible. Install-time
     # helpers (instance methods) still fail loudly: those shape the build.
     def method_missing(name, *_args, &_block)
-      opoo "ignoring unknown formula DSL `#{name}` (mise build shim)"
+      opoo "ignoring unknown formula DSL `#{name}` (pakro build shim)"
       nil
     end
 
@@ -732,15 +732,15 @@ class Formula
   end
 
   # ---- instance API used inside def install ----
-  def name = MISE_BREW_NAME
-  def version = Version.new(MISE_BREW_VERSION)
-  def pkg_version = MISE_BREW_PKG_VERSION
+  def name = PAKRO_BREW_NAME
+  def version = Version.new(PAKRO_BREW_VERSION)
+  def pkg_version = PAKRO_BREW_PKG_VERSION
   def build = BuildOptions.new
   def head? = false
   def stable? = true
 
-  def prefix = MISE_BREW_CELLAR + name + MISE_BREW_PKG_VERSION
-  def opt_prefix = MISE_BREW_PREFIX + "opt" + name
+  def prefix = PAKRO_BREW_CELLAR + name + PAKRO_BREW_PKG_VERSION
+  def opt_prefix = PAKRO_BREW_PREFIX + "opt" + name
   def opt_bin = opt_prefix + "bin"
   def opt_lib = opt_prefix + "lib"
   def opt_libexec = opt_prefix + "libexec"
@@ -765,10 +765,10 @@ class Formula
   def pkgetc = etc + name
 
   # etc/var live in the prefix, outside the keg (survive upgrades)
-  def etc = MISE_BREW_PREFIX + "etc"
-  def var = MISE_BREW_PREFIX + "var"
+  def etc = PAKRO_BREW_PREFIX + "etc"
+  def var = PAKRO_BREW_PREFIX + "var"
 
-  def buildpath = MISE_BREW_BUILDPATH
+  def buildpath = PAKRO_BREW_BUILDPATH
   def testpath = shim_unsupported!("testpath")
 
   def deps = []
@@ -868,7 +868,7 @@ class Formula
   end
 
   def std_cargo_args(root: prefix, path: ".")
-    ["--jobs", ENV["MAKEFLAGS"].to_s[/-j(\d+)/, 1] || MISE_BREW_MAKE_JOBS, "--locked", "--root", root.to_s, "--path", path.to_s].tap(&:compact!)
+    ["--jobs", ENV["MAKEFLAGS"].to_s[/-j(\d+)/, 1] || PAKRO_BREW_MAKE_JOBS, "--locked", "--root", root.to_s, "--path", path.to_s].tap(&:compact!)
   end
 
   def std_go_args(ldflags: nil, output: bin/name, tags: nil)
@@ -938,15 +938,15 @@ class Formula
 end
 
 def main
-  load MISE_BREW_FORMULA_FILE.to_s
+  load PAKRO_BREW_FORMULA_FILE.to_s
   klass = Formula.instance_variable_get(:@formula_subclass)
-  odie "no Formula subclass found in #{MISE_BREW_FORMULA_FILE}" if klass.nil?
+  odie "no Formula subclass found in #{PAKRO_BREW_FORMULA_FILE}" if klass.nil?
   formula = klass.new
 
-  Dir.chdir(MISE_BREW_BUILDPATH.to_s)
+  Dir.chdir(PAKRO_BREW_BUILDPATH.to_s)
   klass.patches.each(&:apply!)
 
-  ohai "#{MISE_BREW_NAME}: running install"
+  ohai "#{PAKRO_BREW_NAME}: running install"
   formula.prefix.mkpath
   formula.install
   formula.post_install
@@ -957,7 +957,7 @@ def main
 rescue ShimUnsupportedError => e
   odie e.message
 rescue StandardError => e
-  $stderr.puts e.backtrace.first(10).map { |l| "  #{l}" }.join("\n") if ENV["MISE_DEBUG"]
+  $stderr.puts e.backtrace.first(10).map { |l| "  #{l}" }.join("\n") if ENV["PAKRO_DEBUG"]
   odie "build failed: #{e.message}"
 end
 

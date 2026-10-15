@@ -3,7 +3,7 @@
 set -euo pipefail
 
 # Reproduces the case where entering an untrusted project triggers hook-env from
-# both chpwd and precmd. The user-visible symptom is a duplicate `mise trust`
+# both chpwd and precmd. The user-visible symptom is a duplicate `pakro trust`
 # warning after a single `cd`.
 #
 # The expected zsh behavior is:
@@ -13,9 +13,9 @@ set -euo pipefail
 
 # The e2e harness trusts the isolated workspace by default; clear that so this
 # test exercises the real untrusted-config warning path.
-export MISE_TRUSTED_CONFIG_PATHS=""
+export PAKRO_TRUSTED_CONFIG_PATHS=""
 
-# In CI, mise auto-trusts configs via ci_info::is_ci(); clear the common CI vars
+# In CI, pakro auto-trusts configs via ci_info::is_ci(); clear the common CI vars
 # so hook-env follows the normal interactive trust-check behavior.
 unset CI GITHUB_ACTIONS GITHUB_ACTION
 
@@ -34,26 +34,26 @@ contains_trust_warning() {
   grep -q "not trusted" "$file"
 }
 
-contains_mise_precmd_hook() {
-  [[ " ${precmd_functions[*]-} " == *" _mise_hook_precmd "* ]]
+contains_pakro_precmd_hook() {
+  [[ " ${precmd_functions[*]-} " == *" _pakro_hook_precmd "* ]]
 }
 
 mkdir -p project
-cat >project/.mise.toml <<'EOF'
+cat >project/.pakro.toml <<'EOF'
 [env]
 FOO = "bar"
 EOF
 
-eval "$(mise activate zsh --status)"
+eval "$(pakro activate zsh --status)"
 
 startup_file="$(mktemp)"
 chpwd_file="$(mktemp)"
 precmd_file="$(mktemp)"
 trap 'rm -f "$startup_file" "$chpwd_file" "$precmd_file"' EXIT
 
-# A persistent mise precmd hook should be registered immediately after activation.
-if ! contains_mise_precmd_hook; then
-  echo "expected mise precmd hook to be registered after activation"
+# A persistent pakro precmd hook should be registered immediately after activation.
+if ! contains_pakro_precmd_hook; then
+  echo "expected pakro precmd hook to be registered after activation"
   printf 'precmd_functions:\n'
   printf '%s\n' ${precmd_functions[@]-}
   printf 'chpwd_functions:\n'
@@ -70,10 +70,10 @@ if contains_trust_warning "$startup_file"; then
   exit 1
 fi
 
-# The mise precmd hook should remain registered after the startup prompt so zsh
+# The pakro precmd hook should remain registered after the startup prompt so zsh
 # can continue checking for later environment changes on subsequent prompts.
-if ! contains_mise_precmd_hook; then
-  echo "expected mise precmd hook to remain registered after the startup prompt"
+if ! contains_pakro_precmd_hook; then
+  echo "expected pakro precmd hook to remain registered after the startup prompt"
   printf '%s\n' ${precmd_functions[@]-}
   exit 1
 fi
@@ -83,7 +83,7 @@ fi
 # zsh mode does not fire chpwd on `cd`, fall back to invoking the hook list
 # manually in the current shell so hook functions can still mutate shell state.
 { cd project; } >"$chpwd_file" 2>&1
-if [[ ${__MISE_ZSH_CHPWD_RAN:-0} != "1" ]]; then
+if [[ ${__PAKRO_ZSH_CHPWD_RAN:-0} != "1" ]]; then
   run_hooks_to_file "$chpwd_file" "${chpwd_functions[@]}"
 fi
 run_hooks_to_file "$precmd_file" "${precmd_functions[@]-}"
@@ -102,10 +102,10 @@ if contains_trust_warning "$precmd_file"; then
   exit 1
 fi
 
-# The mise precmd hook should still remain registered after the prompt following
+# The pakro precmd hook should still remain registered after the prompt following
 # `cd`, so later prompts can continue to notice config/watch-file changes.
-if ! contains_mise_precmd_hook; then
-  echo "expected mise precmd hook to remain registered after chpwd + precmd"
+if ! contains_pakro_precmd_hook; then
+  echo "expected pakro precmd hook to remain registered after chpwd + precmd"
   printf '%s\n' ${precmd_functions[@]-}
   exit 1
 fi

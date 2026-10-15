@@ -44,7 +44,7 @@ exec "$@"
 EOF
 chmod +x bin/strace
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [settings]
 experimental = true
 
@@ -76,7 +76,7 @@ export PATH="$PWD/bin:$PATH"
 # Each task sees 25 undeclared reads and 1 undeclared write. Reads sort ahead of
 # writes, so all 20 console lines per task are reads and the write appears only
 # in the report file.
-output=$(mise run --jobs 2 --force alpha ::: beta 2>&1)
+output=$(pakro run --jobs 2 --force alpha ::: beta 2>&1)
 reads=$(grep -c 'cache audit detected undeclared read:' <<<"$output" || true)
 assert "echo $reads" "40"
 assert_contains_text "$output" "task alpha cache audit omitted 6 additional paths"
@@ -85,7 +85,7 @@ assert_not_contains_text "$output" "cache audit detected undeclared write:"
 assert_not_contains_text "$output" "full report written to"
 assert "test -e audit.jsonl && echo exists || echo missing" "missing"
 
-output=$(MISE_TASK_CACHE_AUDIT_REPORT=audit.jsonl mise run --jobs 2 --force alpha ::: beta 2>&1)
+output=$(PAKRO_TASK_CACHE_AUDIT_REPORT=audit.jsonl pakro run --jobs 2 --force alpha ::: beta 2>&1)
 reads=$(grep -c 'cache audit detected undeclared read:' <<<"$output" || true)
 assert "echo $reads" "40"
 assert_contains_text "$output" "task alpha cache audit omitted 6 additional paths; full report written to audit.jsonl"
@@ -117,5 +117,5 @@ assert "jq -r .task interleaved.jsonl | uniq | wc -l | tr -d ' '" "52"
 
 # The first audited task of an invocation truncates, so a second run replaces the
 # report rather than appending to it.
-MISE_TASK_CACHE_AUDIT_REPORT=audit.jsonl mise run --jobs 2 --force alpha ::: beta >/dev/null 2>&1
+PAKRO_TASK_CACHE_AUDIT_REPORT=audit.jsonl pakro run --jobs 2 --force alpha ::: beta >/dev/null 2>&1
 assert "jq -s length audit.jsonl" "52"

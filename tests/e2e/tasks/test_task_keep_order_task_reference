@@ -18,7 +18,7 @@
 # keep-order is one contiguous block per task and cannot express "parent
 # output, children blocks, more parent output".
 
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tasks.launch]
 run = { tasks = ["one", "two"] }
 
@@ -30,13 +30,13 @@ run = 'echo ONLY-LINE-TWO'
 TOML
 
 # Every line survives. Before the fix this printed nothing at all.
-out="$(mise run --quiet --jobs 1 --output keep-order launch 2>&1)"
+out="$(pakro run --quiet --jobs 1 --output keep-order launch 2>&1)"
 assert_contains "echo \"$out\"" "[one] ONLY-LINE-ONE"
 assert_contains "echo \"$out\"" "[two] ONLY-LINE-TWO"
 
 # A task's own lines stay in order. Flushing the held lines when the task
 # finishes instead of when it becomes active would print 2, 3, then 1.
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tasks.launch]
 run = { tasks = ["three"] }
 
@@ -48,14 +48,14 @@ echo L3
 '''
 TOML
 
-out="$(mise run --quiet --jobs 1 --output keep-order launch 2>&1)"
+out="$(pakro run --quiet --jobs 1 --output keep-order launch 2>&1)"
 assert "printf '%s\n' \"$out\"" "[three] L1
 [three] L2
 [three] L3"
 
 # Blocks come out in the order the tasks were written, not the order they
 # happened to produce output. `fast` finishes first and used to print first.
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tasks.launch]
 run = { tasks = ["slow", "fast"] }
 
@@ -66,7 +66,7 @@ run = 'sleep 1; echo SLOW'
 run = 'echo FAST'
 TOML
 
-out="$(MISE_JOBS=4 mise run --quiet --output keep-order launch 2>&1)"
+out="$(PAKRO_JOBS=4 pakro run --quiet --output keep-order launch 2>&1)"
 assert "printf '%s\n' \"$out\"" "[slow] SLOW
 [fast] FAST"
 
@@ -74,7 +74,7 @@ assert "printf '%s\n' \"$out\"" "[slow] SLOW
 # before a task named after it on the command line -- even though that task
 # finishes first. `:::` separates the two tasks; without it `other` would be an
 # argument to `launch` rather than a second task.
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tasks.launch]
 run = { tasks = ["slow", "fast"] }
 
@@ -88,14 +88,14 @@ run = 'echo FAST'
 run = 'echo OTHER'
 TOML
 
-out="$(MISE_JOBS=4 mise run --quiet --output keep-order launch ::: other 2>&1)"
+out="$(PAKRO_JOBS=4 pakro run --quiet --output keep-order launch ::: other 2>&1)"
 assert "printf '%s\n' \"$out\"" "[slow] SLOW
 [fast] FAST
 [other] OTHER"
 
 # Nesting: a task injected by a task reference keeps its own slot, so what it
 # injects in turn anchors there rather than at the end.
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tasks.outer]
 run = { tasks = ["inner", "last"] }
 
@@ -112,18 +112,18 @@ run = 'echo B'
 run = 'echo LAST'
 TOML
 
-out="$(MISE_JOBS=4 mise run --quiet --output keep-order outer 2>&1)"
+out="$(PAKRO_JOBS=4 pakro run --quiet --output keep-order outer 2>&1)"
 assert "printf '%s\n' \"$out\"" "[a] A
 [b] B
 [last] LAST"
 
 # A task named in a run entry brings its own `depends` along, and those got no
 # slot: their blocks landed in whatever order they finished in. `dep3` takes the
-# longest and so printed last, but it belongs first -- `mise run r1 ::: r2 :::
+# longest and so printed last, but it belongs first -- `pakro run r1 ::: r2 :::
 # r3` puts it there, and reaching the same tasks through `launch` must not
 # differ. The sleeps are inverted deliberately, so the old behaviour is wrong
 # every time rather than most of the time.
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tasks.launch]
 run = { tasks = ["r1", "r2", "r3"] }
 
@@ -149,7 +149,7 @@ run = 'sleep 0.5; echo DEP2'
 run = 'sleep 1; echo DEP3'
 TOML
 
-out="$(MISE_JOBS=4 mise run --quiet --output keep-order launch 2>&1)"
+out="$(PAKRO_JOBS=4 pakro run --quiet --output keep-order launch 2>&1)"
 assert "printf '%s\n' \"$out\"" "[r1] R1
 [r2] R2
 [r3] R3
@@ -161,8 +161,8 @@ assert "printf '%s\n' \"$out\"" "[r1] R1
 # they must produce the same blocks. `launch` prints nothing of its own, so the
 # outputs are comparable as-is. Asserted separately from the order above, which
 # is only today's answer to this.
-injected="$(MISE_JOBS=4 mise run --quiet --output keep-order launch 2>&1)"
-toplevel="$(MISE_JOBS=4 mise run --quiet --output keep-order r1 ::: r2 ::: r3 2>&1)"
+injected="$(PAKRO_JOBS=4 pakro run --quiet --output keep-order launch 2>&1)"
+toplevel="$(PAKRO_JOBS=4 pakro run --quiet --output keep-order r1 ::: r2 ::: r3 2>&1)"
 [[ $injected == "$toplevel" ]] || fail "injected through a run entry:
 $injected
 
@@ -173,7 +173,7 @@ $toplevel"
 # whatever order the scheduler happened to start them in, which is the shape
 # that made this report intermittent -- 20 runs of it produced four different
 # orders.
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tasks.launch]
 run = { tasks = ["r1", "r2", "r3"] }
 
@@ -201,7 +201,7 @@ TOML
 
 first=""
 for run_n in 1 2 3 4 5; do
-  out="$(MISE_JOBS=4 mise run --quiet --output keep-order launch 2>&1)"
+  out="$(PAKRO_JOBS=4 pakro run --quiet --output keep-order launch 2>&1)"
   if [[ -z $first ]]; then
     first="$out"
   elif [[ $out != "$first" ]]; then
@@ -218,7 +218,7 @@ done
 # block belongs relative to the tasks that triggered it is a question this change
 # deliberately leaves alone, and equality is the property that does not depend on
 # the answer.
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tasks.launch]
 run = { tasks = ["p1", "p2"] }
 
@@ -237,8 +237,8 @@ run = 'echo POST1'
 run = 'sleep 0.5; echo POST2'
 TOML
 
-injected="$(MISE_JOBS=4 mise run --quiet --output keep-order launch 2>&1)"
-toplevel="$(MISE_JOBS=4 mise run --quiet --output keep-order p1 ::: p2 2>&1)"
+injected="$(PAKRO_JOBS=4 pakro run --quiet --output keep-order launch 2>&1)"
+toplevel="$(PAKRO_JOBS=4 pakro run --quiet --output keep-order p1 ::: p2 2>&1)"
 [[ $injected == "$toplevel" ]] || fail "depends_post, injected through a run entry:
 $injected
 
@@ -257,7 +257,7 @@ $toplevel"
 # between the two configs so a position that follows the scheduler cannot match
 # by luck.
 for skew in c1 c2; do
-  cat >mise.toml <<TOML
+  cat >pakro.toml <<TOML
 [tasks.p1]
 run = ["echo P1-START", { tasks = ["c1"] }, "echo P1-END"]
 
@@ -271,12 +271,12 @@ run = '$([[ $skew == c1 ]] && echo "sleep 0.5; ")echo C1'
 run = '$([[ $skew == c2 ]] && echo "sleep 0.5; ")echo C2'
 TOML
 
-  # `pipefail` so a failing `mise run` cannot be swallowed by the pipeline and
+  # `pipefail` so a failing `pakro run` cannot be swallowed by the pipeline and
   # read as an ordering, and the emptiness check so a run that printed nothing
   # cannot make two configs "agree" on nothing at all.
   order="$(
     set -o pipefail
-    MISE_JOBS=4 mise run --quiet --output keep-order p1 ::: p2 2>&1 | sed -n 's/^\[\([a-z0-9]*\)\].*/\1/p' | uniq | tr '\n' ' '
+    PAKRO_JOBS=4 pakro run --quiet --output keep-order p1 ::: p2 2>&1 | sed -n 's/^\[\([a-z0-9]*\)\].*/\1/p' | uniq | tr '\n' ' '
   )" ||
     fail "keep-order run failed for the sleep-on-$skew config"
   [[ -n ${order// /} ]] || fail "keep-order run produced no task output for the sleep-on-$skew config"

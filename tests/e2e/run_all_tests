@@ -7,7 +7,7 @@ ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$SCRIPT_DIR/style.sh"
 
 # Tests named as arguments (paths relative to tests/e2e/) run in the given order,
-# including slow ones; `mise run test:e2e` passes them when E2E_JOBS is set.
+# including slow ones; `pakro run test:e2e` passes them when E2E_JOBS is set.
 # Without arguments, every test is discovered.
 EXPLICIT_FILES=0
 if (($# > 0)); then
@@ -128,7 +128,7 @@ if [[ -z $SHOW_PASSING_LOGS ]]; then
   fi
 fi
 
-LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/mise-e2e-logs.XXXXXX")"
+LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pakro-e2e-logs.XXXXXX")"
 # shellcheck disable=SC2329
 cleanup() {
   if ((${#PIDS[@]} > 0)); then

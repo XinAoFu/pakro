@@ -1,4 +1,4 @@
-//! Account provisioning for mise-owned, loopback-only NATS providers.
+//! Account provisioning for pakro-owned, loopback-only NATS providers.
 use super::providers::{Execution, validate_resource};
 use eyre::{Result, bail};
 use serde::{Deserialize, Serialize};
@@ -74,7 +74,7 @@ pub(super) fn configure(table: &mut toml::Table, root: &Path) -> Result<()> {
     for key in ["config", "tls_ca", "tls_cert", "tls_key"] {
         if options.get(key).is_some_and(|v| v.as_str() != Some("")) {
             bail!(
-                "NATS providers require mise-managed loopback configuration; {key} is not supported for automatic accounts"
+                "NATS providers require pakro-managed loopback configuration; {key} is not supported for automatic accounts"
             );
         }
     }
@@ -95,10 +95,10 @@ pub(super) fn configure(table: &mut toml::Table, root: &Path) -> Result<()> {
 
 fn configuration(execution: &Execution) -> Result<Vec<u8>> {
     let dir = private_dir(&execution.root)?;
-    let control = credentials(&execution.root, "_mise_control")?;
+    let control = credentials(&execution.root, "_pakro_control")?;
     let mut accounts = BTreeMap::new();
     accounts.insert(
-        "_mise_control".to_string(),
+        "_pakro_control".to_string(),
         serde_json::json!({"users": [control]}),
     );
     for entry in std::fs::read_dir(dir.join("credentials"))? {
@@ -119,10 +119,10 @@ fn configuration(execution: &Execution) -> Result<Vec<u8>> {
         accounts.insert(resource.to_string(), account);
     }
     let mut config = serde_json::json!({
-        "server_name": "mise-provider",
+        "server_name": "pakro-provider",
         "pid_file": execution.root.join("nats-accounts/server.pid"),
         "accounts": accounts,
-        "system_account": "_mise_control"
+        "system_account": "_pakro_control"
     });
     if execution.jetstream {
         config["jetstream"] = serde_json::json!({"store_dir": execution.data_dir});

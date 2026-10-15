@@ -94,10 +94,10 @@ fn has_http_backend_config(opts: &indexmap::IndexMap<String, toml::Value>) -> bo
 }
 
 /// Extract TOML content from a bootstrap script's comment block
-/// Looks for content between `# MISE_TOOL_STUB:` and `# :MISE_TOOL_STUB` markers
+/// Looks for content between `# PAKRO_TOOL_STUB:` and `# :PAKRO_TOOL_STUB` markers
 fn extract_toml_from_bootstrap(content: &str) -> Option<String> {
-    let start_marker = "# MISE_TOOL_STUB:";
-    let end_marker = "# :MISE_TOOL_STUB";
+    let start_marker = "# PAKRO_TOOL_STUB:";
+    let end_marker = "# :PAKRO_TOOL_STUB";
 
     let start_pos = content.find(start_marker)?;
     let end_pos = content.find(end_marker)?;

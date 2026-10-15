@@ -3,7 +3,7 @@
 
 # Test 1: Malformed config in subdirectory should warn but not break
 echo "=== Test 1: Malformed config in subdirectory ==="
-cat <<'TOML' >mise.toml
+cat <<'TOML' >pakro.toml
 monorepo_root = true
 
 [monorepo]
@@ -14,19 +14,19 @@ run = 'echo "root task works"'
 TOML
 
 mkdir -p projects/broken
-cat <<'TOML' >projects/broken/mise.toml
+cat <<'TOML' >projects/broken/pakro.toml
 [env]
 BAD_SYNTAX = this is not valid toml
 TOML
 
 mkdir -p projects/good
-cat <<'TOML' >projects/good/mise.toml
+cat <<'TOML' >projects/good/pakro.toml
 [tasks.build]
 run = 'echo "good project built"'
 TOML
 
 # Should warn about broken config but still load good project
-output=$(mise run '//projects/good:build' 2>&1)
+output=$(pakro run '//projects/good:build' 2>&1)
 echo "$output"
 echo "$output" | grep -q "good project built" || (echo "FAIL: Good project should still work" && exit 1)
 # Check that warning was issued (optional - depends on log level)
@@ -36,7 +36,7 @@ echo "$output" | grep -q "good project built" || (echo "FAIL: Good project shoul
 echo "=== Test 2: Nested monorepo configuration ==="
 rm -rf projects
 mkdir -p projects/nested
-cat <<'TOML' >projects/nested/mise.toml
+cat <<'TOML' >projects/nested/pakro.toml
 # This is potentially problematic - nested monorepo root
 monorepo_root = true
 
@@ -45,17 +45,17 @@ run = 'echo "nested task"'
 TOML
 
 mkdir -p projects/normal
-cat <<'TOML' >projects/normal/mise.toml
+cat <<'TOML' >projects/normal/pakro.toml
 [tasks.normal-task]
 run = 'echo "normal task"'
 TOML
 
 # Both should work, but nested one shouldn't create its own monorepo
-output=$(mise run '//projects/normal:normal-task' 2>&1)
+output=$(pakro run '//projects/normal:normal-task' 2>&1)
 echo "$output"
 echo "$output" | grep -q "normal task" || (echo "FAIL: Normal task should work" && exit 1)
 
-output=$(mise run '//projects/nested:nested-task' 2>&1)
+output=$(pakro run '//projects/nested:nested-task' 2>&1)
 echo "$output"
 echo "$output" | grep -q "nested task" || (echo "FAIL: Nested task should still be accessible" && exit 1)
 
@@ -63,14 +63,14 @@ echo "$output" | grep -q "nested task" || (echo "FAIL: Nested task should still 
 echo "=== Test 3: Missing task dependency ==="
 rm -rf projects
 mkdir -p projects/app
-cat <<'TOML' >projects/app/mise.toml
+cat <<'TOML' >projects/app/pakro.toml
 [tasks.build]
 depends = ["//projects/nonexistent:build"]
 run = 'echo "should not run"'
 TOML
 
 # Should fail with clear error
-output=$(mise run '//projects/app:build' 2>&1 || true)
+output=$(pakro run '//projects/app:build' 2>&1 || true)
 echo "$output"
 # Should mention that dependency could not be found
 if echo "$output" | grep -q "should not run"; then
@@ -80,8 +80,8 @@ fi
 
 # Test 4: Task without experimental mode should fail
 echo "=== Test 4: Monorepo syntax without experimental mode ==="
-rm -f mise.toml
-cat <<'TOML' >mise.toml
+rm -f pakro.toml
+cat <<'TOML' >pakro.toml
 # No monorepo_root flag
 
 [tasks.normal-task]
@@ -89,20 +89,20 @@ run = 'echo "normal"'
 TOML
 
 mkdir -p projects/app
-cat <<'TOML' >projects/app/mise.toml
+cat <<'TOML' >projects/app/pakro.toml
 [tasks.build]
 run = 'echo "app build"'
 TOML
 
 # Running with // syntax should fail or warn
-output=$(mise run '//projects/app:build' 2>&1 || true)
+output=$(pakro run '//projects/app:build' 2>&1 || true)
 echo "$output"
 # Should require a monorepo root
 echo "$output" | grep -q -i "monorepo root" || echo "Note: May need monorepo root check"
 
-# Test 5: Empty subdirectory mise.toml should not cause issues
+# Test 5: Empty subdirectory pakro.toml should not cause issues
 echo "=== Test 5: Empty subdirectory config ==="
-cat <<'TOML' >mise.toml
+cat <<'TOML' >pakro.toml
 monorepo_root = true
 
 [monorepo]
@@ -114,16 +114,16 @@ TOML
 
 rm -rf projects
 mkdir -p projects/empty
-touch projects/empty/mise.toml
+touch projects/empty/pakro.toml
 
 mkdir -p projects/working
-cat <<'TOML' >projects/working/mise.toml
+cat <<'TOML' >projects/working/pakro.toml
 [tasks.build]
 run = 'echo "working build"'
 TOML
 
 # Should handle empty config gracefully
-output=$(mise run '//projects/working:build' 2>&1)
+output=$(pakro run '//projects/working:build' 2>&1)
 echo "$output"
 echo "$output" | grep -q "working build" || (echo "FAIL: Should handle empty configs" && exit 1)
 

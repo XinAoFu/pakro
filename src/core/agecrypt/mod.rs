@@ -1,4 +1,4 @@
-pub use mise_util::agecrypt::*;
+pub use pakro_util::agecrypt::*;
 
 mod directive;
 pub use directive::{

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::system::history::shadow::HistoryRepo;
 
 fn path(repo: &HistoryRepo) -> std::path::PathBuf {
-    repo.dir().join("mise-sync-state.json")
+    repo.dir().join("pakro-sync-state.json")
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]

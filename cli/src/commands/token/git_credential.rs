@@ -1,6 +1,6 @@
 use std::io::{BufRead, Write};
 
-/// Supply mise's GitHub token to Git's credential protocol.
+/// Supply pakro's GitHub token to Git's credential protocol.
 pub(crate) fn run(operation: &str) -> eyre::Result<()> {
     if operation != "get" {
         return Ok(());

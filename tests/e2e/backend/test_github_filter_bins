@@ -8,11 +8,11 @@ if [[ "$(uname -s)" != "Linux" ]]; then
   exit 0
 fi
 
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 
-mise install "github:jgm/pandoc[filter_bins=pandoc]@3.8.2"
+pakro install "github:jgm/pandoc[filter_bins=pandoc]@3.8.2"
 
-bin_path="$(mise where github:jgm/pandoc@3.8.2)/.mise-bins"
+bin_path="$(pakro where github:jgm/pandoc@3.8.2)/.pakro-bins"
 assert_directory_exists "$bin_path"
 
 bins=$(find "$bin_path" -maxdepth 1 \( -type l -o -type f \) -print0 | xargs -0 -n1 basename | sort | tr '\n' ' ')
@@ -21,4 +21,4 @@ assert_not_contains "echo '$bins'" "pandoc-lua"
 assert_not_contains "echo '$bins'" "pandoc-server"
 
 # Verify bin-paths respects filter_bins when version is explicitly provided via CLI
-assert "mise bin-paths github:jgm/pandoc@3.8.2" "$bin_path"
+assert "pakro bin-paths github:jgm/pandoc@3.8.2" "$bin_path"

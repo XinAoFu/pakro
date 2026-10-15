@@ -7,9 +7,9 @@ mod path;
 mod prune;
 mod task;
 
-/// Manage the mise cache
+/// Manage the pakro cache
 ///
-/// Run `mise cache` with no args to view the current cache directory.
+/// Run `pakro cache` with no args to view the current cache directory.
 #[derive(Debug, usage_rs::Args)]
 #[usage(verbatim_doc_comment)]
 pub(crate) struct Cache {
@@ -42,7 +42,7 @@ impl Cache {
             Some(cmd) => cmd.run().await,
             None => {
                 // just show the cache dir
-                miseprintln!("{}", env::MISE_CACHE_DIR.display());
+                pakroprintln!("{}", env::PAKRO_CACHE_DIR.display());
                 Ok(())
             }
         }

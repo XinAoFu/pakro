@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-export MISE_LOCKFILE=1
+export PAKRO_LOCKFILE=1
 
-mise install dummy@1.0.0 dummy@1.1.0
+pakro install dummy@1.0.0 dummy@1.1.0
 
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 dummy = { version = "latest", foo = "one", "vars.foo" = "two" }
 TOML
@@ -40,26 +40,26 @@ TOML
 # A broken candidate cannot discard a match already found or prevent a later match.
 for order in 'valid.entry stale.entry' 'stale.entry valid.entry'; do
   read -r first second <<<"$order"
-  cat base.lock "$first" "$second" >mise.lock
-  assert "MISE_LOCKED=1 mise which dummy --tool dummy@latest --version" "1.0.0"
+  cat base.lock "$first" "$second" >pakro.lock
+  assert "PAKRO_LOCKED=1 pakro which dummy --tool dummy@latest --version" "1.0.0"
 done
 
 # Mixed-format lockfiles must retain their existing unbound-pin fallback too.
 sed '/^specifiers = /d' valid.entry >unbound.entry
-cat base.lock stale.entry unbound.entry >mise.lock
-assert "MISE_LOCKED=1 mise which dummy --tool dummy@latest --version" "1.0.0"
+cat base.lock stale.entry unbound.entry >pakro.lock
+assert "PAKRO_LOCKED=1 pakro which dummy --tool dummy@latest --version" "1.0.0"
 
 # Without a valid candidate, retain the backend error even in unlocked mode.
-cat base.lock stale.entry >mise.lock
-assert_fail_contains "mise which dummy --tool dummy@latest 2>&1" 'conflicting aqua var'
+cat base.lock stale.entry >pakro.lock
+assert_fail_contains "pakro which dummy --tool dummy@latest 2>&1" 'conflicting aqua var'
 
 # A broken candidate must not hide ambiguity between two valid bindings.
-cat base.lock stale.entry valid.entry >mise.lock
-cat >>mise.lock <<'TOML'
+cat base.lock stale.entry valid.entry >pakro.lock
+cat >>pakro.lock <<'TOML'
 
 [[tools.dummy]]
 version = "1.1.0"
 backend = "asdf:dummy"
 specifiers = ["latest"]
 TOML
-assert_fail_contains "mise which dummy --tool dummy@latest 2>&1" 'lockfile contains multiple resolutions for dummy@latest with the same options'
+assert_fail_contains "pakro which dummy --tool dummy@latest 2>&1" 'lockfile contains multiple resolutions for dummy@latest with the same options'

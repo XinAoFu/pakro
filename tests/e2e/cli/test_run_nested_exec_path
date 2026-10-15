@@ -2,23 +2,23 @@
 
 # Regression test for https://github.com/jdx/mise/discussions/9754
 #
-# Inside a `mise run` task whose toolset selected dummy@1.0.0, a nested
-# `mise -C <other> exec -- ...` should resolve <other>'s tool (dummy@2.0.0),
+# Inside a `pakro run` task whose toolset selected dummy@1.0.0, a nested
+# `pakro -C <other> exec -- ...` should resolve <other>'s tool (dummy@2.0.0),
 # not the outer task's. The bug was that the outer task's install path
-# leaked into the inner mise's PATH ahead of shims, where PathEnv classified
+# leaked into the inner pakro's PATH ahead of shims, where PathEnv classified
 # it as user-pre-PATH and it outranked the inner toolset's resolved tool.
 #
-# Fix: the outer mise task now embeds __MISE_DIFF in its child env so the
-# nested mise can recover the pristine PATH (mirrors what `mise activate`
+# Fix: the outer pakro task now embeds __PAKRO_DIFF in its child env so the
+# nested pakro can recover the pristine PATH (mirrors what `pakro activate`
 # does for shells). See src/task/task_executor.rs and src/cli/exec.rs.
 
-mise install dummy@1.0.0 dummy@2.0.0
+pakro install dummy@1.0.0 dummy@2.0.0
 
 old_dir="$HOME/old"
 new_dir="$HOME/new"
-mkdir -p "$old_dir/.mise/tasks" "$new_dir"
+mkdir -p "$old_dir/.pakro/tasks" "$new_dir"
 
-cat >"$old_dir/mise.toml" <<EOF
+cat >"$old_dir/pakro.toml" <<EOF
 [tools]
 dummy = "1.0.0"
 
@@ -26,25 +26,25 @@ dummy = "1.0.0"
 env = { PATH = "{{env.PATH}}" }
 EOF
 
-cat >"$new_dir/mise.toml" <<EOF
+cat >"$new_dir/pakro.toml" <<EOF
 [tools]
 dummy = "2.0.0"
 EOF
 
-new_bin="$MISE_DATA_DIR/installs/dummy/2.0.0/bin"
+new_bin="$PAKRO_DATA_DIR/installs/dummy/2.0.0/bin"
 
-cat >"$old_dir/.mise/tasks/probe" <<TASK
+cat >"$old_dir/.pakro/tasks/probe" <<TASK
 #!/usr/bin/env bash
 set -euo pipefail
-mise -C "$new_dir" exec -- bash -c 'command -v dummy'
+pakro -C "$new_dir" exec -- bash -c 'command -v dummy'
 TASK
-chmod +x "$old_dir/.mise/tasks/probe"
+chmod +x "$old_dir/.pakro/tasks/probe"
 
 # Put shims in PATH ahead of the rest. Without shims as a separator, PathEnv
 # wouldn't have classified the outer install dir as pre-PATH, so the bug
 # wouldn't manifest. With shims present, this is the discussion's scenario.
-shims="$MISE_DATA_DIR/shims"
+shims="$PAKRO_DATA_DIR/shims"
 mkdir -p "$shims"
 export PATH="$shims:$PATH"
 
-assert "mise -C '$old_dir' run probe" "$new_bin/dummy"
+assert "pakro -C '$old_dir' run probe" "$new_bin/dummy"

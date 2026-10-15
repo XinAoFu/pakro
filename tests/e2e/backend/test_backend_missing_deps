@@ -2,12 +2,12 @@
 
 # Test that package manager backends show helpful warnings when their dependencies are missing
 
-# Create a PATH that has mise but not package managers
+# Create a PATH that has pakro but not package managers
 # ROOT is set by run_test script
-# Resolve the mise binary from PATH (release e2e ensures it's installed)
-MISE_BIN="$(command -v mise)"
-MISE_DIR="$(dirname "$MISE_BIN")"
-export PATH="$MISE_DIR:/usr/bin:/bin:/usr/sbin:/sbin"
+# Resolve the pakro binary from PATH (release e2e ensures it's installed)
+PAKRO_BIN="$(command -v pakro)"
+PAKRO_DIR="$(dirname "$PAKRO_BIN")"
+export PATH="$PAKRO_DIR:/usr/bin:/bin:/usr/sbin:/sbin"
 
 # Track overall test status
 TEST_FAILED=0
@@ -46,7 +46,7 @@ test_backend_warning() {
 
   local output
   # Commands will succeed but show warnings, capture stderr
-  output=$(MISE_LOG_LEVEL=warn eval "$command" 2>&1 || true)
+  output=$(PAKRO_LOG_LEVEL=warn eval "$command" 2>&1 || true)
   test_error_message "$backend_name shows correct warning" "$output" "$expected_warning"
 }
 
@@ -66,7 +66,7 @@ test_cargo() {
   export PATH="$new_path"
 
   check_command_missing "cargo"
-  test_backend_warning "cargo" "mise install cargo:tiny@latest" "cargo may be required but was not found"
+  test_backend_warning "cargo" "pakro install cargo:tiny@latest" "cargo may be required but was not found"
 }
 
 # Test go backend
@@ -85,7 +85,7 @@ test_go() {
   export PATH="$new_path"
 
   check_command_missing "go"
-  test_backend_warning "go" "mise ls-remote go:github.com/test/test" "go may be required but was not found"
+  test_backend_warning "go" "pakro ls-remote go:github.com/test/test" "go may be required but was not found"
 }
 
 # Run all tests

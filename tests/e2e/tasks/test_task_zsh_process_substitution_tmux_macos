@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regression coverage for https://github.com/jdx/mise/discussions/9790.
 # On macOS, moving a non-interactive zsh task into its own process group while
-# mise remains attached to tmux's controlling terminal can stop zsh during
+# pakro remains attached to tmux's controlling terminal can stop zsh during
 # process substitution. Linux does not exhibit the same job-control behavior.
 
 set -euo pipefail
@@ -12,16 +12,16 @@ fi
 
 # Unix-domain socket paths are short on macOS, while the e2e TMPDIR is deeply
 # nested. Use an explicit short path instead of tmux's default /private/tmp dir.
-socket="/tmp/mise-zps-${RANDOM}-$$.sock"
-logfile="$TMPDIR/mise-zsh-procsub-log-${RANDOM}-$$"
-statusfile="$TMPDIR/mise-zsh-procsub-status-${RANDOM}-$$"
+socket="/tmp/pakro-zps-${RANDOM}-$$.sock"
+logfile="$TMPDIR/pakro-zsh-procsub-log-${RANDOM}-$$"
+statusfile="$TMPDIR/pakro-zsh-procsub-status-${RANDOM}-$$"
 
 cleanup() {
   tmux -S "$socket" kill-server 2>/dev/null || true
 }
 trap cleanup EXIT
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.procsub]
 shell = "zsh -c"
 run = "while IFS= read -r -d ':' e; do echo \"got: $e\"; done < <(printf 'a:b:c:')"
@@ -34,7 +34,7 @@ depends = ["procsub", "dummy"]
 EOF
 
 printf -v tmux_command \
-  'cd %q && mise run --jobs 2 all >%q 2>&1; printf "%%s\\n" "$?" >%q' \
+  'cd %q && pakro run --jobs 2 all >%q 2>&1; printf "%%s\\n" "$?" >%q' \
   "$PWD" "$logfile" "$statusfile"
 tmux -S "$socket" new-session -d -s repro "$tmux_command"
 

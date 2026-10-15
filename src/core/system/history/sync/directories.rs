@@ -268,7 +268,7 @@ mod tests {
         use crate::system::history::tracked::TrackedEntry;
         let roots = Roots {
             home: "/home/u".into(),
-            config_dir: "/config/mise".into(),
+            config_dir: "/config/pakro".into(),
         };
         let policy = FilePolicy::for_mode(FileMode::Track);
         let mut variant = TrackedEntry::new("/home/u/.ssh/config".into(), "track", policy);
@@ -276,7 +276,7 @@ mod tests {
         let tracked = TrackedSet {
             entries: vec![
                 TrackedEntry::new("/home/u/.claude/settings.json".into(), "track", policy),
-                TrackedEntry::new("/config/mise/tasks/private/build".into(), "track", policy),
+                TrackedEntry::new("/config/pakro/tasks/private/build".into(), "track", policy),
                 variant,
             ],
             ..Default::default()

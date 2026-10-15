@@ -8,16 +8,16 @@ if [[ "$(uname -s)" != "Linux" ]]; then
   exit 0
 fi
 
-export MISE_EXPERIMENTAL=1
-export MISE_GPG_VERIFY=false
+export PAKRO_EXPERIMENTAL=1
+export PAKRO_GPG_VERIFY=false
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools."github:thought-machine/please"]
 version = "17.28.0"
 rename_exe = "plz"
 filter_bins = "plz"
 EOF
 
-mise install
+pakro install
 
-assert "mise x -- plz --version" "Please version 17.28.0"
+assert "pakro x -- plz --version" "Please version 17.28.0"

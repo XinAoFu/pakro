@@ -3,7 +3,7 @@ set -euo pipefail
 
 detect_platform
 OTHER_PLATFORM=linux-x64
-if [[ $MISE_PLATFORM == linux-x64 ]]; then
+if [[ $PAKRO_PLATFORM == linux-x64 ]]; then
   OTHER_PLATFORM=macos-arm64
 fi
 
@@ -47,7 +47,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 PY
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [settings]
 lockfile = true
 lockfile_mode = "generate"
@@ -57,19 +57,19 @@ jobs = 2
 [tools."http:generate-overlap"]
 version = "1.0"
 
-[tools."http:generate-overlap".platforms."$MISE_PLATFORM"]
+[tools."http:generate-overlap".platforms."$PAKRO_PLATFORM"]
 url = "http://127.0.0.1:$HTTP_PORT/host.tar.gz"
 
 [tools."http:generate-overlap".platforms."$OTHER_PLATFORM"]
 url = "http://127.0.0.1:$HTTP_PORT/other.tar.gz"
 EOF
 
-MISE_HTTP_RETRIES=0 mise install 2>progress.log
+PAKRO_HTTP_RETRIES=0 pakro install 2>progress.log
 assert_contains "cat progress.log" "lock"
 assert "jq '.[\"/host.tar.gz\"]' requests.json" "1"
 assert "jq '.[\"/other.tar.gz\"]' requests.json" "1"
-cp mise.lock expected.lock
-mise lock
-diff -u expected.lock mise.lock
+cp pakro.lock expected.lock
+pakro lock
+diff -u expected.lock pakro.lock
 assert "jq '.[\"/host.tar.gz\"]' requests.json" "1"
 assert "jq '.[\"/other.tar.gz\"]' requests.json" "1"

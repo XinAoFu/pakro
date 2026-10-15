@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [tasks.test]
 description = "Run the test task"
 usage = '''
@@ -16,36 +16,36 @@ usage = 'arg "<value>"'
 run = 'true'
 EOF
 
-fish_tasks="$(mise __complete_word__ --shell fish --line 'mise run ')"
+fish_tasks="$(pakro __complete_word__ --shell fish --line 'pakro run ')"
 assert_contains_text "$fish_tasks" $'test\tRun the test task'
 assert_not_contains_text "$fish_tasks" $'\001files'
 
-zsh_tasks="$(mise __complete_word__ --shell zsh --line 'mise run ')"
+zsh_tasks="$(pakro __complete_word__ --shell zsh --line 'pakro run ')"
 assert_contains_text "$zsh_tasks" $'test\tRun the test task\ttest'
 assert_not_contains_text "$zsh_tasks" $'\001files'
 
-ln -s "$ROOT/tests/support/data/plugins/dummy" "$MISE_DATA_DIR/plugins/node"
-zsh_plugins="$(mise __complete_word__ --shell zsh --line 'mise plugins uninstall ')"
+ln -s "$ROOT/tests/support/data/plugins/dummy" "$PAKRO_DATA_DIR/plugins/node"
+zsh_plugins="$(pakro __complete_word__ --shell zsh --line 'pakro plugins uninstall ')"
 assert_contains_text "$zsh_plugins" $'dummy\t\tdummy'
 assert_contains_text "$zsh_plugins" $'node\t\tnode'
 node_candidates="$(awk -F $'\t' '$1 == "node" { count++ } END { print count + 0 }' <<<"$zsh_plugins")"
 [[ $node_candidates == 1 ]] || fail "node appeared $node_candidates times in plugin completion"
 
-naked_tasks="$(mise __complete_word__ --shell fish --line 'mise te')"
+naked_tasks="$(pakro __complete_word__ --shell fish --line 'pakro te')"
 assert_contains_text "$naked_tasks" $'test\tRun the test task'
 
-task_flags="$(mise __complete_word__ --shell fish --line 'mise run test --')"
+task_flags="$(pakro __complete_word__ --shell fish --line 'pakro run test --')"
 assert_contains_text "$task_flags" '--environment'
 assert_not_contains_text "$task_flags" '--silent'
 
-task_values="$(mise __complete_word__ --shell fish --line 'mise run test --environment ')"
+task_values="$(pakro __complete_word__ --shell fish --line 'pakro run test --environment ')"
 assert_contains_text "$task_values" 'dev'
 assert_contains_text "$task_values" 'production'
 assert_not_contains_text "$task_values" $'\001files'
 
-tools="$(mise __complete_word__ --shell fish --line 'mise install actionl')"
+tools="$(pakro __complete_word__ --shell fish --line 'pakro install actionl')"
 assert_contains_text "$tools" 'actionlint@'
 assert_not_contains_text "$tools" $'\001files'
 
-task_paths="$(mise __complete_word__ --shell fish --line 'mise run paths ')"
+task_paths="$(pakro __complete_word__ --shell fish --line 'pakro run paths ')"
 assert_contains_text "$task_paths" $'\001files'

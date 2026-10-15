@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Regression test: killing `mise watch` with a signal must still put the
+# Regression test: killing `pakro watch` with a signal must still put the
 # terminal back.
 #
 # `TerminalState` restores termios from `Drop`, which covers every exit that
-# unwinds — but not being killed. A `mise watch` nested under a `mise run` is
-# killed by that run's `exit::kill_all()`, which sends SIGTERM, and mise handles
+# unwinds — but not being killed. A `pakro watch` nested under a `pakro run` is
+# killed by that run's `exit::kill_all()`, which sends SIGTERM, and pakro handles
 # only SIGINT. So the process died where it stood and the terminal kept whatever
 # watchexec had left in it: no echo (#8269).
 #
@@ -32,7 +32,7 @@ EOF
 chmod +x "$HOME/bin/watchexec"
 export PATH="$HOME/bin:$PATH"
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [tasks.watched]
 run = "echo watched"
 sources = ["src/**/*.rs"]
@@ -58,14 +58,14 @@ pid = os.fork()
 if pid == 0:
     # The child has to become a session leader and claim the pty before exec,
     # or `/dev/tty` resolves to whatever terminal the test runner is attached to
-    # (usually none) and mise captures nothing.
+    # (usually none) and pakro captures nothing.
     os.setsid()
     fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
     for fd in (0, 1, 2):
         os.dup2(slave, fd)
     os.close(master)
     os.close(slave)
-    os.execvp("mise", ["mise", "watch", "watched"])
+    os.execvp("pakro", ["pakro", "watch", "watched"])
     os._exit(127)
 
 os.close(slave)
@@ -95,7 +95,7 @@ def wait_for_exit(timeout=30.0):
         if waited == pid:
             return status
         if time.monotonic() >= deadline:
-            raise SystemExit("timed out waiting for mise to exit after SIGTERM")
+            raise SystemExit("timed out waiting for pakro to exit after SIGTERM")
         time.sleep(0.05)
 
 

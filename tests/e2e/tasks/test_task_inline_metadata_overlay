@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 
-mkdir -p .config .mise
+mkdir -p .config .pakro
 
-cat <<'EOF' >.config/mise.toml
+cat <<'EOF' >.config/pakro.toml
 [tasks.hello]
 env = { LEAKED = "lower" }
 EOF
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.hello]
 description = "base description"
 run = '''
@@ -24,12 +24,12 @@ run = 'echo "BASE_ONLY=${BASE_ONLY:-unset}"'
 env = { BASE_ONLY = "base" }
 EOF
 
-cat <<'EOF' >.mise/config.local.toml
+cat <<'EOF' >.pakro/config.local.toml
 [tasks.hello]
 env = { INTERMEDIATE_ONLY = "intermediate", OVERRIDE = "intermediate" }
 EOF
 
-cat <<'EOF' >mise.local.toml
+cat <<'EOF' >pakro.local.toml
 [tasks.hello]
 description = "local description"
 env = { LOCAL_ONLY = "local", OVERRIDE = "local" }
@@ -41,13 +41,13 @@ EOF
 # A metadata-only higher-precedence definition overlays the nearest lower
 # command-bearing task. Values from the overlay win, while definitions below
 # the selected command-bearing base do not leak into the task.
-assert_contains "mise tasks hello" "local description"
-assert_contains "mise run hello" "BASE_ONLY=base"
-assert_contains "mise run hello" "INTERMEDIATE_ONLY=intermediate"
-assert_contains "mise run hello" "LOCAL_ONLY=local"
-assert_contains "mise run hello" "OVERRIDE=local"
-assert_contains "mise run hello" "LEAKED=unset"
+assert_contains "pakro tasks hello" "local description"
+assert_contains "pakro run hello" "BASE_ONLY=base"
+assert_contains "pakro run hello" "INTERMEDIATE_ONLY=intermediate"
+assert_contains "pakro run hello" "LOCAL_ONLY=local"
+assert_contains "pakro run hello" "OVERRIDE=local"
+assert_contains "pakro run hello" "LEAKED=unset"
 
 # A higher-precedence definition with its own command still replaces the lower
 # task wholesale.
-assert "mise run replaced" "local command"
+assert "pakro run replaced" "local command"

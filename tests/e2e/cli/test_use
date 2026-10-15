@@ -1,217 +1,217 @@
 #!/usr/bin/env bash
 
-mise i dummy@1.0.0
+pakro i dummy@1.0.0
 
-assert_contains "mise use dummy" "dummy@1.0.0"
-assert "mise current dummy" "1.0.0"
+assert_contains "pakro use dummy" "dummy@1.0.0"
+assert "pakro current dummy" "1.0.0"
 
-assert_contains "mise use dummy@2" "dummy@2."
-assert "mise current dummy" "2.0.0"
+assert_contains "pakro use dummy@2" "dummy@2."
+assert "pakro current dummy" "2.0.0"
 
-assert_contains "mise use --rm dummy" "removed: dummy"
-assert "mise current dummy" ""
+assert_contains "pakro use --rm dummy" "removed: dummy"
+assert "pakro current dummy" ""
 
-assert_contains "mise use --env local dummy@2" "dummy@2."
-assert "cat mise.local.toml" '[tools]
+assert_contains "pakro use --env local dummy@2" "dummy@2."
+assert "cat pakro.local.toml" '[tools]
 dummy = "2"'
-assert "mise current dummy" "2.0.0"
-rm mise.local.toml
+assert "pakro current dummy" "2.0.0"
+rm pakro.local.toml
 
-assert_contains "mise use --env local dummy@1" "dummy@1."
-assert "cat mise.local.toml" '[tools]
+assert_contains "pakro use --env local dummy@1" "dummy@1."
+assert "cat pakro.local.toml" '[tools]
 dummy = "1"'
-mv mise.local.toml .mise.local.toml
-assert_contains "mise use --env local dummy@2" "dummy@2."
-assert_fail "test -f mise.local.toml"
-assert "cat .mise.local.toml" '[tools]
+mv pakro.local.toml .pakro.local.toml
+assert_contains "pakro use --env local dummy@2" "dummy@2."
+assert_fail "test -f pakro.local.toml"
+assert "cat .pakro.local.toml" '[tools]
 dummy = "2"'
-rm .mise.local.toml
+rm .pakro.local.toml
 
-mise use dummy@1 dummy@2
-assert "mise current dummy" "1.0.0 2.0.0"
+pakro use dummy@1 dummy@2
+assert "pakro current dummy" "1.0.0 2.0.0"
 
 # Multiple additions should preserve an already-sorted [tools] table.
-rm mise.toml
-ln -s "$ROOT/tests/support/data/plugins/tiny" "$MISE_DATA_DIR/plugins/tiny"
-ln -s "$ROOT/tests/support/data/plugins/tiny" "$MISE_DATA_DIR/plugins/tiny-local"
-ln -s "$ROOT/tests/support/data/plugins/tiny" "$MISE_DATA_DIR/plugins/tiny-ref"
-mise use tiny-ref@1
-mise use dummy@1 tiny-local@1 tiny@1
-assert "cat mise.toml" '[tools]
+rm pakro.toml
+ln -s "$ROOT/tests/support/data/plugins/tiny" "$PAKRO_DATA_DIR/plugins/tiny"
+ln -s "$ROOT/tests/support/data/plugins/tiny" "$PAKRO_DATA_DIR/plugins/tiny-local"
+ln -s "$ROOT/tests/support/data/plugins/tiny" "$PAKRO_DATA_DIR/plugins/tiny-ref"
+pakro use tiny-ref@1
+pakro use dummy@1 tiny-local@1 tiny@1
+assert "cat pakro.toml" '[tools]
 dummy = "1"
 tiny = "1"
 tiny-local = "1"
 tiny-ref = "1"'
-rm mise.toml
+rm pakro.toml
 
-mise use --pin dummy@1
-assert "cat mise.toml" '[tools]
+pakro use --pin dummy@1
+assert "cat pakro.toml" '[tools]
 dummy = "1.0.0"'
 
-assert_fail "mise use dummy@--version" "must not start with '-'"
-assert "cat mise.toml" '[tools]
+assert_fail "pakro use dummy@--version" "must not start with '-'"
+assert "cat pakro.toml" '[tools]
 dummy = "1.0.0"'
 
-MISE_PIN=1 mise use --fuzzy dummy@1
-assert "cat mise.toml" '[tools]
+PAKRO_PIN=1 pakro use --fuzzy dummy@1
+assert "cat pakro.toml" '[tools]
 dummy = "1"'
 
-MISE_PIN=1 mise use dummy@1 --path mise.local.toml
-assert "cat mise.local.toml" '[tools]
+PAKRO_PIN=1 pakro use dummy@1 --path pakro.local.toml
+assert "cat pakro.local.toml" '[tools]
 dummy = "1.0.0"'
 
-assert_fail "mise use --dry-run --path package.json dummy@1" "cannot update idiomatic version file"
+assert_fail "pakro use --dry-run --path package.json dummy@1" "cannot update idiomatic version file"
 
-mise use --rm dummy --path mise.local.toml
-assert "cat mise.local.toml" ""
+pakro use --rm dummy --path pakro.local.toml
+assert "cat pakro.local.toml" ""
 
 # `nodejs` is an alias for `node`, so --rm has to match the key however it is spelled.
 # It used to only look for the short name, leaving the entry in the file.
-cat >mise.local.toml <<EOF
+cat >pakro.local.toml <<EOF
 [tools]
 dummy = "1"
 nodejs = "20.0.0"
 EOF
-mise use --rm nodejs --path mise.local.toml
-assert "cat mise.local.toml" '[tools]
+pakro use --rm nodejs --path pakro.local.toml
+assert "cat pakro.local.toml" '[tools]
 dummy = "1"'
-rm -f mise.local.toml
+rm -f pakro.local.toml
 
-mise use dummy@1 --path .
-assert "cat mise.toml" '[tools]
+pakro use dummy@1 --path .
+assert "cat pakro.toml" '[tools]
 dummy = "1"'
 
-# mise use should write to mise.toml (lowest precedence) instead of mise.local.toml
+# pakro use should write to pakro.toml (lowest precedence) instead of pakro.local.toml
 # See: https://github.com/jdx/mise/discussions/6475
-mise use dummy@2
-assert "cat mise.toml" '[tools]
+pakro use dummy@2
+assert "cat pakro.toml" '[tools]
 dummy = "2"'
 
-# When both mise.toml and mise.local.toml exist, mise use should still write to mise.toml
-echo '[tools]' >mise.local.toml
-echo 'dummy = "1"' >>mise.local.toml
-mise use dummy@3
-assert "cat mise.toml" '[tools]
+# When both pakro.toml and pakro.local.toml exist, pakro use should still write to pakro.toml
+echo '[tools]' >pakro.local.toml
+echo 'dummy = "1"' >>pakro.local.toml
+pakro use dummy@3
+assert "cat pakro.toml" '[tools]
 dummy = "3"'
-assert "cat mise.local.toml" '[tools]
+assert "cat pakro.local.toml" '[tools]
 dummy = "1"'
 
-rm -f mise.local.toml mise.toml
+rm -f pakro.local.toml pakro.toml
 
-# mise use should write to .config/mise/config.toml instead of .config/mise/config.local.toml
-mkdir -p .config/mise
-echo '[tools]' >.config/mise/config.toml
-echo 'dummy = "1"' >>.config/mise/config.toml
-touch .config/mise/config.local.toml
-mise use dummy@2
-assert "cat .config/mise/config.toml" '[tools]
+# pakro use should write to .config/pakro/config.toml instead of .config/pakro/config.local.toml
+mkdir -p .config/pakro
+echo '[tools]' >.config/pakro/config.toml
+echo 'dummy = "1"' >>.config/pakro/config.toml
+touch .config/pakro/config.local.toml
+pakro use dummy@2
+assert "cat .config/pakro/config.toml" '[tools]
 dummy = "2"'
-assert "cat .config/mise/config.local.toml" ""
+assert "cat .config/pakro/config.local.toml" ""
 rm -rf .config
 
 echo "dummy 1.0.0" >.tool-versions
-mise use dummy@2
+pakro use dummy@2
 assert "cat .tool-versions" "dummy 2"
 
-# When both .tool-versions and mise.toml exist, mise use should prefer mise.toml
-echo '[tools]' >mise.toml
-echo 'dummy = "1"' >>mise.toml
-mise use dummy@3
-assert "cat mise.toml" '[tools]
+# When both .tool-versions and pakro.toml exist, pakro use should prefer pakro.toml
+echo '[tools]' >pakro.toml
+echo 'dummy = "1"' >>pakro.toml
+pakro use dummy@3
+assert "cat pakro.toml" '[tools]
 dummy = "3"'
 assert "cat .tool-versions" "dummy 2"
 
-rm -f .tool-versions mise.toml
+rm -f .tool-versions pakro.toml
 
-mise use -g dummy@1
-assert "cat ~/.config/mise/config.toml" '[tools]
+pakro use -g dummy@1
+assert "cat ~/.config/pakro/config.toml" '[tools]
 dummy = "1"'
-rm -f ~/.config/mise/config.toml
+rm -f ~/.config/pakro/config.toml
 
-assert_empty "mise use --quiet -g dummy@1 2>&1"
-assert "cat ~/.config/mise/config.toml" '[tools]
+assert_empty "pakro use --quiet -g dummy@1 2>&1"
+assert "cat ~/.config/pakro/config.toml" '[tools]
 dummy = "1"'
-assert_empty "mise use --silent -g dummy@1 2>&1"
-assert "cat ~/.config/mise/config.toml" '[tools]
+assert_empty "pakro use --silent -g dummy@1 2>&1"
+assert "cat ~/.config/pakro/config.toml" '[tools]
 dummy = "1"'
-rm -f ~/.config/mise/config.toml
+rm -f ~/.config/pakro/config.toml
 
-mise use -g "ubi:cli/cli[exe=gh]"
-assert "cat ~/.config/mise/config.toml" '[tools]
+pakro use -g "ubi:cli/cli[exe=gh]"
+assert "cat ~/.config/pakro/config.toml" '[tools]
 "ubi:cli/cli" = { version = "latest", exe = "gh" }'
-rm -f ~/.config/mise/config.toml
+rm -f ~/.config/pakro/config.toml
 
-mise use -g gh@2
-assert "cat ~/.config/mise/config.toml" '[tools]
+pakro use -g gh@2
+assert "cat ~/.config/pakro/config.toml" '[tools]
 gh = "2"'
-rm -f ~/.config/mise/config.toml
+rm -f ~/.config/pakro/config.toml
 
-# mise use -g should write to config.toml instead of config.local.toml
+# pakro use -g should write to config.toml instead of config.local.toml
 # See: https://github.com/jdx/mise/discussions/8236
-touch ~/.config/mise/config.toml ~/.config/mise/config.local.toml
-mise use -g dummy@1
-assert "cat ~/.config/mise/config.toml" '[tools]
+touch ~/.config/pakro/config.toml ~/.config/pakro/config.local.toml
+pakro use -g dummy@1
+assert "cat ~/.config/pakro/config.toml" '[tools]
 dummy = "1"'
-assert "cat ~/.config/mise/config.local.toml" ""
-rm -f ~/.config/mise/config.toml ~/.config/mise/config.local.toml
+assert "cat ~/.config/pakro/config.local.toml" ""
+rm -f ~/.config/pakro/config.toml ~/.config/pakro/config.local.toml
 
-export MISE_ENV=test
-mise use -g dummy@1
-assert "cat ~/.config/mise/config.toml" '[tools]
+export PAKRO_ENV=test
+pakro use -g dummy@1
+assert "cat ~/.config/pakro/config.toml" '[tools]
 dummy = "1"'
-rm -f ~/.config/mise/config.toml
-unset MISE_ENV
+rm -f ~/.config/pakro/config.toml
+unset PAKRO_ENV
 
-mise uninstall dummy --all
-mise use dummy@system
-assert "mise ls dummy" "dummy  system  ~/workdir/mise.toml  system"
+pakro uninstall dummy --all
+pakro use dummy@system
+assert "pakro ls dummy" "dummy  system  ~/workdir/pakro.toml  system"
 
 mkdir -p ~/workdir/mydummy
-mise use "dummy@path:~/workdir/mydummy"
-assert_contains "mise ls dummy" "dummy  path:~/workdir/mydummy  ~/workdir/mise.toml  path:~/workdir/mydummy"
+pakro use "dummy@path:~/workdir/mydummy"
+assert_contains "pakro ls dummy" "dummy  path:~/workdir/mydummy  ~/workdir/pakro.toml  path:~/workdir/mydummy"
 
 cd "$HOME" || exit 1
-assert_contains "mise use dummy@system" "mise ~/.config/mise/config.toml tools: dummy@system"
+assert_contains "pakro use dummy@system" "pakro ~/.config/pakro/config.toml tools: dummy@system"
 
-assert_contains "mise use --path mise.path.toml dummy@1" "dummy@1."
-assert "cat mise.path.toml" '[tools]
+assert_contains "pakro use --path pakro.path.toml dummy@1" "dummy@1."
+assert "cat pakro.path.toml" '[tools]
 dummy = "1"'
 
 # --path <dir> writes inside that directory, never the cwd's config. This used to resolve from
 # the cwd and silently discard --path entirely.
 mkdir -p "$HOME/workdir/pathtarget/from" "$HOME/workdir/pathtarget/to"
-printf '[tools]\ndummy = "1"\n' >"$HOME/workdir/pathtarget/from/mise.toml"
+printf '[tools]\ndummy = "1"\n' >"$HOME/workdir/pathtarget/from/pakro.toml"
 cd "$HOME/workdir/pathtarget/from" || exit 1
 
-mise use --path ../to dummy@2
-assert "cat ../to/mise.toml" '[tools]
+pakro use --path ../to dummy@2
+assert "cat ../to/pakro.toml" '[tools]
 dummy = "2"'
-assert "cat mise.toml" '[tools]
+assert "cat pakro.toml" '[tools]
 dummy = "1"'
 
 # and with an absolute path
-mise use --path "$HOME/workdir/pathtarget/to" dummy@3
-assert "cat ../to/mise.toml" '[tools]
+pakro use --path "$HOME/workdir/pathtarget/to" dummy@3
+assert "cat ../to/pakro.toml" '[tools]
 dummy = "3"'
-assert "cat mise.toml" '[tools]
+assert "cat pakro.toml" '[tools]
 dummy = "1"'
 
-# a directory whose only config is .tool-versions keeps using it rather than growing a mise.toml
+# a directory whose only config is .tool-versions keeps using it rather than growing a pakro.toml
 mkdir -p "$HOME/workdir/pathtarget/tv"
 printf 'dummy 1.0.0\n' >"$HOME/workdir/pathtarget/tv/.tool-versions"
-mise use --path ../tv dummy@2.0.0
+pakro use --path ../tv dummy@2.0.0
 assert "cat ../tv/.tool-versions" "dummy 2.0.0"
-assert_fail "cat ../tv/mise.toml"
+assert_fail "cat ../tv/pakro.toml"
 
 # --path . still means "here"
-mise use --path . dummy@4
-assert "cat mise.toml" '[tools]
+pakro use --path . dummy@4
+assert "cat pakro.toml" '[tools]
 dummy = "4"'
 
-# the same rule applies to `mise set --file <dir>`
-mise set --file ../to PATHTARGET=yes
-assert_contains "cat ../to/mise.toml" "PATHTARGET"
-assert_not_contains "cat mise.toml" "PATHTARGET"
+# the same rule applies to `pakro set --file <dir>`
+pakro set --file ../to PATHTARGET=yes
+assert_contains "cat ../to/pakro.toml" "PATHTARGET"
+assert_not_contains "cat pakro.toml" "PATHTARGET"
 
 cd "$HOME/workdir" || exit 1
 
@@ -219,8 +219,8 @@ cd "$HOME/workdir" || exit 1
 # See: https://github.com/jdx/mise/discussions/4797
 mkdir -p "$HOME/workdir/comments"
 cd "$HOME/workdir/comments" || exit 1
-printf '[tools]\n# renovate: datasource=github-releases depName=dummy\ndummy = "1" # keep me\n' >mise.toml
-mise use dummy@2
-assert "cat mise.toml" '[tools]
+printf '[tools]\n# renovate: datasource=github-releases depName=dummy\ndummy = "1" # keep me\n' >pakro.toml
+pakro use dummy@2
+assert "cat pakro.toml" '[tools]
 # renovate: datasource=github-releases depName=dummy
 dummy = "2" # keep me'

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [settings]
 experimental = true
 
@@ -46,11 +46,11 @@ assert_portable_outputs() {
   fi
 }
 
-mise run build
+pakro run build
 assert_portable_outputs
 assert "wc -l <runs.txt | tr -d ' '" "1"
 
 rm -rf dist
-assert_contains "mise run build 2>&1" "restored outputs from cache"
+assert_contains "pakro run build 2>&1" "restored outputs from cache"
 assert_portable_outputs
 assert "wc -l <runs.txt | tr -d ' '" "1"

@@ -54,40 +54,40 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 PY
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools]
 "http:redirect-archive" = { version = "1.0.0", url = "http://127.0.0.1:$HTTP_PORT/download?arch=x64", bin_path = "bin" }
 EOF
 
-export MISE_EXPERIMENTAL=1
-export MISE_LOCKFILE=1
-touch mise.lock
-mise install
-assert_contains "mise x -- redirect-tool" "redirected archive"
-assert_contains "cat mise.lock" "http://127.0.0.1:$HTTP_PORT/download?arch=x64"
-assert_not_contains "cat mise.lock" "/artifact.tar.gz"
+export PAKRO_EXPERIMENTAL=1
+export PAKRO_LOCKFILE=1
+touch pakro.lock
+pakro install
+assert_contains "pakro x -- redirect-tool" "redirected archive"
+assert_contains "cat pakro.lock" "http://127.0.0.1:$HTTP_PORT/download?arch=x64"
+assert_not_contains "cat pakro.lock" "/artifact.tar.gz"
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools]
 "http:redirect-explicit" = { version = "1.0.0", url = "http://127.0.0.1:$HTTP_PORT/explicit", format = "tar.gz", bin_path = "bin" }
 EOF
 
-mise install
-assert_contains "mise x -- redirect-tool" "redirected archive"
+pakro install
+assert_contains "pakro x -- redirect-tool" "redirected archive"
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools]
 "http:redirect-raw" = { version = "1.0.0", url = "http://127.0.0.1:$HTTP_PORT/raw", bin = "redirect-raw" }
 EOF
 
-mise install
-assert_contains "mise x -- redirect-raw" "redirected raw file"
+pakro install
+assert_contains "pakro x -- redirect-raw" "redirected raw file"
 
 # Query-selected downloads may have no filename in the URL path.
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools]
 "http:query-raw" = { version = "1.0.0", url = "http://127.0.0.1:$HTTP_PORT/download/?file=raw-tool", bin = "redirect-raw" }
 EOF
 
-mise install
-assert_contains "mise x -- redirect-raw" "redirected raw file"
+pakro install
+assert_contains "pakro x -- redirect-raw" "redirected raw file"

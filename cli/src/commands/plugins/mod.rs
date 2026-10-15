@@ -89,7 +89,7 @@ pub(crate) struct Plugins {
 
     /// List all available remote plugins
     ///
-    /// Same as `mise plugins ls-remote`
+    /// Same as `pakro plugins ls-remote`
     #[usage(short, long, hide = true)]
     pub all: bool,
 

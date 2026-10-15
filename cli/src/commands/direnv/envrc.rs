@@ -20,7 +20,7 @@ impl Envrc {
     pub(super) async fn run(self, config: &Arc<Config>) -> Result<()> {
         let ts = ToolsetBuilder::new().build(config).await?;
 
-        let envrc_path = env::MISE_TMP_DIR
+        let envrc_path = env::PAKRO_TMP_DIR
             .join("direnv")
             .join(hash_to_str(&env::current_dir()?) + ".envrc");
 
@@ -57,7 +57,7 @@ impl Envrc {
             writeln!(file, "PATH_add {}", path.to_string_lossy())?;
         }
 
-        miseprintln!("{}", envrc_path.to_string_lossy());
+        pakroprintln!("{}", envrc_path.to_string_lossy());
         Ok(())
     }
 }

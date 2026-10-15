@@ -1,7 +1,7 @@
 //! Metadata extraction for ordinary third-party taps.
 //!
 //! Homebrew does not publish JSON API metadata for most taps. For those taps,
-//! fetch the formula definition and evaluate only its metadata DSL with mise's
+//! fetch the formula definition and evaluate only its metadata DSL with pakro's
 //! own Ruby shim. The resulting formula deliberately has no bottles: source
 //! installation is the portable fallback and avoids duplicating Homebrew's
 //! bottle URL construction rules.
@@ -73,14 +73,14 @@ pub(super) async fn formula_from_ruby(
         .arg(METADATA_SHIM_RB)
         .stdin_string(source)
         .envs([
-            ("MISE_BREW_NAME", name.to_string()),
-            ("MISE_BREW_TAP", format!("{owner}/{tap}")),
-            ("MISE_BREW_SOURCE_PATH", source_path.clone()),
-            ("MISE_BREW_SOURCE_CHECKSUM", checksum),
-            ("MISE_BREW_TAP_COMMIT", tap_source.commit),
-            ("MISE_BREW_MACOS_VERSION", macos_version()),
-            ("MISE_BREW_OS", std::env::consts::OS.to_string()),
-            ("MISE_BREW_ARCH", std::env::consts::ARCH.to_string()),
+            ("PAKRO_BREW_NAME", name.to_string()),
+            ("PAKRO_BREW_TAP", format!("{owner}/{tap}")),
+            ("PAKRO_BREW_SOURCE_PATH", source_path.clone()),
+            ("PAKRO_BREW_SOURCE_CHECKSUM", checksum),
+            ("PAKRO_BREW_TAP_COMMIT", tap_source.commit),
+            ("PAKRO_BREW_MACOS_VERSION", macos_version()),
+            ("PAKRO_BREW_OS", std::env::consts::OS.to_string()),
+            ("PAKRO_BREW_ARCH", std::env::consts::ARCH.to_string()),
         ])
         .with_timeout(METADATA_TIMEOUT)
         .with_sandbox(metadata_sandbox()?);
@@ -119,13 +119,13 @@ pub(super) async fn cask_from_ruby(
         .arg(CASK_METADATA_SHIM_RB)
         .stdin_string(source)
         .envs([
-            ("MISE_BREW_TOKEN", token.to_string()),
-            ("MISE_BREW_SOURCE_PATH", source_path),
-            ("MISE_BREW_SOURCE_CHECKSUM", checksum),
-            ("MISE_BREW_TAP_COMMIT", tap_source.commit),
-            ("MISE_BREW_MACOS_VERSION", macos_version()),
-            ("MISE_BREW_OS", std::env::consts::OS.to_string()),
-            ("MISE_BREW_ARCH", std::env::consts::ARCH.to_string()),
+            ("PAKRO_BREW_TOKEN", token.to_string()),
+            ("PAKRO_BREW_SOURCE_PATH", source_path),
+            ("PAKRO_BREW_SOURCE_CHECKSUM", checksum),
+            ("PAKRO_BREW_TAP_COMMIT", tap_source.commit),
+            ("PAKRO_BREW_MACOS_VERSION", macos_version()),
+            ("PAKRO_BREW_OS", std::env::consts::OS.to_string()),
+            ("PAKRO_BREW_ARCH", std::env::consts::ARCH.to_string()),
         ])
         .with_timeout(METADATA_TIMEOUT)
         .with_sandbox(metadata_sandbox()?);
@@ -381,9 +381,9 @@ mod tests {
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[tokio::test]
-    async fn ignores_mise_shim_when_selecting_system_ruby() -> Result<()> {
-        const CHILD_ENV: &str = "MISE_TEST_TAP_RUBY_SELECTION_CHILD";
-        const EXPECTED_RUBY_ENV: &str = "MISE_TEST_TAP_EXPECTED_RUBY";
+    async fn ignores_pakro_shim_when_selecting_system_ruby() -> Result<()> {
+        const CHILD_ENV: &str = "PAKRO_TEST_TAP_RUBY_SELECTION_CHILD";
+        const EXPECTED_RUBY_ENV: &str = "PAKRO_TEST_TAP_EXPECTED_RUBY";
 
         if std::env::var_os(CHILD_ENV).is_some() {
             let expected = PathBuf::from(std::env::var_os(EXPECTED_RUBY_ENV).unwrap());
@@ -409,12 +409,12 @@ mod tests {
         let output = std::process::Command::new(std::env::current_exe()?)
             .args([
                 "--exact",
-                "system::packages::brew::tap::tests::ignores_mise_shim_when_selecting_system_ruby",
+                "system::packages::brew::tap::tests::ignores_pakro_shim_when_selecting_system_ruby",
             ])
             .env(CHILD_ENV, "1")
             .env(EXPECTED_RUBY_ENV, &system_ruby)
-            .env("MISE_DATA_DIR", &data_dir)
-            .env("MISE_SHIMS_DIR", &shims_dir)
+            .env("PAKRO_DATA_DIR", &data_dir)
+            .env("PAKRO_SHIMS_DIR", &shims_dir)
             .env("PATH", path)
             .output()?;
         assert!(
@@ -693,14 +693,14 @@ end
             .arg("-e")
             .arg(METADATA_SHIM_RB)
             .stdin_string(crate::file::read_to_string(&formula)?)
-            .env("MISE_BREW_NAME", "widget")
-            .env("MISE_BREW_TAP", "acme/tools")
-            .env("MISE_BREW_SOURCE_PATH", "Formula/widget.rb")
-            .env("MISE_BREW_SOURCE_CHECKSUM", "bbbb")
-            .env("MISE_BREW_TAP_COMMIT", "deadbeef")
-            .env("MISE_BREW_MACOS_VERSION", "15.3")
-            .env("MISE_BREW_OS", "macos")
-            .env("MISE_BREW_ARCH", std::env::consts::ARCH)
+            .env("PAKRO_BREW_NAME", "widget")
+            .env("PAKRO_BREW_TAP", "acme/tools")
+            .env("PAKRO_BREW_SOURCE_PATH", "Formula/widget.rb")
+            .env("PAKRO_BREW_SOURCE_CHECKSUM", "bbbb")
+            .env("PAKRO_BREW_TAP_COMMIT", "deadbeef")
+            .env("PAKRO_BREW_MACOS_VERSION", "15.3")
+            .env("PAKRO_BREW_OS", "macos")
+            .env("PAKRO_BREW_ARCH", std::env::consts::ARCH)
             .with_sandbox(metadata_sandbox()?);
         runner.apply_sandbox().await?;
         let output = runner.read().await?;
@@ -770,13 +770,13 @@ end
             .arg("-e")
             .arg(CASK_METADATA_SHIM_RB)
             .stdin_string(crate::file::read_to_string(&cask_file)?)
-            .env("MISE_BREW_TOKEN", "widget")
-            .env("MISE_BREW_SOURCE_PATH", "Casks/widget.rb")
-            .env("MISE_BREW_SOURCE_CHECKSUM", "bbbb")
-            .env("MISE_BREW_TAP_COMMIT", "deadbeef")
-            .env("MISE_BREW_MACOS_VERSION", "0")
-            .env("MISE_BREW_OS", std::env::consts::OS)
-            .env("MISE_BREW_ARCH", std::env::consts::ARCH)
+            .env("PAKRO_BREW_TOKEN", "widget")
+            .env("PAKRO_BREW_SOURCE_PATH", "Casks/widget.rb")
+            .env("PAKRO_BREW_SOURCE_CHECKSUM", "bbbb")
+            .env("PAKRO_BREW_TAP_COMMIT", "deadbeef")
+            .env("PAKRO_BREW_MACOS_VERSION", "0")
+            .env("PAKRO_BREW_OS", std::env::consts::OS)
+            .env("PAKRO_BREW_ARCH", std::env::consts::ARCH)
             .with_sandbox(metadata_sandbox()?);
         runner.apply_sandbox().await?;
         let json = runner.read().await?;
@@ -837,13 +837,13 @@ end
   uninstall pkgutil: "com.example.widget"
 end"##,
             )
-            .env("MISE_BREW_TOKEN", "widget")
-            .env("MISE_BREW_SOURCE_PATH", "Casks/widget.rb")
-            .env("MISE_BREW_SOURCE_CHECKSUM", "fixture")
-            .env("MISE_BREW_TAP_COMMIT", "fixture")
-            .env("MISE_BREW_MACOS_VERSION", "26")
-            .env("MISE_BREW_OS", "macos")
-            .env("MISE_BREW_ARCH", "aarch64");
+            .env("PAKRO_BREW_TOKEN", "widget")
+            .env("PAKRO_BREW_SOURCE_PATH", "Casks/widget.rb")
+            .env("PAKRO_BREW_SOURCE_CHECKSUM", "fixture")
+            .env("PAKRO_BREW_TAP_COMMIT", "fixture")
+            .env("PAKRO_BREW_MACOS_VERSION", "26")
+            .env("PAKRO_BREW_OS", "macos")
+            .env("PAKRO_BREW_ARCH", "aarch64");
         let output = runner.read().await?;
         let _: Cask = serde_json::from_str(&output)?;
         let metadata: serde_json::Value = serde_json::from_str(&output)?;
@@ -894,13 +894,13 @@ end"##,
   Dir["#{staged_path}/manpages/*"].each { |path| manpage path }
 end"##,
             )
-            .env("MISE_BREW_TOKEN", "widget")
-            .env("MISE_BREW_SOURCE_PATH", "Casks/widget.rb")
-            .env("MISE_BREW_SOURCE_CHECKSUM", "fixture")
-            .env("MISE_BREW_TAP_COMMIT", "fixture")
-            .env("MISE_BREW_MACOS_VERSION", "26")
-            .env("MISE_BREW_OS", "macos")
-            .env("MISE_BREW_ARCH", "aarch64")
+            .env("PAKRO_BREW_TOKEN", "widget")
+            .env("PAKRO_BREW_SOURCE_PATH", "Casks/widget.rb")
+            .env("PAKRO_BREW_SOURCE_CHECKSUM", "fixture")
+            .env("PAKRO_BREW_TAP_COMMIT", "fixture")
+            .env("PAKRO_BREW_MACOS_VERSION", "26")
+            .env("PAKRO_BREW_OS", "macos")
+            .env("PAKRO_BREW_ARCH", "aarch64")
             // Deliberately omit the sandbox: the shim must ignore matching host
             // files even when Ruby could otherwise read its working directory.
             .current_dir(dir.path());
@@ -953,13 +953,13 @@ end"##,
   binary "completions/widget.fish", target: "#{HOMEBREW_PREFIX}/share/fish/vendor_completions.d/widget.fish"
 end"##,
                 )
-                .env("MISE_BREW_TOKEN", "widget")
-                .env("MISE_BREW_SOURCE_PATH", "Casks/widget.rb")
-                .env("MISE_BREW_SOURCE_CHECKSUM", "fixture")
-                .env("MISE_BREW_TAP_COMMIT", "fixture")
-                .env("MISE_BREW_MACOS_VERSION", "26")
-                .env("MISE_BREW_OS", "macos")
-                .env("MISE_BREW_ARCH", arch)
+                .env("PAKRO_BREW_TOKEN", "widget")
+                .env("PAKRO_BREW_SOURCE_PATH", "Casks/widget.rb")
+                .env("PAKRO_BREW_SOURCE_CHECKSUM", "fixture")
+                .env("PAKRO_BREW_TAP_COMMIT", "fixture")
+                .env("PAKRO_BREW_MACOS_VERSION", "26")
+                .env("PAKRO_BREW_OS", "macos")
+                .env("PAKRO_BREW_ARCH", arch)
                 .with_sandbox(metadata_sandbox()?);
             runner.apply_sandbox().await?;
             let output = runner.read().await?;
@@ -997,7 +997,7 @@ end"##,
         };
         crate::file::create_dir_all(&*crate::env::HOME)?;
         let dir = tempfile::Builder::new()
-            .prefix(".mise-tap-sandbox-")
+            .prefix(".pakro-tap-sandbox-")
             .tempdir_in(&*crate::env::HOME)?;
         let source = dir.path().join("malicious.rb");
         let temp_dir = tempfile::tempdir()?;
@@ -1108,14 +1108,14 @@ end
             .arg("-e")
             .arg(METADATA_SHIM_RB)
             .stdin_string(source.to_string())
-            .env("MISE_BREW_NAME", "widget")
-            .env("MISE_BREW_TAP", "acme/tools")
-            .env("MISE_BREW_SOURCE_PATH", "Formula/widget.rb")
-            .env("MISE_BREW_SOURCE_CHECKSUM", "bbbb")
-            .env("MISE_BREW_TAP_COMMIT", "deadbeef")
-            .env("MISE_BREW_MACOS_VERSION", "15.3")
-            .env("MISE_BREW_OS", "macos")
-            .env("MISE_BREW_ARCH", std::env::consts::ARCH)
+            .env("PAKRO_BREW_NAME", "widget")
+            .env("PAKRO_BREW_TAP", "acme/tools")
+            .env("PAKRO_BREW_SOURCE_PATH", "Formula/widget.rb")
+            .env("PAKRO_BREW_SOURCE_CHECKSUM", "bbbb")
+            .env("PAKRO_BREW_TAP_COMMIT", "deadbeef")
+            .env("PAKRO_BREW_MACOS_VERSION", "15.3")
+            .env("PAKRO_BREW_OS", "macos")
+            .env("PAKRO_BREW_ARCH", std::env::consts::ARCH)
             .with_sandbox(metadata_sandbox()?);
         runner.apply_sandbox().await?;
         let formula: Formula = serde_json::from_str(&runner.read().await?)?;

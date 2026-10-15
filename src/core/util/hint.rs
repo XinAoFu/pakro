@@ -43,7 +43,7 @@ pub(crate) static DISPLAYED_HINTS: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| {
 /// not mark the hint as displayed — use it to skip expensive work whose only
 /// purpose is feeding a hint.
 pub fn hint_would_display(id: &str) -> bool {
-    if mise_util::testing::in_tests()
+    if pakro_util::testing::in_tests()
         || !console::user_attended()
         || !console::user_attended_stderr()
     {
@@ -60,7 +60,7 @@ pub fn hint_would_display(id: &str) -> bool {
 }
 
 pub fn should_display_hint(id: &str) -> bool {
-    if mise_util::testing::in_tests()
+    if pakro_util::testing::in_tests()
         || !console::user_attended()
         || !console::user_attended_stderr()
     {

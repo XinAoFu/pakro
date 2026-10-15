@@ -59,7 +59,7 @@ impl IdiomaticVersionFile {
 
     fn read_only_error(&self, action: &str) -> eyre::Report {
         eyre!(
-            "cannot {action} idiomatic version file {}; use mise.toml, .tool-versions, or --path to choose a writable config file",
+            "cannot {action} idiomatic version file {}; use pakro.toml, .tool-versions, or --path to choose a writable config file",
             file::display_path(&self.path)
         )
     }

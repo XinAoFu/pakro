@@ -83,7 +83,7 @@ pub(super) async fn fetch_cask(req: &PackageRequest, provision_ruby: bool) -> Re
             .await
             .wrap_err_with(|| {
                 format!(
-                    "published cask metadata was unavailable ({api_err}) and mise could not evaluate Casks/{requested_token}.rb"
+                    "published cask metadata was unavailable ({api_err}) and pakro could not evaluate Casks/{requested_token}.rb"
                 )
             })?;
             cask.raw_base = req
@@ -134,7 +134,7 @@ pub(super) async fn fetch_cask_url(
 /// bottle tag (`arm64_sequoia`, `x86_64_linux`, ...). Like Homebrew's
 /// `API.merge_variations`, the host's exact tag is merged shallowly over the
 /// top level; there is no fallback to an older tag, because the API writes an
-/// entry for every tag whose values differ. With no tag (a macOS release mise
+/// entry for every tag whose values differ. With no tag (a macOS release pakro
 /// does not know yet), the top level applies.
 pub(super) fn cask_from_api_json(mut json: Value, tag: Option<&str>) -> Result<Cask> {
     if let Some(fields) = json.as_object_mut()
@@ -187,7 +187,7 @@ pub(super) fn validate_cask_path_component(kind: &str, value: &str) -> Result<()
         && matches!(components.next(), Some(Component::Normal(_)))
         && components.next().is_none()
         && value != ".metadata"
-        && !value.starts_with(".mise-");
+        && !value.starts_with(".pakro-");
     if !valid {
         bail!("brew-cask: invalid {kind} '{value}'");
     }
@@ -483,23 +483,23 @@ pub(super) async fn execute_lifecycle_hook(
     let shim_path = crate::dirs::CACHE
         .join("system-brew")
         .join("casks")
-        .join("mise-brew-cask-shim.rb");
+        .join("pakro-brew-cask-shim.rb");
     ensure_cask_shim(&shim_path)?;
     if let Some(pr) = pr {
         pr.set_message(format!("run cask {hook}"));
     }
     let runner = CmdLineRunner::new(&ruby).arg(&shim_path).envs([
-        ("MISE_BREW_CASK_FILE", cask_rb.display().to_string()),
-        ("MISE_BREW_CASK_TOKEN", cask.token.clone()),
-        ("MISE_BREW_CASK_VERSION", cask.version.clone()),
+        ("PAKRO_BREW_CASK_FILE", cask_rb.display().to_string()),
+        ("PAKRO_BREW_CASK_TOKEN", cask.token.clone()),
+        ("PAKRO_BREW_CASK_VERSION", cask.version.clone()),
         (
-            "MISE_BREW_CASK_STAGED_PATH",
+            "PAKRO_BREW_CASK_STAGED_PATH",
             staged_path.display().to_string(),
         ),
-        ("MISE_BREW_CASK_APPDIR", appdir.display().to_string()),
-        ("MISE_BREW_PREFIX", prefix::prefix().display().to_string()),
-        ("MISE_BREW_CASK_HOOK", hook.to_string()),
-        ("MISE_BREW_CASK_SUDO", sudo::subprocess_mode().to_string()),
+        ("PAKRO_BREW_CASK_APPDIR", appdir.display().to_string()),
+        ("PAKRO_BREW_PREFIX", prefix::prefix().display().to_string()),
+        ("PAKRO_BREW_CASK_HOOK", hook.to_string()),
+        ("PAKRO_BREW_CASK_SUDO", sudo::subprocess_mode().to_string()),
     ]);
     let runner = match pr {
         Some(pr) => runner.with_pr(pr),

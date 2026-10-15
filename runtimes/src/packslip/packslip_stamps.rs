@@ -5,7 +5,7 @@
 //! `https://<host>/.well-known/packslip/<project>.json`. Each entry pins
 //! the digest of the packslip the host checked and carries what it checked.
 //! When the `packslip.stampers` setting names such hosts, a version none of
-//! them lists is not released as far as mise is concerned: it is not
+//! them lists is not released as far as pakro is concerned: it is not
 //! offered and not installed, however valid the vendor's own document is.
 //! Any one trusted host's stamp suffices. A tool whose options say
 //! `trust = "vendor"` takes the vendor's document alone, with no stamp.
@@ -33,7 +33,7 @@ use crate::toolset::ToolVersionOptions;
 /// GitHub's OIDC issuer, for a stamper pinned by a workflow identity.
 const GITHUB_ISSUER: &str = "https://token.actions.githubusercontent.com";
 
-/// A host whose stamps mise trusts, and how its lists are pinned.
+/// A host whose stamps pakro trusts, and how its lists are pinned.
 pub(crate) struct Stamper {
     pub(crate) host: String,
     pin: Pin,
@@ -159,13 +159,13 @@ impl Stamps {
             return eyre!("packslip:{project}@{version} was withdrawn by {by}");
         }
         eyre!(
-            "packslip:{project}@{version} carries no stamp from {}; mise installs only versions a trusted stamper lists. Set `trust = \"vendor\"` in the tool's options to take the vendor's own manifest instead",
+            "packslip:{project}@{version} carries no stamp from {}; pakro installs only versions a trusted stamper lists. Set `trust = \"vendor\"` in the tool's options to take the vendor's own manifest instead",
             self.hosts.iter().join(", ")
         )
     }
 }
 
-/// What mise remembers about a stamper between runs: the highest list
+/// What pakro remembers about a stamper between runs: the highest list
 /// sequence it accepted per project, so a replayed older list is refused.
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct HostState {
@@ -191,7 +191,7 @@ fn read_state(dir: &Path, host: &str) -> Result<HostState> {
     let text = file::read_to_string(&path)?;
     serde_json::from_str(&text).wrap_err_with(|| {
         format!(
-            "{} is not the stamper state mise wrote; remove it to start over, which forgets which lists were already accepted",
+            "{} is not the stamper state pakro wrote; remove it to start over, which forgets which lists were already accepted",
             path.display()
         )
     })
@@ -202,8 +202,8 @@ fn write_state(dir: &Path, host: &str, state: &HostState) -> Result<()> {
     file::write_atomic(state_path(dir, host), serde_json::to_vec_pretty(state)?)
 }
 
-/// One mise at a time reads and rewrites a host's state. The lock sits
-/// beside that state, not under the cache: two mise processes can share a
+/// One pakro at a time reads and rewrites a host's state. The lock sits
+/// beside that state, not under the cache: two pakro processes can share a
 /// state directory and disagree about their cache, and a lock they do not
 /// share is no lock at all — the loser's write would drop an accepted
 /// sequence and reopen the rollback this state exists to refuse.
@@ -377,7 +377,7 @@ mod tests {
             "https://stamps.example.com/.well-known/packslip/github.com/jdx/mise.json"
         );
         let identity =
-            Stamper::parse(" registry.mise.jdx.dev = https://github.com/jdx/mise-registry/ ")
+            Stamper::parse(" registry.example.com = https://github.com/jdx/mise-registry/ ")
                 .unwrap();
         assert!(matches!(identity.pin, Pin::Identity(_)));
         for bad in [
@@ -493,7 +493,7 @@ mod tests {
         )
         .unwrap();
         check_sequence_in(d, "other.example.com", project, &list(project, 1, &entries)).unwrap();
-        // A state file mise cannot read is an error, not an empty slate.
+        // A state file pakro cannot read is an error, not an empty slate.
         std::fs::write(d.join("seq.example.com.json"), b"{not json").unwrap();
         let err = check_sequence_in(d, host, project, &list(project, 9, &entries)).unwrap_err();
         assert!(err.to_string().contains("remove it"), "{err}");

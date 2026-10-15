@@ -1,7 +1,7 @@
 //! Removal of daemon state left behind by deleted project roots.
 //!
 //! Every project root (including each linked git worktree) owns one directory
-//! under `$MISE_STATE_DIR/daemons/`. Removing the root leaves that directory,
+//! under `$PAKRO_STATE_DIR/daemons/`. Removing the root leaves that directory,
 //! its registered pitchfork configuration, and any database data behind.
 //! Selection here is pure filesystem inspection so it can be tested without
 //! pitchfork; the pitchfork calls live in [`remove`].
@@ -27,7 +27,7 @@ impl Entry {
     ///
     /// A missing path is necessary but not sufficient. `Path::is_dir` would
     /// answer false for every metadata error, so a share that is down or a
-    /// directory mise cannot stat would read as a deleted project and cost the
+    /// directory pakro cannot stat would read as a deleted project and cost the
     /// user a database; only a definite `NotFound` counts. A root that still
     /// exists keeps its state even when it declares no daemons any more:
     /// `prepare()` already unregisters its configuration, and its data may
@@ -44,7 +44,7 @@ impl Entry {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => true,
             Err(err) => {
                 // Reported by whoever is about to act on this, not here:
-                // `mise daemons start` asks the same question on every run and
+                // `pakro daemons start` asks the same question on every run and
                 // has no business complaining about another project's volume.
                 debug!(
                     "keeping {}: cannot read {}: {err}",
@@ -193,7 +193,7 @@ pub fn base_dir() -> PathBuf {
 ///
 /// A directory without a state file was never fully prepared and is skipped
 /// silently. One whose state file cannot be read or parsed is skipped loudly:
-/// mise will not guess at data it does not understand, but such a directory can
+/// pakro will not guess at data it does not understand, but such a directory can
 /// never be pruned either, so saying nothing would leave it invisible forever.
 /// One unreadable entry does not hide the rest.
 pub fn scan(base: &Path) -> Result<Vec<Entry>> {
@@ -298,7 +298,7 @@ pub async fn remove(entry: &Entry, runtime: Option<&Runtime>) -> Result<Outcome>
         Ok(Some(lock)) => lock,
         Ok(None) => {
             warn!(
-                "keeping {}: another mise process holds its daemon lock",
+                "keeping {}: another pakro process holds its daemon lock",
                 display_path(cwd)
             );
             return Ok(Outcome::Kept);
@@ -394,7 +394,7 @@ pub async fn remove(entry: &Entry, runtime: Option<&Runtime>) -> Result<Outcome>
         }
     } else {
         warn!(
-            "keeping {}: pitchfork is required to stop its daemons and unregister {}; run `mise use pitchfork`",
+            "keeping {}: pitchfork is required to stop its daemons and unregister {}; run `pakro use pitchfork`",
             display_path(cwd),
             display_path(entry.config_file())
         );
@@ -653,13 +653,13 @@ fn process_is_alive(pid: i32) -> bool {
 
 /// Deletes a project's daemon state and data, under both locks.
 ///
-/// Nothing here is released early, so no `prepare()` -- from this mise or from
+/// Nothing here is released early, so no `prepare()` -- from this pakro or from
 /// an older one holding only the in-directory lock -- can be writing while the
 /// files go. That is what keeps the removal free of any check-then-delete gap,
 /// and it is why the two lock files are the one thing left behind: the inner
 /// one cannot be deleted while it is held, which Windows enforces, and
 /// releasing it first would reopen the window it exists to close. Both are
-/// empty, and mise leaves its lock files in place everywhere else too.
+/// empty, and pakro leaves its lock files in place everywhere else too.
 ///
 /// `state.json` goes last. It is what makes a directory an entry at all, so if
 /// a file above it turns out to be busy or unreadable, what is left is still
@@ -791,7 +791,7 @@ mod tests {
         // directory that is on its way out.
         assert_eq!(lock.parent(), dir.parent());
         assert!(!lock.starts_with(&dir));
-        // The lock an older mise takes is still honored, so a start from one
+        // The lock an older pakro takes is still honored, so a start from one
         // and a prune from this version continue to exclude each other.
         let legacy = super::super::legacy_lock_file_for_state_dir(&dir);
         let held = crate::lock_file::LockFile::at(&legacy).try_lock().unwrap();
@@ -929,7 +929,7 @@ mod tests {
         // Ordinary project directories are not, including one that lives on a
         // mounted volume: unplugging that takes its parent with it, which is
         // the other sign.
-        assert!(!is_a_mount_point(Path::new("/home/coder/src/mise")));
+        assert!(!is_a_mount_point(Path::new("/home/coder/src/pakro")));
         assert!(!is_a_mount_point(Path::new("/Volumes/Disk/project")));
         assert!(!is_a_mount_point(Path::new("/media/coder/usb/project")));
     }

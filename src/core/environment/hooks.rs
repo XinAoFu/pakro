@@ -21,7 +21,7 @@ pub struct InstalledToolInfo {
     /// The canonical form of the selector the tool was requested with, before
     /// resolution (e.g. `latest`, `prefix:1.2`, `ref:main`). Hooks cannot
     /// recover this from `version` alone, and the install is not yet visible
-    /// to `mise ls`.
+    /// to `pakro ls`.
     pub requested_version: String,
     /// Canonical backend identifier used by the completed installation. Backend
     /// options are omitted because they may contain registry credentials.
@@ -430,11 +430,11 @@ pub async fn run_one_hook_with_context(
     }
     // Hooks are suppressed rather than refused in safe mode (matching
     // --no-hooks semantics) because they fire ambiently from commands like
-    // `mise env`/`hook-env` that safe-mode automation still needs to run —
+    // `pakro env`/`hook-env` that safe-mode automation still needs to run —
     // erroring here would break every resolution command instead of blocking
     // just the hook.
     if Settings::get().safe {
-        debug!("skipping hooks: safe mode (MISE_SAFE=1)");
+        debug!("skipping hooks: safe mode (PAKRO_SAFE=1)");
         return;
     }
     let shell_name = shell.map(|s| s.to_string()).unwrap_or_default();
@@ -602,28 +602,30 @@ async fn run_matched_hook(
             let mut out = String::new();
             if let Some(shell) = shell {
                 // Set hook environment variables so shell hooks can access them
-                out.push_str(&shell.set_env("MISE_PROJECT_ROOT", &roots.project.to_string_lossy()));
+                out.push_str(
+                    &shell.set_env("PAKRO_PROJECT_ROOT", &roots.project.to_string_lossy()),
+                );
                 out.push('\n');
-                out.push_str(&shell.set_env("MISE_CONFIG_ROOT", &roots.config.to_string_lossy()));
+                out.push_str(&shell.set_env("PAKRO_CONFIG_ROOT", &roots.config.to_string_lossy()));
                 out.push('\n');
                 if let Some(cwd) = dirs::CWD.as_ref() {
-                    out.push_str(&shell.set_env("MISE_ORIGINAL_CWD", &cwd.to_string_lossy()));
+                    out.push_str(&shell.set_env("PAKRO_ORIGINAL_CWD", &cwd.to_string_lossy()));
                     out.push('\n');
                 }
                 if let Some((Some(old), _new)) = hook_env::dir_change() {
-                    out.push_str(&shell.set_env("MISE_PREVIOUS_DIR", &old.to_string_lossy()));
+                    out.push_str(&shell.set_env("PAKRO_PREVIOUS_DIR", &old.to_string_lossy()));
                     out.push('\n');
                 }
                 if let Some(tools) = installed_tools
                     && let Ok(json) = serde_json::to_string(tools)
                 {
-                    out.push_str(&shell.set_env("MISE_INSTALLED_TOOLS", &json));
+                    out.push_str(&shell.set_env("PAKRO_INSTALLED_TOOLS", &json));
                     out.push('\n');
                 }
             }
             out.push_str(script);
             out.push('\n');
-            if let Err(err) = miseprint!("{out}") {
+            if let Err(err) = pakroprint!("{out}") {
                 record_output_error(err);
             }
         }
@@ -651,7 +653,7 @@ async fn run_matched_hook(
 fn preview_matched_hook(root: &Path, hook: &Hook) -> Result<()> {
     let action = match &hook.action {
         HookAction::Task { task_name } => shell_words::join(
-            once("mise".to_string()).chain(task_hook_args(root, hook.hook, task_name)),
+            once("pakro".to_string()).chain(task_hook_args(root, hook.hook, task_name)),
         ),
         HookAction::CurrentShell { script, .. } => script.clone(),
         HookAction::Run { shell, .. } => {
@@ -669,7 +671,7 @@ fn preview_matched_hook(root: &Path, hook: &Hook) -> Result<()> {
             display_inline_command(&shell, run)
         }
     };
-    miseprintln!(
+    pakroprintln!(
         "Would run {} hook in {}: {action}",
         hook.hook.to_string().to_lowercase(),
         root.display()
@@ -768,17 +770,17 @@ async fn execute(
         .collect_vec();
     if let Some(cwd) = dirs::CWD.as_ref() {
         env.insert(
-            "MISE_ORIGINAL_CWD".to_string(),
+            "PAKRO_ORIGINAL_CWD".to_string(),
             cwd.to_string_lossy().to_string(),
         );
     }
     env.insert(
-        "MISE_PROJECT_ROOT".to_string(),
+        "PAKRO_PROJECT_ROOT".to_string(),
         project_root.to_string_lossy().to_string(),
     );
     if let Some((Some(old), _new)) = hook_env::dir_change() {
         env.insert(
-            "MISE_PREVIOUS_DIR".to_string(),
+            "PAKRO_PREVIOUS_DIR".to_string(),
             old.to_string_lossy().to_string(),
         );
     }
@@ -786,15 +788,15 @@ async fn execute(
     if let Some(tools) = installed_tools
         && let Ok(json) = serde_json::to_string(tools)
     {
-        env.insert("MISE_INSTALLED_TOOLS".to_string(), json);
+        env.insert("PAKRO_INSTALLED_TOOLS".to_string(), json);
     }
     env.insert(
-        "MISE_CONFIG_ROOT".to_string(),
+        "PAKRO_CONFIG_ROOT".to_string(),
         config_root.to_string_lossy().to_string(),
     );
-    // Prevent recursive hook execution (e.g. hook runs `mise run` which spawns
-    // a shell that activates mise and re-triggers hooks)
-    env.insert("MISE_NO_HOOKS".to_string(), "1".to_string());
+    // Prevent recursive hook execution (e.g. hook runs `pakro run` which spawns
+    // a shell that activates pakro and re-triggers hooks)
+    env.insert("PAKRO_NO_HOOKS".to_string(), "1".to_string());
 
     // On Windows, when the hook shell is cmd.exe, the rendered command must be
     // passed to cmd *verbatim*. Going through std/duct's MSVCRT-style quoting
@@ -824,7 +826,7 @@ async fn execute(
             if matches!(hook.hook, Hooks::Preinstall | Hooks::Postinstall) {
                 c.current_dir(project_root);
             }
-            // Send the hook's stdout to mise's stderr (matching the duct
+            // Send the hook's stdout to pakro's stderr (matching the duct
             // `stdout_to_stderr()` the non-cmd path uses) by handing the child a
             // clone of our stderr handle. Redirecting the descriptor directly —
             // rather than piping through a reader thread — means a hook that
@@ -859,7 +861,7 @@ async fn execute_task(
     task_name: &str,
     installed_tools: Option<&[InstalledToolInfo]>,
 ) -> Result<()> {
-    let mise_bin = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("mise"));
+    let pakro_bin = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("pakro"));
 
     let mut env = if hook.hook == Hooks::Preinstall {
         ts.full_env_without_tools(config).await?
@@ -868,35 +870,38 @@ async fn execute_task(
     };
     if let Some(cwd) = dirs::CWD.as_ref() {
         env.insert(
-            "MISE_ORIGINAL_CWD".to_string(),
+            "PAKRO_ORIGINAL_CWD".to_string(),
             cwd.to_string_lossy().to_string(),
         );
     }
     env.insert(
-        "MISE_PROJECT_ROOT".to_string(),
+        "PAKRO_PROJECT_ROOT".to_string(),
         project_root.to_string_lossy().to_string(),
     );
     env.insert(
-        "MISE_CONFIG_ROOT".to_string(),
+        "PAKRO_CONFIG_ROOT".to_string(),
         config_root.to_string_lossy().to_string(),
     );
     if let Some((Some(old), _new)) = hook_env::dir_change() {
         env.insert(
-            "MISE_PREVIOUS_DIR".to_string(),
+            "PAKRO_PREVIOUS_DIR".to_string(),
             old.to_string_lossy().to_string(),
         );
     }
     if let Some(tools) = installed_tools
         && let Ok(json) = serde_json::to_string(tools)
     {
-        env.insert("MISE_INSTALLED_TOOLS".to_string(), json);
+        env.insert("PAKRO_INSTALLED_TOOLS".to_string(), json);
     }
-    env.insert("MISE_NO_HOOKS".to_string(), "1".to_string());
+    env.insert("PAKRO_NO_HOOKS".to_string(), "1".to_string());
 
-    cmd(mise_bin, task_hook_args(project_root, hook.hook, task_name))
-        .stdout_to_stderr()
-        .full_env(env)
-        .run()?;
+    cmd(
+        pakro_bin,
+        task_hook_args(project_root, hook.hook, task_name),
+    )
+    .stdout_to_stderr()
+    .full_env(env)
+    .run()?;
     Ok(())
 }
 
@@ -982,14 +987,14 @@ mod tests {
 
     #[test]
     fn installed_tool_info_preserves_windows_path_spelling() {
-        let install_path = PathBuf::from(r"C:\Data Root\mise\installs\opencodex\2.59.0");
+        let install_path = PathBuf::from(r"C:\Data Root\pakro\installs\opencodex\2.59.0");
         let mut tool_version = opencodex_tool_version("2.59.0", Path::new("unused"));
         tool_version.install_path = Some(install_path);
         let info = InstalledToolInfo::from(&tool_version);
 
         assert_eq!(
             serde_json::to_value(info).unwrap()["install_path"],
-            r"C:\Data Root\mise\installs\opencodex\2.59.0"
+            r"C:\Data Root\pakro\installs\opencodex\2.59.0"
         );
     }
 

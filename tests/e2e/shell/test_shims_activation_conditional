@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 
-export MISE_SHIMS_DIR="$HOME/.local/share/mise/shims"
-export MISE_SYSTEM_SHIMS_DIR="$HOME/.local/share/mise/system-shims"
-export PATH="$MISE_SHIMS_DIR:$PATH"
-mkdir -p "$MISE_CONFIG_DIR" "$MISE_SHIMS_DIR"
+export PAKRO_SHIMS_DIR="$HOME/.local/share/pakro/shims"
+export PAKRO_SYSTEM_SHIMS_DIR="$HOME/.local/share/pakro/system-shims"
+export PATH="$PAKRO_SHIMS_DIR:$PATH"
+mkdir -p "$PAKRO_CONFIG_DIR" "$PAKRO_SHIMS_DIR"
 
 assert_shims_present() {
   case ":$PATH:" in
-    *":$MISE_SHIMS_DIR:"*) ;;
+    *":$PAKRO_SHIMS_DIR:"*) ;;
     *)
       echo "FAIL: expected user shims in PATH: $PATH"
       exit 1
@@ -17,7 +17,7 @@ assert_shims_present() {
 
 assert_shims_absent() {
   case ":$PATH:" in
-    *":$MISE_SHIMS_DIR:"*)
+    *":$PAKRO_SHIMS_DIR:"*)
       echo "FAIL: expected user shims to be absent from PATH: $PATH"
       exit 1
       ;;
@@ -26,44 +26,44 @@ assert_shims_absent() {
 }
 
 # Preserve pre-lazy behavior for users who disabled general auto-install.
-cat >"$MISE_CONFIG_DIR/config.toml" <<'EOF'
+cat >"$PAKRO_CONFIG_DIR/config.toml" <<'EOF'
 [settings]
 not_found_auto_install = false
 EOF
-eval "$(mise activate bash --no-hook-env)"
-eval "$(mise hook-env --force --shell bash)"
+eval "$(pakro activate bash --no-hook-env)"
+eval "$(pakro hook-env --force --shell bash)"
 assert_shims_absent
 
 # An explicit lazy declaration opts into retaining the fallback boundary.
-cat >"$MISE_CONFIG_DIR/config.toml" <<'EOF'
+cat >"$PAKRO_CONFIG_DIR/config.toml" <<'EOF'
 [settings]
 not_found_auto_install = false
 
 [tools]
 dummy = { version = "1.0.0", lazy = true, lazy_bins = ["dummy"] }
 EOF
-eval "$(mise hook-env --force --shell bash)"
+eval "$(pakro hook-env --force --shell bash)"
 assert_shims_present
 
 # Removing the lazy declaration removes the boundary from the active shell.
-cat >"$MISE_CONFIG_DIR/config.toml" <<'EOF'
+cat >"$PAKRO_CONFIG_DIR/config.toml" <<'EOF'
 [settings]
 not_found_auto_install = false
 EOF
-eval "$(mise hook-env --force --shell bash)"
+eval "$(pakro hook-env --force --shell bash)"
 assert_shims_absent
 
 # General not-found auto-install independently retains the existing behavior.
-cat >"$MISE_CONFIG_DIR/config.toml" <<'EOF'
+cat >"$PAKRO_CONFIG_DIR/config.toml" <<'EOF'
 [settings]
 not_found_auto_install = true
 EOF
-eval "$(mise hook-env --force --shell bash)"
+eval "$(pakro hook-env --force --shell bash)"
 assert_shims_present
 
 # The explicit opt-out overrides auto-install and lazy declarations, and removes both farms.
-mkdir -p "$MISE_SYSTEM_SHIMS_DIR"
-cat >"$MISE_CONFIG_DIR/config.toml" <<'EOF'
+mkdir -p "$PAKRO_SYSTEM_SHIMS_DIR"
+cat >"$PAKRO_CONFIG_DIR/config.toml" <<'EOF'
 [settings]
 activate_shims = false
 not_found_auto_install = true
@@ -71,27 +71,27 @@ not_found_auto_install = true
 [tools]
 dummy = { version = "1.0.0", lazy = true, lazy_bins = ["dummy"] }
 EOF
-export PATH="$MISE_SYSTEM_SHIMS_DIR:$PATH"
-eval "$(mise activate bash --no-hook-env)"
+export PATH="$PAKRO_SYSTEM_SHIMS_DIR:$PATH"
+eval "$(pakro activate bash --no-hook-env)"
 assert_shims_absent
 case ":$PATH:" in
-  *":$MISE_SYSTEM_SHIMS_DIR:"*) exit 1 ;;
+  *":$PAKRO_SYSTEM_SHIMS_DIR:"*) exit 1 ;;
 esac
-eval "$(mise hook-env --force --shell bash)"
+eval "$(pakro hook-env --force --shell bash)"
 assert_shims_absent
 case ":$PATH:" in
-  *":$MISE_SYSTEM_SHIMS_DIR:"*) exit 1 ;;
+  *":$PAKRO_SYSTEM_SHIMS_DIR:"*) exit 1 ;;
 esac
 
 # Fish activation and its subsequent hook honor the same setting.
-assert "fish -c 'mise activate fish | source; mise hook-env --force --shell fish | source; contains -- \"\$MISE_SHIMS_DIR\" \$PATH; echo \$status'" "1"
+assert "fish -c 'pakro activate fish | source; pakro hook-env --force --shell fish | source; contains -- \"\$PAKRO_SHIMS_DIR\" \$PATH; echo \$status'" "1"
 
 # Explicit shim-only activation still means what it says.
-eval "$(mise activate bash --shims)"
+eval "$(pakro activate bash --shims)"
 assert_shims_present
 
 # An environment override can re-enable normal activation without editing config.
-export MISE_ACTIVATE_SHIMS=true
-eval "$(mise hook-env --force --shell bash)"
+export PAKRO_ACTIVATE_SHIMS=true
+eval "$(pakro hook-env --force --shell bash)"
 assert_shims_present
-unset MISE_ACTIVATE_SHIMS
+unset PAKRO_ACTIVATE_SHIMS

@@ -1,4 +1,4 @@
-//! Shared per-manager execution loop for `mise bootstrap packages apply`/`upgrade`/`use`.
+//! Shared per-manager execution loop for `pakro bootstrap packages apply`/`upgrade`/`use`.
 
 use std::collections::HashMap;
 
@@ -148,7 +148,7 @@ pub async fn run(mgrs: Vec<ManagerPackages>, action: Action, d: &DriverOpts) -> 
             .count();
         if action == Action::Upgrade && missing > 0 {
             warn!(
-                "{name}: {missing} package(s) not installed — run `mise bootstrap packages apply` first"
+                "{name}: {missing} package(s) not installed — run `pakro bootstrap packages apply` first"
             );
         }
         // a pin this manager can never satisfy must not block the rest

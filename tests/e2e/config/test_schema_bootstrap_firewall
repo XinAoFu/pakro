@@ -2,10 +2,10 @@
 
 TOMBI_VERSION="0.9.22"
 
-mise use -g tombi@$TOMBI_VERSION
+pakro use -g tombi@$TOMBI_VERSION
 
-SCHEMA_PATH="$ROOT/src/schema/mise.json"
-TOMBI="mise x tombi@$TOMBI_VERSION -- tombi"
+SCHEMA_PATH="$ROOT/src/schema/pakro.json"
+TOMBI="pakro x tombi@$TOMBI_VERSION -- tombi"
 TOMBI_LINT="$TOMBI lint --offline --no-cache --error-on-warnings --quiet"
 assert_contains "$TOMBI --version" "tombi $TOMBI_VERSION"
 
@@ -18,10 +18,10 @@ strict = true
 
 [[schemas]]
 path = "file://$SCHEMA_PATH"
-include = ["mise-firewall.toml", "mise-bad-firewall.toml"]
+include = ["pakro-firewall.toml", "pakro-bad-firewall.toml"]
 EOF
 
-cat >"$HOME/workdir/mise-firewall.toml" <<'TOML'
+cat >"$HOME/workdir/pakro-firewall.toml" <<'TOML'
 [bootstrap.linux.firewall]
 backend = "nftables"
 state = "enabled"
@@ -53,7 +53,7 @@ action = "limit"
 TOML
 
 cd "$HOME/workdir"
-assert_succeed "$TOMBI_LINT mise-firewall.toml"
+assert_succeed "$TOMBI_LINT pakro-firewall.toml"
 
 for invalid_rule in \
   'name = "contains spaces"' \
@@ -65,6 +65,6 @@ for invalid_rule in \
   printf '%b\n' \
     '[bootstrap.linux.firewall]' \
     '[[bootstrap.linux.firewall.rules]]' \
-    "$invalid_rule" >"$HOME/workdir/mise-bad-firewall.toml"
-  assert_fail "$TOMBI_LINT mise-bad-firewall.toml"
+    "$invalid_rule" >"$HOME/workdir/pakro-bad-firewall.toml"
+  assert_fail "$TOMBI_LINT pakro-bad-firewall.toml"
 done

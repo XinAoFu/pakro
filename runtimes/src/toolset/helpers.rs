@@ -23,7 +23,7 @@ pub(super) fn show_python_install_hint(versions: &[ToolRequest]) {
     hint!(
         "python_multi",
         "use multiple versions simultaneously with",
-        "mise use python@3.12 python@3.11"
+        "pakro use python@3.12 python@3.11"
     );
 }
 
@@ -105,7 +105,7 @@ async fn preflight_system_deps_inner(
     }
 
     // Effective mode: prompt degrades to warn only when we can neither ask
-    // (non-interactive) nor auto-confirm (`--yes`/MISE_YES). With `opts.yes`
+    // (non-interactive) nor auto-confirm (`--yes`/PAKRO_YES). With `opts.yes`
     // set, Prompt stays Prompt and the remediation below runs non-interactively
     // (the driver uses `yes` to skip its own confirmation).
     let effective = match mode {
@@ -124,7 +124,7 @@ async fn preflight_system_deps_inner(
     let refs: Vec<&SystemDep> = missing_deps.iter().collect();
     let (mut by_mgr, unremediable) = deps::build_requests(&refs).await;
     // Attach any `[bootstrap.brew.taps]` git URLs so a tapped formula hint can
-    // be installed the same way `mise bootstrap packages use` handles it.
+    // be installed the same way `pakro bootstrap packages use` handles it.
     crate::system::attach_brew_tap_urls(config, &mut by_mgr);
 
     // Deps no available package manager can install are surfaced in every mode

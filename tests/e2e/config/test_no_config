@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
 
-touch mise.toml
-assert_empty "mise --no-config cfg"
-MISE_NO_CONFIG=1 assert_empty "mise cfg"
+touch pakro.toml
+assert_empty "pakro --no-config cfg"
+PAKRO_NO_CONFIG=1 assert_empty "pakro cfg"

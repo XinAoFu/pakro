@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 
-# Verify __MISE_EXE is exported so child shells can access it
+# Verify __PAKRO_EXE is exported so child shells can access it
 
-# 1) activate output contains 'export __MISE_EXE='
-assert_contains "mise activate bash" "export __MISE_EXE="
+# 1) activate output contains 'export __PAKRO_EXE='
+assert_contains "pakro activate bash" "export __PAKRO_EXE="
 
-# 2) __MISE_EXE should be an absolute path (starts with /)
-assert_contains "mise activate bash" "export __MISE_EXE=/"
+# 2) __PAKRO_EXE should be an absolute path (starts with /)
+assert_contains "pakro activate bash" "export __PAKRO_EXE=/"
 
-# 3) Child shell can access __MISE_EXE because it is exported
-eval "$(mise activate bash --no-hook-env)"
-assert "bash -c 'echo \$__MISE_EXE'" "$__MISE_EXE"
+# 3) Child shell can access __PAKRO_EXE because it is exported
+eval "$(pakro activate bash --no-hook-env)"
+assert "bash -c 'echo \$__PAKRO_EXE'" "$__PAKRO_EXE"
 
-# 4) The mise function still works when only the function definition is
-# carried over (e.g. an agent shell snapshot) and __MISE_EXE is absent
-fn_def="$(declare -f mise)"
-assert "env -u __MISE_EXE bash -c '$fn_def
-mise --version' | grep -c ." "1"
+# 4) The pakro function still works when only the function definition is
+# carried over (e.g. an agent shell snapshot) and __PAKRO_EXE is absent
+fn_def="$(declare -f pakro)"
+assert "env -u __PAKRO_EXE bash -c '$fn_def
+pakro --version' | grep -c ." "1"

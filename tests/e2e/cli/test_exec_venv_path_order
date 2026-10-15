@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-# Regression test: `mise x -- tool` should respect PATH order when a
-# virtualenv (or similar) directory is prepended to PATH by mise config.
+# Regression test: `pakro x -- tool` should respect PATH order when a
+# virtualenv (or similar) directory is prepended to PATH by pakro config.
 # Previously, `which_bin` pre-resolution bypassed PATH entirely for
-# mise-managed tools, so a venv binary would be ignored even though
-# mise itself added it to PATH.
+# pakro-managed tools, so a venv binary would be ignored even though
+# pakro itself added it to PATH.
 # See: https://github.com/jdx/mise/discussions/8340
 
 # Create a fake "venv" with a dummy override that prints a distinct marker
@@ -16,9 +16,9 @@ echo VENV_DUMMY
 SCRIPT
 chmod +x "$venvdir/dummy"
 
-# Configure mise with the dummy tool and prepend the venv dir to PATH
+# Configure pakro with the dummy tool and prepend the venv dir to PATH
 # (this simulates what _.python.venv does)
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools]
 dummy = "latest"
 
@@ -26,10 +26,10 @@ dummy = "latest"
 _.path = ["$venvdir"]
 EOF
 
-mise i
+pakro i
 
-# mise x -- which dummy should find the venv binary first
-assert "mise x -- which dummy" "$venvdir/dummy"
+# pakro x -- which dummy should find the venv binary first
+assert "pakro x -- which dummy" "$venvdir/dummy"
 
-# mise x -- dummy should actually execute the venv binary, not the mise-managed one
-assert "mise x -- dummy" "VENV_DUMMY"
+# pakro x -- dummy should actually execute the venv binary, not the pakro-managed one
+assert "pakro x -- dummy" "VENV_DUMMY"

@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Verify that keep-order output mode does not panic and preserves order
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.a]
 run = "printf 'A1\nA2'"
 
@@ -17,7 +17,7 @@ run = [
 ]
 EOF
 
-output=$(MISE_TASK_OUTPUT=keep-order mise run sequence 2>&1) && exit_code=0 || exit_code=$?
+output=$(PAKRO_TASK_OUTPUT=keep-order pakro run sequence 2>&1) && exit_code=0 || exit_code=$?
 
 if [ "$exit_code" -ne 0 ]; then
   echo "Expected exit code 0, got $exit_code"

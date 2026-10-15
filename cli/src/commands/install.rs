@@ -29,26 +29,26 @@ use std::path::PathBuf;
 
 /// Install a tool version
 ///
-/// Installs a tool version under the mise data directory, by default
-/// `~/.local/share/mise/installs/<TOOL>/<VERSION>`.
+/// Installs a tool version under the pakro data directory, by default
+/// `~/.local/share/pakro/installs/<TOOL>/<VERSION>`.
 /// Installing alone does not add the tool to your config, so a tool that is not
 /// already configured will not be on PATH.
-/// To install and activate in one command, use `mise use`, which also writes the version to
+/// To install and activate in one command, use `pakro use`, which also writes the version to
 /// the selected project config so the tool is active in that configuration scope.
-/// To run a tool once without touching any config, use `mise exec <TOOL>@<VERSION> -- <COMMAND>`.
+/// To run a tool once without touching any config, use `pakro exec <TOOL>@<VERSION> -- <COMMAND>`.
 ///
-/// Tools are installed in parallel. To disable, set `--jobs=1` or `MISE_JOBS=1`.
+/// Tools are installed in parallel. To disable, set `--jobs=1` or `PAKRO_JOBS=1`.
 #[derive(Debug, Default, usage_rs::Args)]
 #[usage(
     visible_alias = "i",
     verbatim_doc_comment,
     example(
-        r###"mise install node@20.0.0  # install a specific node version
-mise install node@20      # install the latest node 20.x
-mise install node         # install the version specified in mise.toml
-mise install              # install everything specified in mise.toml
-mise install --include-lazy # also install tools configured for lazy installation
-mise install --include-task-tools # also install tools required by tasks"###
+        r###"pakro install node@20.0.0  # install a specific node version
+pakro install node@20      # install the latest node 20.x
+pakro install node         # install the version specified in pakro.toml
+pakro install              # install everything specified in pakro.toml
+pakro install --include-lazy # also install tools configured for lazy installation
+pakro install --include-task-tools # also install tools required by tasks"###
     )
 )]
 pub(crate) struct Install {
@@ -65,7 +65,7 @@ pub(crate) struct Install {
     /// Number of jobs to run in parallel
     /// Values below 1 are treated as 1
     /// Defaults to the `jobs` setting
-    #[usage(long, short, env = "MISE_JOBS", verbatim_doc_comment)]
+    #[usage(long, short, env = "PAKRO_JOBS", verbatim_doc_comment)]
     jobs: Option<usize>,
 
     /// Show what would be installed without actually installing
@@ -93,7 +93,7 @@ pub(crate) struct Install {
 
     /// Also install tools configured with `lazy = true`
     ///
-    /// By default, a bare `mise install` leaves lazy tools for first-command installation.
+    /// By default, a bare `pakro install` leaves lazy tools for first-command installation.
     #[usage(long, verbatim_doc_comment)]
     include_lazy: bool,
 
@@ -105,9 +105,9 @@ pub(crate) struct Install {
 
     /// Install tools from every [monorepo].config_roots config root
     ///
-    /// Uses the active MISE_ENV and requires monorepo_root = true plus explicit
+    /// Uses the active PAKRO_ENV and requires monorepo_root = true plus explicit
     /// [monorepo].config_roots in the monorepo root config.
-    #[usage(long, env = "MISE_MONOREPO", verbatim_doc_comment)]
+    #[usage(long, env = "PAKRO_MONOREPO", verbatim_doc_comment)]
     monorepo: bool,
 
     /// Connect backend install command stdin/stdout/stderr directly to the terminal.
@@ -124,22 +124,22 @@ pub(crate) struct Install {
 
     /// Install tool(s) to the system-wide shared directory
     ///
-    /// Installs to /usr/local/share/mise/installs (or MISE_SYSTEM_DATA_DIR/installs).
+    /// Installs to /usr/local/share/pakro/installs (or PAKRO_SYSTEM_DATA_DIR/installs).
     /// On Unix, binary-download backends invoke sudo to publish into protected
-    /// system directories unless system_packages.sudo is disabled. Run mise as
+    /// system directories unless system_packages.sudo is disabled. Run pakro as
     /// your user, without sudo.
     #[usage(long, verbatim_doc_comment, conflicts = "shared")]
     system: bool,
 
     /// Skip confirmation when installing missing plugin system dependencies.
-    /// Set internally by `mise bootstrap --yes`; not a user-facing flag.
+    /// Set internally by `pakro bootstrap --yes`; not a user-facing flag.
     #[usage(skip)]
     yes: bool,
 }
 
 impl Install {
-    /// a bare `mise install` (install everything missing from config), as run
-    /// by `mise bootstrap`
+    /// a bare `pakro install` (install everything missing from config), as run
+    /// by `pakro bootstrap`
     pub(crate) fn new_bare(dry_run: bool, yes: bool) -> Self {
         Self {
             dry_run,
@@ -159,7 +159,7 @@ impl Install {
     #[async_backtrace::framed]
     pub async fn run(mut self) -> Result<()> {
         let config = Config::get().await?;
-        // bare package names (`mise install numpy@1.26.4`) bind to the sole
+        // bare package names (`pakro install numpy@1.26.4`) bind to the sole
         // package-capable runtime declared in config
         let bare_pins = self.split_bare_packages(&config).await?;
         if !self.is_dry_run() && !Settings::get().generate_lockfiles() {
@@ -203,7 +203,7 @@ impl Install {
             crate::packages::install::install_config_packages(config, bare_pins, runtimes, policy)
                 .await?;
         if downloaded > 0 {
-            info!("installed {downloaded} package artifact(s) into the mise store");
+            info!("installed {downloaded} package artifact(s) into the pakro store");
         }
         Ok(())
     }
@@ -258,7 +258,7 @@ impl Install {
             .await
     }
 
-    /// one-time hint when `[bootstrap.packages]` entries are missing — mise
+    /// one-time hint when `[bootstrap.packages]` entries are missing — pakro
     /// never installs system packages implicitly
     async fn hint_missing_system_packages(&self) {
         // the status queries spawn package-manager processes; skip them
@@ -342,7 +342,7 @@ impl Install {
             hint!(
                 "system_packages_missing",
                 "{missing} system package(s) from [bootstrap.packages] are missing. Install them with",
-                "mise bootstrap packages apply"
+                "pakro bootstrap packages apply"
             );
         }
     }
@@ -406,7 +406,7 @@ impl Install {
             .map(|ta| ta.ba.short.clone())
             .collect();
         // Collect set of tools that appear in any config file or in a
-        // MISE_<TOOL>_VERSION env var. We can't use trs.sources here because
+        // PAKRO_<TOOL>_VERSION env var. We can't use trs.sources here because
         // load_runtime_args overrides the underlying source with
         // ToolSource::Argument whenever the user passes TOOL@VERSION, so config-
         // and env-sourced tools become indistinguishable from CLI-only ones.
@@ -439,7 +439,7 @@ impl Install {
         let package_owner_config = Arc::clone(&install_config);
         let (mut versions, install_error) = if tool_versions.is_empty() {
             warn!("no runtimes to install");
-            warn!("specify a version with `mise install <TOOL>@<VERSION>`");
+            warn!("specify a version with `pakro install <TOOL>@<VERSION>`");
             (vec![], Ok(()))
         } else {
             if let Some(monorepo_union) = &monorepo_union {
@@ -536,7 +536,7 @@ impl Install {
             let tool_list = inactive_tools.join(", ");
             let use_cmds: Vec<String> = inactive_tools
                 .iter()
-                .map(|t| format!("  mise use {t}"))
+                .map(|t| format!("  pakro use {t}"))
                 .collect();
             warn!(
                 "{tool_list} installed but not activated — {} not in any config file.\nTo install and activate, run:\n{}",
@@ -558,7 +558,7 @@ impl Install {
             #[cfg(unix)]
             if crate::system_install::under_sudo() {
                 warn!(
-                    "running mise with sudo can leave root-owned files in your home directory; run mise as your user and it will invoke sudo only to publish into the system directory"
+                    "running pakro with sudo can leave root-owned files in your home directory; run pakro as your user and it will invoke sudo only to publish into the system directory"
                 );
             }
             Some(Settings::get().system_installs_dir().to_path_buf())
@@ -697,7 +697,7 @@ impl Install {
         // Check for tools that don't exist in the registry
         // These were tracked during build() before being filtered out
         for ba in &trs.unknown_tools {
-            // This will error with a proper message like "tool not found in mise tool registry"
+            // This will error with a proper message like "tool not found in pakro tool registry"
             ba.backend()?;
         }
         let opts = self.install_opts()?;
@@ -777,7 +777,7 @@ impl Install {
             measure!("run_postinstall_hook", {
                 info!("all tools are installed");
                 // Nothing was installed, but postinstall still runs (idempotent
-                // project setup relies on it); MISE_INSTALLED_TOOLS is [] so hooks
+                // project setup relies on it); PAKRO_INSTALLED_TOOLS is [] so hooks
                 // can guard on actual installs. (#10574)
                 let ts_owned;
                 let ts = if self.is_dry_run() {
@@ -957,7 +957,7 @@ mod tests {
     #[test]
     fn explicit_install_request_borrows_config_owner_through_actual_entry() {
         let backend = Arc::new(BackendArg::new("python".into(), Some("core:python".into())));
-        let owner = ToolSource::MiseToml("/owner/mise.toml".into());
+        let owner = ToolSource::PakroToml("/owner/pakro.toml".into());
         let mut configured_ts = Toolset::new(owner.clone());
         configured_ts.add_version(ToolRequest::new(backend, "3.10.14", owner).unwrap());
 
@@ -971,7 +971,7 @@ mod tests {
             .unwrap();
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].source(), &ToolSource::Argument);
-        assert!(format!("{:?}", requests[0]).contains("/owner/mise.toml"));
+        assert!(format!("{:?}", requests[0]).contains("/owner/pakro.toml"));
 
         let unowned = install
             .get_requested_tool_versions(&argument_ts, &Toolset::new(ToolSource::Argument), &args)
@@ -1008,7 +1008,7 @@ mod tests {
         let task = request(
             "1.0.0",
             "",
-            ToolSource::MiseToml(PathBuf::from("mise.toml")),
+            ToolSource::PakroToml(PathBuf::from("pakro.toml")),
         );
         let mut requests = ToolRequestSet::new();
         requests.add_version(configured.clone(), configured.source());

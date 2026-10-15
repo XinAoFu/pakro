@@ -11,14 +11,14 @@ use crate::{
 
 use super::reconcile;
 
-/// Symlink ruby versions installed by Homebrew into mise
+/// Symlink ruby versions installed by Homebrew into pakro
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
     example(
         r###"brew install ruby
-mise sync ruby --brew
-mise ls ruby --installed # inspect linked versions, then select one with mise use"###
+pakro sync ruby --brew
+pakro ls ruby --installed # inspect linked versions, then select one with pakro use"###
     )
 )]
 pub(super) struct SyncRuby {
@@ -69,7 +69,7 @@ impl SyncRuby {
         }
         let ownership = reconcile::LinkOwnership::in_namespace(&brew_opt);
         for v in reconcile::reconcile(ruby.ba(), ownership, links)? {
-            miseprintln!("Synced ruby@{} from Homebrew", v);
+            pakroprintln!("Synced ruby@{} from Homebrew", v);
         }
         Ok(())
     }

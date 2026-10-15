@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 tasks.a.run = "echo a"
 tasks.b.depends = ["a"]
 tasks.b.run = "echo b"
@@ -12,16 +12,16 @@ tasks.d.run = "echo d"
 tasks.d.wait_for = ["b"]
 EOF
 
-assert "mise run d" "a
+assert "pakro run d" "a
 c
 d"
 
-assert "mise run d ::: b" "a
+assert "pakro run d ::: b" "a
 b
 c
 d"
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks."hello:1"]
 description = "Hello from 1"
 run = "echo Hello from 1"
@@ -34,15 +34,15 @@ run = "echo Hello from 2"
 description = "Hello from all"
 depends = ["hello:*"]
 EOF
-assert_contains "mise run hello:all" "[hello:1] Hello from 1"
-assert_contains "mise run hello:all" "[hello:2] Hello from 2"
-assert "mise tasks deps" "hello:1
+assert_contains "pakro run hello:all" "[hello:1] Hello from 1"
+assert_contains "pakro run hello:all" "[hello:2] Hello from 2"
+assert "pakro tasks deps" "hello:1
 hello:2
 hello:all
 ├── hello:2
 └── hello:1"
 
-cat <<EOF >>mise.toml
+cat <<EOF >>pakro.toml
 
 [tasks.leaf]
 run = "echo leaf"
@@ -64,7 +64,7 @@ depends = ["left", "right"]
 run = "echo root"
 EOF
 
-compact_output="$(mise tasks deps --compact root)"
+compact_output="$(pakro tasks deps --compact root)"
 assert_contains "printf '%s\n' \"$compact_output\"" "shared (already shown)"
 leaf_count="$(printf '%s\n' "$compact_output" | grep -c 'leaf')"
 if [[ $leaf_count -ne 1 ]]; then
@@ -73,7 +73,7 @@ if [[ $leaf_count -ne 1 ]]; then
   exit 1
 fi
 
-multi_root_output="$(mise tasks deps --compact left right)"
+multi_root_output="$(pakro tasks deps --compact left right)"
 assert_contains "printf '%s\n' \"$multi_root_output\"" "shared (already shown)"
 multi_root_leaf_count="$(printf '%s\n' "$multi_root_output" | grep -c 'leaf')"
 if [[ $multi_root_leaf_count -ne 1 ]]; then
@@ -82,7 +82,7 @@ if [[ $multi_root_leaf_count -ne 1 ]]; then
   exit 1
 fi
 
-explicit_root_output="$(mise tasks deps --compact root left)"
+explicit_root_output="$(pakro tasks deps --compact root left)"
 explicit_left_count="$(printf '%s\n' "$explicit_root_output" | grep -c '^left$')"
 if [[ $explicit_left_count -ne 1 ]]; then
   echo "Expected explicitly selected left root to be expanded"
@@ -90,18 +90,18 @@ if [[ $explicit_left_count -ne 1 ]]; then
   exit 1
 fi
 
-assert_fail "mise tasks deps --compact --dot root"
+assert_fail "pakro tasks deps --compact --dot root"
 
-hello_all_info="$(mise tasks hello:all)"
+hello_all_info="$(pakro tasks hello:all)"
 assert_contains "printf '%s\n' \"$hello_all_info\"" "Task: hello:all"
 assert_contains "printf '%s\n' \"$hello_all_info\"" "Description: Hello from all"
-assert_contains "printf '%s\n' \"$hello_all_info\"" "Source: ~/workdir/mise.toml"
+assert_contains "printf '%s\n' \"$hello_all_info\"" "Source: ~/workdir/pakro.toml"
 assert_contains "printf '%s\n' \"$hello_all_info\"" "Depends on: hello:*"
 assert_contains "printf '%s\n' \"$hello_all_info\"" "name hello:all"
 assert_contains "printf '%s\n' \"$hello_all_info\"" "bin hello:all"
 
-echo '' >mise.toml
+echo '' >pakro.toml
 
-mkdir -p mise-tasks && echo "" >mise-tasks/build.sh && chmod +x mise-tasks/build.sh
-assert "mise tasks deps build" "build"
-assert "mise tasks deps build.sh" "build"
+mkdir -p pakro-tasks && echo "" >pakro-tasks/build.sh && chmod +x pakro-tasks/build.sh
+assert "pakro tasks deps build" "build"
+assert "pakro tasks deps build.sh" "build"

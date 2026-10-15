@@ -7,7 +7,7 @@
 ///
 /// ```
 ///     use std::path::Path;
-///     use mise::cmd;
+///     use pakro::cmd;
 ///
 ///     let arg1 = "--version".to_owned();
 ///     let arg2 = Path::new("--verbose");
@@ -27,7 +27,7 @@ macro_rules! cmd {
     };
 }
 
-pub use mise_util::cmd::*;
+pub use pakro_util::cmd::*;
 
 #[cfg(unix)]
 #[cfg(test)]

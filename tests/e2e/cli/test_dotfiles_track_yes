@@ -20,8 +20,8 @@ for name, yes, flags, accepted in [
     try:
         try:
             result = subprocess.run(
-                ["mise", "bootstrap", "dotfiles", "track", *flags, str(target)],
-                env={**os.environ, "MISE_YES": yes},
+                ["pakro", "bootstrap", "dotfiles", "track", *flags, str(target)],
+                env={**os.environ, "PAKRO_YES": yes},
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=slave,
@@ -51,4 +51,4 @@ PY
 
 # Verify the declarations, independently of informational logging verbosity.
 # The unanswered request must not have enrolled its file.
-assert "mise bootstrap dotfiles paths --json | jq -r '.entries[].path' | sort" "$(printf '~/.track-env-yes\n~/.track-flag-yes')"
+assert "pakro bootstrap dotfiles paths --json | jq -r '.entries[].path' | sort" "$(printf '~/.track-env-yes\n~/.track-flag-yes')"

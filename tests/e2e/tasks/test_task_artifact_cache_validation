@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.build]
 run = "touch out"
 sources = ["input"]
@@ -10,10 +10,10 @@ EOF
 touch input
 
 assert_fail_contains \
-  "MISE_EXPERIMENTAL=0 mise run build" \
+  "PAKRO_EXPERIMENTAL=0 pakro run build" \
   "task artifact caching is experimental"
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [settings]
 experimental = true
 
@@ -25,13 +25,13 @@ cache = { enabled = true }
 EOF
 
 assert_fail_contains \
-  "mise run build" \
+  "pakro run build" \
   "cache requires explicit outputs or outputs = []"
 assert_fail_contains \
-  "mise run --dry-run build" \
+  "pakro run --dry-run build" \
   "cache requires explicit outputs or outputs = []"
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [settings]
 experimental = true
 
@@ -42,9 +42,9 @@ outputs = ["../out"]
 cache = { enabled = true }
 EOF
 
-assert_fail_contains "mise run build" "cache output must stay within"
+assert_fail_contains "pakro run build" "cache output must stay within"
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [settings]
 experimental = true
 
@@ -55,9 +55,9 @@ outputs = ["dist", "!../out"]
 cache = { enabled = true }
 EOF
 
-assert_fail_contains "mise run build" "cache output must stay within"
+assert_fail_contains "pakro run build" "cache output must stay within"
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [settings]
 experimental = true
 
@@ -68,11 +68,11 @@ outputs = ["!dist/**"]
 cache = { enabled = true }
 EOF
 
-assert_fail_contains "mise run build" "outputs require at least one non-excluded pattern"
+assert_fail_contains "pakro run build" "outputs require at least one non-excluded pattern"
 
 mkdir outside
 ln -s outside build
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [settings]
 experimental = true
 
@@ -83,9 +83,9 @@ outputs = ["build/dist"]
 cache = { enabled = true }
 EOF
 
-assert_fail_contains "mise run build" "traverses symlink ancestor"
+assert_fail_contains "pakro run build" "traverses symlink ancestor"
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [settings]
 experimental = true
 
@@ -96,9 +96,9 @@ outputs = ["input"]
 cache = { enabled = true }
 EOF
 
-assert_fail_contains "mise run build" "cache outputs must not contain source"
+assert_fail_contains "pakro run build" "cache outputs must not contain source"
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [settings]
 experimental = true
 
@@ -109,4 +109,4 @@ outputs = ["."]
 cache = { enabled = true }
 EOF
 
-assert_fail_contains "mise run build" "cache output must stay within"
+assert_fail_contains "pakro run build" "cache output must stay within"

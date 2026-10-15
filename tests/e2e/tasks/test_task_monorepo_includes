@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
 # Test monorepo task edge cases: multiple dot extensions
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 
 # Create monorepo root config
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 monorepo_root = true
 
 [monorepo]
@@ -16,7 +16,7 @@ EOF
 
 # Create project structure with task_config.includes
 mkdir -p projects/frontend/tasks
-cat <<EOF >projects/frontend/mise.toml
+cat <<EOF >projects/frontend/pakro.toml
 [task_config]
 includes = ["tasks.toml", "tasks"]
 EOF
@@ -44,25 +44,25 @@ chmod +x projects/frontend/tasks/another.long-name.sh
 # --- Assertions ---
 
 # Verify all tasks are discovered
-assert_contains "mise tasks ls --debug --all" "//:root-task"
-assert_contains "mise tasks ls --all" "//projects/frontend:toml-task"
-assert_contains "mise tasks ls --all" "//projects/frontend:script-task"
-assert_contains "mise tasks ls --all" "//projects/frontend:another.long-name"
+assert_contains "pakro tasks ls --debug --all" "//:root-task"
+assert_contains "pakro tasks ls --all" "//projects/frontend:toml-task"
+assert_contains "pakro tasks ls --all" "//projects/frontend:script-task"
+assert_contains "pakro tasks ls --all" "//projects/frontend:another.long-name"
 
 # Verify running tasks from root
-assert_contains "mise run '//projects/frontend:toml-task'" "task from toml"
-assert_contains "mise run '//projects/frontend:script-task'" "task from script"
-assert_contains "mise run '//projects/frontend:another.long-name'" "task with long name"
-assert_contains "mise run '//projects/frontend:another.long-name.sh'" "task with long name"
+assert_contains "pakro run '//projects/frontend:toml-task'" "task from toml"
+assert_contains "pakro run '//projects/frontend:script-task'" "task from script"
+assert_contains "pakro run '//projects/frontend:another.long-name'" "task with long name"
+assert_contains "pakro run '//projects/frontend:another.long-name.sh'" "task with long name"
 
 # Verify running from a subdirectory
 cd projects/frontend
-assert_contains "mise run :toml-task" "task from toml"
-assert_contains "mise run :script-task" "task from script"
-assert_contains "mise run :another.long-name" "task with long name"
+assert_contains "pakro run :toml-task" "task from toml"
+assert_contains "pakro run :script-task" "task from script"
+assert_contains "pakro run :another.long-name" "task with long name"
 
 # Verify wildcard execution from subdirectory
-output=$(mise run ':*')
+output=$(pakro run ':*')
 assert_contains "echo '$output'" "task from toml"
 assert_contains "echo '$output'" "task from script"
 assert_contains "echo '$output'" "task with long name"
@@ -70,14 +70,14 @@ assert_contains "echo '$output'" "task with long name"
 cd ../..
 
 # Verify wildcard execution from root
-output=$(mise run '//projects/frontend:*')
+output=$(pakro run '//projects/frontend:*')
 assert_contains "echo '$output'" "task from toml"
 assert_contains "echo '$output'" "task from script"
 assert_contains "echo '$output'" "task with long name"
 
-# Verify includes = ["."] does not parse the child mise.toml as a task TOML.
+# Verify includes = ["."] does not parse the child pakro.toml as a task TOML.
 mkdir -p projects/colocated
-cat <<'EOF' >projects/colocated/mise.toml
+cat <<'EOF' >projects/colocated/pakro.toml
 [task_config]
 includes = ["."]
 
@@ -91,7 +91,7 @@ run = 'echo "task from colocated toml"'
 EOF
 
 mkdir -p projects/colocated/nested
-cat <<'EOF' >projects/colocated/nested/mise.toml
+cat <<'EOF' >projects/colocated/nested/pakro.toml
 [task_config]
 includes = ["."]
 
@@ -105,11 +105,11 @@ echo "task from colocated file"
 EOF
 chmod +x projects/colocated/file-task
 
-assert_contains "mise tasks ls --all" "//projects/colocated:config-task"
-assert_contains "mise tasks ls --all" "//projects/colocated:toml-task"
-assert_contains "mise tasks ls --all" "//projects/colocated:file-task"
-assert_not_contains "mise tasks ls --all" "//projects/colocated:task_config"
-assert_not_contains "mise tasks ls --all" "//projects/colocated:nested-config-task"
-assert_contains "mise run '//projects/colocated:config-task'" "task from config"
-assert_contains "mise run '//projects/colocated:toml-task'" "task from colocated toml"
-assert_contains "mise run '//projects/colocated:file-task'" "task from colocated file"
+assert_contains "pakro tasks ls --all" "//projects/colocated:config-task"
+assert_contains "pakro tasks ls --all" "//projects/colocated:toml-task"
+assert_contains "pakro tasks ls --all" "//projects/colocated:file-task"
+assert_not_contains "pakro tasks ls --all" "//projects/colocated:task_config"
+assert_not_contains "pakro tasks ls --all" "//projects/colocated:nested-config-task"
+assert_contains "pakro run '//projects/colocated:config-task'" "task from config"
+assert_contains "pakro run '//projects/colocated:toml-task'" "task from colocated toml"
+assert_contains "pakro run '//projects/colocated:file-task'" "task from colocated file"

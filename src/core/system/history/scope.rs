@@ -6,7 +6,7 @@
 //! mutation, takes the protective `*-before` checkpoint, and captures the
 //! outcome at the end. It is process-global so the apply code deep inside
 //! `system::*` can append journal entries through [`record`] without every
-//! signature threading a writer, and it exports [`ENV_VAR`] so child `mise`
+//! signature threading a writer, and it exports [`ENV_VAR`] so child `pakro`
 //! processes spawned by hooks attach to the parent's operation instead of
 //! opening their own.
 
@@ -29,9 +29,9 @@ use crate::dirs;
 use crate::env;
 use crate::lock_file::LockFile;
 
-/// Set in the environment while an operation is open; a child mise that
+/// Set in the environment while an operation is open; a child pakro that
 /// sees it records nothing of its own.
-pub const ENV_VAR: &str = "__MISE_HISTORY_OPERATION";
+pub const ENV_VAR: &str = "__PAKRO_HISTORY_OPERATION";
 
 struct Writer {
     store: Store,
@@ -143,7 +143,7 @@ impl OperationScope {
         }
         let _initializing = INITIALIZING.lock().await;
         if std::env::var_os(ENV_VAR).is_some() {
-            debug!("history: attached to the parent mise operation");
+            debug!("history: attached to the parent pakro operation");
             return Ok(Self(None));
         }
         if lock_unpoisoned(&CURRENT).is_some() {
@@ -263,7 +263,7 @@ impl OperationScope {
         let mut writer = lock_unpoisoned(shared);
         // held across the reservation, the capture, and the removal: the
         // capture writes the index and a checkpoint ref, which a concurrent
-        // `mise dot save` must not interleave with
+        // `pakro dot save` must not interleave with
         let _store_lock = writer.store.lock()?;
         let previous = writer.before.take();
         let id = writer.store.reserve_id()?;
@@ -411,7 +411,7 @@ impl Writer {
                 uuid,
                 machine: store.machine().clone(),
                 created_at: store::now_rfc3339(),
-                mise_version: crate::version::VERSION_PLAIN.clone(),
+                pakro_version: crate::version::VERSION_PLAIN.clone(),
                 trigger: outcome_trigger(kind),
                 description: String::new(),
                 description_source: DescriptionSource::Computed,

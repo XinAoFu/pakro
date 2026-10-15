@@ -1,8 +1,8 @@
 //! Setting a machine up from a history-managed setup repository:
-//! `mise bootstrap --adopt <url>` on a repository that carries the
-//! `.mise-history/format.toml` marker, locally or on a remote host through
-//! the bundle `mise bootstrap remote --adopt` transfers. The branch is
-//! fetched into mise's own bare store, never cloned into the configuration
+//! `pakro bootstrap --adopt <url>` on a repository that carries the
+//! `.pakro-history/format.toml` marker, locally or on a remote host through
+//! the bundle `pakro bootstrap remote --adopt` transfers. The branch is
+//! fetched into pakro's own bare store, never cloned into the configuration
 //! directory; the shared configuration, the sources it references, and this
 //! machine's tracked streams are written by the same recoverable pull as any
 //! other incoming change (a file that differs is held for a decision, never
@@ -140,7 +140,7 @@ fn preview_config_path(
     )
 }
 
-/// `mise bootstrap --adopt <url>`: `Some` when the repository is
+/// `pakro bootstrap --adopt <url>`: `Some` when the repository is
 /// history-managed and this machine was set up from it (or would be, on a
 /// dry run); `None` leaves the ordinary clone to the caller.
 pub async fn from_git(
@@ -215,14 +215,14 @@ fn refuse_other_connection(store: &Store, origin: &str, branch: &str) -> Result<
         && (url != origin || status.origin_branch.as_deref() != Some(branch))
     {
         bail!(
-            "this machine is connected to {url}; `mise dot origin --remove` disconnects it, or `mise dot origin set {origin}` moves it"
+            "this machine is connected to {url}; `pakro dot origin --remove` disconnects it, or `pakro dot origin set {origin}` moves it"
         );
     }
     Ok(())
 }
 
 /// Fetches the branch into the store and says what the repository is. A
-/// format this mise does not understand is an error; an ordinary
+/// format this pakro does not understand is an error; an ordinary
 /// repository leaves nothing behind.
 fn probe(store: &Store, fetch_from: &str, branch: &str) -> Result<RepoState> {
     let repo = store
@@ -247,19 +247,19 @@ fn probe(store: &Store, fetch_from: &str, branch: &str) -> Result<RepoState> {
 /// themselves (`InvalidIncoming`, `StagedEdits`). Their number is unknowable
 /// here: when conflicts exist the apply stops before computing the other
 /// holds, reporting the conflict count as its held count. So the wording
-/// describes the decision it makes, and sends the reader to `mise dot status`
+/// describes the decision it makes, and sends the reader to `pakro dot status`
 /// for whatever still needs a different fix.
 fn undecided_advice(undecided: usize, conflicts: usize) -> String {
     if undecided == 0 {
         return String::new();
     }
     let blanket = if conflicts > 0 {
-        ", `mise dot pull --take-remote-all` chooses the repository's version for every conflict at once"
+        ", `pakro dot pull --take-remote-all` chooses the repository's version for every conflict at once"
     } else {
         ""
     };
     format!(
-        "; {undecided} path(s) need a decision (`mise dot status` lists them and why, `mise dot pull --take-remote <path>` or `mise dot pull --keep-local <path>` decides one{blanket})"
+        "; {undecided} path(s) need a decision (`pakro dot status` lists them and why, `pakro dot pull --take-remote <path>` or `pakro dot pull --keep-local <path>` decides one{blanket})"
     )
 }
 
@@ -279,18 +279,18 @@ pub async fn run(store: &Store, onboarding: &Onboarding) -> Result<Outcome> {
         },
         None => format::FORMAT,
     };
-    miseprintln!(
-        "{} is a mise setup repository (format {}); branch {}.",
+    pakroprintln!(
+        "{} is a pakro setup repository (format {}); branch {}.",
         onboarding.origin,
         repository_format,
         onboarding.branch
     );
-    miseprintln!("Sync mode {}", mode.disclosure());
-    miseprintln!(
+    pakroprintln!("Sync mode {}", mode.disclosure());
+    pakroprintln!(
         "Only explicitly enrolled files are restored to their native paths. Existing files that differ pause the whole setup until you resolve them. Recreating tools, services, and templates requires their configuration and sources to be explicitly tracked too."
     );
     if config_dir.join(".git").exists() {
-        miseprintln!(
+        pakroprintln!(
             "{} is a git checkout: it is not converted or committed to; files written there appear as ordinary working-tree changes.",
             display_path(&config_dir)
         );
@@ -306,7 +306,7 @@ pub async fn run(store: &Store, onboarding: &Onboarding) -> Result<Outcome> {
         None
     };
     if let Some(replacement) = &preview_replacement {
-        miseprintln!(
+        pakroprintln!(
             "Would replace local history {} with origin {}.",
             short_oid(&replacement.local),
             short_oid(&replacement.remote)
@@ -328,7 +328,7 @@ pub async fn run(store: &Store, onboarding: &Onboarding) -> Result<Outcome> {
     apply::apply(&planning_store, &tracked, &preview).await?;
     if onboarding.dry_run {
         let preview_config = Some(preview_configuration(&planning_store)?);
-        miseprintln!("Dry run: nothing was changed.");
+        pakroprintln!("Dry run: nothing was changed.");
         return Ok(Outcome {
             preview_config,
             durable_access: true,
@@ -355,7 +355,7 @@ pub async fn run(store: &Store, onboarding: &Onboarding) -> Result<Outcome> {
         seed_confirmed_fetch_locked(store, &planning_store)?;
         let replacement = detach_local_history(store)?;
         if let Some(replacement) = &replacement {
-            miseprintln!(
+            pakroprintln!(
                 "Replacing local history {} with origin {}.",
                 short_oid(&replacement.local),
                 short_oid(&replacement.remote)
@@ -430,7 +430,7 @@ pub async fn run(store: &Store, onboarding: &Onboarding) -> Result<Outcome> {
             || status.application_failure.is_some()
             || status.validation_error.is_some()
     };
-    miseprintln!(
+    pakroprintln!(
         "Wrote {} file(s) from {}{}.",
         applied.written,
         onboarding.origin,
@@ -439,7 +439,7 @@ pub async fn run(store: &Store, onboarding: &Onboarding) -> Result<Outcome> {
     let durable_access = durable_access(&onboarding.origin, &onboarding.branch).await;
     if !durable_access {
         warn!(
-            "setup complete, but ongoing synchronization needs credentials on this host: the borrowed GitHub access ends with this session. Run `mise x gh -- gh auth login` and `mise x gh -- gh auth setup-git` here, or connect an SSH url with `mise dot origin set <url>`"
+            "setup complete, but ongoing synchronization needs credentials on this host: the borrowed GitHub access ends with this session. Run `pakro x gh -- gh auth login` and `pakro x gh -- gh auth setup-git` here, or connect an SSH url with `pakro dot origin set <url>`"
         );
     }
     Ok(Outcome {
@@ -527,7 +527,7 @@ fn short_oid(oid: &str) -> &str {
 /// `GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n`) taken out of the environment.
 /// Without a relay, whatever works now keeps working.
 async fn durable_access(url: &str, branch: &str) -> bool {
-    if std::env::var_os("MISE_GITHUB_RELAY_SOCKET").is_none() {
+    if std::env::var_os("PAKRO_GITHUB_RELAY_SOCKET").is_none() {
         return true;
     }
     let Some(git) = crate::file::which_spawnable("git") else {
@@ -540,7 +540,7 @@ async fn durable_access(url: &str, branch: &str) -> bool {
     command
         .args(["ls-remote", "--exit-code", "--heads", "--", url, branch])
         .env("GIT_TERMINAL_PROMPT", "0")
-        .env_remove("MISE_GITHUB_RELAY_SOCKET")
+        .env_remove("PAKRO_GITHUB_RELAY_SOCKET")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -581,8 +581,8 @@ mod preview_tests {
             assert!(advice.contains("chooses the repository's version for every conflict"));
             assert!(!advice.contains("takes the repository's version"));
             // the per-path commands stay, each separately runnable
-            assert!(advice.contains("`mise dot pull --take-remote <path>`"));
-            assert!(advice.contains("`mise dot pull --keep-local <path>`"));
+            assert!(advice.contains("`pakro dot pull --take-remote <path>`"));
+            assert!(advice.contains("`pakro dot pull --keep-local <path>`"));
             // and status is what explains why each path is held
             assert!(advice.contains("lists them and why"));
         }

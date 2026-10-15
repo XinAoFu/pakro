@@ -4,85 +4,85 @@
 set -euo pipefail
 
 # Clean up any existing installations
-mise uninstall tiny --all 2>/dev/null || true
-rm -f mise.toml .tool-versions
+pakro uninstall tiny --all 2>/dev/null || true
+rm -f pakro.toml .tool-versions
 
 # Test: install --minimum-release-age with dry-run should show the tool
-output=$(mise install tiny@latest --minimum-release-age 2020-01-01 --dry-run 2>&1)
+output=$(pakro install tiny@latest --minimum-release-age 2020-01-01 --dry-run 2>&1)
 assert_contains "echo '$output'" "tiny"
 
 # Test: install --minimum-release-age should install a version
-mise install tiny@latest --minimum-release-age 2025-01-01
-assert_contains "mise ls --installed tiny" "3.1.0"
+pakro install tiny@latest --minimum-release-age 2025-01-01
+assert_contains "pakro ls --installed tiny" "3.1.0"
 
 # Test: use --minimum-release-age with dry-run
-mise uninstall tiny --all 2>/dev/null || true
-output=$(mise use tiny@latest --minimum-release-age 2025-01-01 --dry-run 2>&1)
+pakro uninstall tiny --all 2>/dev/null || true
+output=$(pakro use tiny@latest --minimum-release-age 2025-01-01 --dry-run 2>&1)
 assert_contains "echo '$output'" "tiny"
-rm -f mise.toml
+rm -f pakro.toml
 
-# Test: MISE_MINIMUM_RELEASE_AGE environment variable works
-mise uninstall tiny --all 2>/dev/null || true
-export MISE_MINIMUM_RELEASE_AGE="2025-01-01"
-mise install tiny@latest
-assert_contains "mise ls --installed tiny" "3.1.0"
-unset MISE_MINIMUM_RELEASE_AGE
+# Test: PAKRO_MINIMUM_RELEASE_AGE environment variable works
+pakro uninstall tiny --all 2>/dev/null || true
+export PAKRO_MINIMUM_RELEASE_AGE="2025-01-01"
+pakro install tiny@latest
+assert_contains "pakro ls --installed tiny" "3.1.0"
+unset PAKRO_MINIMUM_RELEASE_AGE
 
 # Test: upgrade --minimum-release-age with dry-run
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools]
 tiny = "1"
 EOF
-mise uninstall tiny --all 2>/dev/null || true
-mise install tiny@1.0.0
-output=$(mise upgrade --minimum-release-age 2025-01-01 --dry-run 2>&1)
+pakro uninstall tiny --all 2>/dev/null || true
+pakro install tiny@1.0.0
+output=$(pakro upgrade --minimum-release-age 2025-01-01 --dry-run 2>&1)
 assert_contains "echo '$output'" "tiny"
 
-rm -f mise.toml
-cat <<EOF >mise.toml
+rm -f pakro.toml
+cat <<EOF >pakro.toml
 [tools]
 jq = "latest"
 EOF
-mise uninstall jq --all 2>/dev/null || true
-mise install jq@1.6
-output=$(mise upgrade jq --minimum-release-age 2019-01-01 --dry-run 2>&1)
+pakro uninstall jq --all 2>/dev/null || true
+pakro install jq@1.6
+output=$(pakro upgrade jq --minimum-release-age 2019-01-01 --dry-run 2>&1)
 assert_contains "echo '$output'" "newer jq release"
 # The warning includes the effective minimum_release_age value
 assert_contains "echo '$output'" "ignored by minimum_release_age (2019-01-01)"
 
 # Test: upgrade --minimum-release-age should not warn about a hidden release
 # when that release is already installed.
-latest_jq=$(mise latest jq --minimum-release-age 0s)
-mise uninstall jq --all 2>/dev/null || true
-mise install "jq@$latest_jq"
-output=$(mise upgrade jq --minimum-release-age 2019-01-01 --dry-run 2>&1)
+latest_jq=$(pakro latest jq --minimum-release-age 0s)
+pakro uninstall jq --all 2>/dev/null || true
+pakro install "jq@$latest_jq"
+output=$(pakro upgrade jq --minimum-release-age 2019-01-01 --dry-run 2>&1)
 assert_not_contains "echo '$output'" "newer jq release"
 
 # Test: install --minimum-release-age with relative duration "90d"
-mise uninstall tiny --all 2>/dev/null || true
-output=$(mise install tiny@latest --minimum-release-age 90d --dry-run 2>&1)
+pakro uninstall tiny --all 2>/dev/null || true
+output=$(pakro install tiny@latest --minimum-release-age 90d --dry-run 2>&1)
 assert_contains "echo '$output'" "tiny"
 
 # Test: install --minimum-release-age with relative duration "1y"
-output=$(mise install tiny@latest --minimum-release-age 1y --dry-run 2>&1)
+output=$(pakro install tiny@latest --minimum-release-age 1y --dry-run 2>&1)
 assert_contains "echo '$output'" "tiny"
 
 # Test: install --minimum-release-age with relative duration "6m"
-output=$(mise install tiny@latest --minimum-release-age 6m --dry-run 2>&1)
+output=$(pakro install tiny@latest --minimum-release-age 6m --dry-run 2>&1)
 assert_contains "echo '$output'" "tiny"
 
-# Test: MISE_MINIMUM_RELEASE_AGE with relative duration
-mise uninstall tiny --all 2>/dev/null || true
-export MISE_MINIMUM_RELEASE_AGE="90d"
-mise install tiny@latest
-assert_contains "mise ls --installed tiny" "3.1.0"
-unset MISE_MINIMUM_RELEASE_AGE
+# Test: PAKRO_MINIMUM_RELEASE_AGE with relative duration
+pakro uninstall tiny --all 2>/dev/null || true
+export PAKRO_MINIMUM_RELEASE_AGE="90d"
+pakro install tiny@latest
+assert_contains "pakro ls --installed tiny" "3.1.0"
+unset PAKRO_MINIMUM_RELEASE_AGE
 
 # Test: per-tool minimum_release_age is newer than global (per-tool wins)
 # global=2019-01-01 would give jq 1.6, per-tool=2024-01-01 gives jq 1.7.1
-mise uninstall jq --all 2>/dev/null || true
-rm -f mise.toml
-cat <<EOF >mise.toml
+pakro uninstall jq --all 2>/dev/null || true
+rm -f pakro.toml
+cat <<EOF >pakro.toml
 [settings]
 minimum_release_age = "2019-01-01"
 
@@ -90,14 +90,14 @@ minimum_release_age = "2019-01-01"
 version = "latest"
 minimum_release_age = "2024-01-01"
 EOF
-mise install
-assert_contains "mise ls --installed jq" "1.7.1"
+pakro install
+assert_contains "pakro ls --installed jq" "1.7.1"
 
 # Test: per-tool minimum_release_age is older than global (per-tool wins)
 # global=2024-01-01 would give jq 1.7.1, per-tool=2019-01-01 gives jq 1.6
-mise uninstall jq --all 2>/dev/null || true
-rm -f mise.toml
-cat <<EOF >mise.toml
+pakro uninstall jq --all 2>/dev/null || true
+rm -f pakro.toml
+cat <<EOF >pakro.toml
 [settings]
 minimum_release_age = "2024-01-01"
 
@@ -105,13 +105,13 @@ minimum_release_age = "2024-01-01"
 version = "latest"
 minimum_release_age = "2019-01-01"
 EOF
-mise install
-assert_contains "mise ls --installed jq" "1.6"
+pakro install
+assert_contains "pakro ls --installed jq" "1.6"
 
 # Test: minimum_release_age_excludes skips the global setting for matching tools
-mise uninstall jq --all 2>/dev/null || true
-rm -f mise.toml
-cat <<EOF >mise.toml
+pakro uninstall jq --all 2>/dev/null || true
+rm -f pakro.toml
+cat <<EOF >pakro.toml
 [settings]
 minimum_release_age = "2019-01-01"
 minimum_release_age_excludes = ["jq"]
@@ -119,79 +119,79 @@ minimum_release_age_excludes = ["jq"]
 [tools]
 jq = "latest"
 EOF
-mise install
-assert_not_empty "mise ls --installed jq"
-assert_not_contains "mise ls --installed jq" "1.6"
+pakro install
+assert_not_empty "pakro ls --installed jq"
+assert_not_contains "pakro ls --installed jq" "1.6"
 
 # Test: CLI --minimum-release-age flag overrides per-tool minimum_release_age
 # per-tool=2024-01-01 would give jq 1.7.1, CLI --minimum-release-age=2019-01-01 gives jq 1.6
-mise uninstall jq --all 2>/dev/null || true
-rm -f mise.toml
-cat <<EOF >mise.toml
+pakro uninstall jq --all 2>/dev/null || true
+rm -f pakro.toml
+cat <<EOF >pakro.toml
 [tools.jq]
 version = "latest"
 minimum_release_age = "2024-01-01"
 EOF
-mise install --minimum-release-age 2019-01-01
-assert_contains "mise ls --installed jq" "1.6"
+pakro install --minimum-release-age 2019-01-01
+assert_contains "pakro ls --installed jq" "1.6"
 
 # Test: legacy --before flag remains supported as a hidden alias on renamed commands
-rm -f mise.toml
-assert_contains "mise install tiny@latest --before 2020-01-01 --dry-run 2>&1" "tiny"
-assert_contains "mise latest jq --before 2019-01-01" "1.6"
-assert_contains "mise use tiny@latest --before 2020-01-01 --dry-run 2>&1" "tiny"
-cat <<EOF >mise.toml
+rm -f pakro.toml
+assert_contains "pakro install tiny@latest --before 2020-01-01 --dry-run 2>&1" "tiny"
+assert_contains "pakro latest jq --before 2019-01-01" "1.6"
+assert_contains "pakro use tiny@latest --before 2020-01-01 --dry-run 2>&1" "tiny"
+cat <<EOF >pakro.toml
 [tools]
 tiny = "1"
 EOF
-mise install tiny@1.0.0
-assert_contains "mise upgrade --before 2025-01-01 --dry-run 2>&1" "tiny"
+pakro install tiny@1.0.0
+assert_contains "pakro upgrade --before 2025-01-01 --dry-run 2>&1" "tiny"
 
 for cmd in install latest upgrade use; do
-  assert_contains "mise $cmd --help" "--minimum-release-age"
-  assert_not_contains "mise $cmd --help" "--before"
+  assert_contains "pakro $cmd --help" "--minimum-release-age"
+  assert_not_contains "pakro $cmd --help" "--before"
 done
 
 # Test: legacy install_before setting remains supported as a hidden alias
-mise uninstall jq --all 2>/dev/null || true
-rm -f mise.toml
-cat <<EOF >mise.toml
+pakro uninstall jq --all 2>/dev/null || true
+rm -f pakro.toml
+cat <<EOF >pakro.toml
 [settings]
 install_before = "2019-01-01"
 
 [tools.jq]
 version = "latest"
 EOF
-mise install
-assert_contains "mise ls --installed jq" "1.6"
+pakro install
+assert_contains "pakro ls --installed jq" "1.6"
 
 # Test: when the cutoff hides every candidate, the failure names the setting,
 # how many releases it hid and the newest one, rather than the bare "matching
 # date filter" that sent users hunting for a filter they never configured.
 # https://github.com/jdx/mise/discussions/13303
-mise uninstall jq --all 2>/dev/null || true
-rm -f mise.toml
-assert_fail "mise install jq@latest --minimum-release-age 1990-01-01" "matching minimum_release_age"
-assert_fail "mise install jq@latest --minimum-release-age 1990-01-01" "cutoff, the newest being"
-assert_fail "mise install jq@latest --minimum-release-age 1990-01-01" "or lower minimum_release_age"
+pakro uninstall jq --all 2>/dev/null || true
+rm -f pakro.toml
+assert_fail "pakro install jq@latest --minimum-release-age 1990-01-01" "matching minimum_release_age"
+assert_fail "pakro install jq@latest --minimum-release-age 1990-01-01" "cutoff, the newest being"
+assert_fail "pakro install jq@latest --minimum-release-age 1990-01-01" "or lower minimum_release_age"
 
 # A cutoff that came from configuration is named, along with when the newest
 # hidden release becomes eligible.
-export MISE_MINIMUM_RELEASE_AGE="30y"
-assert_fail "mise install jq@latest" "matching minimum_release_age (30y)"
-assert_fail "mise install jq@latest" "eligible"
-unset MISE_MINIMUM_RELEASE_AGE
+export PAKRO_MINIMUM_RELEASE_AGE="30y"
+assert_fail "pakro install jq@latest" "matching minimum_release_age (30y)"
+assert_fail "pakro install jq@latest" "eligible"
+unset PAKRO_MINIMUM_RELEASE_AGE
 
 # A query that simply matches nothing is not blamed on the cutoff.
-assert_fail "mise install jq@prefix:99" "no versions found for jq"
-assert_not_contains_text "$(mise install jq@prefix:99 2>&1 || true)" "minimum_release_age"
+assert_fail "pakro install jq@prefix:99" "no versions found for jq"
+assert_not_contains_text "$(pakro install jq@prefix:99 2>&1 || true)" "minimum_release_age"
 
 # Only versions the query would have selected are counted: prefix:1.8 reports
 # the hidden 1.8.x releases, not every hidden version.
-assert_fail "mise install jq@prefix:1.8 --minimum-release-age 1990-01-01" "the newest being 1.8"
+assert_fail "pakro install jq@prefix:1.8 --minimum-release-age 1990-01-01" "the newest being 1.8"
 
 # A sub-N: request is not offered the exact-pin escape: pinning the base
 # installs something other than what was asked for, since sub-1:1.8.2 subtracts
 # from 1.8.2 rather than selecting the release below it.
-assert_fail "mise install jq@sub-1:latest --minimum-release-age 1990-01-01" "Lower minimum_release_age to make them eligible"
-assert_not_contains_text "$(mise install jq@sub-1:latest --minimum-release-age 1990-01-01 2>&1 || true)" "Install that one now"
+assert_fail "pakro install jq@sub-1:latest --minimum-release-age 1990-01-01" "Lower minimum_release_age to make them eligible"
+assert_not_contains_text "$(pakro install jq@sub-1:latest --minimum-release-age 1990-01-01 2>&1 || true)" "Install that one now"

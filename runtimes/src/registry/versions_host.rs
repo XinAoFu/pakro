@@ -4,7 +4,7 @@ use crate::http;
 use crate::http::HTTP_FETCH;
 use crate::plugins::core::CORE_PLUGINS;
 use crate::registry::REGISTRY;
-pub(crate) use mise_util::versions_host::*;
+pub(crate) use pakro_util::versions_host::*;
 use std::{
     collections::{HashMap, HashSet},
     sync::{
@@ -55,9 +55,9 @@ struct VersionEntry {
     /// Pre-release flag, when the producing source can distinguish it. Absent
     /// in old host data — and for entries from sources that don't track
     /// prereleases — which maps to `None` ("unknown") without any schema
-    /// upgrade. Old mise clients that don't know about this field ignore it
+    /// upgrade. Old pakro clients that don't know about this field ignore it
     /// (toml-rs accepts unknown fields by default), so populating it in
-    /// mise-versions is forward-compatible.
+    /// pakro-versions is forward-compatible.
     #[serde(default)]
     prerelease: Option<bool>,
 }

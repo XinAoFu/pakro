@@ -17,23 +17,23 @@ use crate::toolset::env_cache::{CachedEnv, compute_settings_hash, get_file_mtime
 use crate::toolset::tool_request::ToolRequest;
 use crate::{env, file, github, parallel, uv};
 
-/// PATH with mise-managed install dirs filtered out. mise re-adds the current
+/// PATH with pakro-managed install dirs filtered out. pakro re-adds the current
 /// toolset's bin dirs below, so a stale `installs/<tool>/<ver>/bin` left on PATH
 /// (e.g. carried in from a frozen env snapshot) does not outrank the version that
-/// `mise x`/`run`/`env` selects for the whole process tree. Mirrors the hook-env
+/// `pakro x`/`run`/`env` selects for the whole process tree. Mirrors the hook-env
 /// reactivation filter from #10162. (#10345)
 fn pristine_path_without_install_dirs() -> Vec<PathBuf> {
-    let install_dirs = crate::path_env::mise_install_dirs();
+    let install_dirs = crate::path_env::pakro_install_dirs();
     env::PATH
         .iter()
-        .filter(|p| !crate::path_env::is_mise_install_path(p.as_path(), &install_dirs))
+        .filter(|p| !crate::path_env::is_pakro_install_path(p.as_path(), &install_dirs))
         .cloned()
         .collect()
 }
 
 impl Toolset {
-    /// PATH for an environment mise hands to a child process or prints (`mise x`,
-    /// `mise run`, `mise env`): the pristine PATH with the given mise-managed paths
+    /// PATH for an environment pakro hands to a child process or prints (`pakro x`,
+    /// `pakro run`, `pakro env`): the pristine PATH with the given pakro-managed paths
     /// ahead of it.
     ///
     /// The pristine PATH never contains a shim farm that PATH activation added on its
@@ -92,12 +92,12 @@ impl Toolset {
         &self,
         config: &Arc<Config>,
     ) -> Result<(EnvMap, BTreeSet<String>)> {
-        let (mise_env, env_remove) = self.env_with_path_and_removals(config).await?;
+        let (pakro_env, env_remove) = self.env_with_path_and_removals(config).await?;
         let mut env = env::PRISTINE_ENV.clone().into_iter().collect::<EnvMap>();
         for key in &env_remove {
             env.remove(key);
         }
-        env.extend(mise_env);
+        env.extend(pakro_env);
         Ok((env, env_remove))
     }
 
@@ -166,7 +166,7 @@ impl Toolset {
         Ok(env)
     }
 
-    /// the full mise environment including all tool paths
+    /// the full pakro environment including all tool paths
     pub async fn env_with_path(&self, config: &Arc<Config>) -> Result<EnvMap> {
         Ok(self.env_with_path_and_removals(config).await?.0)
     }
@@ -328,10 +328,10 @@ impl Toolset {
         watch_files.extend(env_results.env_files.clone());
         watch_files.extend(env_results.env_scripts.clone());
 
-        // Add mise.lock files to watch_files
+        // Add pakro.lock files to watch_files
         for p in config.config_files.keys() {
             if let Some(parent) = p.parent() {
-                let lockfile = parent.join("mise.lock");
+                let lockfile = parent.join("pakro.lock");
                 if lockfile.exists() {
                     watch_files.push(lockfile);
                 }
@@ -359,7 +359,7 @@ impl Toolset {
             created_at: now,
             watch_files,
             watch_file_mtimes,
-            mise_version: env!("CARGO_PKG_VERSION").to_string(),
+            pakro_version: env!("CARGO_PKG_VERSION").to_string(),
             cache_key_debug: cache_key.clone(),
         };
 
@@ -375,14 +375,14 @@ impl Toolset {
             .map(|p| (p.clone(), get_file_mtime(p).unwrap_or(0)))
             .collect();
 
-        // Treat sibling mise.lock files as config inputs for cache invalidation
+        // Treat sibling pakro.lock files as config inputs for cache invalidation
         // to ensure creation, deletion, and modification of lock files forces
         // a fresh env/watch_files computation.
         let config_lockfiles: Vec<(PathBuf, u64)> = config
             .config_files
             .keys()
             .filter_map(|p| {
-                let lockfile = p.parent()?.join("mise.lock");
+                let lockfile = p.parent()?.join("pakro.lock");
                 let mtime = get_file_mtime(&lockfile)?;
                 Some((lockfile, mtime))
             })
@@ -494,17 +494,17 @@ impl Toolset {
             .map(|(k, v, _)| (k, v))
             .collect::<Vec<(String, String)>>();
 
-        // Collect and process MISE_ADD_PATH values into paths
+        // Collect and process PAKRO_ADD_PATH values into paths
         let paths_to_add: Vec<PathBuf> = entries
             .iter()
-            .filter(|(k, _)| k == "MISE_ADD_PATH")
+            .filter(|(k, _)| k == "PAKRO_ADD_PATH")
             .flat_map(|(_, v)| env::split_paths(v))
             .collect();
 
         let mut env: EnvMap = entries
             .into_iter()
-            .filter(|(k, _)| k != "MISE_ADD_PATH")
-            .filter(|(k, _)| !k.starts_with("MISE_TOOL_OPTS__"))
+            .filter(|(k, _)| k != "PAKRO_ADD_PATH")
+            .filter(|(k, _)| !k.starts_with("PAKRO_TOOL_OPTS__"))
             .rev()
             .collect();
 
@@ -701,7 +701,7 @@ impl Toolset {
     /// `exec_env`) rather than recomputing the full env, so `dependency_env` can
     /// call it per-install without the cost/recursion of `final_env`. Used so a
     /// dependent tool's install picks up vars like `CLOUDSDK_PYTHON` during a
-    /// combined `mise install`, mirroring what a re-activated shell exports
+    /// combined `pakro install`, mirroring what a re-activated shell exports
     /// between separate installs. (#10282)
     pub(crate) async fn tool_val_env(
         &self,

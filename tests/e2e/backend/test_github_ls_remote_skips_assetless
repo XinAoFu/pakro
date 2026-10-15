@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-# A GitHub release with no assets has nothing to install from -- mise never
+# A GitHub release with no assets has nothing to install from -- pakro never
 # falls back to the auto-generated source archive -- so listing it advertises a
 # version that only fails. Real cases: pypa/hatch hatch-v1.7.0 and every
 # kitlangton/ghui release below v0.4.0.
@@ -69,21 +69,21 @@ TOOL="github:acme/tool[api_url=http://127.0.0.1:$HTTP_PORT]"
 # The release that carries an asset is listed. Asserting this first is what
 # keeps the next line from passing vacuously -- if the listing were empty for
 # some unrelated reason, this would fail before it.
-assert_contains "mise ls-remote --no-versions-host '$TOOL'" "2.0.0"
+assert_contains "pakro ls-remote --no-versions-host '$TOOL'" "2.0.0"
 
 # The one with none is not.
-assert_not_contains "mise ls-remote --no-versions-host '$TOOL'" "3.0.0"
+assert_not_contains "pakro ls-remote --no-versions-host '$TOOL'" "3.0.0"
 
 # `latest` must not take the `/releases/latest` shortcut to a release the
 # listing just excluded: it falls through and resolves against the list.
-export MISE_USE_VERSIONS_HOST=0
-assert "mise latest '$TOOL'" "2.0.0"
+export PAKRO_USE_VERSIONS_HOST=0
+assert "pakro latest '$TOOL'" "2.0.0"
 
 # A platform-specific direct URL makes asset-less releases installable. It must
 # not reuse the filtered cache populated above, even though the repository and
 # API URL are otherwise identical. `prerelease = true` makes `latest` use the
 # cached listing path instead of the `/releases/latest` shortcut.
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools."github:acme/tool"]
 version = "latest"
 api_url = "http://127.0.0.1:$HTTP_PORT"
@@ -97,5 +97,5 @@ macos-arm64 = { url = "https://example.invalid/tool-macos-arm64.tar.gz" }
 EOF
 
 CONFIGURED_TOOL="github:acme/tool"
-assert_contains "mise ls-remote --no-versions-host '$CONFIGURED_TOOL'" "3.0.0"
-assert "mise latest '$CONFIGURED_TOOL'" "3.0.0"
+assert_contains "pakro ls-remote --no-versions-host '$CONFIGURED_TOOL'" "3.0.0"
+assert "pakro latest '$CONFIGURED_TOOL'" "3.0.0"

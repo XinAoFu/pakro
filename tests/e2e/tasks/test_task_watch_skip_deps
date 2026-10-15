@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-mise use -g watchexec
+pakro use -g watchexec
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.a]
 run = "echo a"
 sources = ["a.txt"]
@@ -15,7 +15,7 @@ EOF
 touch a.txt b.txt
 
 LOG_FILE=$(mktemp)
-mise watch b --skip-deps >"$LOG_FILE" 2>&1 &
+pakro watch b --skip-deps >"$LOG_FILE" 2>&1 &
 WATCH_PID=$!
 
 trap 'kill $WATCH_PID' EXIT
@@ -35,4 +35,4 @@ fi
 if [[ $output == *"[a] $ echo a"* ]]; then
   fail "Expected output to not contain '[a] $ echo a', got: $output"
 fi
-ok "mise watch b --skip-deps"
+ok "pakro watch b --skip-deps"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-mkdir -p .config .mise
+mkdir -p .config .pakro
 
 cat <<'EOF' >metadata-file
 #!/usr/bin/env bash
@@ -25,7 +25,7 @@ file = "./metadata-file"
 run = "echo higher include"
 EOF
 
-cat <<'EOF' >.mise/config.toml
+cat <<'EOF' >.pakro/config.toml
 [task_config]
 includes = ["tasks.toml"]
 
@@ -42,7 +42,7 @@ description = "inline metadata"
 description = "inline file metadata"
 EOF
 
-cat <<'EOF' >.config/mise.toml
+cat <<'EOF' >.config/pakro.toml
 [tasks.higher-include]
 run = "echo lower inline"
 EOF
@@ -50,28 +50,28 @@ EOF
 # Inline tasks override same-named TOML includes, including included tasks
 # whose execution type sets `file`. That field describes execution and must
 # not be used as task-source provenance.
-assert "mise run plain" "inline plain"
-assert "mise run with-file" "inline file"
+assert "pakro run plain" "inline plain"
+assert "pakro run with-file" "inline file"
 
 # An inline block without its own command decorates the included task instead
 # of replacing its command with an empty task.
-assert "mise run metadata" "included metadata"
-assert_contains "mise tasks metadata" "inline metadata"
-assert "mise run metadata-file" "included metadata file"
-assert_contains "mise tasks metadata-file" "inline file metadata"
+assert "pakro run metadata" "included metadata"
+assert_contains "pakro tasks metadata" "inline metadata"
+assert "pakro run metadata-file" "included metadata file"
+assert_contains "pakro tasks metadata-file" "inline file metadata"
 
 # A lower-precedence config cannot replace a TOML task included by a
 # higher-precedence config.
-assert "mise run higher-include" "higher include"
+assert "pakro run higher-include" "higher include"
 
 # Conversely, a higher-precedence inline task overrides a TOML include selected
 # by a lower-precedence config.
-cat <<'EOF' >.mise/config.toml
+cat <<'EOF' >.pakro/config.toml
 [tasks.higher-inline]
 run = "echo higher inline"
 EOF
 
-cat <<'EOF' >.config/mise.toml
+cat <<'EOF' >.config/pakro.toml
 [task_config]
 includes = ["tasks.toml"]
 EOF
@@ -82,4 +82,4 @@ cat <<'EOF' >>tasks.toml
 run = "echo lower include"
 EOF
 
-assert "mise run higher-inline" "higher inline"
+assert "pakro run higher-inline" "higher inline"

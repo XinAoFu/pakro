@@ -2,8 +2,8 @@
 
 set -euo pipefail
 
-export MISE_RUSTUP_HOME="$PWD/rustup"
-export MISE_CARGO_HOME="$PWD/cargo"
+export PAKRO_RUSTUP_HOME="$PWD/rustup"
+export PAKRO_CARGO_HOME="$PWD/cargo"
 
 SERVER_ROOT="$PWD/server"
 mkdir -p "$SERVER_ROOT"
@@ -14,7 +14,7 @@ set -euo pipefail
 
 mkdir -p "$RUSTUP_HOME" "$CARGO_HOME/bin"
 echo init >>"$RUSTUP_HOME/init.log"
-# Widen the race so a second mise process would also try to initialize rustup.
+# Widen the race so a second pakro process would also try to initialize rustup.
 sleep 1
 
 cat >"$CARGO_HOME/bin/rustup" <<'RUSTUP'
@@ -64,14 +64,14 @@ INIT
 
 start_http_server --dir "$SERVER_ROOT"
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [settings]
 url_replacements = { 'regex:^https://sh\.rustup\.rs/?$' = "http://127.0.0.1:$HTTP_PORT/rustup-init" }
 EOF
 
-mise install rust@1.80.0 >install-1.log 2>&1 &
+pakro install rust@1.80.0 >install-1.log 2>&1 &
 PID_1=$!
-mise install rust@1.81.0 >install-2.log 2>&1 &
+pakro install rust@1.81.0 >install-2.log 2>&1 &
 PID_2=$!
 
 STATUS_1=0
@@ -83,12 +83,12 @@ if [[ $STATUS_1 -ne 0 || $STATUS_2 -ne 0 ]]; then
   fail "parallel Rust installs failed: $STATUS_1, $STATUS_2"
 fi
 
-assert_contains "wc -l <'$MISE_RUSTUP_HOME/init.log'" "1"
-assert_contains "sort '$MISE_RUSTUP_HOME/toolchain-installs.log'" "1.80.0"
-assert_contains "sort '$MISE_RUSTUP_HOME/toolchain-installs.log'" "1.81.0"
-assert "test -L '$MISE_DATA_DIR/installs/rust/1.80.0'"
-assert "test -L '$MISE_DATA_DIR/installs/rust/1.81.0'"
-assert_contains "mise x rust@1.80.0 -- rustc -V" "rustc 1.80.0"
-assert_contains "mise x rust@1.81.0 -- rustc -V" "rustc 1.81.0"
-assert "test ! -e '$MISE_RUSTUP_HOME/install-in-progress'"
+assert_contains "wc -l <'$PAKRO_RUSTUP_HOME/init.log'" "1"
+assert_contains "sort '$PAKRO_RUSTUP_HOME/toolchain-installs.log'" "1.80.0"
+assert_contains "sort '$PAKRO_RUSTUP_HOME/toolchain-installs.log'" "1.81.0"
+assert "test -L '$PAKRO_DATA_DIR/installs/rust/1.80.0'"
+assert "test -L '$PAKRO_DATA_DIR/installs/rust/1.81.0'"
+assert_contains "pakro x rust@1.80.0 -- rustc -V" "rustc 1.80.0"
+assert_contains "pakro x rust@1.81.0 -- rustc -V" "rustc 1.81.0"
+assert "test ! -e '$PAKRO_RUSTUP_HOME/install-in-progress'"
 assert_not_contains "cat install-1.log install-2.log" "Permission denied"

@@ -113,8 +113,8 @@ impl Backend for DotnetBackend {
             &ctx.config,
             "dotnet",
             &["dotnet"],
-            "To use dotnet tools with mise, you need to install .NET SDK first:\n\
-              mise use dotnet@latest\n\n\
+            "To use dotnet tools with pakro, you need to install .NET SDK first:\n\
+              pakro use dotnet@latest\n\n\
             Or install .NET SDK via https://dotnet.microsoft.com/download",
         )
         .await;

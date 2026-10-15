@@ -1,7 +1,7 @@
 //! Load an OCI image layout into the docker daemon via `docker load`.
 //!
 //! Docker can't consume an OCI layout directory directly (that's why skopeo
-//! was previously required for `mise oci run --engine docker`). It can,
+//! was previously required for `pakro oci run --engine docker`). It can,
 //! however, load a docker-archive tarball from stdin. This module converts
 //! the layout on the fly — config + decompressed layers + `manifest.json` —
 //! and streams it straight into `docker load` without materializing the
@@ -253,7 +253,7 @@ mod tests {
             &layout,
             &manifest,
             &config_bytes,
-            "mise-oci:test",
+            "pakro-oci:test",
         )
         .unwrap();
 
@@ -274,7 +274,7 @@ mod tests {
         let manifest_json: serde_json::Value =
             serde_json::from_slice(&entries["manifest.json"]).unwrap();
         assert_eq!(manifest_json[0]["Config"], config_name.as_str());
-        assert_eq!(manifest_json[0]["RepoTags"][0], "mise-oci:test");
+        assert_eq!(manifest_json[0]["RepoTags"][0], "pakro-oci:test");
         assert_eq!(manifest_json[0]["Layers"][0], "0/layer.tar");
     }
 

@@ -40,7 +40,7 @@ pub(crate) struct PythonVenvOptions {
 /// Whether `_.python.venv` should do anything, given the tool allow/deny settings.
 ///
 /// The directive exists to put a python on PATH, so turning python off has to turn it off too —
-/// otherwise `mise which python` reports the tool as absent while `VIRTUAL_ENV` and the venv's
+/// otherwise `pakro which python` reports the tool as absent while `VIRTUAL_ENV` and the venv's
 /// bin directory are still exported, which is the state #4690 reported.
 ///
 /// Goes through the same [`tool_enabled`] every other consumer of these settings uses, so the
@@ -88,9 +88,9 @@ fn build_uv_venv_command<'a>(
     let mut cmd = CmdLineRunner::new(uv_bin).args(["venv", &venv.to_string_lossy()]);
 
     cmd = match (python_path, python) {
-        // The selected mise managed python tool path from env._.python.venv.python or first in list
+        // The selected pakro managed python tool path from env._.python.venv.python or first in list
         (Some(python_path), _) => cmd.args(["--python", python_path]),
-        // User specified in env._.python.venv.python but it's not in mise tools, so pass version number to uv
+        // User specified in env._.python.venv.python but it's not in pakro tools, so pass version number to uv
         (_, Some(python)) => cmd.args(["--python", python]),
         // Default to whatever uv wants to use
         _ => cmd,
@@ -110,9 +110,9 @@ fn build_stdlib_venv_command<'a>(
         .unwrap_or_default();
 
     let bin = match (python_path, python) {
-        // The selected mise managed python tool path from env._.python.venv.python or first in list
+        // The selected pakro managed python tool path from env._.python.venv.python or first in list
         (Some(python_path), _) => python_path.to_string(),
-        // User specified in env._.python.venv.python but it's not in mise tools, so try to find it on path
+        // User specified in env._.python.venv.python but it's not in pakro tools, so try to find it on path
         (_, Some(python)) => format!("python{python}"),
         // Default to whatever python3 points to on path
         _ => "python3".to_string(),
@@ -169,15 +169,15 @@ pub(crate) async fn create_python_venv(
         let backend = backend::get(&ba).unwrap();
         backend.is_version_installed(config, tv, false)
     } else {
-        // if no version is specified, we're assuming python3 is provided outside of mise so return "true" here
+        // if no version is specified, we're assuming python3 is provided outside of pakro so return "true" here
         true
     };
     if !installed {
         warn_once!(
             "no venv found at: {p}\n\n\
-            mise will automatically create the venv once all requested python versions are installed.\n\
+            pakro will automatically create the venv once all requested python versions are installed.\n\
             To install the missing python versions and create the venv, please run:\n\
-            `mise install`",
+            `pakro install`",
             p = display_path(venv)
         );
         return Ok(false);
@@ -188,7 +188,7 @@ pub(crate) async fn create_python_venv(
     } else if let Some(uv_bin) = ts.which_bin_spawnable(config, "uv").await {
         Some(uv_bin)
     } else {
-        // Commands such as `mise x tiny@3` can provide a caller toolset that does not
+        // Commands such as `pakro x tiny@3` can provide a caller toolset that does not
         // include the configured uv version. Resolve a uv-only toolset as a fallback so
         // an installed configured uv remains available for automatic venv creation.
         let trs = config.get_tool_request_set().await?;
@@ -262,7 +262,7 @@ impl EnvResults {
         let venv = ctx.normalize_path(venv.into());
         let venv_lock = LockFile::new(&venv).lock()?;
         // Record whichever python the caller actually has active. The toolset rebuilt below comes
-        // from the config files, so on its own it cannot see a CLI override — `mise run --tool
+        // from the config files, so on its own it cannot see a CLI override — `pakro run --tool
         // python@3.12` would silently build the venv from the first `[tools] python` entry (#5281).
         options.active_python = active_python_version(ctx.toolset);
         if !venv.exists() && create {

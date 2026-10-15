@@ -72,7 +72,7 @@ impl AquaPackage {
 
     /// Return platform overrides after applying them to this package.
     ///
-    /// Overrides containing runtime variants mise does not understand are
+    /// Overrides containing runtime variants pakro does not understand are
     /// omitted because they can never match in the Aqua resolver either.
     pub fn platform_overrides(&self) -> Vec<AquaPackagePlatformOverride> {
         self.overrides

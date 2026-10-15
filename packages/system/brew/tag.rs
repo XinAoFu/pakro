@@ -63,7 +63,7 @@ pub(super) fn select(files: &HashMap<String, BottleFile>) -> Option<(String, &Bo
         .find_map(|tag| files.get(&tag).map(|f| (tag, f)))
 }
 
-/// The host's tag for cask `variations`, or `None` on a macOS release mise
+/// The host's tag for cask `variations`, or `None` on a macOS release pakro
 /// does not know yet. Unlike bottles, a cask variation must match exactly: the
 /// top level describes the newest release, so the nearest older tag would
 /// select an older build. brew-cask also runs on Intel Macs, which bottles do

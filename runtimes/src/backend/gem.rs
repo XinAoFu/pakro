@@ -48,7 +48,7 @@ impl Backend for GemBackend {
     }
 
     /// Gem installs via `gem install`, delegating fetch/resolve to RubyGems rather
-    /// than downloading an artifact mise verifies, so a lockfile URL can't be
+    /// than downloading an artifact pakro verifies, so a lockfile URL can't be
     /// enforced even though rubygems.org exposes one. Opt out of `--locked`.
     fn supports_lockfile_url(&self) -> bool {
         false
@@ -62,7 +62,7 @@ impl Backend for GemBackend {
     /// `latest` for registry B, and the install then asks B for a version only A
     /// publishes. Declared here rather than through
     /// `remote_version_cache_context` because this is exactly what the
-    /// declarative hook is for: mise folds only locally overridden options into
+    /// declarative hook is for: pakro folds only locally overridden options into
     /// the digest, so an ordinary rubygems.org tool keeps one shared entry.
     fn remote_version_listing_tool_option_keys(&self) -> &'static [&'static str] {
         &["source"]
@@ -79,7 +79,7 @@ impl Backend for GemBackend {
             // string or a fragment the way string-building could.
             // GitHub Packages has no JSON versions API.
             Some(source) if source.host_str() == Some(GITHUB_PACKAGES_HOST) => bail!(
-                "GitHub Packages has no version-listing API mise can read, so `{}` \
+                "GitHub Packages has no version-listing API pakro can read, so `{}` \
                  cannot resolve `latest` or a prefix there: pin an exact version",
                 self.ba()
             ),
@@ -94,7 +94,7 @@ impl Backend for GemBackend {
         let (url, headers) = credentials_as_header(url)?;
         let response: Vec<RubyGemsVersion> = HTTP_FETCH.json_with_headers(url, &headers).await?;
 
-        // RubyGems API returns newest-first, mise expects oldest-first
+        // RubyGems API returns newest-first, pakro expects oldest-first
         let mut versions: Vec<VersionInfo> = response
             .into_iter()
             .map(|v| VersionInfo {
@@ -126,8 +126,8 @@ impl Backend for GemBackend {
             &ctx.config,
             "gem",
             &["ruby", "gem"],
-            "To use gem packages with mise, you need to install Ruby first:\n\
-              mise use ruby@latest",
+            "To use gem packages with pakro, you need to install Ruby first:\n\
+              pakro use ruby@latest",
         )
         .await;
 
@@ -142,7 +142,7 @@ impl Backend for GemBackend {
                     .arg("-e")
                     .arg(GEM_WITH_ENV_SOURCE)
                     .arg("--")
-                    .env("MISE_GEM_SOURCE", source.as_str())
+                    .env("PAKRO_GEM_SOURCE", source.as_str())
                     // Raw mode would bypass the output redaction below.
                     .never_raw()
             }
@@ -179,7 +179,7 @@ impl Backend for GemBackend {
         {
             // Rewrite shebangs for better compatibility:
             // - System Ruby: uses `#!/usr/bin/env ruby` for PATH-based resolution
-            // - Mise Ruby: uses minor version symlink (e.g., .../ruby/3.1/bin/ruby) so patch
+            // - Pakro Ruby: uses minor version symlink (e.g., .../ruby/3.1/bin/ruby) so patch
             //   upgrades don't break gems, while still being pinned to a minor version
             rewrite_gem_shebangs(&tv.install_path())?;
 
@@ -212,10 +212,10 @@ impl GemBackend {
     /// it touches is registered for redaction rather than assumed harmless.
     ///
     /// Read through `get_tool_opts_with_overrides` rather than `ba().opts()`.
-    /// A backend built straight from a CLI argument, as `mise ls-remote
+    /// A backend built straight from a CLI argument, as `pakro ls-remote
     /// gem:foo` does, carries no options from the config at all, so reading the
     /// arg would silently fall back to the machine's primary source while the
-    /// cache key, which mise builds from the resolved options, still filed the
+    /// cache key, which pakro builds from the resolved options, still filed the
     /// answer under the configured registry. The next install would then take a
     /// version from one registry and ask the other for it.
     async fn configured_source(&self, config: &Arc<Config>) -> Result<Option<Url>> {
@@ -233,12 +233,12 @@ impl GemBackend {
         Ok(Some(url))
     }
 
-    /// Get the primary gem source URL using the mise-managed Ruby environment.
+    /// Get the primary gem source URL using the pakro-managed Ruby environment.
     /// The result is memoized globally after first successful detection.
     async fn get_gem_source(&self, config: &Arc<Config>) -> &'static str {
         const DEFAULT_SOURCE: &str = "https://rubygems.org/";
 
-        // Get the mise-managed Ruby environment
+        // Get the pakro-managed Ruby environment
         let env = self.dependency_env(config).await.unwrap_or_default();
         let gem = self.spawn_program(config, None, "gem").await;
 
@@ -304,10 +304,10 @@ fn parse_source(raw: &str) -> Result<Option<Url>> {
     Ok(Some(url))
 }
 
-/// `bin/gem`, plus `--source` from `MISE_GEM_SOURCE`. The variable is deleted
+/// `bin/gem`, plus `--source` from `PAKRO_GEM_SOURCE`. The variable is deleted
 /// first so native extension builds do not inherit it.
 const GEM_WITH_ENV_SOURCE: &str = r#"require "rubygems/gem_runner"
-Gem::GemRunner.new.run(ARGV + ["--source", ENV.delete("MISE_GEM_SOURCE")])"#;
+Gem::GemRunner.new.run(ARGV + ["--source", ENV.delete("PAKRO_GEM_SOURCE")])"#;
 
 /// GitHub Packages' RubyGems registry.
 const GITHUB_PACKAGES_HOST: &str = "rubygems.pkg.github.com";
@@ -329,7 +329,7 @@ fn with_github_packages_token(mut url: Url, token: impl FnOnce() -> Option<Strin
 }
 
 /// Move a URL's userinfo into an `Authorization` header, since the HTTP
-/// client can print URLs unredacted (e.g. `MISE_LOG_HTTP`).
+/// client can print URLs unredacted (e.g. `PAKRO_LOG_HTTP`).
 fn credentials_as_header(mut url: Url) -> Result<(Url, HeaderMap)> {
     let mut headers = HeaderMap::new();
     if !carries_credentials(&url) {
@@ -373,7 +373,7 @@ fn is_loopback(url: &Url) -> bool {
 /// is a reason to be careful about the BARE value only: the userinfo pattern
 /// below carries its own delimiters and is specific at any length, so a short
 /// credential is still covered wherever it appears as part of a URL, which is
-/// everywhere mise or gem renders it.
+/// everywhere pakro or gem renders it.
 const MIN_REDACTABLE_SECRET: usize = 8;
 
 /// The parts of a source URL that must never be printed.
@@ -559,10 +559,10 @@ fn get_gem_executables(install_path: &Path) -> eyre::Result<Vec<std::path::PathB
 ///
 /// RubyGems polyglot scripts include: `exec "$bindir/ruby" "-x" "$0" "$@"`
 /// This fallback runs when the script is executed via /bin/sh instead of ruby.
-/// We create a symlink to the mise-managed Ruby (using minor version) so
+/// We create a symlink to the pakro-managed Ruby (using minor version) so
 /// the fallback works correctly.
 fn create_ruby_symlink(install_path: &Path) -> eyre::Result<()> {
-    create_ruby_symlink_in(&env::MISE_INSTALLS_DIR, install_path)
+    create_ruby_symlink_in(&env::PAKRO_INSTALLS_DIR, install_path)
 }
 
 #[cfg(unix)]
@@ -598,11 +598,11 @@ fn create_ruby_symlink_in(installs_dir: &Path, install_path: &Path) -> eyre::Res
     if ruby_path.is_empty() {
         return Ok(());
     }
-    let ruby_path = mise_ruby_path(installs_dir, ruby_path);
+    let ruby_path = pakro_ruby_path(installs_dir, ruby_path);
 
-    // Only create symlink for mise-managed Ruby
+    // Only create symlink for pakro-managed Ruby
     // For system Ruby, the shebang is #!/usr/bin/env ruby, which we can't symlink to
-    if !is_mise_ruby_path(installs_dir, &ruby_path) {
+    if !is_pakro_ruby_path(installs_dir, &ruby_path) {
         return Ok(());
     }
 
@@ -615,13 +615,13 @@ fn create_ruby_symlink_in(installs_dir: &Path, install_path: &Path) -> eyre::Res
 /// Rewrites shebangs in gem executables to improve compatibility.
 ///
 /// For system Ruby: Uses `#!/usr/bin/env ruby` for PATH-based resolution.
-/// For mise-managed Ruby: Uses minor version symlink (e.g., `.../ruby/3.1/bin/ruby`)
+/// For pakro-managed Ruby: Uses minor version symlink (e.g., `.../ruby/3.1/bin/ruby`)
 /// so that patch upgrades (3.1.0 → 3.1.1) don't break gems.
 ///
 /// Handles both regular Ruby scripts and RubyGems polyglot scripts which have
 /// `#!/bin/sh` on line 1 but the actual Ruby shebang after `=end`.
 fn rewrite_gem_shebangs(install_path: &Path) -> eyre::Result<()> {
-    rewrite_gem_shebangs_in(&env::MISE_INSTALLS_DIR, install_path)
+    rewrite_gem_shebangs_in(&env::PAKRO_INSTALLS_DIR, install_path)
 }
 
 #[cfg(unix)]
@@ -647,11 +647,11 @@ fn rewrite_gem_shebangs_in(installs_dir: &Path, install_path: &Path) -> eyre::Re
         // Extract the Ruby path and any arguments from the shebang
         let shebang_content = shebang_line.trim_start_matches("#!");
         let mut parts = shebang_content.split_whitespace();
-        let ruby_path = mise_ruby_path(installs_dir, parts.next().unwrap_or(""));
+        let ruby_path = pakro_ruby_path(installs_dir, parts.next().unwrap_or(""));
         let shebang_args: Vec<&str> = parts.collect();
 
-        let new_shebang = if is_mise_ruby_path(installs_dir, &ruby_path) {
-            // Mise-managed Ruby: use minor version symlink, preserving any arguments
+        let new_shebang = if is_pakro_ruby_path(installs_dir, &ruby_path) {
+            // Pakro-managed Ruby: use minor version symlink, preserving any arguments
             match to_minor_version_shebang(installs_dir, &ruby_path) {
                 Some(path) => {
                     if shebang_args.is_empty() {
@@ -717,22 +717,22 @@ fn find_ruby_shebang<'a>(lines: &'a [&'a str]) -> Option<(usize, &'a str)> {
 /// identity-layout directory (`installs/ruby-<hash>/bin/ruby`) is named through its version
 /// link (`installs/ruby/3.1.0/bin/ruby`) instead, which is what the minor version link below
 /// is built on. Any other path comes back unchanged.
-fn mise_ruby_path(installs_dir: &Path, ruby_path: &str) -> String {
+fn pakro_ruby_path(installs_dir: &Path, ruby_path: &str) -> String {
     crate::backend::static_helpers::tool_link_path(installs_dir, Path::new(ruby_path), "ruby")
         .map(|path| path.to_string_lossy().to_string())
         .unwrap_or_else(|| ruby_path.to_string())
 }
 
 #[cfg(unix)]
-/// Checks if a Ruby path is within mise's installs directory.
-fn is_mise_ruby_path(installs_dir: &Path, ruby_path: &str) -> bool {
+/// Checks if a Ruby path is within pakro's installs directory.
+fn is_pakro_ruby_path(installs_dir: &Path, ruby_path: &str) -> bool {
     let ruby_installs = installs_dir.join("ruby");
     Path::new(ruby_path).starts_with(&ruby_installs)
 }
 
 #[cfg(unix)]
 /// Converts a full version Ruby shebang to use the minor version symlink.
-/// e.g., `/home/user/.mise/installs/ruby/3.1.0/bin/ruby` → `/home/user/.mise/installs/ruby/3.1/bin/ruby`
+/// e.g., `/home/user/.pakro/installs/ruby/3.1.0/bin/ruby` → `/home/user/.pakro/installs/ruby/3.1/bin/ruby`
 fn to_minor_version_shebang(installs_dir: &Path, ruby_path: &str) -> Option<String> {
     let ruby_installs = installs_dir.join("ruby");
     let ruby_installs_str = ruby_installs.to_string_lossy();
@@ -1121,7 +1121,7 @@ mod tests {
 
     /// A version list is only valid for the registry it came from, so `source`
     /// has to reach the cache key. Asserted on the declaration rather than on a
-    /// cached file, because the digest is mise's to build: what this backend
+    /// cached file, because the digest is pakro's to build: what this backend
     /// owns is naming the option.
     #[test]
     fn the_source_option_partitions_the_remote_version_cache() {

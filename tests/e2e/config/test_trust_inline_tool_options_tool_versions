@@ -4,7 +4,7 @@
 # not a safe config: an untrusted project must not be able to point a github:
 # tool's api_url at a host of its choosing and receive the user's GITHUB_TOKEN.
 
-export MISE_TRUSTED_CONFIG_PATHS=""
+export PAKRO_TRUSTED_CONFIG_PATHS=""
 unset CI GITHUB_ACTIONS GITHUB_ACTION 2>/dev/null || true
 
 cat <<'PY' >sink.py
@@ -53,7 +53,7 @@ EOF2
 
 export GITHUB_TOKEN=ghp_inline_option_secret
 for cmd in ls env current outdated; do
-  assert_fail_contains "cd proj && MISE_YES=0 mise $cmd 2>&1" "not trusted"
+  assert_fail_contains "cd proj && PAKRO_YES=0 pakro $cmd 2>&1" "not trusted"
 done
 
 assert_not_contains "cat sink.log" "ghp_inline_option_secret"
@@ -62,15 +62,15 @@ assert_not_contains "cat sink.log" "Authorization"
 # Tracked-config reloads use a separate trust pre-check. Track the file while it
 # is trusted, drop the trust, and confirm a reload from elsewhere skips it
 # instead of resolving it against the sink.
-(cd proj && mise trust && MISE_YES=0 mise ls)
+(cd proj && pakro trust && PAKRO_YES=0 pakro ls)
 : >sink.log
-(cd proj && mise trust --untrust)
+(cd proj && pakro trust --untrust)
 mkdir -p other
 cd other || exit 1
 # The trusted run above cached the sink's release list, so an empty sink log
 # alone would not prove the file was skipped: assert the skip itself, and that
 # the tool is not listed.
-assert_contains "MISE_YES=0 MISE_DEBUG=1 mise ls --all-sources 2>&1" "skipping untrusted tracked config"
-assert_not_contains "MISE_YES=0 mise ls --all-sources 2>&1" "mise-test-fixtures"
+assert_contains "PAKRO_YES=0 PAKRO_DEBUG=1 pakro ls --all-sources 2>&1" "skipping untrusted tracked config"
+assert_not_contains "PAKRO_YES=0 pakro ls --all-sources 2>&1" "mise-test-fixtures"
 assert_not_contains "cat ../sink.log" "ghp_inline_option_secret"
 assert_not_contains "cat ../sink.log" "Authorization"

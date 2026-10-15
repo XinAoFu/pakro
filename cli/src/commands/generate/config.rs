@@ -7,19 +7,19 @@ use crate::config::{config_file, global_config_path};
 use crate::file::display_path;
 use crate::{env, file};
 
-/// Generate a mise.toml file
+/// Generate a pakro.toml file
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise generate config             # generate a default mise.toml template
-mise generate config .mise.toml  # generate a specific file
-mise generate config -g          # generate the global config file
-mise generate config -n          # preview without writing"###
+        r###"pakro generate config             # generate a default pakro.toml template
+pakro generate config .pakro.toml  # generate a specific file
+pakro generate config -g          # generate the global config file
+pakro generate config -n          # preview without writing"###
     )
 )]
 pub(super) struct Config {
-    /// Generate the global config file (~/.config/mise/config.toml)
+    /// Generate the global config file (~/.config/pakro/config.toml)
     #[usage(long, short = 'g', conflicts = "path")]
     global: bool,
     /// Show what would be generated without writing to file
@@ -40,7 +40,7 @@ impl Config {
         } else if self.global {
             global_config_path()
         } else {
-            PathBuf::from(&*env::MISE_DEFAULT_CONFIG_FILENAME)
+            PathBuf::from(&*env::PAKRO_DEFAULT_CONFIG_FILENAME)
         };
         let doc = if let Some(tool_versions) = &self.tool_versions {
             self.tool_versions(tool_versions, &path).await?
@@ -49,7 +49,7 @@ impl Config {
         };
         if self.dry_run {
             info!("would write to {}", display_path(&path));
-            miseprintln!("{doc}");
+            pakroprintln!("{doc}");
         } else {
             info!("writing to {}", display_path(&path));
             if let Some(parent) = path.parent() {
@@ -72,14 +72,14 @@ impl Config {
 
     fn default(&self) -> String {
         formatdoc! {r#"
-            # mise config files are hierarchical. mise will find all of the config files
+            # pakro config files are hierarchical. pakro will find all of the config files
             # in all parent directories and merge them together.
             # You might have a structure like:
             #
-            # * ~/work/project/mise.toml   # a config file for a specific work project
-            # * ~/work/mise.toml           # a config file for projects related to work
-            # * ~/.config/mise/config.toml # the global config file
-            # * /etc/mise/config.toml      # the system config file
+            # * ~/work/project/pakro.toml   # a config file for a specific work project
+            # * ~/work/pakro.toml           # a config file for projects related to work
+            # * ~/.config/pakro/config.toml # the global config file
+            # * /etc/pakro/config.toml      # the system config file
             #
             # This setup allows you to define default versions and configuration across
             # all projects but override them for specific projects.

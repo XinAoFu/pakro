@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Test that task dependencies work across different monorepo subdirectories
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 
 # Create monorepo root config
-cat <<'TOML' >mise.toml
+cat <<'TOML' >pakro.toml
 monorepo_root = true
 
 [monorepo]
@@ -15,7 +15,7 @@ TOML
 
 # Create frontend that depends on root task
 mkdir -p projects/frontend
-cat <<'TOML' >projects/frontend/mise.toml
+cat <<'TOML' >projects/frontend/pakro.toml
 [env]
 FRONTEND_ENV = "production"
 
@@ -34,7 +34,7 @@ TOML
 
 # Create backend that depends on shared lib
 mkdir -p projects/backend
-cat <<'TOML' >projects/backend/mise.toml
+cat <<'TOML' >projects/backend/pakro.toml
 [env]
 BACKEND_ENV = "production"
 
@@ -58,7 +58,7 @@ rm -f /tmp/shared-lib.txt /tmp/root-setup.txt
 
 # Test 1: Frontend build depends on root task
 echo "=== Test 1: Frontend depends on root task ==="
-output=$(mise run '//projects/frontend:build')
+output=$(pakro run '//projects/frontend:build')
 echo "$output"
 # Root setup task ran (check by file existence - output may not show the echo)
 [ -f /tmp/root-setup.txt ] || (echo "FAIL: Root setup not run" && exit 1)
@@ -69,7 +69,7 @@ rm -f /tmp/shared-lib.txt /tmp/root-setup.txt
 
 # Test 2: Backend deploy depends on multiple projects
 echo "=== Test 2: Backend deploy depends on frontend (cross-project dependency) ==="
-output=$(mise run '//projects/backend:deploy')
+output=$(pakro run '//projects/backend:deploy')
 echo "$output"
 echo "$output" | grep -q "Building backend" || (echo "FAIL: Backend not built" && exit 1)
 echo "$output" | grep -q "Building frontend" || (echo "FAIL: Frontend not built as dependency" && exit 1)

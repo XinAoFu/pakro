@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-mise use -g watchexec@latest
+pakro use -g watchexec@latest
 
 git init -q
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.default]
 run = "touch default-ran"
 sources = ["generated/ignored.txt"]
@@ -64,7 +64,7 @@ stop_watch() {
 }
 
 # VCS ignores remain enabled by default, even for explicit task sources.
-MISE_DEBUG=1 mise watch default --postpone --poll=100ms >default.log 2>&1 &
+PAKRO_DEBUG=1 pakro watch default --postpone --poll=100ms >default.log 2>&1 &
 watch_pid=$!
 wait_for_watchexec default.log
 sleep 0.5
@@ -77,7 +77,7 @@ if [[ -e default-ran ]]; then
 fi
 
 # Opting in forwards the watchexec flag and makes the ignored source observable.
-MISE_DEBUG=1 mise watch opted-in --postpone --poll=100ms >opted-in.log 2>&1 &
+PAKRO_DEBUG=1 pakro watch opted-in --postpone --poll=100ms >opted-in.log 2>&1 &
 watch_pid=$!
 wait_for_watchexec opted-in.log
 sleep 0.5
@@ -97,14 +97,14 @@ flag_count=$(grep -o -- '--no-vcs-ignore' <<<"$debug_line" | wc -l | tr -d ' ')
 assert "echo $flag_count" "1"
 
 # --skip-deps excludes dependency task watch settings from the combined process.
-MISE_DEBUG=1 mise watch root --skip-deps --postpone >skip-deps.log 2>&1 &
+PAKRO_DEBUG=1 pakro watch root --skip-deps --postpone >skip-deps.log 2>&1 &
 watch_pid=$!
 wait_for_watchexec skip-deps.log
 stop_watch
 assert_not_contains "grep -F '\$ watchexec ' skip-deps.log" "--no-vcs-ignore"
 
 # Without --skip-deps, an opted-in dependency enables the process-wide flag.
-MISE_DEBUG=1 mise watch root --postpone >with-deps.log 2>&1 &
+PAKRO_DEBUG=1 pakro watch root --postpone >with-deps.log 2>&1 &
 watch_pid=$!
 wait_for_watchexec with-deps.log
 stop_watch

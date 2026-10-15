@@ -5,11 +5,11 @@
 # fallback behavior; this verifies that floating mode can download the R2
 # artifact, validate it, and install it in the cache.
 
-: "${MISE_CACHE_DIR:?Environment variable MISE_CACHE_DIR must be set}"
-archive="$MISE_CACHE_DIR/mise-registry/registry.tar.zst"
-rm -rf "$MISE_CACHE_DIR/mise-registry"
+: "${PAKRO_CACHE_DIR:?Environment variable PAKRO_CACHE_DIR must be set}"
+archive="$PAKRO_CACHE_DIR/pakro-registry/registry.tar.zst"
+rm -rf "$PAKRO_CACHE_DIR/pakro-registry"
 
-MISE_REGISTRY_FLOATING=1 MISE_REGISTRY_CACHE_TTL=0s mise registry jq >/dev/null
+PAKRO_REGISTRY_FLOATING=1 PAKRO_REGISTRY_CACHE_TTL=0s pakro registry jq >/dev/null
 
 if [[ ! -f $archive ]]; then
   fail "floating registry was not downloaded to $archive"

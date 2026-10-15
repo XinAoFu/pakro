@@ -8,7 +8,7 @@ use crate::ui::prompt;
 use crate::{dirs, env, file};
 use std::collections::BTreeSet;
 
-/// Remove the mise CLI and all related data
+/// Remove the pakro CLI and all related data
 ///
 /// The config directory is kept unless `--config` is passed.
 #[derive(Debug, usage_rs::Args)]
@@ -29,18 +29,19 @@ impl Implode {
     }
 
     pub(crate) fn run(self) -> Result<()> {
-        let mut files: BTreeSet<&Path> = [*dirs::STATE, *dirs::DATA, *dirs::CACHE, &*env::MISE_BIN]
-            .into_iter()
-            .collect();
+        let mut files: BTreeSet<&Path> =
+            [*dirs::STATE, *dirs::DATA, *dirs::CACHE, &*env::PAKRO_BIN]
+                .into_iter()
+                .collect();
         if self.config {
             files.insert(&dirs::CONFIG);
         }
-        // include system data dir (e.g. /usr/local/share/mise) used by `mise install --system`
-        let system_data: &Path = &env::MISE_SYSTEM_DATA_DIR;
+        // include system data dir (e.g. /usr/local/share/pakro) used by `pakro install --system`
+        let system_data: &Path = &env::PAKRO_SYSTEM_DATA_DIR;
         files.insert(system_data);
         for f in files.into_iter().filter(|d| d.exists()) {
             if self.dry_run {
-                miseprintln!("rm -rf {}", f.display());
+                pakroprintln!("rm -rf {}", f.display());
             }
 
             if self.confirm_remove(f)? {

@@ -1,29 +1,13 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2016
 
-# Default devcontainer
-
-assert_json_partial_object "mise generate devcontainer" "name,description,features,mounts,containerEnv,customizations" '
-  {
-    "name": "mise",
-    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
-    "features": {
-      "ghcr.io/devcontainers-extra/features/mise:1": {}
-    },
-    "customizations": {
-      "vscode": {
-        "extensions": [
-          "hverlin.mise-vscode"
-        ]
-      }
-    },
-    "mounts": [],
-    "containerEnv": {}
-  }
-'
+# A default published Pakro image/feature/extension has not been established.
+assert_fail_contains "pakro generate devcontainer" "pakro devcontainer image is not configured"
+assert_fail_contains "pakro generate devcontainer --write" "pakro devcontainer image is not configured"
+assert_fail "test -e .devcontainer/devcontainer.json"
 
 # With custom name and image
-assert_json_partial_object "mise generate devcontainer --name test --image testimage:latest" "name,description" '
+assert_json_partial_object "pakro generate devcontainer --name test --image testimage:latest" "name,description" '
   {
     "name": "test",
     "image": "testimage:latest"
@@ -31,26 +15,24 @@ assert_json_partial_object "mise generate devcontainer --name test --image testi
 '
 
 # With mount
-assert_json_partial_object "mise generate devcontainer --mount-mise-data" "name,description,features,mounts,containerEnv,postCreateCommand" '
+assert_json_partial_object "pakro generate devcontainer --image pakro-dev:latest --mount-pakro-data" "name,description,features,mounts,containerEnv,postCreateCommand" '
   {
-    "name": "mise",
-    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
-    "features": {
-      "ghcr.io/devcontainers-extra/features/mise:1": {}
-    },
+    "name": "pakro",
+    "image": "pakro-dev:latest",
+    "features": {},
     "mounts": [
       {
-        "source": "mise-data-volume",
-        "target": "/mnt/mise-data",
+        "source": "pakro-data-volume",
+        "target": "/mnt/pakro-data",
         "type": "volume"
       }
     ],
     "containerEnv": {
-      "MISE_DATA_DIR": "/mnt/mise-data"
+      "PAKRO_DATA_DIR": "/mnt/pakro-data"
     },
     "remoteEnv": {
-      "PATH": "${containerEnv:PATH}:/mnt/mise-data/shims"
+      "PATH": "${containerEnv:PATH}:/mnt/pakro-data/shims"
     },
-    "postCreateCommand": "sudo chown -R vscode:vscode /mnt/mise-data"
+    "postCreateCommand": "sudo chown -R vscode:vscode /mnt/pakro-data"
   }
 '

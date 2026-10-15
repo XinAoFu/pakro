@@ -8,9 +8,9 @@ use crate::{config::Config, config::Settings};
 
 use super::reconcile;
 
-/// Symlink node versions installed by nvm, nodenv, or Homebrew into mise
+/// Symlink node versions installed by nvm, nodenv, or Homebrew into pakro
 ///
-/// Use this to make versions installed by another version manager available to mise.
+/// Use this to make versions installed by another version manager available to pakro.
 ///
 /// This won't overwrite managed installs, runtime aliases, or links from other providers.
 #[derive(Debug, usage_rs::Args)]
@@ -18,8 +18,8 @@ use super::reconcile;
     verbatim_doc_comment,
     example(
         r###"brew install node@20
-mise sync node --brew
-mise use -g node@20 # uses Homebrew-provided node"###
+pakro sync node --brew
+pakro use -g node@20 # uses Homebrew-provided node"###
     )
 )]
 pub(super) struct SyncNode {
@@ -59,17 +59,17 @@ impl SyncNode {
         let mut changed = reconcile::reconcile_all(node.ba(), providers)?.into_iter();
         if self._type.brew {
             for v in changed.next().unwrap_or_default() {
-                miseprintln!("Synced node@{} from Homebrew", v);
+                pakroprintln!("Synced node@{} from Homebrew", v);
             }
         }
         if self._type.nvm {
             for v in changed.next().unwrap_or_default() {
-                miseprintln!("Synced node@{} from nvm", v);
+                pakroprintln!("Synced node@{} from nvm", v);
             }
         }
         if self._type.nodenv {
             for v in changed.next().unwrap_or_default() {
-                miseprintln!("Synced node@{} from nodenv", v);
+                pakroprintln!("Synced node@{} from nodenv", v);
             }
         }
         let config = Config::reset().await?;

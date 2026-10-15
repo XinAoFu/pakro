@@ -18,7 +18,7 @@ use crate::ui::progress_report::SingleReport;
 /// directories linked from a keg into the prefix (brew's Keg::KEG_LINK_DIRECTORIES,
 /// minus etc/var which brew handles specially and we defer)
 pub(super) const LINK_DIRS: &[&str] = &["bin", "sbin", "include", "lib", "share", "Frameworks"];
-const KEG_ONLY_MARKER: &str = ".mise-keg-only";
+const KEG_ONLY_MARKER: &str = ".pakro-keg-only";
 
 struct RecordRepair {
     version: String,
@@ -47,7 +47,7 @@ pub(super) fn linked_version(name: &str) -> Option<String> {
 /// Return the absolute opt path only when its symlink resolves to a keg directly inside the formula rack.
 /// Preserve the configured prefix spelling and report invalid records without repairing them.
 pub(super) fn strict_package_root(name: &str) -> Result<PathBuf> {
-    if let Some(prefix) = std::env::var_os("MISE_SYSTEM_BREW_PREFIX")
+    if let Some(prefix) = std::env::var_os("PAKRO_SYSTEM_BREW_PREFIX")
         && prefix.to_str().is_none()
     {
         bail!("the prefix cannot be printed as a single UTF-8 path; use a compatible prefix path");
@@ -96,7 +96,7 @@ pub(super) fn strict_package_root(name: &str) -> Result<PathBuf> {
 fn package_root_io_error(name: &str, path: &Path, err: std::io::Error) -> eyre::Report {
     let context = if err.kind() == std::io::ErrorKind::NotFound {
         format!(
-            "brew:{name} has no usable installed opt link: {}; install or reconcile it with `mise bootstrap packages apply brew:{name}`",
+            "brew:{name} has no usable installed opt link: {}; install or reconcile it with `pakro bootstrap packages apply brew:{name}`",
             path.display()
         )
     } else {
@@ -118,7 +118,7 @@ pub(super) fn linked_state(name: &str) -> Option<(String, bool)> {
     Some((active.0, pending_record_repair(name).is_some()))
 }
 
-/// Restore one missing or dangling mise-owned active-keg record without relinking the keg.
+/// Restore one missing or dangling pakro-owned active-keg record without relinking the keg.
 pub(super) fn repair_link_record(name: &str, dry_run: bool) -> Result<bool> {
     let Some(repair) = pending_record_repair(name) else {
         return Ok(false);
@@ -129,7 +129,7 @@ pub(super) fn repair_link_record(name: &str, dry_run: bool) -> Result<bool> {
         "opt record"
     };
     if dry_run {
-        miseprintln!("repair {name}/{}: {record}", repair.version);
+        pakroprintln!("repair {name}/{}: {record}", repair.version);
         return Ok(true);
     }
     crate::file::create_dir_all(repair.destination.parent().unwrap())?;
@@ -239,7 +239,7 @@ pub(super) fn installed_versions(name: &str) -> Vec<String> {
         .filter(|p| p.is_dir())
         .filter_map(|p| {
             let name = p.file_name()?.to_string_lossy().to_string();
-            (!name.starts_with(".mise-")).then_some(name)
+            (!name.starts_with(".pakro-")).then_some(name)
         })
         .collect();
     versions.sort();
@@ -273,13 +273,14 @@ fn create_staging_dir(
     crate::file::create_dir_all(rack)?;
     // Serialize the short cleanup/create handshake within a formula rack. The
     // per-directory lock then protects active extraction after this lock is
-    // released, including work owned by another mise process.
-    let _rack_lock = crate::lock_file::LockFile::at(&rack.join(".mise-staging.lock")).lock()?;
+    // released, including work owned by another pakro process.
+    let _rack_lock = crate::lock_file::LockFile::at(&rack.join(".pakro-staging.lock")).lock()?;
     remove_abandoned_staging_dirs(rack)?;
     let staging = tempfile::Builder::new()
-        .prefix(&format!(".mise-extract-{pkg_version}-"))
+        .prefix(&format!(".pakro-extract-{pkg_version}-"))
         .tempdir_in(rack)?;
-    let staging_lock = crate::lock_file::LockFile::at(&staging.path().join(".mise-lock")).lock()?;
+    let staging_lock =
+        crate::lock_file::LockFile::at(&staging.path().join(".pakro-lock")).lock()?;
     Ok((staging, staging_lock))
 }
 
@@ -290,7 +291,7 @@ fn remove_abandoned_staging_dirs(rack: &Path) -> Result<()> {
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
-        if !name.starts_with(".mise-extract-") && !name.starts_with(".mise-tmp-") {
+        if !name.starts_with(".pakro-extract-") && !name.starts_with(".pakro-tmp-") {
             continue;
         }
         let metadata = match path.symlink_metadata() {
@@ -301,10 +302,10 @@ fn remove_abandoned_staging_dirs(rack: &Path) -> Result<()> {
         if !metadata.is_dir() {
             continue;
         }
-        // Older mise versions used lockless staging directories. They may
+        // Older pakro versions used lockless staging directories. They may
         // still belong to a running process, so only reclaim directories that
         // opt into this cleanup protocol with a regular lock file.
-        let lock_path = path.join(".mise-lock");
+        let lock_path = path.join(".pakro-lock");
         let lock_metadata = match lock_path.symlink_metadata() {
             Ok(metadata) => metadata,
             Err(err) if err.kind() == ErrorKind::NotFound => continue,
@@ -344,7 +345,7 @@ fn remove_abandoned_staging_dirs(rack: &Path) -> Result<()> {
 fn commit_lock_path() -> PathBuf {
     prefix::prefix()
         .join("var/homebrew/locks")
-        .join("mise-bootstrap.lock")
+        .join("pakro-bootstrap.lock")
 }
 
 /// Serialize Cellar and shared-prefix mutations even when operation history is
@@ -430,7 +431,7 @@ pub(super) fn prepare_bottle(
 pub(super) fn install_prepared(prepared: PreparedBottle, pr: &dyn SingleReport) -> Result<()> {
     pr.set_message("link".to_string());
     let _commit_lock = commit_lock(pr)?;
-    // Another mise process may have completed the same formula while this
+    // Another pakro process may have completed the same formula while this
     // process prepared its bottle outside the commit lock.
     if keg_installed(&prepared.name, &prepared.pkg_version) {
         return Ok(());
@@ -447,7 +448,7 @@ pub(super) fn install_prepared(prepared: PreparedBottle, pr: &dyn SingleReport) 
             // future installs would skip it — make that state visible
             warn!(
                 "failed to remove {} after link failure: {rm_err}\n\
-                 remove it manually, then re-run `mise bootstrap packages apply`",
+                 remove it manually, then re-run `pakro bootstrap packages apply`",
                 prepared.keg.display()
             );
         }
@@ -526,7 +527,7 @@ pub(super) fn write_receipt(
         // must stay >= 5.1.15: bottled_by_homebrew_at_least gates Linux ELF
         // relocation on the receipt's homebrew_version, and a poured keg's
         // linkage is already final
-        "homebrew_version": "5.1.15 (mise)",
+        "homebrew_version": "5.1.15 (pakro)",
         "used_options": [],
         "unused_options": [],
         "built_as_bottle": poured_from_bottle,
@@ -587,7 +588,7 @@ fn relative_target(dest: &Path, link: &Path) -> PathBuf {
 }
 
 /// May we overwrite `dest`? Only if it's a symlink pointing into our Cellar
-/// or opt (i.e. something brew/mise created and can re-create), or anything
+/// or opt (i.e. something brew/pakro created and can re-create), or anything
 /// underneath a directory symlink brew created — brew links a directory it
 /// owns entirely as a single symlink, so the regular files and the keg's own
 /// symlinks inside are still brew's.
@@ -690,7 +691,7 @@ fn materialize_brew_dirs(dest: &Path) -> Result<()> {
     while let Some(link_dir) = brew_owned_ancestor(dest) {
         let raw_target = std::fs::read_link(&link_dir)?;
         let staging = link_dir.parent().unwrap().join(format!(
-            ".mise-materialize-{}",
+            ".pakro-materialize-{}",
             link_dir.file_name().unwrap().to_string_lossy()
         ));
         let staged = (|| -> Result<()> {
@@ -791,8 +792,8 @@ pub(super) fn link_keg(name: &str, pkg_version: &str, keg_only: bool) -> Result<
         // nothing has been linked yet, and the caller rolls the keg back on
         // this error — so don't claim it remains usable
         bail!(
-            "cannot link {name}: these files already exist and were not created by mise or brew:\n{}\n\
-             Remove or rename them, then re-run `mise bootstrap packages apply`",
+            "cannot link {name}: these files already exist and were not created by pakro or brew:\n{}\n\
+             Remove or rename them, then re-run `pakro bootstrap packages apply`",
             conflicts
                 .iter()
                 .map(|p| format!("  {}", p.display()))
@@ -854,8 +855,8 @@ mod tests {
 
     impl BrewPrefixGuard {
         fn set(prefix: &Path) -> Self {
-            let previous = crate::env::var("MISE_SYSTEM_BREW_PREFIX").ok();
-            crate::env::set_var("MISE_SYSTEM_BREW_PREFIX", prefix);
+            let previous = crate::env::var("PAKRO_SYSTEM_BREW_PREFIX").ok();
+            crate::env::set_var("PAKRO_SYSTEM_BREW_PREFIX", prefix);
             Self { previous }
         }
     }
@@ -863,8 +864,8 @@ mod tests {
     impl Drop for BrewPrefixGuard {
         fn drop(&mut self) {
             match &self.previous {
-                Some(previous) => crate::env::set_var("MISE_SYSTEM_BREW_PREFIX", previous),
-                None => crate::env::remove_var("MISE_SYSTEM_BREW_PREFIX"),
+                Some(previous) => crate::env::set_var("PAKRO_SYSTEM_BREW_PREFIX", previous),
+                None => crate::env::remove_var("PAKRO_SYSTEM_BREW_PREFIX"),
             }
         }
     }
@@ -872,10 +873,10 @@ mod tests {
     #[test]
     fn removes_abandoned_locking_staging_directories() {
         let rack = tempfile::tempdir().unwrap();
-        let extract = rack.path().join(".mise-extract-1.0-abandoned");
+        let extract = rack.path().join(".pakro-extract-1.0-abandoned");
         crate::file::create_dir_all(&extract).unwrap();
         drop(
-            crate::lock_file::LockFile::at(&extract.join(".mise-lock"))
+            crate::lock_file::LockFile::at(&extract.join(".pakro-lock"))
                 .lock()
                 .unwrap(),
         );
@@ -888,8 +889,8 @@ mod tests {
     #[test]
     fn preserves_legacy_lockless_staging_directories() {
         let rack = tempfile::tempdir().unwrap();
-        let extract = rack.path().join(".mise-extract-1.0-legacy");
-        let legacy_tmp = rack.path().join(".mise-tmp-1.0");
+        let extract = rack.path().join(".pakro-extract-1.0-legacy");
+        let legacy_tmp = rack.path().join(".pakro-tmp-1.0");
         crate::file::create_dir_all(&extract).unwrap();
         crate::file::create_dir_all(&legacy_tmp).unwrap();
 
@@ -902,9 +903,9 @@ mod tests {
     #[test]
     fn preserves_locked_staging_until_its_owner_finishes() {
         let rack = tempfile::tempdir().unwrap();
-        let active = rack.path().join(".mise-extract-1.0-active");
+        let active = rack.path().join(".pakro-extract-1.0-active");
         crate::file::create_dir_all(&active).unwrap();
-        let held = crate::lock_file::LockFile::at(&active.join(".mise-lock"))
+        let held = crate::lock_file::LockFile::at(&active.join(".pakro-lock"))
             .lock()
             .unwrap();
 
@@ -1060,7 +1061,7 @@ mod tests {
         crate::file::write(prefix.join("include").join("foo").join("header.h"), "mine")?;
 
         let err = link_keg("foo", "2.0", false).unwrap_err();
-        assert!(err.to_string().contains("not created by mise or brew"));
+        assert!(err.to_string().contains("not created by pakro or brew"));
         assert_eq!(
             std::fs::read_to_string(prefix.join("include").join("foo").join("header.h"))?,
             "mine"
@@ -1350,7 +1351,7 @@ mod tests {
 
         let err = link_keg("foo", "1.0", false).unwrap_err();
 
-        assert!(err.to_string().contains("not created by mise or brew"));
+        assert!(err.to_string().contains("not created by pakro or brew"));
         assert_eq!(crate::file::read_to_string(&linked)?, "foreign");
         assert!(prefix.join("opt/foo").symlink_metadata().is_err());
         Ok(())
@@ -1368,7 +1369,7 @@ mod tests {
 
         let err = link_keg("foo", "1.0", false).unwrap_err();
 
-        assert!(err.to_string().contains("not created by mise or brew"));
+        assert!(err.to_string().contains("not created by pakro or brew"));
         assert_eq!(crate::file::read_to_string(&opt)?, "foreign");
         assert!(prefix.join("lib/libfoo.dylib").symlink_metadata().is_err());
         Ok(())

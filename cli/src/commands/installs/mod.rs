@@ -30,7 +30,7 @@ enum Commands {
 
 impl Installs {
     pub(crate) async fn run(self) -> Result<()> {
-        Settings::get().ensure_experimental("mise installs")?;
+        Settings::get().ensure_experimental("pakro installs")?;
         if !crate::install_layout::resolver::enabled() {
             bail!(
                 "the identity install layout is off; turn it on with `install_layout = \"identity\"`"

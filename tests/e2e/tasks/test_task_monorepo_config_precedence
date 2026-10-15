@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 
-mkdir -p .mise projects/app/.config projects/app/.mise/tasks \
+mkdir -p .pakro projects/app/.config projects/app/.pakro/tasks \
   projects/app/high-dir projects/app/low-dir
 
-cat <<'EOF' >.mise/config.toml
+cat <<'EOF' >.pakro/config.toml
 monorepo_root = true
 
 [monorepo]
 config_roots = ["projects/*"]
 EOF
 
-cat <<EOF >projects/app/.config/mise.toml
+cat <<EOF >projects/app/.config/pakro.toml
 [vars]
 task_context = "lower"
 
@@ -27,7 +27,7 @@ env = { LOWER_PRECEDENCE = "applied", TASK_CONTEXT = "{{vars.task_context}}" }
 run = "echo LOWER_CONTEXT={{vars.task_context}}"
 EOF
 
-cat <<EOF >projects/app/.mise/config.toml
+cat <<EOF >projects/app/.pakro/config.toml
 [vars]
 task_context = "higher"
 
@@ -35,23 +35,23 @@ task_context = "higher"
 dir = "$PWD/projects/app/high-dir"
 
 [tasks.d]
-description = "app/.mise/d"
+description = "app/.pakro/d"
 env = { HIGHER_PRECEDENCE = "applied", TASK_CONTEXT = "{{vars.task_context}}" }
 EOF
 
-cat <<'EOF' >projects/app/.mise/tasks/d
+cat <<'EOF' >projects/app/.pakro/tasks/d
 #!/usr/bin/env bash
 echo "HIGHER_PRECEDENCE=${HIGHER_PRECEDENCE:-<unset>}"
 echo "LOWER_PRECEDENCE=${LOWER_PRECEDENCE:-<unset>}"
 echo "TASK_CONTEXT=${TASK_CONTEXT:-<unset>}"
 echo "TASK_DIR=$PWD"
 EOF
-chmod +x projects/app/.mise/tasks/d
+chmod +x projects/app/.pakro/tasks/d
 
-assert "mise tasks --all --json | jq -r '.[] | select(.name == \"//projects/app:d\") | .description'" "app/.mise/d"
-assert_contains "mise run //projects/app:d" "HIGHER_PRECEDENCE=applied"
-assert_contains "mise run //projects/app:d" "LOWER_PRECEDENCE=<unset>"
-assert_contains "mise run //projects/app:d" "TASK_CONTEXT=higher"
-assert_contains "mise run //projects/app:d" "TASK_DIR=$PWD/projects/app/high-dir"
-assert_not_contains "mise run //projects/app:d" "TASK_DIR=$PWD/projects/app/low-dir"
-assert_contains "mise run //projects/app:d-lower-context" "LOWER_CONTEXT=lower"
+assert "pakro tasks --all --json | jq -r '.[] | select(.name == \"//projects/app:d\") | .description'" "app/.pakro/d"
+assert_contains "pakro run //projects/app:d" "HIGHER_PRECEDENCE=applied"
+assert_contains "pakro run //projects/app:d" "LOWER_PRECEDENCE=<unset>"
+assert_contains "pakro run //projects/app:d" "TASK_CONTEXT=higher"
+assert_contains "pakro run //projects/app:d" "TASK_DIR=$PWD/projects/app/high-dir"
+assert_not_contains "pakro run //projects/app:d" "TASK_DIR=$PWD/projects/app/low-dir"
+assert_contains "pakro run //projects/app:d-lower-context" "LOWER_CONTEXT=lower"

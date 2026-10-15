@@ -1,3 +1,5 @@
+// Published upstream bundles remain useful signature fixtures, not a pakro trust root.
+#[cfg(test)]
 mod packslip;
 
 use crate::github::GithubAsset as ReleaseAsset;
@@ -18,7 +20,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
-const AUTO_UPDATE_REEXEC_ENV: &str = "__MISE_AUTO_UPDATE_REEXEC";
+const AUTO_UPDATE_REEXEC_ENV: &str = "__PAKRO_AUTO_UPDATE_REEXEC";
 
 fn release_archive_name(version: &str, os: &str, arch: &str, build_target: &str) -> String {
     // Rust reports every 32-bit ARM target as `arm`, but our releases use `armv7`.
@@ -34,7 +36,7 @@ fn release_archive_name(version: &str, os: &str, arch: &str, build_target: &str)
         ""
     };
     let extension = if os == "windows" { "zip" } else { "tar.gz" };
-    format!("mise-{version}-{os}-{arch}{libc}.{extension}")
+    format!("pakro-{version}-{os}-{arch}{libc}.{extension}")
 }
 
 fn release_archive_asset(assets: &[ReleaseAsset], archive_name: &str) -> Option<ReleaseAsset> {
@@ -75,11 +77,11 @@ pub(crate) async fn maybe_auto_update(
     let update_lock = match crate::lock_file::LockFile::new(&lock_path).try_lock() {
         Ok(Some(lock)) => lock,
         Ok(None) => {
-            debug!("skipping auto-update because another mise process is updating");
+            debug!("skipping auto-update because another pakro process is updating");
             return Ok(());
         }
         Err(err) => {
-            debug!("automatic mise update could not acquire its lock: {err:#}");
+            debug!("automatic pakro update could not acquire its lock: {err:#}");
             return Ok(());
         }
     };
@@ -87,7 +89,7 @@ pub(crate) async fn maybe_auto_update(
     let check_duration = match settings.auto_update_check_duration() {
         Ok(duration) => duration,
         Err(err) => {
-            debug!("automatic mise update has an invalid check duration: {err:#}");
+            debug!("automatic pakro update has an invalid check duration: {err:#}");
             return Ok(());
         }
     };
@@ -95,11 +97,11 @@ pub(crate) async fn maybe_auto_update(
         return Ok(());
     }
     if let Err(err) = crate::file::write(&last_check_path, "") {
-        debug!("automatic mise update could not record its check: {err:#}");
+        debug!("automatic pakro update could not record its check: {err:#}");
         return Ok(());
     }
     // The marker above is the auto-update throttle. Bypass the separate shared
-    // version cache so a shorter-lived `mise version` lookup cannot make this
+    // version cache so a shorter-lived `pakro version` lookup cannot make this
     // due check accept stale data and advance the marker for another interval.
     let Some(version) = crate::cli::version::check_for_new_version(Duration::ZERO).await else {
         return Ok(());
@@ -113,7 +115,7 @@ pub(crate) async fn maybe_auto_update(
         minimum_release_age: None,
     };
     if let Err(err) = update.run_with_age_policy(true).await {
-        debug!("automatic mise update failed: {err:#}");
+        debug!("automatic pakro update failed: {err:#}");
         return Ok(());
     }
     drop(update_lock);
@@ -157,7 +159,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let mut command = Command::new(&*env::MISE_BIN);
+    let mut command = Command::new(&*env::PAKRO_BIN);
     command.args(args).env(AUTO_UPDATE_REEXEC_ENV, "1");
     if let Some(cwd) = original_cwd {
         command.current_dir(cwd);
@@ -171,7 +173,7 @@ fn reexec(_args: &[String], original_cwd: Option<&std::path::Path>) -> Result<()
 
     let mut command = build_reexec_command(std::env::args_os().skip(1), original_cwd);
     let err = command.exec();
-    warn!("mise was updated but could not re-execute the command: {err}");
+    warn!("pakro was updated but could not re-execute the command: {err}");
     Ok(())
 }
 
@@ -189,16 +191,16 @@ fn reexec(args: &[String], original_cwd: Option<&std::path::Path>) -> Result<()>
     Err(crate::request_exit(status.code().unwrap_or(1)))
 }
 
-/// Update mise itself
+/// Update pakro itself
 ///
 /// Selects the newest stable release satisfying the minimum release age (24h by default).
 /// Explicit versions bypass the delay. Downloads binaries from GitHub Releases.
 /// By default, this will also update any installed plugins.
-/// Uses mise's GitHub token resolution chain for authenticated requests.
+/// Uses pakro's GitHub token resolution chain for authenticated requests.
 ///
-/// Packagers can disable this command so that mise is updated through the
-/// package manager instead. See
-/// https://mise.jdx.dev/development/packaging.html#packaging-and-self-update-instructions
+/// Packagers can disable this command so that pakro is updated through the
+/// package manager instead. Release updates currently require pakro publishing
+/// and verification identities that have not yet been established.
 #[derive(Debug, Default, usage_rs::Args)]
 #[usage(verbatim_doc_comment)]
 pub(crate) struct SelfUpdate {
@@ -224,10 +226,10 @@ pub(crate) struct SelfUpdate {
 
 /// Whether replacing the running binary would destroy the install with `TEMP` set to `tmp`.
 ///
-/// `self-replace` renames the running mise.exe out of its install directory *first*, then
+/// `self-replace` renames the running pakro.exe out of its install directory *first*, then
 /// launches a copy of it from `TEMP` to finish the swap. When that copy's path exceeds
 /// `MAX_PATH` the launch fails — `CreateProcess` has no `\\?\` escape hatch the way the file
-/// APIs do — and nothing puts mise back: the install directory is left empty and the binary is
+/// APIs do — and nothing puts pakro back: the install directory is left empty and the binary is
 /// stranded in `TEMP` under a generated name. The crate declares executable paths that long out
 /// of scope (self-replace-1.5.0/src/windows.rs, in `self_delete_on_init`), so the only place to
 /// stop this is before it starts.
@@ -252,8 +254,8 @@ fn helper_path_len(tmp: &std::path::Path, exe_stem: Option<&str>) -> usize {
 /// Length in UTF-16 code units of the name `self-replace` generates for the helper:
 /// `.` + the running executable's file stem + `.` + 32 random characters +
 /// `.__selfdelete__.exe`, with the stem included only when it is valid UTF-8. Mirrors
-/// `get_temp_executable_name` in self-replace-1.5.0/src/windows.rs. This is 57 for
-/// `mise.exe` and longer whenever the binary has been renamed, so it cannot be a constant.
+/// `get_temp_executable_name` in self-replace-1.5.0/src/windows.rs. This is 58 for
+/// `pakro.exe` and longer whenever the binary has been renamed, so it cannot be a constant.
 #[cfg(windows)]
 fn helper_name_len(exe_stem: Option<&str>) -> usize {
     let suffix_len = env::SELF_REPLACE_SUFFIXES[0].len();
@@ -263,20 +265,20 @@ fn helper_name_len(exe_stem: Option<&str>) -> usize {
     1 + stem + env::SELF_REPLACE_RANDOM_LEN + suffix_len
 }
 
-/// Delete the copies of mise that earlier updates left in `TEMP`.
+/// Delete the copies of pakro that earlier updates left in `TEMP`.
 ///
 /// `self-replace` moves the running binary aside and spawns a copy of it to delete the leftovers.
-/// When that copy does not delete itself the deletion never happens and a **full copy of mise.exe**
+/// When that copy does not delete itself the deletion never happens and a **full copy of pakro.exe**
 /// stays in `TEMP` for good. Nothing else collects them: they are not under the cache, so
-/// `mise cache clear` does not reach them, and their names mean nothing to anyone else.
+/// `pakro cache clear` does not reach them, and their names mean nothing to anyone else.
 ///
 /// A long `TEMP` is not the only trigger, though it was the one this was first written for
 /// (measured at 199 and 201 characters, just under the length #12062 refuses outright). Measured
 /// again on a `TEMP` of 31: a successful update leaves **both** copies — the `__relocated__`
-/// original and the `__selfdelete__` helper — and neither is locked afterwards, so any later mise
+/// original and the `__selfdelete__` helper — and neither is locked afterwards, so any later pakro
 /// can remove them. That is what this exists to do.
 ///
-/// Best effort by design. A copy another mise is still using cannot be deleted on Windows, which is
+/// Best effort by design. A copy another pakro is still using cannot be deleted on Windows, which is
 /// the outcome we want, so failures are ignored rather than warned about.
 #[cfg(windows)]
 fn sweep_helper_orphans() {
@@ -290,7 +292,7 @@ fn sweep_helper_orphans() {
 
 /// The copies an earlier update left in `TEMP`, with their sizes.
 ///
-/// Shared with `mise doctor` so that "what counts as a leftover" has one definition rather than two
+/// Shared with `pakro doctor` so that "what counts as a leftover" has one definition rather than two
 /// that can drift: the predicate stays [`env::is_self_replace_helper`], and this is only the walk.
 /// A file whose size cannot be read is still reported, at 0 — it exists, which is the part that
 /// matters, and the size is decoration.
@@ -342,9 +344,9 @@ fn current_exe_stem() -> Option<String> {
 /// Refresh the installed plugins, best effort.
 ///
 /// This runs after the binary has already been replaced, so a failure here says nothing about
-/// whether the update worked. Propagating it made a successful update print `Updated mise to X`
+/// whether the update worked. Propagating it made a successful update print `Updated pakro to X`
 /// and then exit non-zero, which reads as "the update failed" — on Windows that is a bad enough
-/// misreading to send someone looking for a mise that is not broken. Warned about instead, the way
+/// misreading to send someone looking for a pakro that is not broken. Warned about instead, the way
 /// the two housekeeping steps above it already are.
 ///
 /// The message names the step because the error often cannot. `duct` attaches the command only
@@ -352,7 +354,7 @@ fn current_exe_stem() -> Option<String> {
 /// `ACCESS_DENIED` from spawning the freshly written binary arrives as nothing but
 /// "Access is denied. (os error 5)".
 ///
-/// Takes the binary to run rather than reading [`env::MISE_BIN`] itself, so a test can drive the
+/// Takes the binary to run rather than reading [`env::PAKRO_BIN`] itself, so a test can drive the
 /// failure without a real update.
 fn update_plugins(bin: &std::path::Path) {
     if let Err(err) = cmd!(bin, "plugins", "update").run() {
@@ -375,7 +377,7 @@ fn write_probe_is_fatal(err: &std::io::Error) -> bool {
 /// Create and remove a file in `dir`, the way replacing the binary is about to.
 fn probe_install_dir(dir: &Path) -> std::io::Result<()> {
     tempfile::Builder::new()
-        .prefix(".mise-self-update-probe")
+        .prefix(".pakro-self-update-probe")
         .tempfile_in(dir)
         .map(|_| ())
 }
@@ -384,8 +386,8 @@ fn probe_install_dir(dir: &Path) -> std::io::Result<()> {
 ///
 /// On a sticky directory (`S_ISVTX`, the bit `/tmp` carries) creating a file is allowed but
 /// renaming or removing one is restricted to the file's owner, the directory's owner, and root.
-/// Replacing mise renames the *existing* binary out of the way, so a bindir that is group-writable
-/// and sticky with a root-owned mise in it passes the write probe -- the probe's own file belongs
+/// Replacing pakro renames the *existing* binary out of the way, so a bindir that is group-writable
+/// and sticky with a root-owned pakro in it passes the write probe -- the probe's own file belongs
 /// to the prober -- and then fails at the rename. Taking the four facts as arguments keeps the
 /// rule testable without a second user to own the file.
 #[cfg(unix)]
@@ -426,8 +428,8 @@ enum Unreplaceable {
 /// What to print when the install directory cannot be written to.
 ///
 /// Names the binary as well as the directory: the install that is stuck is frequently not the one
-/// the user thinks they are running -- a root-owned `/usr/local/bin/mise` shadowing a packaged
-/// `/usr/bin/mise` produces exactly this failure, and the path is what gives that away.
+/// the user thinks they are running -- a root-owned `/usr/local/bin/pakro` shadowing a packaged
+/// `/usr/bin/pakro` produces exactly this failure, and the path is what gives that away.
 fn install_dir_not_writable_message(exe: &Path, dir: &Path, why: Unreplaceable) -> String {
     let cause = match why {
         Unreplaceable::DirectoryNotWritable => {
@@ -441,12 +443,12 @@ fn install_dir_not_writable_message(exe: &Path, dir: &Path, why: Unreplaceable) 
         ),
     };
     let elevate = if cfg!(windows) {
-        "run mise self-update again from an elevated (Administrator) prompt"
+        "run pakro self-update again from an elevated (Administrator) prompt"
     } else {
-        "run `sudo mise self-update` to update this install"
+        "run `sudo pakro self-update` to update this install"
     };
     let mut msg = format!(
-        "cannot replace {exe}: {cause}\n\nEither {elevate}, or update mise the same way you installed it.",
+        "cannot replace {exe}: {cause}\n\nEither {elevate}, or update pakro the same way you installed it.",
         exe = exe.display(),
     );
     if let Some(instructions) = upgrade_instructions_text() {
@@ -460,6 +462,12 @@ fn install_dir_not_writable_message(exe: &Path, dir: &Path, why: Unreplaceable) 
 fn stage_update_binary(archive: &Path, dest: &Path, keys: &[[u8; 32]]) -> Result<()> {
     verify_update_archive(archive, keys)?;
     extract_update_binary(archive, dest)
+}
+
+fn release_archive_verification_keys() -> Result<Vec<[u8; 32]>> {
+    bail!(
+        "pakro release archive verification is not configured; update pakro the same way you installed it"
+    )
 }
 
 /// Verify the embedded signature and archive filename before extracting anything.
@@ -489,7 +497,7 @@ fn extract_update_binary(archive: &Path, dest: &Path) -> Result<()> {
     let file = std::fs::File::open(archive)?;
     if archive.extension().is_some_and(|ext| ext == "zip") {
         let mut archive = zip::ZipArchive::new(file)?;
-        let mut entry = archive.by_name("mise/bin/mise.exe")?;
+        let mut entry = archive.by_name("pakro/bin/pakro.exe")?;
         eyre::ensure!(
             entry.is_file() && !entry.is_symlink(),
             "release executable is not a regular file"
@@ -499,7 +507,7 @@ fn extract_update_binary(archive: &Path, dest: &Path) -> Result<()> {
         let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
         for entry in archive.entries()? {
             let mut entry = entry?;
-            if entry.path()? == Path::new("mise/bin/mise") {
+            if entry.path()? == Path::new("pakro/bin/pakro") {
                 eyre::ensure!(
                     entry.header().entry_type().is_file(),
                     "release executable is not a regular file"
@@ -508,7 +516,7 @@ fn extract_update_binary(archive: &Path, dest: &Path) -> Result<()> {
                 return Ok(());
             }
         }
-        bail!("release archive has no mise/bin/mise executable");
+        bail!("release archive has no pakro/bin/pakro executable");
     }
     Ok(())
 }
@@ -517,8 +525,8 @@ fn extract_update_binary(archive: &Path, dest: &Path) -> Result<()> {
 // with --force. Explicit targets still allow intentional downgrades.
 fn skip_selected_update(target: &str, current: &str, explicit: bool, force: bool) -> Result<bool> {
     Ok((!explicit
-        && crate::cli::version::mise_release_key(target)?
-            < crate::cli::version::mise_release_key(current)?)
+        && crate::cli::version::pakro_release_key(target)?
+            < crate::cli::version::pakro_release_key(current)?)
         || (!force && target == current))
 }
 
@@ -529,11 +537,12 @@ impl SelfUpdate {
     }
 
     async fn run_with_age_policy(self, enforce_age: bool) -> Result<()> {
+        SelfUpdateSource::current().require_release_identity()?;
         if !Self::is_available() && !self.force {
             if let Some(instructions) = upgrade_instructions_text() {
                 warn!("{}", instructions);
             }
-            bail!("mise is installed via a package manager, cannot update");
+            bail!("{}", upgrade_instructions_or_hint());
         }
         // Before the update, not after: this run is about to create a copy of its own, and that one
         // is in use rather than stale. Before the length check too, and that ordering is the whole
@@ -548,24 +557,24 @@ impl SelfUpdate {
 
         if let Some(version) = version {
             let styled_version = style(&version).bright().yellow();
-            miseprintln!("Updated mise to {styled_version}");
+            pakroprintln!("Updated pakro to {styled_version}");
             #[cfg(windows)]
             if let Err(e) = Self::reshim_after_update().await {
                 warn!("Failed to reshim after self-update: {e}");
             }
         } else {
-            miseprintln!("mise is already up to date");
+            pakroprintln!("pakro is already up to date");
         }
         crate::cli::version::show_auto_update_hint();
         if !self.no_plugins {
-            update_plugins(&env::MISE_BIN);
+            update_plugins(&env::PAKRO_BIN);
         }
 
         Ok(())
     }
 
     /// Stop before anything is downloaded or moved when `TEMP` is long enough that
-    /// replacing the binary would leave no mise installed at all.
+    /// replacing the binary would leave no pakro installed at all.
     #[cfg(windows)]
     fn ensure_temp_dir_can_replace_binary() -> Result<()> {
         use std::os::windows::ffi::OsStrExt;
@@ -576,16 +585,16 @@ impl SelfUpdate {
             return Ok(());
         }
         let msg = formatdoc! {r#"
-            TEMP is too long to replace mise.exe safely ({len} UTF-16 code units)
+            TEMP is too long to replace pakro.exe safely ({len} UTF-16 code units)
 
               TEMP = {tmp}
 
-            Updating moves the running mise.exe aside and then launches a helper from TEMP to
+            Updating moves the running pakro.exe aside and then launches a helper from TEMP to
             put the new one in place. That helper's path would be {helper} UTF-16 code units,
             and Windows cannot launch an executable whose path reaches {max}. The move happens
-            first, so going ahead would leave no mise installed at all.
+            first, so going ahead would leave no pakro installed at all.
 
-            Point TEMP and TMP at a shorter directory and run mise self-update again:
+            Point TEMP and TMP at a shorter directory and run pakro self-update again:
 
               $env:TEMP = 'C:\Temp'; $env:TMP = 'C:\Temp'"#,
             len = tmp.as_os_str().encode_wide().count(),
@@ -598,19 +607,19 @@ impl SelfUpdate {
 
     /// Stop before anything is downloaded when the running binary cannot be replaced.
     ///
-    /// `self-replace` renames the running mise out of its directory and writes the new binary in
+    /// `self-replace` renames the running pakro out of its directory and writes the new binary in
     /// its place, so an update needs write permission on the *directory*, not on the file. A
-    /// root-owned install being updated by a normal user -- `/usr/local/bin/mise`, an install
+    /// root-owned install being updated by a normal user -- `/usr/local/bin/pakro`, an install
     /// under `/opt` -- therefore fails, but only after the release has been downloaded, and with
     /// a message that names a temp file nobody asked for and no directory at all:
-    /// `Permission denied (os error 13) at path "/usr/local/bin/.mise.__temp__XKV5Oz"`. Probing
+    /// `Permission denied (os error 13) at path "/usr/local/bin/.pakro.__temp__XKV5Oz"`. Probing
     /// first turns that into the two things the user needs: which install is stuck, and what to
     /// do about it.
     ///
-    /// Deliberately after the up-to-date comparison, so a mise that has nothing to update still
+    /// Deliberately after the up-to-date comparison, so a pakro that has nothing to update still
     /// reports that rather than a permission problem it was never going to hit.
     fn ensure_install_dir_writable() -> Result<()> {
-        let exe = std::env::current_exe().unwrap_or_else(|_| env::MISE_BIN.clone());
+        let exe = std::env::current_exe().unwrap_or_else(|_| env::PAKRO_BIN.clone());
         let Some(dir) = exe.parent() else {
             return Ok(());
         };
@@ -648,10 +657,11 @@ impl SelfUpdate {
         }
     }
 
-    async fn do_update(&self, enforce_age: bool) -> Result<Option<String>> {
+    async fn do_update(&self, _enforce_age: bool) -> Result<Option<String>> {
         let settings = Settings::get();
         let source = SelfUpdateSource::from_settings(&settings);
-        source.validate()?;
+        source.require_release_identity()?;
+        let verification_keys = release_archive_verification_keys()?;
         source.repository_parts()?;
         let explicit = self.version.is_some();
         let version = match &self.version {
@@ -665,8 +675,8 @@ impl SelfUpdate {
             }
         };
         if !explicit {
-            miseprintln!(
-                "Selected mise {version} (minimum release age: {})",
+            pakroprintln!(
+                "Selected pakro {version} (minimum release age: {})",
                 crate::cli::version::self_update_release_age(self.minimum_release_age.as_deref())
             );
         }
@@ -691,16 +701,6 @@ impl SelfUpdate {
             .error_for_status()?
             .json()
             .await?;
-        let manifest = Self::release_packslip(&client, &source, &release, &version).await?;
-        let before = enforce_age
-            .then(|| {
-                crate::duration::parse_into_timestamp(
-                    &crate::cli::version::self_update_release_age(
-                        self.minimum_release_age.as_deref(),
-                    ),
-                )
-            })
-            .transpose()?;
         let archive_name = release_archive_name(
             &format!("v{version}"),
             &OS,
@@ -711,7 +711,7 @@ impl SelfUpdate {
             .ok_or_else(|| eyre::eyre!("release v{version} has no asset named {archive_name}"))?;
         if !(self.yes
             || settings.yes
-            || crate::ui::prompt::confirm(format!("Update mise to {version}?"))?.is_yes())
+            || crate::ui::prompt::confirm(format!("Update pakro to {version}?"))?.is_yes())
         {
             bail!("self-update cancelled; use --yes to update non-interactively");
         }
@@ -720,22 +720,12 @@ impl SelfUpdate {
         Self::download_archive(&client, &source, &asset.url, &archive_path).await?;
         let binary = dir
             .path()
-            .join(if cfg!(windows) { "mise.exe" } else { "mise" });
+            .join(if cfg!(windows) { "pakro.exe" } else { "pakro" });
         let new_binary = binary.clone();
-        let selected_version = version.clone();
         // Verification and archive I/O are blocking; no unverified contents are
         // extracted, and the running executable is untouched on any failure.
         tokio::task::spawn_blocking(move || -> Result<()> {
-            if let Some(manifest) = manifest {
-                packslip::verify(&manifest, &selected_version, &archive_path, before)?;
-            }
-            stage_update_binary(
-                &archive_path,
-                &new_binary,
-                &[*include_bytes!(
-                    "../../../packaging/resources/keys/zipsign.pub"
-                )],
-            )?;
+            stage_update_binary(&archive_path, &new_binary, &verification_keys)?;
             #[cfg(target_os = "macos")]
             Self::verify_macos_signature(&new_binary)?;
             self_replace::self_replace(&new_binary)?;
@@ -760,55 +750,10 @@ impl SelfUpdate {
         Ok(headers)
     }
 
-    async fn release_packslip(
-        client: &reqwest::Client,
-        source: &SelfUpdateSource,
-        release: &crate::github::GithubRelease,
-        version: &str,
-    ) -> Result<Option<String>> {
-        match release
-            .assets
-            .iter()
-            .find(|asset| asset.name == "packslip.sigstore.json")
-        {
-            Some(asset) => Ok(Some(
-                Self::download_packslip(client, source, &asset.url).await?,
-            )),
-            None if packslip::required(version)? => {
-                bail!("release v{version} is missing its required packslip.sigstore.json")
-            }
-            None => Ok(None),
-        }
-    }
-
-    async fn download_packslip(
-        client: &reqwest::Client,
-        source: &SelfUpdateSource,
-        url: &str,
-    ) -> Result<String> {
-        let mut headers = Self::request_headers(source, url)?;
-        headers.insert(reqwest::header::ACCEPT, "application/octet-stream".parse()?);
-        let mut response = client
-            .get(url)
-            .headers(headers)
-            .send()
-            .await?
-            .error_for_status()?;
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response.chunk().await? {
-            eyre::ensure!(
-                bytes.len() + chunk.len() <= 4 * 1024 * 1024,
-                "self-update packslip exceeds 4 MiB"
-            );
-            bytes.extend_from_slice(&chunk);
-        }
-        Ok(String::from_utf8(bytes)?)
-    }
-
     fn http_client() -> Result<reqwest::Client> {
         let settings = Settings::get();
         Ok(reqwest::Client::builder()
-            .user_agent(format!("mise/{}", env!("CARGO_PKG_VERSION")))
+            .user_agent(format!("pakro/{}", env!("CARGO_PKG_VERSION")))
             .https_only(true)
             .redirect(Self::redirect_policy())
             .connect_timeout(settings.http_timeout())
@@ -865,7 +810,7 @@ impl SelfUpdate {
     }
 
     // Rebuild the Windows shim copies in-process instead of shelling out to
-    // `mise reshim --force`. Mirrors `cli::reshim::Reshim::run`.
+    // `pakro reshim --force`. Mirrors `cli::reshim::Reshim::run`.
     #[cfg(windows)]
     async fn reshim_after_update() -> Result<()> {
         use crate::config::Config;
@@ -906,12 +851,7 @@ impl SelfUpdate {
 
         // Verify signature and identifier in one step using --test-requirement
         let output = Command::new("codesign")
-            .args([
-                "--verify",
-                "--deep",
-                "--strict",
-                "-R=identifier \"dev.jdx.mise\"",
-            ])
+            .args(["--verify", "--deep", "--strict", "-R=identifier \"pakro\""])
             .arg(binary_path)
             .output()?;
 
@@ -931,6 +871,24 @@ impl SelfUpdate {
 #[cfg(test)]
 mod release_asset_tests {
     use super::*;
+
+    #[test]
+    fn upstream_archive_key_is_not_a_pakro_release_trust_root() {
+        assert!(release_archive_verification_keys().is_err());
+        assert!(!SelfUpdate::is_available());
+    }
+
+    #[tokio::test]
+    async fn force_cannot_enable_updates_without_a_pakro_release_identity() {
+        let command = SelfUpdate {
+            force: true,
+            version: Some("9999.1.0".to_string()),
+            ..SelfUpdate::default()
+        };
+        let error = command.run().await.unwrap_err();
+        assert!(error.to_string().contains("pakro release"));
+        assert!(error.to_string().contains("not configured"));
+    }
 
     #[test]
     fn age_filter_never_implicitly_downgrades() {
@@ -1009,7 +967,7 @@ mod release_asset_tests {
         ] {
             assert_eq!(
                 release_archive_name("v2026.9.3", os, arch, build_target),
-                format!("mise-v2026.9.3-{platform}"),
+                format!("pakro-v2026.9.3-{platform}"),
                 "{build_target}",
             );
         }
@@ -1032,11 +990,11 @@ mod release_asset_tests {
     #[test]
     fn armv7_selects_its_archive_with_arm64_and_raw_binaries_present() {
         let release = release_with_assets(&[
-            "mise-v2026.9.3-linux-arm64",
-            "mise-v2026.9.3-linux-arm64.tar.gz",
-            "mise-v2026.9.3-linux-armv7",
-            "mise-v2026.9.3-linux-armv7-musl.tar.gz",
-            "mise-v2026.9.3-linux-armv7.tar.gz",
+            "pakro-v2026.9.3-linux-arm64",
+            "pakro-v2026.9.3-linux-arm64.tar.gz",
+            "pakro-v2026.9.3-linux-armv7",
+            "pakro-v2026.9.3-linux-armv7-musl.tar.gz",
+            "pakro-v2026.9.3-linux-armv7.tar.gz",
         ]);
         for build_target in [
             "armv7-unknown-linux-gnueabihf",
@@ -1051,13 +1009,13 @@ mod release_asset_tests {
     #[test]
     fn missing_archive_does_not_fall_back_to_other_assets() {
         let release = release_with_assets(&[
-            "mise-v2026.9.3-linux-arm64",
-            "mise-v2026.9.3-linux-arm64.tar.gz",
-            "mise-v2026.9.3-linux-armv7",
-            "mise-v2026.9.3-linux-armv7-musl.tar.gz",
-            "mise-v2026.9.3-linux-armv7.tar.xz",
-            "mise-v2026.9.3-linux-armv7.tar.gz.sig",
-            "mise-v2026.9.2-linux-armv7.tar.gz",
+            "pakro-v2026.9.3-linux-arm64",
+            "pakro-v2026.9.3-linux-arm64.tar.gz",
+            "pakro-v2026.9.3-linux-armv7",
+            "pakro-v2026.9.3-linux-armv7-musl.tar.gz",
+            "pakro-v2026.9.3-linux-armv7.tar.xz",
+            "pakro-v2026.9.3-linux-armv7.tar.gz.sig",
+            "pakro-v2026.9.2-linux-armv7.tar.gz",
         ]);
         let name =
             release_archive_name("v2026.9.3", "linux", "arm", "armv7-unknown-linux-gnueabihf");
@@ -1074,9 +1032,9 @@ mod archive_tests {
         let key = zipsign_api::SigningKey::from_bytes(&[7; 32]);
         let public_key = key.verifying_key().to_bytes();
         let path = dir.join(if zip {
-            "mise-test.zip"
+            "pakro-test.zip"
         } else {
-            "mise-test.tar.gz"
+            "pakro-test.tar.gz"
         });
         let mut output = std::fs::OpenOptions::new()
             .read(true)
@@ -1089,7 +1047,7 @@ mod archive_tests {
             let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
             archive
                 .start_file(
-                    "mise/bin/mise.exe",
+                    "pakro/bin/pakro.exe",
                     zip::write::SimpleFileOptions::default(),
                 )
                 .unwrap();
@@ -1099,7 +1057,7 @@ mod archive_tests {
                 &mut input,
                 &mut output,
                 &[key],
-                Some(b"mise-test.zip"),
+                Some(b"pakro-test.zip"),
             )
             .unwrap();
         } else {
@@ -1110,14 +1068,14 @@ mod archive_tests {
             header.set_mode(0o755);
             header.set_cksum();
             archive
-                .append_data(&mut header, "mise/bin/mise", &b"new executable"[..])
+                .append_data(&mut header, "pakro/bin/pakro", &b"new executable"[..])
                 .unwrap();
             let bytes = archive.into_inner().unwrap().finish().unwrap();
             zipsign_api::sign::copy_and_sign_tar(
                 &mut Cursor::new(bytes),
                 &mut output,
                 &[key],
-                Some(b"mise-test.tar.gz"),
+                Some(b"pakro-test.tar.gz"),
             )
             .unwrap();
         }
@@ -1132,7 +1090,7 @@ mod archive_tests {
             let dest = dir.path().join("staged-binary");
             stage_update_binary(&archive, &dest, &[key]).unwrap();
             assert_eq!(std::fs::read(&dest).unwrap(), b"new executable");
-            assert!(!dir.path().join("mise").exists());
+            assert!(!dir.path().join("pakro").exists());
         }
     }
 
@@ -1175,7 +1133,7 @@ mod archive_tests {
         header.set_size(0);
         header.set_mode(0o755);
         archive
-            .append_link(&mut header, "mise/bin/mise", "../../outside")
+            .append_link(&mut header, "pakro/bin/pakro", "../../outside")
             .unwrap();
         archive.into_inner().unwrap().finish().unwrap();
         let dest = dir.path().join("staged-binary");
@@ -1296,11 +1254,11 @@ mod post_update_tests {
     /// By the time plugins are refreshed the new binary is already in place, so a failure there
     /// must not turn a successful update into a failed command. Driving a real spawn failure
     /// rather than a stub: a binary that cannot be started is what Windows produces while an AV
-    /// scanner still holds the file mise just wrote, and what discussion #8827 produces over SSH.
+    /// scanner still holds the file pakro just wrote, and what discussion #8827 produces over SSH.
     #[test]
     fn a_plugins_update_that_cannot_run_is_not_fatal() {
         let dir = tempfile::tempdir().unwrap();
-        let missing = dir.path().join("mise-that-is-not-there");
+        let missing = dir.path().join("pakro-that-is-not-there");
 
         // Control: without this the test would pass just as well on a spawn that quietly
         // succeeded, and prove nothing. `run()` has to actually fail for the line below to mean
@@ -1366,7 +1324,7 @@ mod install_dir_tests {
         const PLAIN: u32 = 0o40755;
 
         // The shape the write probe cannot see: a group-writable, sticky bindir holding a
-        // root-owned mise. Creating a file there works; renaming root's does not.
+        // root-owned pakro. Creating a file there works; renaming root's does not.
         assert!(sticky_blocks_rename(STICKY, 0, 0, 1000));
 
         // Not sticky: ordinary directory permissions decide, and the probe already covered them.
@@ -1384,7 +1342,7 @@ mod install_dir_tests {
 
         let dir = tempfile::tempdir().unwrap();
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o1777)).unwrap();
-        let exe = dir.path().join("mise");
+        let exe = dir.path().join("pakro");
         std::fs::write(&exe, b"#!/bin/sh\n").unwrap();
 
         // Both the file and the temporary directory belong to the test runner, so the sticky bit
@@ -1395,17 +1353,17 @@ mod install_dir_tests {
     #[test]
     fn the_message_names_the_binary_and_its_directory() {
         let msg = install_dir_not_writable_message(
-            Path::new("/usr/local/bin/mise"),
+            Path::new("/usr/local/bin/pakro"),
             Path::new("/usr/local/bin"),
             Unreplaceable::DirectoryNotWritable,
         );
-        // The binary is the part that identifies which of several mise installs is stuck.
-        assert!(msg.contains("/usr/local/bin/mise"), "{msg}");
+        // The binary is the part that identifies which of several pakro installs is stuck.
+        assert!(msg.contains("/usr/local/bin/pakro"), "{msg}");
         assert!(msg.contains("/usr/local/bin is not writable"), "{msg}");
         if cfg!(windows) {
             assert!(msg.contains("Administrator"), "{msg}");
         } else {
-            assert!(msg.contains("sudo mise self-update"), "{msg}");
+            assert!(msg.contains("sudo pakro self-update"), "{msg}");
         }
         assert!(msg.contains("the same way you installed it"), "{msg}");
     }
@@ -1414,7 +1372,7 @@ mod install_dir_tests {
     #[test]
     fn the_sticky_message_says_why_the_binary_cannot_be_replaced() {
         let msg = install_dir_not_writable_message(
-            Path::new("/usr/local/bin/mise"),
+            Path::new("/usr/local/bin/pakro"),
             Path::new("/usr/local/bin"),
             Unreplaceable::StickyForeignBinary,
         );
@@ -1443,23 +1401,22 @@ mod tests {
     }
 
     fn breaks(len: usize) -> bool {
-        temp_dir_breaks_self_replace(&temp_dir_of_len(len), Some("mise"))
+        temp_dir_breaks_self_replace(&temp_dir_of_len(len), Some("pakro"))
     }
 
     #[test]
     fn an_ordinary_temp_dir_is_left_alone() {
         let tmp = Path::new("C:\\Users\\u\\AppData\\Local\\Temp\\");
-        assert!(!temp_dir_breaks_self_replace(tmp, Some("mise")));
+        assert!(!temp_dir_breaks_self_replace(tmp, Some("pakro")));
     }
 
     #[test]
     fn the_boundary_matches_what_windows_actually_does() {
-        // Measured on Windows 11 26200 with LongPathsEnabled=0, running self-update against
-        // a copy of mise.exe: with TEMP at 201 it succeeds and the binary survives, at 202 it
-        // fails with `os error 3` and the install directory is left empty. `temp_dir()`
-        // appends a backslash to both, which is why these are 202 and 203 here.
-        assert!(!breaks(202));
-        assert!(breaks(203));
+        // pakro's five-character stem leaves one fewer UTF-16 unit in the Windows path
+        // budget. Including the trailing slash, 201 + 58 stays below MAX_PATH; 202 + 58
+        // reaches it and cannot be launched safely.
+        assert!(!breaks(201));
+        assert!(breaks(202));
     }
 
     #[test]
@@ -1480,54 +1437,54 @@ mod tests {
         // `env::temp_dir()` always ends in a separator on Windows and `Path::join` does not
         // add a second one, so both spellings of the same directory have to agree.
         assert_eq!(
-            helper_path_len(Path::new("C:\\Temp\\"), Some("mise")),
-            helper_path_len(Path::new("C:\\Temp"), Some("mise"))
+            helper_path_len(Path::new("C:\\Temp\\"), Some("pakro")),
+            helper_path_len(Path::new("C:\\Temp"), Some("pakro"))
         );
     }
 
     #[test]
     fn the_helper_name_follows_the_running_executable() {
         // `.` + stem + `.` + 32 random characters + `.__selfdelete__.exe`
-        assert_eq!(helper_name_len(Some("mise")), 57);
-        assert_eq!(helper_name_len(Some("mise-dev")), 61);
+        assert_eq!(helper_name_len(Some("pakro")), 58);
+        assert_eq!(helper_name_len(Some("pakro-dev")), 62);
         // self-replace leaves the stem out when it is not valid UTF-8
         assert_eq!(helper_name_len(None), 52);
     }
 
     #[test]
     fn a_renamed_binary_lowers_the_ceiling() {
-        // A TEMP that is safe for `mise.exe` is not safe once the binary has been renamed to
+        // A TEMP that is safe for `pakro.exe` is not safe once the binary has been renamed to
         // something longer, so the guard cannot assume the stem.
-        let tmp = temp_dir_of_len(202);
-        assert!(!temp_dir_breaks_self_replace(&tmp, Some("mise")));
-        assert!(temp_dir_breaks_self_replace(&tmp, Some("mise-dev")));
+        let tmp = temp_dir_of_len(201);
+        assert!(!temp_dir_breaks_self_replace(&tmp, Some("pakro")));
+        assert!(temp_dir_breaks_self_replace(&tmp, Some("pakro-dev")));
     }
 
     /// The walk, not the predicate — `env::is_self_replace_helper` has its own tests. What matters
     /// here is that `doctor` and the sweep see the same set, and that a directory full of unrelated
-    /// files does not turn into a warning about mise.
+    /// files does not turn into a warning about pakro.
     #[test]
     fn only_the_generated_copies_are_collected() {
         let dir = tempfile::tempdir().unwrap();
         let rand = "a".repeat(env::SELF_REPLACE_RANDOM_LEN);
         let collected = [
-            format!(".mise.{rand}.__selfdelete__.exe"),
-            format!(".mise.{rand}.__relocated__.exe"),
+            format!(".pakro.{rand}.__selfdelete__.exe"),
+            format!(".pakro.{rand}.__relocated__.exe"),
         ];
         let ignored = [
-            "mise.exe".to_string(),
+            "pakro.exe".to_string(),
             // a different binary's leftovers are not ours to delete
             format!(".other.{rand}.__selfdelete__.exe"),
             // near-misses on the random segment: too short, and not lowercase
-            format!(".mise.{}.__selfdelete__.exe", "a".repeat(31)),
-            format!(".mise.{}A.__selfdelete__.exe", "a".repeat(31)),
+            format!(".pakro.{}.__selfdelete__.exe", "a".repeat(31)),
+            format!(".pakro.{}A.__selfdelete__.exe", "a".repeat(31)),
             "setup-x64.exe".to_string(),
         ];
         for name in collected.iter().chain(ignored.iter()) {
             std::fs::write(dir.path().join(name), b"xyz").unwrap();
         }
 
-        let found = helper_orphans_in(dir.path(), "mise");
+        let found = helper_orphans_in(dir.path(), "pakro");
         let mut names = found
             .iter()
             .map(|(p, _)| p.file_name().unwrap().to_str().unwrap().to_string())
@@ -1543,20 +1500,20 @@ mod tests {
     #[test]
     fn a_missing_directory_is_not_an_error() {
         // `TEMP` pointing at something unreadable must not take `self-update` or `doctor` down.
-        assert!(helper_orphans_in(Path::new("C:\\nope\\nope\\nope"), "mise").is_empty());
+        assert!(helper_orphans_in(Path::new("C:\\nope\\nope\\nope"), "pakro").is_empty());
     }
 
     #[test]
     fn the_length_is_counted_in_utf16_code_units() {
-        // Control against the `OsStr::len()` trap: this path is 202 UTF-16 code units, the
-        // longest that works, but 598 WTF-8 bytes. Counting bytes would reject it.
+        // Control against the `OsStr::len()` trap: this path is 201 UTF-16 code units, the
+        // longest that works, but 595 WTF-8 bytes. Counting bytes would reject it.
         let mut s = String::from("C:\\");
-        while s.chars().count() < 201 {
+        while s.chars().count() < 200 {
             s.push('あ');
         }
         s.push('\\');
         let tmp = PathBuf::from(s);
-        assert_eq!(tmp.as_os_str().len(), 598);
-        assert!(!temp_dir_breaks_self_replace(&tmp, Some("mise")));
+        assert_eq!(tmp.as_os_str().len(), 595);
+        assert!(!temp_dir_breaks_self_replace(&tmp, Some("pakro")));
     }
 }

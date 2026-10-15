@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#MISE description="Retry failed test-tools with grace period for recent upstream releases"
+#PAKRO description="Retry failed test-tools with grace period for recent upstream releases"
 #USAGE flag "--grace-period" help="Ignore failures from tools whose upstream released <7 days ago"
 #USAGE flag "--check-only" help="Skip retrying tools, only check grace period (use with --grace-period)"
 #USAGE arg "<tools>..." help="Failed tools to retry"
@@ -19,10 +19,10 @@ GRACE_PERIOD = timedelta(days=7)
 
 
 def get_repo(tool: str) -> str | None:
-    """Extract the GitHub owner/repo from a tool's backend via mise."""
+    """Extract the GitHub owner/repo from a tool's backend via pakro."""
     try:
         result = subprocess.run(
-            ["mise", "tool", "--json", tool],
+            ["pakro", "tool", "--json", tool],
             capture_output=True, text=True, timeout=30,
         )
         if result.returncode != 0:
@@ -76,7 +76,7 @@ def get_failed_tools_from_summary() -> list[str]:
 
 def retry_tools(tools: list[str]) -> list[str]:
     """Retry failed tools and return any that still fail."""
-    result = subprocess.run(["mise", "test-tool"] + tools)
+    result = subprocess.run(["pakro", "test-tool"] + tools)
     if result.returncode == 0:
         return []
     failed = get_failed_tools_from_summary()

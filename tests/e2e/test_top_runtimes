@@ -54,23 +54,23 @@ exit 0 # disable for now for faster releases
 # 15 kustomize
 # 15 graalvm
 
-mise exec node -- node -v
-mise exec python -- python -V
-mise exec direnv -- direnv --version
-mise exec erlang -- erl -eval 'erlang:display(erlang:system_info(otp_release)), halt().' -noshell
-mise exec elixir erlang -- elixir --version
-mise exec golang -- go version
-mise exec java -- java -version
-mise exec terraform -- terraform -v
-mise exec yarn -- yarn --version
-mise exec deno -- deno --version
-mise exec bun -- bun --version
-mise exec kubectl -- kubectl version --client
-mise exec dotnet-core -- dotnet --list-sdks
-mise exec flutter -- flutter --version
-mise exec crystal -- crystal -v
-mise exec neovim -- nvim --version
+pakro exec node -- node -v
+pakro exec python -- python -V
+pakro exec direnv -- direnv --version
+pakro exec erlang -- erl -eval 'erlang:display(erlang:system_info(otp_release)), halt().' -noshell
+pakro exec elixir erlang -- elixir --version
+pakro exec golang -- go version
+pakro exec java -- java -version
+pakro exec terraform -- terraform -v
+pakro exec yarn -- yarn --version
+pakro exec deno -- deno --version
+pakro exec bun -- bun --version
+pakro exec kubectl -- kubectl version --client
+pakro exec dotnet-core -- dotnet --list-sdks
+pakro exec flutter -- flutter --version
+pakro exec crystal -- crystal -v
+pakro exec neovim -- nvim --version
 
-#mise exec php -- php -v php is a bit slow to install, works fine though
-#mise exec rust -- rustc -V # does not seem to work correctly
-#mise exec postgres -- psql -v # hard one to install
+#pakro exec php -- php -v php is a bit slow to install, works fine though
+#pakro exec rust -- rustc -V # does not seem to work correctly
+#pakro exec postgres -- psql -v # hard one to install

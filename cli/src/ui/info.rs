@@ -6,14 +6,14 @@ use std::fmt::{Display, Write};
 pub fn section<S: Display>(header: &str, body: S) -> eyre::Result<()> {
     let body = file::replace_paths_in_string(body);
     let out = format!("\n{}: \n{}", style(header).bold(), indent_by(body, "  "));
-    miseprintln!("{}", trim_line_end_whitespace(&out));
+    pakroprintln!("{}", trim_line_end_whitespace(&out));
     Ok(())
 }
 
 pub fn inline_section<S: Display>(header: &str, body: S) -> eyre::Result<()> {
     let body = file::replace_paths_in_string(body);
     let out = format!("{}: {body}", style(header).bold());
-    miseprintln!("{}", trim_line_end_whitespace(&out));
+    pakroprintln!("{}", trim_line_end_whitespace(&out));
     Ok(())
 }
 

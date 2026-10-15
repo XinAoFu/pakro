@@ -1,10 +1,10 @@
 packaging/resources/keys/zipsign.pub binary
 runtimes/assets/native-shim-marker binary
-src/crates/mise-util/src/gpg_testdata/node_v20.11.0_SHASUMS256.txt text eol=lf
+src/crates/pakro-util/src/gpg_testdata/node_v20.11.0_SHASUMS256.txt text eol=lf
 src/core/system/remote_testdata/* text eol=lf
 runtimes/vendor/aqua-registry/** linguist-vendored
-src/schema/mise-task.json linguist-generated=true
-src/schema/miserc.json linguist-generated=true
-# mise.lock pins digests of the exact sidecar bytes; CRLF conversion on
+src/schema/pakro-task.json linguist-generated=true
+src/schema/pakrorc.json linguist-generated=true
+# pakro.lock pins digests of the exact sidecar bytes; CRLF conversion on
 # Windows checkouts would break them.
-.mise/locks/** -text
+.pakro/locks/** -text

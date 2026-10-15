@@ -14,9 +14,9 @@ use crate::toolset::{ResolveOptions, ToolsetBuilder};
 
 /// Run the project's diagnostic checks
 ///
-/// Checks are declared in [doctor.checks.<name>] in mise.toml. Each command runs
+/// Checks are declared in [doctor.checks.<name>] in pakro.toml. Each command runs
 /// with the project's installed tools and environment. Checks should inspect
-/// state; mise does not sandbox them or run their suggested remedies.
+/// state; pakro does not sandbox them or run their suggested remedies.
 #[derive(Debug, usage_rs::Args)]
 #[usage(verbatim_doc_comment)]
 pub(crate) struct Project {
@@ -77,12 +77,14 @@ impl Project {
             },
         };
         if self.json || parent_json {
-            miseprintln!("{}", serde_json::to_string_pretty(&report)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&report)?);
         } else if report.checks.is_empty() && report.errors.is_empty() {
-            miseprintln!("No project checks configured. Add [doctor.checks.<name>] to mise.toml.");
+            pakroprintln!(
+                "No project checks configured. Add [doctor.checks.<name>] to pakro.toml."
+            );
         } else {
             for error in &report.errors {
-                miseprintln!("ERROR {error}");
+                pakroprintln!("ERROR {error}");
             }
             for check in &report.checks {
                 let status = match check.status {
@@ -91,18 +93,18 @@ impl Project {
                     Status::Error => "ERROR",
                     Status::Skipped => "SKIP",
                 };
-                miseprintln!(
+                pakroprintln!(
                     "{status} {}: {}",
                     check.name,
                     check.description.as_deref().unwrap_or(&check.name)
                 );
                 if let Some(message) = &check.message {
-                    miseprintln!("  {message}");
+                    pakroprintln!("  {message}");
                 }
                 if matches!(check.status, Status::Fail | Status::Error)
                     && let Some(hint) = &check.hint
                 {
-                    miseprintln!("  {hint}");
+                    pakroprintln!("  {hint}");
                 }
             }
         }
@@ -128,7 +130,7 @@ impl Project {
                 continue;
             }
             // Match task conventions: project configuration (including a
-            // mise.toml directly in $HOME) anchors at its config root, while
+            // pakro.toml directly in $HOME) anchors at its config root, while
             // global and system configuration use the invocation directory.
             let root = if cf.provenance().scope().is_project() {
                 cf.config_root()

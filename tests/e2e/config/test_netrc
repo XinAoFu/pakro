@@ -16,10 +16,10 @@ EOF
 chmod 600 "$HOME/.netrc"
 
 # Test 1: Verify netrc setting is enabled by default
-assert "mise settings get netrc" "true"
+assert "pakro settings get netrc" "true"
 
 # Test 2: Verify netrc_file setting can be configured
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [settings]
 netrc_file = "$HOME/.custom-netrc"
 EOF
@@ -32,26 +32,26 @@ machine custom.example.com
 EOF
 chmod 600 "$HOME/.custom-netrc"
 
-assert_contains "mise settings get netrc_file" ".custom-netrc"
+assert_contains "pakro settings get netrc_file" ".custom-netrc"
 
 # Test 3: Verify netrc can be disabled
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [settings]
 netrc = false
 EOF
 
-assert "mise settings get netrc" "false"
+assert "pakro settings get netrc" "false"
 
 # Test 4: Verify netrc can be disabled via environment variable
-rm mise.toml
-MISE_NETRC=false assert "mise settings get netrc" "false"
-MISE_NETRC=0 assert "mise settings get netrc" "false"
+rm pakro.toml
+PAKRO_NETRC=false assert "pakro settings get netrc" "false"
+PAKRO_NETRC=0 assert "pakro settings get netrc" "false"
 
 # Test 5: Verify netrc is enabled by default when not explicitly set
-assert "mise settings get netrc" "true"
+assert "pakro settings get netrc" "true"
 
-# Test 6: Verify MISE_NETRC_FILE environment variable works
-MISE_NETRC_FILE="$HOME/.env-netrc" assert_contains "mise settings get netrc_file" ".env-netrc"
+# Test 6: Verify PAKRO_NETRC_FILE environment variable works
+PAKRO_NETRC_FILE="$HOME/.env-netrc" assert_contains "pakro settings get netrc_file" ".env-netrc"
 
 # Test 7: Verify netrc file permission warning (Unix only)
 if [[ "$(uname -s)" == "Linux" || "$(uname -s)" == "Darwin" ]]; then
@@ -63,15 +63,15 @@ machine secure.example.com
 EOF
   chmod 644 "$HOME/.netrc" # World-readable - insecure!
 
-  # Create a simple mise.toml that would trigger an HTTP request (and thus load netrc)
-  cat >mise.toml <<'EOF'
+  # Create a simple pakro.toml that would trigger an HTTP request (and thus load netrc)
+  cat >pakro.toml <<'EOF'
 [tools]
 "http:perm-test" = { version = "1.0.0", url = "http://secure.example.com/tool.tar.gz" }
 EOF
 
-  # Run mise install which will attempt to load netrc and show warning
+  # Run pakro install which will attempt to load netrc and show warning
   # We redirect to capture stderr where warnings go
-  output=$(mise install 2>&1 || true)
+  output=$(pakro install 2>&1 || true)
 
   if echo "$output" | grep -qi "insecure permissions"; then
     echo "PASS: Warning shown for insecure netrc permissions"
@@ -83,7 +83,7 @@ EOF
 
   # Fix permissions and verify no warning
   chmod 600 "$HOME/.netrc"
-  output=$(mise install 2>&1 || true)
+  output=$(pakro install 2>&1 || true)
 
   if echo "$output" | grep -qi "insecure permissions"; then
     echo "FAIL: Warning shown even with secure permissions (600)"
@@ -94,8 +94,8 @@ EOF
   fi
 
   # Cleanup
-  rm -f mise.toml
-  mise uninstall --all >/dev/null 2>&1 || true
+  rm -f pakro.toml
+  pakro uninstall --all >/dev/null 2>&1 || true
 else
   echo "SKIP: Permission check test (non-Unix OS)"
 fi
@@ -112,16 +112,16 @@ machine 127.0.0.1
 EOF
 chmod 600 "$HOME/.netrc"
 
-rm -f mise.toml
+rm -f pakro.toml
 rm -f "$HEADERS_LOG_DIR"/request_*.json
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools]
 "http:auth-test" = { version = "1.0.0", url = "http://127.0.0.1:$HTTP_PORT/tool.tar.gz" }
 EOF
 
-# Trigger HTTP request with mise install (will fail to extract but will make the request)
-mise install >/dev/null 2>&1 || true
+# Trigger HTTP request with pakro install (will fail to extract but will make the request)
+pakro install >/dev/null 2>&1 || true
 
 # Check headers log for Authorization
 if grep -qi '"authorization"' "$HEADERS_LOG_DIR"/request_*.json 2>/dev/null; then
@@ -132,8 +132,8 @@ else
   exit 1
 fi
 
-rm -f mise.toml
-mise uninstall --all >/dev/null 2>&1 || true
+rm -f pakro.toml
+pakro uninstall --all >/dev/null 2>&1 || true
 
 # Test 9: Verify NO Authorization header when netrc is disabled
 cat >"$HOME/.netrc" <<EOF
@@ -145,7 +145,7 @@ chmod 600 "$HOME/.netrc"
 
 rm -f "$HEADERS_LOG_DIR"/request_*.json
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [settings]
 netrc = false
 
@@ -153,7 +153,7 @@ netrc = false
 "http:no-auth-test" = { version = "1.0.0", url = "http://127.0.0.1:$HTTP_PORT/tool.tar.gz" }
 EOF
 
-mise install >/dev/null 2>&1 || true
+pakro install >/dev/null 2>&1 || true
 
 # Check headers log - should NOT have Authorization
 if grep -qi '"authorization"' "$HEADERS_LOG_DIR"/request_*.json 2>/dev/null; then
@@ -164,8 +164,8 @@ else
   echo "PASS: No Authorization header when netrc disabled"
 fi
 
-rm -f mise.toml
-mise uninstall --all >/dev/null 2>&1 || true
+rm -f pakro.toml
+pakro uninstall --all >/dev/null 2>&1 || true
 
 # Test 10: Verify netrc credentials are used with URL replacements
 # The netrc lookup happens AFTER URL replacement, so use the replaced host
@@ -178,7 +178,7 @@ chmod 600 "$HOME/.netrc"
 
 rm -f "$HEADERS_LOG_DIR"/request_*.json
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [settings]
 url_replacements = { "http://fake.example.com" = "http://127.0.0.1:$HTTP_PORT" }
 
@@ -186,7 +186,7 @@ url_replacements = { "http://fake.example.com" = "http://127.0.0.1:$HTTP_PORT" }
 "http:urlrepl-test" = { version = "1.0.0", url = "http://fake.example.com/tool.tar.gz" }
 EOF
 
-mise install >/dev/null 2>&1 || true
+pakro install >/dev/null 2>&1 || true
 
 # Check headers log for Authorization
 if grep -qi '"authorization"' "$HEADERS_LOG_DIR"/request_*.json 2>/dev/null; then
@@ -197,8 +197,8 @@ else
   exit 1
 fi
 
-rm -f mise.toml
-mise uninstall --all >/dev/null 2>&1 || true
+rm -f pakro.toml
+pakro uninstall --all >/dev/null 2>&1 || true
 
 # Test 11: Verify netrc credentials override GitHub token when URL is replaced
 # The netrc lookup happens AFTER URL replacement, netrc takes precedence over GitHub token
@@ -211,7 +211,7 @@ chmod 600 "$HOME/.netrc"
 
 rm -f "$HEADERS_LOG_DIR"/request_*.json
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [settings]
 url_replacements = { "https://api.github.com" = "http://127.0.0.1:$HTTP_PORT" }
 
@@ -220,7 +220,7 @@ url_replacements = { "https://api.github.com" = "http://127.0.0.1:$HTTP_PORT" }
 EOF
 
 # Set a GitHub token - this should be OVERRIDDEN by netrc credentials for 127.0.0.1
-GITHUB_TOKEN="test-github-token-12345" mise install >/dev/null 2>&1 || true
+GITHUB_TOKEN="test-github-token-12345" pakro install >/dev/null 2>&1 || true
 
 # Check that authorization header exists and contains Basic auth (from netrc), not the GitHub token
 if grep -q '"authorization": "Basic' "$HEADERS_LOG_DIR"/request_*.json 2>/dev/null; then
@@ -231,10 +231,10 @@ else
   exit 1
 fi
 
-rm -f mise.toml
-mise uninstall --all >/dev/null 2>&1 || true
+rm -f pakro.toml
+pakro uninstall --all >/dev/null 2>&1 || true
 
-# Test 12: Verify mise uses custom netrc file location with actual HTTP request
+# Test 12: Verify pakro uses custom netrc file location with actual HTTP request
 # Remove default netrc if it exists
 rm -f "$HOME/.netrc"
 
@@ -250,7 +250,7 @@ chmod 600 "$CUSTOM_NETRC_PATH"
 
 rm -f "$HEADERS_LOG_DIR"/request_*.json
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [settings]
 netrc_file = "$CUSTOM_NETRC_PATH"
 
@@ -258,7 +258,7 @@ netrc_file = "$CUSTOM_NETRC_PATH"
 "http:custom-netrc-test" = { version = "1.0.0", url = "http://127.0.0.1:$HTTP_PORT/tool.tar.gz" }
 EOF
 
-mise install >/dev/null 2>&1 || true
+pakro install >/dev/null 2>&1 || true
 
 # Check that authorization header exists (proving custom netrc was used)
 if grep -qi '"authorization"' "$HEADERS_LOG_DIR"/request_*.json 2>/dev/null; then
@@ -269,8 +269,8 @@ else
   exit 1
 fi
 
-rm -f mise.toml
+rm -f pakro.toml
 rm -f "$CUSTOM_NETRC_PATH"
-mise uninstall --all >/dev/null 2>&1 || true
+pakro uninstall --all >/dev/null 2>&1 || true
 
 echo "All netrc tests passed!"

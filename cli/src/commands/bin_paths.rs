@@ -40,16 +40,16 @@ impl BinPaths {
         if self.bin_names || self.json {
             let bins = list_bins(paths)?;
             if self.json {
-                miseprintln!("{}", serde_json::to_string_pretty(&bins)?);
+                pakroprintln!("{}", serde_json::to_string_pretty(&bins)?);
             } else {
                 for bin in bins {
-                    miseprintln!("{}", bin.name);
+                    pakroprintln!("{}", bin.name);
                 }
             }
             return Ok(());
         }
         for p in paths {
-            miseprintln!("{}", p.display());
+            pakroprintln!("{}", p.display());
         }
         Ok(())
     }

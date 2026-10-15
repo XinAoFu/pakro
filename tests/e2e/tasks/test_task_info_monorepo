@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-# Tests for `mise tasks info` in a monorepo setup
+# Tests for `pakro tasks info` in a monorepo setup
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 monorepo_root = true
 
 [monorepo]
@@ -14,7 +14,7 @@ run = "echo This is the root task"
 EOF
 
 mkdir -p lib
-cat >lib/mise.toml <<EOF
+cat >lib/pakro.toml <<EOF
 [tasks.echo]
 alias = ["lib_echo_alias", "e"]
 run = """
@@ -23,22 +23,22 @@ echo Hello, World!
 EOF
 
 # Test nonexistent task
-assert_fail "mise tasks info nonexistent"
-assert_contains "mise tasks info nonexistent 2>&1 || true" "Task not found: nonexistent"
+assert_fail "pakro tasks info nonexistent"
+assert_contains "pakro tasks info nonexistent 2>&1 || true" "Task not found: nonexistent"
 
 # Test nonexistent monorepo task
-assert_fail "mise tasks info //lib:nonexistent"
-assert_contains "mise tasks info //lib:nonexistent 2>&1 || true" "Task not found: //lib:nonexistent"
+assert_fail "pakro tasks info //lib:nonexistent"
+assert_contains "pakro tasks info //lib:nonexistent 2>&1 || true" "Task not found: //lib:nonexistent"
 
 # Test nonexistent alias
-assert_fail "mise tasks info //lib:fake_alias"
-assert_contains "mise tasks info //lib:fake_alias 2>&1 || true" "Task not found: //lib:fake_alias"
+assert_fail "pakro tasks info //lib:fake_alias"
+assert_contains "pakro tasks info //lib:fake_alias 2>&1 || true" "Task not found: //lib:fake_alias"
 
 # Test root task info
-assert "mise tasks info //:root_task" 'Task: //:root_task
+assert "pakro tasks info //:root_task" 'Task: //:root_task
 Aliases: some_root_task_alias
 Description:
-Source: ~/workdir/mise.toml
+Source: ~/workdir/pakro.toml
 
 Run:
   echo This is the root task
@@ -47,16 +47,16 @@ Usage Spec:
   name "//:root_task"
   bin "//:root_task"'
 
-assert_contains "mise tasks info //:root_task --json" '"name": "//:root_task"'
+assert_contains "pakro tasks info //:root_task --json" '"name": "//:root_task"'
 
 # test that shorthand works
-assert_contains "mise tasks info root_task --json" '"name": "//:root_task"'
-assert_contains "mise tasks info some_root_task_alias --json" '"name": "//:root_task"'
+assert_contains "pakro tasks info root_task --json" '"name": "//:root_task"'
+assert_contains "pakro tasks info some_root_task_alias --json" '"name": "//:root_task"'
 
-assert "mise tasks info //lib:echo" 'Task: //lib:echo
+assert "pakro tasks info //lib:echo" 'Task: //lib:echo
 Aliases: lib_echo_alias, e
 Description:
-Source: ~/workdir/lib/mise.toml
+Source: ~/workdir/lib/pakro.toml
 
 Run:
   echo Hello, World!
@@ -65,24 +65,24 @@ Usage Spec:
   name "//lib:echo"
   bin "//lib:echo"'
 
-assert_contains "mise tasks info //lib:echo --json" '"name": "//lib:echo"'
-assert_contains "mise tasks info //lib:echo --json" '"source": "'"$PWD"'/lib/mise.toml"'
+assert_contains "pakro tasks info //lib:echo --json" '"name": "//lib:echo"'
+assert_contains "pakro tasks info //lib:echo --json" '"source": "'"$PWD"'/lib/pakro.toml"'
 
 # Test lib task lookup by prefixed aliases (from root)
-assert_contains "mise tasks info //lib:lib_echo_alias --json" '"name": "//lib:echo"'
-assert_contains "mise tasks info //lib:e --json" '"name": "//lib:echo"'
+assert_contains "pakro tasks info //lib:lib_echo_alias --json" '"name": "//lib:echo"'
+assert_contains "pakro tasks info //lib:e --json" '"name": "//lib:echo"'
 
 #### Test from subdirectory
 cd lib
 
 # Unprefixed aliases should work from within lib directory
-assert_contains "mise tasks info lib_echo_alias --json" '"name": "//lib:echo"'
-assert_contains "mise tasks info e --json" '"name": "//lib:echo"'
+assert_contains "pakro tasks info lib_echo_alias --json" '"name": "//lib:echo"'
+assert_contains "pakro tasks info e --json" '"name": "//lib:echo"'
 
-assert "mise tasks info //lib:echo" 'Task: //lib:echo
+assert "pakro tasks info //lib:echo" 'Task: //lib:echo
 Aliases: lib_echo_alias, e
 Description:
-Source: ~/workdir/lib/mise.toml
+Source: ~/workdir/lib/pakro.toml
 
 Run:
   echo Hello, World!

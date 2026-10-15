@@ -4,12 +4,12 @@
 #import <UserNotifications/UserNotifications.h>
 #include <string.h>
 
-static NSString *const notificationID = @"mise.dotfiles.sync";
+static NSString *const notificationID = @"pakro.dotfiles.sync";
 
-@interface MiseNotificationDelegate : NSObject <UNUserNotificationCenterDelegate>
+@interface PakroNotificationDelegate : NSObject <UNUserNotificationCenterDelegate>
 @end
 
-@implementation MiseNotificationDelegate
+@implementation PakroNotificationDelegate
 - (void)userNotificationCenter:(UNUserNotificationCenter *)center
       willPresentNotification:(UNNotification *)notification
         withCompletionHandler:(void (^)(UNNotificationPresentationOptions))completion {
@@ -23,13 +23,13 @@ int main(int argc, const char *argv[]) {
         if (argc == 1) return 0;
         NSBundle *bundle = NSBundle.mainBundle;
         if (argc == 2 && strcmp(argv[1], "--check") == 0) {
-            NSString *icon = [bundle pathForResource:@"mise" ofType:@"icns"];
-            return [bundle.bundleIdentifier isEqualToString:@"dev.jdx.mise.notifications"] &&
+            NSString *icon = [bundle pathForResource:@"pakro" ofType:@"icns"];
+            return [bundle.bundleIdentifier isEqualToString:@"pakro.notifications"] &&
                 [[NSImage alloc] initWithContentsOfFile:icon] != nil ? 0 : 2;
         }
         if (argc != 3) return 2;
         // Register our own bundle so Notification Center can resolve its name
-        // and icon even when mise invokes the embedded executable directly.
+        // and icon even when pakro invokes the embedded executable directly.
         if (LSRegisterURL((__bridge CFURLRef)bundle.bundleURL, true) != noErr) return 6;
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
@@ -37,7 +37,7 @@ int main(int argc, const char *argv[]) {
         NSString *title = [NSString stringWithUTF8String:argv[1]];
         NSString *body = [NSString stringWithUTF8String:argv[2]];
         if (title == nil || body == nil) return 2;
-        __attribute__((objc_precise_lifetime)) MiseNotificationDelegate *delegate = [MiseNotificationDelegate new];
+        __attribute__((objc_precise_lifetime)) PakroNotificationDelegate *delegate = [PakroNotificationDelegate new];
         center.delegate = delegate;
         dispatch_semaphore_t done = dispatch_semaphore_create(0);
         __block int result = 4;

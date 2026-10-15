@@ -10,19 +10,19 @@ mod unset;
 #[usage(
     about = "Manage settings",
     example(
-        r###"mise settings"###,
+        r###"pakro settings"###,
         help = r###"list explicitly configured settings"###
     ),
     example(
-        r###"mise settings always_keep_download"###,
+        r###"pakro settings always_keep_download"###,
         help = r###"get the value of the setting "always_keep_download""###
     ),
     example(
-        r###"mise settings always_keep_download=true"###,
+        r###"pakro settings always_keep_download=true"###,
         help = r###"set the value of the setting "always_keep_download" to "true""###
     ),
     example(
-        r###"mise settings node.mirror_url https://npmmirror.com/mirrors/node/"###,
+        r###"pakro settings node.mirror_url https://npmmirror.com/mirrors/node/"###,
         help = r###"set the value of the setting "node.mirror_url" to "https://npmmirror.com/mirrors/node/""###
     )
 )]

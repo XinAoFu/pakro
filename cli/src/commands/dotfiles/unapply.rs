@@ -8,22 +8,22 @@ use crate::ui::prompt;
 /// Remove dotfiles applied from `[dotfiles]`
 ///
 /// Removes configured whole-file entries and edits while preserving files
-/// mise cannot identify as managed. Modified copies, templates, and plain-line
+/// pakro cannot identify as managed. Modified copies, templates, and plain-line
 /// edits require `--force`. Source files and configuration entries are retained.
-/// Run this before deleting a declaration so mise can still identify its targets.
+/// Run this before deleting a declaration so pakro can still identify its targets.
 ///
 /// With `--group`, only that dotfile group's files are removed, using what
-/// mise recorded when it applied them, so this works even after the group
+/// pakro recorded when it applied them, so this works even after the group
 /// is deselected or deleted from the config.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise dot unapply
-mise dot unapply ~/.zshrc
-mise dot unapply --group work
-mise dot unapply --dry-run
-mise dot unapply --force --yes"###
+        r###"pakro dot unapply
+pakro dot unapply ~/.zshrc
+pakro dot unapply --group work
+pakro dot unapply --dry-run
+pakro dot unapply --force --yes"###
     )
 )]
 pub(crate) struct DotfilesUnapply {
@@ -100,7 +100,7 @@ impl DotfilesUnapply {
         if !self.group.is_empty() && !self.targets.is_empty() {
             eyre::bail!("--group cannot be combined with target arguments");
         }
-        // a group's record holds what mise wrote, which is the ownership
+        // a group's record holds what pakro wrote, which is the ownership
         // evidence to remove by; the current source may have changed since.
         // Only a group applied before it had a record goes through the
         // ordinary planner.

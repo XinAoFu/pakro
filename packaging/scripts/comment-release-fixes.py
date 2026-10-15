@@ -17,7 +17,7 @@ import re
 import subprocess
 import sys
 
-REPO = os.environ.get("GITHUB_REPOSITORY", "jdx/mise")
+REPO = os.environ.get("GITHUB_REPOSITORY", "")
 OWNER, NAME = REPO.split("/")
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
@@ -188,7 +188,7 @@ def issue_targets(pr):
 
 
 def marker(tag):
-    return f"<!-- mise-fixed-in:{tag} -->"
+    return f"<!-- pakro-fixed-in:{tag} -->"
 
 
 def comment_body(tag, pr):
@@ -196,7 +196,7 @@ def comment_body(tag, pr):
     return (
         f"{marker(tag)}\n"
         f"Fixed in [{tag}]({url}) by #{pr}. "
-        "Update with `mise self-update` or see the [install docs](https://mise.jdx.dev/installing-mise.html)."
+        "Update with `pakro self-update` after configuring the pakro release source."
     )
 
 

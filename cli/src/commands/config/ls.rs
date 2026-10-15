@@ -2,7 +2,7 @@ use crate::args::TruncateOptions;
 use crate::config::tracking::Tracker;
 use crate::config::{Config, Settings};
 use crate::file::display_path;
-use crate::ui::table::MiseTable;
+use crate::ui::table::PakroTable;
 use comfy_table::{Attribute, Cell};
 use eyre::Result;
 use itertools::Itertools;
@@ -12,10 +12,10 @@ use itertools::Itertools;
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise config ls
+        r###"pakro config ls
 Path                        Tools
-~/.config/mise/config.toml  pitchfork
-~/src/mise/mise.toml        bun, cargo-binstall, cargo:cargo-insta"###
+~/.config/pakro/config.toml  pitchfork
+~/src/pakro/pakro.toml        bun, cargo-binstall, cargo:cargo-insta"###
     )
 )]
 pub(crate) struct ConfigLs {
@@ -56,7 +56,7 @@ impl ConfigLs {
             .rev()
             .map(|cf| cf.as_ref())
             .collect_vec();
-        let mut table = MiseTable::new(self.no_header, &["Path", "Tools"]);
+        let mut table = PakroTable::new(self.no_header, &["Path", "Tools"]);
         table.truncate(self.truncate.truncate);
         for cfg in configs {
             let ts = cfg.to_tool_request_set().unwrap();
@@ -120,14 +120,14 @@ impl ConfigLs {
                 })
             }))
             .collect();
-        miseprintln!("{}", serde_json::to_string_pretty(&array_items)?);
+        pakroprintln!("{}", serde_json::to_string_pretty(&array_items)?);
         Ok(())
     }
 
     async fn display_tracked_configs(&self) -> Result<()> {
         let tracked_configs = Tracker::list_all()?.into_iter().unique().sorted();
         for path in tracked_configs {
-            miseprintln!("{}", path.display());
+            pakroprintln!("{}", path.display());
         }
         Ok(())
     }

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 monorepo_root = true
 EOF
 
@@ -39,13 +39,13 @@ version = "0.1.0"
 EOF
 done
 
-assert_contains "mise tasks graph" "cargo:app"
-assert_contains "mise tasks graph" "crates/app"
-assert_contains "mise tasks graph" '"workspace_source":"Cargo.toml"'
-assert_contains "mise tasks graph --explain" "Project: cargo:app"
-assert_contains "mise tasks graph --explain" "cargo:core — cargo (crates/app/Cargo.toml)"
+assert_contains "pakro tasks graph" "cargo:app"
+assert_contains "pakro tasks graph" "crates/app"
+assert_contains "pakro tasks graph" '"workspace_source":"Cargo.toml"'
+assert_contains "pakro tasks graph --explain" "Project: cargo:app"
+assert_contains "pakro tasks graph --explain" "cargo:core — cargo (crates/app/Cargo.toml)"
 
-assert_json "mise tasks graph --json | jq '.projects | map({id, root, dependencies})'" '[
+assert_json "pakro tasks graph --json | jq '.projects | map({id, root, dependencies})'" '[
   {
     "id": "cargo:app",
     "root": "crates/app",
@@ -72,7 +72,7 @@ assert_json "mise tasks graph --json | jq '.projects | map({id, root, dependenci
   }
 ]'
 
-assert_json "mise tasks graph --json | jq '.projects[] | select(.id == \"cargo:app\") | {
+assert_json "pakro tasks graph --json | jq '.projects[] | select(.id == \"cargo:app\") | {
   project: .provenance,
   dependency: .dependency_provenance[\"cargo:core\"]
 }'" '{

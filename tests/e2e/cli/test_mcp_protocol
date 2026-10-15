@@ -3,7 +3,7 @@
 # Test MCP protocol interactions in more detail
 
 # Create a test environment with tasks and env vars
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [env]
 TEST_MCP_VAR = "test_value"
 PROJECT_ENV = "development"
@@ -34,17 +34,17 @@ usage = "lint [files...]"
 description = "A file task with TOML metadata"
 EOF
 
-mkdir -p .mise/tasks
-cat >.mise/tasks/mcp-overlay <<'EOF'
+mkdir -p .pakro/tasks
+cat >.pakro/tasks/mcp-overlay <<'EOF'
 #!/usr/bin/env bash
 echo "MCP overlay task"
 EOF
-chmod +x .mise/tasks/mcp-overlay
+chmod +x .pakro/tasks/mcp-overlay
 
 echo "Testing MCP server startup and error handling..."
 
 # Test that MCP server rejects invalid JSON
-output=$(echo "not json" | mise mcp 2>&1 || true)
+output=$(echo "not json" | pakro mcp 2>&1 || true)
 if [[ $output == *"Failed to create service"* ]]; then
   echo "SUCCESS: MCP server correctly rejected invalid JSON"
 else
@@ -64,13 +64,13 @@ import subprocess
 import sys
 
 
-def find_mise():
+def find_pakro():
     paths = [
-        os.path.join(os.path.dirname(__file__), "..", "..", "..", "target", "debug", "mise"),
-        "mise",
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "target", "debug", "pakro"),
+        "pakro",
     ]
     for path in paths:
-        if os.path.exists(path) or path == "mise":
+        if os.path.exists(path) or path == "pakro":
             return path
     return None
 
@@ -124,7 +124,7 @@ def test_initialize(proc):
     assert "tools" in caps, "tools capability missing"
     print("✓ Tools capability present")
 
-    assert result["serverInfo"]["name"] == "mise", "wrong server name"
+    assert result["serverInfo"]["name"] == "pakro", "wrong server name"
     print("✓ Server info correct")
     return 0
 
@@ -155,7 +155,7 @@ def test_tasks_resource(proc):
     send(proc, {
         "jsonrpc": "2.0", "id": 7,
         "method": "resources/read",
-        "params": {"uri": "mise://tasks"},
+        "params": {"uri": "pakro://tasks"},
     })
     resp = recv(proc)
     if not resp or "result" not in resp:
@@ -164,11 +164,11 @@ def test_tasks_resource(proc):
 
     tasks = json.loads(resp["result"]["contents"][0]["text"])
     task = next(t for t in tasks if t["name"] == "mcp-overlay")
-    assert task["source"].endswith("/.mise/tasks/mcp-overlay"), task
+    assert task["source"].endswith("/.pakro/tasks/mcp-overlay"), task
     assert len(task["config_sources"]) == 2, task
-    assert task["config_sources"][0].endswith("/.mise/tasks/mcp-overlay"), task
-    assert task["config_sources"][1].endswith("/mise.toml"), task
-    print("✓ mise://tasks reports all task definition sources")
+    assert task["config_sources"][0].endswith("/.pakro/tasks/mcp-overlay"), task
+    assert task["config_sources"][1].endswith("/pakro.toml"), task
+    print("✓ pakro://tasks reports all task definition sources")
     return 0
 
 
@@ -259,14 +259,14 @@ def test_install_tool_stub(proc):
 
 
 def main():
-    mise_path = find_mise()
-    if not mise_path:
-        print("ERROR: Could not find mise binary")
+    pakro_path = find_pakro()
+    if not pakro_path:
+        print("ERROR: Could not find pakro binary")
         return 1
-    print(f"Using mise binary: {mise_path}")
+    print(f"Using pakro binary: {pakro_path}")
 
     proc = subprocess.Popen(
-        [mise_path, "mcp"],
+        [pakro_path, "mcp"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

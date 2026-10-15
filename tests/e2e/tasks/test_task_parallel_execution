@@ -9,7 +9,7 @@ set -euo pipefail
 temp_log=$(mktemp)
 trap 'rm -f $temp_log' EXIT
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools]
 poetry = "latest"
 
@@ -62,10 +62,10 @@ echo "process6 complete"
 '''
 
 [tasks.run-all]
-run = "mise run process1 ::: process2 ::: process3 ::: process4 ::: process5 ::: process6"
+run = "pakro run process1 ::: process2 ::: process3 ::: process4 ::: process5 ::: process6"
 EOF
 
-assert "mise install"
+assert "pakro install"
 
 echo "Testing parallel task execution (running 3 times for reliability)..."
 
@@ -81,7 +81,7 @@ for test_run in {1..3}; do
   start_time=$(date +%s)
 
   # Run the tasks and capture output
-  task_output=$(mise run run-all)
+  task_output=$(pakro run run-all)
 
   # Record end time
   end_time=$(date +%s)

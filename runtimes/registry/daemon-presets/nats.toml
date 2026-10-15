@@ -11,7 +11,7 @@ monitor_port = 8222
 
 [options]
 config = { type = "path", default = "" }
-# A configuration file owns JetStream, including where it stores data, so mise
+# A configuration file owns JetStream, including where it stores data, so pakro
 # passes neither flag with `config` set and cannot contradict it.
 jetstream = { type = "bool", default = true, ignored_with = ["config"] }
 # Supplying a CA turns on client certificate verification. `--tlscacert` alone

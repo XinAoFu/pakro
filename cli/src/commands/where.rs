@@ -12,13 +12,13 @@ use crate::toolset::ToolsetBuilder;
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise where node@20
-/home/jdx/.local/share/mise/installs/node/20.0.0"###,
+        r###"pakro where node@20
+/home/jdx/.local/share/pakro/installs/node/20.0.0"###,
         help = r###"Show the latest installed node 20.x Errors if no matching version is installed"###
     ),
     example(
-        r###"mise where node
-/home/jdx/.local/share/mise/installs/node/20.0.0"###,
+        r###"pakro where node
+/home/jdx/.local/share/pakro/installs/node/20.0.0"###,
         help = r###"Show the install directory of the active node, or of the latest installed version if no config requests node Errors if no matching version is installed"###
     )
 )]
@@ -44,7 +44,7 @@ impl Where {
         let named_here = self.tool.tvr.is_some() || self.asdf_version.is_some();
         // The options a configuration sets for the tool apply to a version named
         // here too (as `tool@version` or `tool version`), as they do for
-        // `mise x tool@version`.
+        // `pakro x tool@version`.
         let named = match (self.tool.tvr.clone(), &self.asdf_version) {
             (Some(tvr), _) => Some(tvr),
             (None, Some(version)) => self.tool.clone().with_version(version).tvr,
@@ -69,7 +69,7 @@ impl Where {
         let tv = tvr.resolve(&config, &Default::default()).await?;
 
         if tv.backend()?.is_version_installed(&config, &tv, true) {
-            miseprintln!("{}", tv.install_path().to_string_lossy());
+            pakroprintln!("{}", tv.install_path().to_string_lossy());
             Ok(())
         } else if let Some(dir) = (named_here && !tv.resolved_from_lockfile())
             .then(|| installed_variant(&tv))
@@ -78,7 +78,7 @@ impl Where {
         {
             // The version was installed with options a configuration sets; the one
             // named here carries none.
-            miseprintln!("{}", dir.to_string_lossy());
+            pakroprintln!("{}", dir.to_string_lossy());
             Ok(())
         } else {
             Err(Error::VersionNotInstalled(

@@ -16,7 +16,7 @@
 
 ### 📚 Documentation
 
-- show pinned packslip bootstraps for mise and Docker by @jdx in [#13935](https://github.com/jdx/mise/pull/13935)
+- show pinned packslip bootstraps for pakro and Docker by @jdx in [#13935](https://github.com/jdx/mise/pull/13935)
 
 ### 📦 Registry
 
@@ -42,11 +42,11 @@
 
 - **(activate)** keep loading trusted configs when a project config is untrusted by @jdx in [#13919](https://github.com/jdx/mise/pull/13919)
 - **(config)** report a failed settings reload instead of aborting by @jdx in [#13925](https://github.com/jdx/mise/pull/13925)
-- **(config)** skip miserc discovery with --no-config by @donbeave in [#13926](https://github.com/jdx/mise/pull/13926)
+- **(config)** skip pakrorc discovery with --no-config by @donbeave in [#13926](https://github.com/jdx/mise/pull/13926)
 - **(daemons)** start a task daemon with init under cmd.exe on Windows by @JamBalaya56562 in [#13928](https://github.com/jdx/mise/pull/13928)
 - **(dotfiles)** read saved history after directory-to-symlink changes by @jdx in [#13931](https://github.com/jdx/mise/pull/13931)
 - **(exec)** keep double quotes in a positional cmd /c command on Windows by @JamBalaya56562 in [#13887](https://github.com/jdx/mise/pull/13887)
-- **(packslip)** follow transferred repositories, and document installing mise with packslip by @jdx in [#13710](https://github.com/jdx/mise/pull/13710)
+- **(packslip)** follow transferred repositories, and document installing pakro with packslip by @jdx in [#13710](https://github.com/jdx/mise/pull/13710)
 - **(task)** send Ctrl+C to a timed-out task on Windows before terminating it by @JamBalaya56562 in [#13889](https://github.com/jdx/mise/pull/13889)
 - **(task)** report a timed-out task as failed even when it exits cleanly by @Marukome0743 in [#13930](https://github.com/jdx/mise/pull/13930)
 
@@ -92,11 +92,11 @@
 - **(plugins)** update plugin repos whose remote is not named origin by @jdx in [#13914](https://github.com/jdx/mise/pull/13914)
 - **(release)** back up alpine bump to GitHub and allow SSH push to GitLab by @jdx in [#13892](https://github.com/jdx/mise/pull/13892)
 - **(rust)** upgrade stable and beta when rustup reports an update by @jdx in [#13898](https://github.com/jdx/mise/pull/13898)
-- **(rust)** honor mise.lock for core:rust installs by @jdx in [#13915](https://github.com/jdx/mise/pull/13915)
-- **(shim)** stop native shim copies recursing through mise x by @JamBalaya56562 in [#13681](https://github.com/jdx/mise/pull/13681)
+- **(rust)** honor pakro.lock for core:rust installs by @jdx in [#13915](https://github.com/jdx/mise/pull/13915)
+- **(shim)** stop native shim copies recursing through pakro x by @JamBalaya56562 in [#13681](https://github.com/jdx/mise/pull/13681)
 - **(shim)** forward Node IPC through Windows shims by @jdx in [#13903](https://github.com/jdx/mise/pull/13903)
 - **(skills)** show $HOME as ~ in skills sync output by @jdx in [#13910](https://github.com/jdx/mise/pull/13910)
-- **(task)** stop running tasks when mise run --timeout expires by @Marukome0743 in [#13876](https://github.com/jdx/mise/pull/13876)
+- **(task)** stop running tasks when pakro run --timeout expires by @Marukome0743 in [#13876](https://github.com/jdx/mise/pull/13876)
 - **(task)** let tasks shut down after a single Ctrl-C by @jdx in [#13904](https://github.com/jdx/mise/pull/13904)
 
 ### 📚 Documentation
@@ -105,7 +105,7 @@
 - replace the landing-page showreel's synthesized music with a Suno track by @jdx in [#13900](https://github.com/jdx/mise/pull/13900)
 - stop the showreel's dark gradients from banding into rings by @jdx in [#13902](https://github.com/jdx/mise/pull/13902)
 - tighten the landing-page video and smooth its soundtrack by @jdx in [#13916](https://github.com/jdx/mise/pull/13916)
-- retime the mise run captions to the vocal by @jdx in [#13917](https://github.com/jdx/mise/pull/13917)
+- retime the pakro run captions to the vocal by @jdx in [#13917](https://github.com/jdx/mise/pull/13917)
 
 ### 🧪 Testing
 
@@ -235,15 +235,15 @@
 
 ### 🐛 Bug Fixes
 
-- **(daemons)** make `mise daemons stop --all` cover the project's daemons by @jdx in [#13827](https://github.com/jdx/mise/pull/13827)
+- **(daemons)** make `pakro daemons stop --all` cover the project's daemons by @jdx in [#13827](https://github.com/jdx/mise/pull/13827)
 - **(daemons)** register the hostname label with pitchfork so printed URLs route by @jdx in [#13833](https://github.com/jdx/mise/pull/13833)
 - **(daemons)** install preset tools on the first daemons start by @jdx in [#13837](https://github.com/jdx/mise/pull/13837)
 - **(daemons)** tell the user how to pin a different port when a daemon's port is taken by @jdx in [#13839](https://github.com/jdx/mise/pull/13839)
 - **(dotfiles)** keep internal Git commands working with Git for Windows 2.56 by @genskyff in [#13812](https://github.com/jdx/mise/pull/13812)
-- **(dotfiles)** restart the history watcher after mise is upgraded by @jdx in [#13845](https://github.com/jdx/mise/pull/13845)
+- **(dotfiles)** restart the history watcher after pakro is upgraded by @jdx in [#13845](https://github.com/jdx/mise/pull/13845)
 - **(install-script)** pin the version instead of scraping the installer by @jdx in [#13816](https://github.com/jdx/mise/pull/13816)
 - **(lock)** warn with the cause when a tool is skipped by @jdx in [#13831](https://github.com/jdx/mise/pull/13831)
-- **(oci)** let [oci.env] satisfy required env vars during mise oci by @jdx in [#13821](https://github.com/jdx/mise/pull/13821)
+- **(oci)** let [oci.env] satisfy required env vars during pakro oci by @jdx in [#13821](https://github.com/jdx/mise/pull/13821)
 
 ### 📚 Documentation
 
@@ -259,7 +259,7 @@
 - update rust crate nodejs-semver to v6 by @renovate[bot] in [#13807](https://github.com/jdx/mise/pull/13807)
 - update github actions by @renovate[bot] in [#13814](https://github.com/jdx/mise/pull/13814)
 - update rust crate clx to v3.0.3 by @renovate[bot] in [#13825](https://github.com/jdx/mise/pull/13825)
-- update mise tools by @renovate[bot] in [#13805](https://github.com/jdx/mise/pull/13805)
+- update pakro tools by @renovate[bot] in [#13805](https://github.com/jdx/mise/pull/13805)
 - update rust crate aws-sdk-s3 to v1.149.0 by @renovate[bot] in [#13840](https://github.com/jdx/mise/pull/13840)
 - update aube to v2.6.1 by @renovate[bot] in [#13846](https://github.com/jdx/mise/pull/13846)
 
@@ -288,13 +288,13 @@
 
 ### 🚀 Features
 
-- **(config)** support global local miserc overrides by @jdx in [#13778](https://github.com/jdx/mise/pull/13778)
+- **(config)** support global local pakrorc overrides by @jdx in [#13778](https://github.com/jdx/mise/pull/13778)
 - **(config)** auto-install unconfigured registry bins on command not found by @jdx in [#13781](https://github.com/jdx/mise/pull/13781)
 - **(dotfiles)** identify history commits by machine by @jdx in [#13791](https://github.com/jdx/mise/pull/13791)
 - **(install)** allow tool postinstall on every install by @jdx in [#13789](https://github.com/jdx/mise/pull/13789)
 - **(lock)** warn when old lockfile formats are overdue for upgrade by @jdx in [#13779](https://github.com/jdx/mise/pull/13779)
-- **(self-update)** apply minimum release age to mise updates and installs by @jdx in [#13782](https://github.com/jdx/mise/pull/13782)
-- **(self-update)** verify packslips against the mise repository ID by @jdx in [#13785](https://github.com/jdx/mise/pull/13785)
+- **(self-update)** apply minimum release age to pakro updates and installs by @jdx in [#13782](https://github.com/jdx/mise/pull/13782)
+- **(self-update)** verify packslips against the pakro repository ID by @jdx in [#13785](https://github.com/jdx/mise/pull/13785)
 
 ### 🐛 Bug Fixes
 
@@ -312,8 +312,8 @@
 
 ### 📚 Documentation
 
-- replace the theme song with the mise run music video by @jdx in [#13799](https://github.com/jdx/mise/pull/13799)
-- add a seven-minute showreel of mise to the landing page by @jdx in [#13797](https://github.com/jdx/mise/pull/13797)
+- replace the theme song with the pakro run music video by @jdx in [#13799](https://github.com/jdx/mise/pull/13799)
+- add a seven-minute showreel of pakro to the landing page by @jdx in [#13797](https://github.com/jdx/mise/pull/13797)
 
 ### 🧪 Testing
 
@@ -337,7 +337,7 @@
 
 ### Chore
 
-- **(entire)** store mise checkpoints in a private repository by @jdx in [e5c1488](https://github.com/jdx/mise/commit/e5c1488b668c4fa93415cf8812938c1cd1136d40)
+- **(entire)** store pakro checkpoints in a private repository by @jdx in [e5c1488](https://github.com/jdx/mise/commit/e5c1488b668c4fa93415cf8812938c1cd1136d40)
 - **(entire)** commit codex session hooks by @jdx in [7300964](https://github.com/jdx/mise/commit/7300964c455cd109262be695a9fbd7742f1a4144)
 - **(entire)** commit claude session hooks by @jdx in [ad720ea](https://github.com/jdx/mise/commit/ad720ea4c6ee29a5a29e661e678be7d76e6ca337)
 - **(entire)** restore lower-cost trail findings by @jdx in [b979550](https://github.com/jdx/mise/commit/b979550b349db9f58907056439aaa99b8bee5a16)
@@ -345,7 +345,7 @@
 ### Ci
 
 - **(deps)** refresh all aube workspace crates in Renovate aube updates by @jdx in [#13801](https://github.com/jdx/mise/pull/13801)
-- **(deps)** pin the aube mise.lock refresh to the version Renovate selected by @jdx in [#13802](https://github.com/jdx/mise/pull/13802)
+- **(deps)** pin the aube pakro.lock refresh to the version Renovate selected by @jdx in [#13802](https://github.com/jdx/mise/pull/13802)
 - enable mr-boxington caching for unit-macos by @jdx in [#13776](https://github.com/jdx/mise/pull/13776)
 - report release checks for stacked pull requests by @jdx in [#13786](https://github.com/jdx/mise/pull/13786)
 - allow publishing docs via workflow_dispatch by @jdx in [#13800](https://github.com/jdx/mise/pull/13800)
@@ -377,7 +377,7 @@
 - **(rust)** keep `cargo +nightly` working when rust@nightly installs a dated toolchain by @jdx in [#13707](https://github.com/jdx/mise/pull/13707)
 - **(sigstore)** bind public-key DSSE bundles to artifact digest by @jdx in [#13721](https://github.com/jdx/mise/pull/13721)
 - **(task)** apply run --no-cache to Git task includes and remote dependencies by @irisTa56 in [#13697](https://github.com/jdx/mise/pull/13697)
-- **(task)** make `mise run --no-timings` hide each task's elapsed time again by @jdx in [#13718](https://github.com/jdx/mise/pull/13718)
+- **(task)** make `pakro run --no-timings` hide each task's elapsed time again by @jdx in [#13718](https://github.com/jdx/mise/pull/13718)
 - compare v-prefixed semver versions correctly by @himkt in [#13690](https://github.com/jdx/mise/pull/13690)
 
 ### 🚜 Refactor
@@ -385,7 +385,7 @@
 - **(aqua)** split registry type tests into modules by @jdx in [#13730](https://github.com/jdx/mise/pull/13730)
 - **(aqua)** split registry type implementation into modules by @jdx in [#13731](https://github.com/jdx/mise/pull/13731)
 - **(aqua)** move template tests into their own module by @jdx in [#13732](https://github.com/jdx/mise/pull/13732)
-- **(bootstrap)** extract resource planner into mise-bootstrap by @jdx in [#13709](https://github.com/jdx/mise/pull/13709)
+- **(bootstrap)** extract resource planner into pakro-bootstrap by @jdx in [#13709](https://github.com/jdx/mise/pull/13709)
 - **(bootstrap)** move dependency policies into planner crate by @jdx in [#13711](https://github.com/jdx/mise/pull/13711)
 - **(brew)** extract cask metadata and artifact parsing by @jdx in [#13703](https://github.com/jdx/mise/pull/13703)
 - **(brew)** split cask artifact and flight parsers by @jdx in [#13720](https://github.com/jdx/mise/pull/13720)
@@ -463,7 +463,7 @@
 ### 🚀 Features
 
 - **(bootstrap)** show Mac App Store app names in packages status by @jdx in [#13622](https://github.com/jdx/mise/pull/13622)
-- **(oci)** package vfox plugin tools in mise oci images by @jdx in [#13670](https://github.com/jdx/mise/pull/13670)
+- **(oci)** package vfox plugin tools in pakro oci images by @jdx in [#13670](https://github.com/jdx/mise/pull/13670)
 - **(pypi)** support #subdirectory= and .git-less URLs in git sources by @jakedgy in [#13607](https://github.com/jdx/mise/pull/13607)
 - **(registry)** add max_version for version-dependent backends by @jdx in [#13676](https://github.com/jdx/mise/pull/13676)
 - **(vfox)** let plugins update installs that no longer match tool options by @jdx in [#13668](https://github.com/jdx/mise/pull/13668)
@@ -486,20 +486,20 @@
 ### 🚜 Refactor
 
 - **(cli)** move the tool and backend argument types out of cli by @jdx in [#13637](https://github.com/jdx/mise/pull/13637)
-- **(cmd)** move process execution and git into mise-util by @jdx in [#13625](https://github.com/jdx/mise/pull/13625)
-- **(config)** move generated settings types into a mise-settings crate by @jdx in [#13616](https://github.com/jdx/mise/pull/13616)
-- **(env)** move environment and directory statics into a mise-util crate by @jdx in [#13620](https://github.com/jdx/mise/pull/13620)
-- **(file)** move file, path, hash and process helpers into mise-util by @jdx in [#13624](https://github.com/jdx/mise/pull/13624)
-- **(gpg)** move signature verification and its keys into mise-util by @jdx in [#13635](https://github.com/jdx/mise/pull/13635)
-- **(http)** move http, github, gitlab, forgejo and tokens into mise-util by @jdx in [#13631](https://github.com/jdx/mise/pull/13631)
+- **(cmd)** move process execution and git into pakro-util by @jdx in [#13625](https://github.com/jdx/mise/pull/13625)
+- **(config)** move generated settings types into a pakro-settings crate by @jdx in [#13616](https://github.com/jdx/mise/pull/13616)
+- **(env)** move environment and directory statics into a pakro-util crate by @jdx in [#13620](https://github.com/jdx/mise/pull/13620)
+- **(file)** move file, path, hash and process helpers into pakro-util by @jdx in [#13624](https://github.com/jdx/mise/pull/13624)
+- **(gpg)** move signature verification and its keys into pakro-util by @jdx in [#13635](https://github.com/jdx/mise/pull/13635)
+- **(http)** move http, github, gitlab, forgejo and tokens into pakro-util by @jdx in [#13631](https://github.com/jdx/mise/pull/13631)
 - **(install)** route tool paths and install locks through BackendArg by @jdx in [#13680](https://github.com/jdx/mise/pull/13680)
 - **(system)** move Homebrew bottle relocation into its own crate by @jdx in [#13677](https://github.com/jdx/mise/pull/13677)
 - **(system)** extract Homebrew formula metadata models by @jdx in [#13679](https://github.com/jdx/mise/pull/13679)
-- **(tera)** move tera, agecrypt, remote_source and packslip_requirements into mise-util by @jdx in [#13633](https://github.com/jdx/mise/pull/13633)
-- move self-contained leaf modules into mise-util by @jdx in [#13628](https://github.com/jdx/mise/pull/13628)
-- move network flags, cache manager and exit plumbing into mise-util by @jdx in [#13629](https://github.com/jdx/mise/pull/13629)
+- **(tera)** move tera, agecrypt, remote_source and packslip_requirements into pakro-util by @jdx in [#13633](https://github.com/jdx/mise/pull/13633)
+- move self-contained leaf modules into pakro-util by @jdx in [#13628](https://github.com/jdx/mise/pull/13628)
+- move network flags, cache manager and exit plumbing into pakro-util by @jdx in [#13629](https://github.com/jdx/mise/pull/13629)
 - remove every core → cli dependency by @jdx in [#13642](https://github.com/jdx/mise/pull/13642)
-- split mise into a library and a thin CLI binary by @jdx in [#13647](https://github.com/jdx/mise/pull/13647)
+- split pakro into a library and a thin CLI binary by @jdx in [#13647](https://github.com/jdx/mise/pull/13647)
 
 ### ⚡ Performance
 
@@ -509,7 +509,7 @@
 - **(install)** scan installed versions in a single pass by @jdx in [#13675](https://github.com/jdx/mise/pull/13675)
 - **(npm)** make cd and hook-env faster when npm tools are installed by @jdx in [#13685](https://github.com/jdx/mise/pull/13685)
 - **(prune)** back off re-checking in-use tool purgatory receipts by @jdx in [#13674](https://github.com/jdx/mise/pull/13674)
-- **(release)** start mise about 3 ms faster on Linux by linking non-PIE by @jdx in [#13687](https://github.com/jdx/mise/pull/13687)
+- **(release)** start pakro about 3 ms faster on Linux by linking non-PIE by @jdx in [#13687](https://github.com/jdx/mise/pull/13687)
 
 ### 🧪 Testing
 
@@ -561,12 +561,12 @@
 - **(config)** load conf.d folders as self-contained config fragments by @jdx in [#13603](https://github.com/jdx/mise/pull/13603)
 - **(dotfiles)** add opt-in relative symlinks by @jdx in [#13583](https://github.com/jdx/mise/pull/13583)
 - **(dotfiles)** add dot_prefix to deploy dot-<name> sources as .<name> by @jdx in [#13585](https://github.com/jdx/mise/pull/13585)
-- **(github)** use mise-versions for any public github.com repo by @jdx in [#13584](https://github.com/jdx/mise/pull/13584)
+- **(github)** use pakro-versions for any public github.com repo by @jdx in [#13584](https://github.com/jdx/mise/pull/13584)
 - **(registry)** let registry entries require GitHub attestations by @jdx in [#13586](https://github.com/jdx/mise/pull/13586)
 
 ### 🐛 Bug Fixes
 
-- **(backend)** don't reuse versions-host version lists when MISE_USE_VERSIONS_HOST=0 by @jdx in [#13605](https://github.com/jdx/mise/pull/13605)
+- **(backend)** don't reuse versions-host version lists when PAKRO_USE_VERSIONS_HOST=0 by @jdx in [#13605](https://github.com/jdx/mise/pull/13605)
 - **(bootstrap)** point config_roots deprecation warning at conf.d folders by @jdx in [#13598](https://github.com/jdx/mise/pull/13598)
 - **(http)** warn when a download is crawling by @jdx in [#13589](https://github.com/jdx/mise/pull/13589)
 - **(install)** name the process holding a tool's install lock by @jdx in [#13588](https://github.com/jdx/mise/pull/13588)
@@ -574,7 +574,7 @@
 - **(oci)** apply dotfiles exclude and git manifest to directory entries by @jdx in [#13591](https://github.com/jdx/mise/pull/13591)
 - **(pipx)** treat PEP 440 .devN releases as prereleases by @jdx in [#13601](https://github.com/jdx/mise/pull/13601)
 - **(pipx)** keep the user in git+ssh URLs out of the tool version by @jdx in [#13610](https://github.com/jdx/mise/pull/13610)
-- **(prune)** keep versions pinned by configs a project's .miserc.toml ignores by @jdx in [#13602](https://github.com/jdx/mise/pull/13602)
+- **(prune)** keep versions pinned by configs a project's .pakrorc.toml ignores by @jdx in [#13602](https://github.com/jdx/mise/pull/13602)
 - **(system)** follow HTTP mirror redirects for checksum-pinned brew sources by @jdx in [#13611](https://github.com/jdx/mise/pull/13611)
 
 ### 📦️ Dependency Updates
@@ -589,7 +589,7 @@
 ### Chore
 
 - **(release)** build Windows tarballs with thin LTO by @jdx in [#13614](https://github.com/jdx/mise/pull/13614)
-- bootstrap Claude Code on the web sessions for mise development by @jdx in [#13597](https://github.com/jdx/mise/pull/13597)
+- bootstrap Claude Code on the web sessions for pakro development by @jdx in [#13597](https://github.com/jdx/mise/pull/13597)
 
 ### Ci
 
@@ -610,9 +610,9 @@
 - **(bootstrap)** support PartOf, BindsTo, Before, Conflicts and ExecStartPre/Post in systemd units by @jdx in [#13526](https://github.com/jdx/mise/pull/13526)
 - **(bootstrap)** remove a templated file when it renders empty by @jdx in [#13510](https://github.com/jdx/mise/pull/13510)
 - **(bootstrap)** manage a file's permissions without its contents by @jdx in [#13511](https://github.com/jdx/mise/pull/13511)
-- **(cli)** colour the help page mise prints, and give it a logo by @jdx in [#13449](https://github.com/jdx/mise/pull/13449)
-- **(config)** add .miserc.local.toml overrides by @jdx in [#13440](https://github.com/jdx/mise/pull/13440)
-- **(config)** complete keys for `mise config get` and `mise config set` by @jdx in [#13551](https://github.com/jdx/mise/pull/13551)
+- **(cli)** colour the help page pakro prints, and give it a logo by @jdx in [#13449](https://github.com/jdx/mise/pull/13449)
+- **(config)** add .pakrorc.local.toml overrides by @jdx in [#13440](https://github.com/jdx/mise/pull/13440)
+- **(config)** complete keys for `pakro config get` and `pakro config set` by @jdx in [#13551](https://github.com/jdx/mise/pull/13551)
 - **(daemons)** add user-owned shared server providers by @jdx in [#13534](https://github.com/jdx/mise/pull/13534)
 - **(daemons)** share SQL servers with isolated checkout databases by @jdx in [#13536](https://github.com/jdx/mise/pull/13536)
 - **(daemons)** isolate shared NATS consumers with accounts by @jdx in [#13537](https://github.com/jdx/mise/pull/13537)
@@ -623,26 +623,26 @@
 - **(dotfiles)** set target file permissions with a permissions key by @jdx in [#13514](https://github.com/jdx/mise/pull/13514)
 - **(dotfiles)** remove targets with mode = "absent" by @jdx in [#13513](https://github.com/jdx/mise/pull/13513)
 - **(dotfiles)** remove a template's target when it renders empty by @jdx in [#13515](https://github.com/jdx/mise/pull/13515)
-- **(dotfiles)** remove directories mise created once they are empty by @jdx in [#13518](https://github.com/jdx/mise/pull/13518)
+- **(dotfiles)** remove directories pakro created once they are empty by @jdx in [#13518](https://github.com/jdx/mise/pull/13518)
 - **(hooks)** expose installed tool backend and path by @garysassano in [#13421](https://github.com/jdx/mise/pull/13421)
 - **(http)** install from a local archive with a file:// url by @jdx in [#13574](https://github.com/jdx/mise/pull/13574)
 - **(install)** explain checksum mismatches caused by re-uploaded GitHub assets by @jdx in [#13512](https://github.com/jdx/mise/pull/13512)
-- **(lock)** keep locked backends when the registry moves a tool, and add `mise backends switch` by @jdx in [#13543](https://github.com/jdx/mise/pull/13543)
+- **(lock)** keep locked backends when the registry moves a tool, and add `pakro backends switch` by @jdx in [#13543](https://github.com/jdx/mise/pull/13543)
 - **(ls)** filter and group tools by backend by @jdx in [#13530](https://github.com/jdx/mise/pull/13530)
 - **(registry)** add a url field for a tool's project homepage by @jdx in [#13533](https://github.com/jdx/mise/pull/13533)
 - **(search)** search package registries by backend prefix or with --all by @jdx in [#13550](https://github.com/jdx/mise/pull/13550)
 - **(task)** export OpenTelemetry traces for task runs by @jdx in [#13557](https://github.com/jdx/mise/pull/13557)
 - **(task)** cover setup in the OpenTelemetry root span by @jdx in [#13558](https://github.com/jdx/mise/pull/13558)
 - **(task)** export task output as OpenTelemetry logs by @jdx in [#13559](https://github.com/jdx/mise/pull/13559)
-- **(tool-stub)** lock stubs in their project's mise.lock by @jdx in [#13502](https://github.com/jdx/mise/pull/13502)
+- **(tool-stub)** lock stubs in their project's pakro.lock by @jdx in [#13502](https://github.com/jdx/mise/pull/13502)
 - **(vfox)** add BackendUninstall hook for backend plugins by @jdx in [#13522](https://github.com/jdx/mise/pull/13522)
 - override node bundled pnpm by specified version of pnpm by @EMcCormack in [#13498](https://github.com/jdx/mise/pull/13498)
 
 ### 🐛 Bug Fixes
 
-- **(activate)** make bash `mise` function work without $__MISE_EXE by @jdx in [#13491](https://github.com/jdx/mise/pull/13491)
-- **(aqua)** create .mise-bins for registry files listed by name only by @jdx in [#13525](https://github.com/jdx/mise/pull/13525)
-- **(aqua)** report only the provenance and signature checks mise performs by @jdx in [#13549](https://github.com/jdx/mise/pull/13549)
+- **(activate)** make bash `pakro` function work without $__PAKRO_EXE by @jdx in [#13491](https://github.com/jdx/mise/pull/13491)
+- **(aqua)** create .pakro-bins for registry files listed by name only by @jdx in [#13525](https://github.com/jdx/mise/pull/13525)
+- **(aqua)** report only the provenance and signature checks pakro performs by @jdx in [#13549](https://github.com/jdx/mise/pull/13549)
 - **(backend)** keep .exe when bin renames a raw Windows download by @jdx in [#13529](https://github.com/jdx/mise/pull/13529)
 - **(bootstrap)** stop running Windows user services through cmd.exe by @jdx in [#13429](https://github.com/jdx/mise/pull/13429)
 - **(bootstrap)** run history reload commands for dotfiles bootstrap writes by @jdx in [#13509](https://github.com/jdx/mise/pull/13509)
@@ -665,7 +665,7 @@
 - **(lock)** refuse to lock a version that a failed listing never confirmed by @jdx in [#13552](https://github.com/jdx/mise/pull/13552)
 - **(npm)** run npm_execpath scripts through aube, not the task runner by @jdx in [#13484](https://github.com/jdx/mise/pull/13484)
 - **(release)** build Windows with panic=unwind so vfox Lua errors don't abort by @jdx in [#13503](https://github.com/jdx/mise/pull/13503)
-- **(release)** package every file mise reads at compile time by @jdx in [#13573](https://github.com/jdx/mise/pull/13573)
+- **(release)** package every file pakro reads at compile time by @jdx in [#13573](https://github.com/jdx/mise/pull/13573)
 - **(self-update)** fail before downloading when the install dir is not writable by @jdx in [#13453](https://github.com/jdx/mise/pull/13453)
 - **(shim)** install a wrapper command's missing provider before dispatching by @jdx in [#13532](https://github.com/jdx/mise/pull/13532)
 - **(task)** preserve script execution and dependencies in metadata overlays by @jdx in [#13448](https://github.com/jdx/mise/pull/13448)
@@ -685,7 +685,7 @@
 - **(agents)** move task procedures into skills and fix stale guidance by @jdx in [#13528](https://github.com/jdx/mise/pull/13528)
 - **(bootstrap)** explain optional setup modules with config environments by @jdx in [#13439](https://github.com/jdx/mise/pull/13439)
 - **(bootstrap)** remove files in the home directory with state = "absent" by @jdx in [#13507](https://github.com/jdx/mise/pull/13507)
-- **(registry)** show verification badges and link each tool to mise-versions by @jdx in [#13548](https://github.com/jdx/mise/pull/13548)
+- **(registry)** show verification badges and link each tool to pakro-versions by @jdx in [#13548](https://github.com/jdx/mise/pull/13548)
 - fix zsh completion steps rendering as duplicate "sh" tabs by @jdx in [#13423](https://github.com/jdx/mise/pull/13423)
 - accept bug reports in GitHub Issues by @jdx in [#13524](https://github.com/jdx/mise/pull/13524)
 - describe development tools and project configuration plainly by @jdx in [#13517](https://github.com/jdx/mise/pull/13517)
@@ -720,8 +720,8 @@
 - update ghcr.io/jdx/mise:deb and nscloud-cache-action digests by @jdx in [#13504](https://github.com/jdx/mise/pull/13504)
 - group all usage crates in one Renovate update by @jdx in [#13519](https://github.com/jdx/mise/pull/13519)
 - update rust crate usage-lib to v6.11.1 by @renovate[bot] in [#13516](https://github.com/jdx/mise/pull/13516)
-- update communique to 1.4.2 in mise.lock by @jdx in [680c305](https://github.com/jdx/mise/commit/680c30506304d2138bf89f6fcb4d913bf070bf7e)
-- upgrade locked mise tools by @jdx in [dadb677](https://github.com/jdx/mise/commit/dadb6774d91d421fade6dffcdafc0a542fd9866d)
+- update communique to 1.4.2 in pakro.lock by @jdx in [680c305](https://github.com/jdx/mise/commit/680c30506304d2138bf89f6fcb4d913bf070bf7e)
+- upgrade locked pakro tools by @jdx in [dadb677](https://github.com/jdx/mise/commit/dadb6774d91d421fade6dffcdafc0a542fd9866d)
 
 ### 📦 Registry
 
@@ -903,7 +903,7 @@
 - **(daemons)** register projects without starting daemons by @jdx in [#13399](https://github.com/jdx/mise/pull/13399)
 - **(daemons)** support custom preset data directories by @jdx in [#13408](https://github.com/jdx/mise/pull/13408)
 - **(docker)** publish verified release images for Dockerfiles and CI by @jdx in [#13413](https://github.com/jdx/mise/pull/13413)
-- **(dotfiles)** run history reload commands after mise dot apply by @jdx in [#13414](https://github.com/jdx/mise/pull/13414)
+- **(dotfiles)** run history reload commands after pakro dot apply by @jdx in [#13414](https://github.com/jdx/mise/pull/13414)
 - **(go)** read the go version from go.work by @jdx in [#13337](https://github.com/jdx/mise/pull/13337)
 - **(install)** automatically elevate system installs with sudo by @jdx in [#13384](https://github.com/jdx/mise/pull/13384)
 - **(task)** support relative paths and env vars in usage includes by @jdx in [#13372](https://github.com/jdx/mise/pull/13372)
@@ -931,7 +931,7 @@
 - **(install)** accept DMG license prompts automatically by @hisaac in [#13353](https://github.com/jdx/mise/pull/13353)
 - **(lock)** install locked npm and pypi tools from Windows checkouts by @jdx in [#13398](https://github.com/jdx/mise/pull/13398)
 - **(lock)** keep installing lockfiles whose sidecar digest was recorded on Windows by @jdx in [#13403](https://github.com/jdx/mise/pull/13403)
-- **(lock)** pin a relocated dependency sidecar to the bytes mise just wrote by @jdx in [#13407](https://github.com/jdx/mise/pull/13407)
+- **(lock)** pin a relocated dependency sidecar to the bytes pakro just wrote by @jdx in [#13407](https://github.com/jdx/mise/pull/13407)
 - **(lockfile)** refuse to install a locked URL from a different release by @jdx in [#13401](https://github.com/jdx/mise/pull/13401)
 - **(npm)** let other users on a shared machine install npm tools by @jdx in [#13379](https://github.com/jdx/mise/pull/13379)
 - **(npm)** resolve latest to an installed pre-release when no stable version is installed by @jdx in [#13390](https://github.com/jdx/mise/pull/13390)
@@ -943,7 +943,7 @@
 - **(daemons)** recommend on-demand development stacks by @jdx in [#13389](https://github.com/jdx/mise/pull/13389)
 - **(templates)** explain parameterized snippets with Tera components by @jdx in [#13388](https://github.com/jdx/mise/pull/13388)
 - stop the sidebar and outline from covering the footer by @jdx in [#13370](https://github.com/jdx/mise/pull/13370)
-- add miser.nvim to IDE integration page by @carldaws in [#13406](https://github.com/jdx/mise/pull/13406)
+- add pakror.nvim to IDE integration page by @carldaws in [#13406](https://github.com/jdx/mise/pull/13406)
 
 ### ⚡ Performance
 
@@ -955,7 +955,7 @@
 
 ### ◀️ Revert
 
-- restore the full windows-e2e mise tool cache by @jdx in [#13404](https://github.com/jdx/mise/pull/13404)
+- restore the full windows-e2e pakro tool cache by @jdx in [#13404](https://github.com/jdx/mise/pull/13404)
 
 ### 📦️ Dependency Updates
 
@@ -970,7 +970,7 @@
 ### Ci
 
 - run macOS dotfiles e2e tests concurrently by @jdx in [#13393](https://github.com/jdx/mise/pull/13393)
-- trim the windows-e2e mise tool cache by @jdx in [#13397](https://github.com/jdx/mise/pull/13397)
+- trim the windows-e2e pakro tool cache by @jdx in [#13397](https://github.com/jdx/mise/pull/13397)
 
 ### New Contributors
 
@@ -1032,7 +1032,7 @@
 
 - **(ci)** enforce the existing glibc 2.18 minimum for Linux releases by @jdx in [#13296](https://github.com/jdx/mise/pull/13296)
 - remove entire and codex agent hooks by @jdx in [0e94599](https://github.com/jdx/mise/commit/0e94599d680069bb7ed1cee47b016a6509803bf1)
-- tailor entire trail runners to mise by @jdx in [#13321](https://github.com/jdx/mise/pull/13321)
+- tailor entire trail runners to pakro by @jdx in [#13321](https://github.com/jdx/mise/pull/13321)
 
 ### Ci
 
@@ -1064,7 +1064,7 @@
 
 - **(bootstrap)** render templates in systemd unit and launchd agent values by @jdx in [#13227](https://github.com/jdx/mise/pull/13227)
 - **(dotfiles)** resolve every sharing conflict in one command by @jdx in [#13233](https://github.com/jdx/mise/pull/13233)
-- **(hooks)** add requested_version to MISE_INSTALLED_TOOLS by @jdx in [#13274](https://github.com/jdx/mise/pull/13274)
+- **(hooks)** add requested_version to PAKRO_INSTALLED_TOOLS by @jdx in [#13274](https://github.com/jdx/mise/pull/13274)
 - **(npm)** add allow_exotic_deps for non-registry dependencies by @jdx in [#13231](https://github.com/jdx/mise/pull/13231)
 - **(shim)** add shims.exclude to keep command names off PATH by @jdx in [#13266](https://github.com/jdx/mise/pull/13266)
 - **(vfox)** add cmd.stream for interactive hooks, detach stdin elsewhere by @jdx in [#13261](https://github.com/jdx/mise/pull/13261)
@@ -1076,7 +1076,7 @@
 - **(backend)** list versions from the resolved backend, not the registry's preferred one by @jdx in [#13238](https://github.com/jdx/mise/pull/13238)
 - **(backend)** support HOMEBREW_PREFIX in tap cask metadata by @soodoh in [#13199](https://github.com/jdx/mise/pull/13199)
 - **(backend)** use bundle names for nested cask app sources by @soodoh in [#13200](https://github.com/jdx/mise/pull/13200)
-- **(bootstrap)** ignore mise shims when selecting tap Ruby by @jacobbednarz in [#13198](https://github.com/jdx/mise/pull/13198)
+- **(bootstrap)** ignore pakro shims when selecting tap Ruby by @jacobbednarz in [#13198](https://github.com/jdx/mise/pull/13198)
 - **(brew)** do not treat tap formula requirement symbols as dependencies by @waynehoover in [#13240](https://github.com/jdx/mise/pull/13240)
 - **(brew)** support appdir DSL in tap cask metadata evaluation by @Guria in [#13138](https://github.com/jdx/mise/pull/13138)
 - **(brew)** apply cask adopt to explicit and tap-qualified cask names by @jdx in [#13262](https://github.com/jdx/mise/pull/13262)
@@ -1128,7 +1128,7 @@
 
 ### Ci
 
-- **(docs)** stop mise-action shadowing the PAT with the installation token by @jdx in [#13255](https://github.com/jdx/mise/pull/13255)
+- **(docs)** stop pakro-action shadowing the PAT with the installation token by @jdx in [#13255](https://github.com/jdx/mise/pull/13255)
 - **(release)** wait out an exhausted rate limit instead of leaving VERSION stale by @jdx in [#13224](https://github.com/jdx/mise/pull/13224)
 - stop unit tests timing out on hosts slower than the dedicated runner by @jdx in [#13229](https://github.com/jdx/mise/pull/13229)
 - email on release-triggered workflow failures by @jdx in [#13248](https://github.com/jdx/mise/pull/13248)
@@ -1245,7 +1245,7 @@
 - **(config)** accept system in idiomatic version files by @jdx in [#13132](https://github.com/jdx/mise/pull/13132)
 - **(dotfiles)** support bootstrap secrets in templates by @jdx in [#13140](https://github.com/jdx/mise/pull/13140)
 - **(lock)** ignore release age for locked versions by @jdx in [#13128](https://github.com/jdx/mise/pull/13128)
-- **(release)** publish mise-agent-env before mise by @jdx in [#13122](https://github.com/jdx/mise/pull/13122)
+- **(release)** publish pakro-agent-env before pakro by @jdx in [#13122](https://github.com/jdx/mise/pull/13122)
 
 ### 📦️ Dependency Updates
 
@@ -1284,7 +1284,7 @@
 ### 🚀 Features
 
 - **(bootstrap)** declare Dock applications in order by @azohra in [#13075](https://github.com/jdx/mise/pull/13075)
-- **(brew)** implement `mise bootstrap packages where` for keg-only packages by @himkt in [#13083](https://github.com/jdx/mise/pull/13083)
+- **(brew)** implement `pakro bootstrap packages where` for keg-only packages by @himkt in [#13083](https://github.com/jdx/mise/pull/13083)
 - **(cli)** add configurable output truncation by @jdx in [#13112](https://github.com/jdx/mise/pull/13112)
 - **(daemons)** manage project daemons and database presets with pitchfork by @jdx in [#13085](https://github.com/jdx/mise/pull/13085)
 - **(doctor)** add project diagnostic checks by @jdx in [#13062](https://github.com/jdx/mise/pull/13062)
@@ -1403,7 +1403,7 @@
 
 ### Ci
 
-- use the active mise binary in the nix docker test by @jdx in [#13026](https://github.com/jdx/mise/pull/13026)
+- use the active pakro binary in the nix docker test by @jdx in [#13026](https://github.com/jdx/mise/pull/13026)
 
 ### New Contributors
 
@@ -1479,7 +1479,7 @@
 ### Ci
 
 - **(release)** publish version after release by @jdx in [#13000](https://github.com/jdx/mise/pull/13000)
-- treat mise-en-dev as a trusted actor by @jdx in [#12968](https://github.com/jdx/mise/pull/12968)
+- treat pakro-en-dev as a trusted actor by @jdx in [#12968](https://github.com/jdx/mise/pull/12968)
 
 ### New Contributors
 
@@ -1500,7 +1500,7 @@
 - **(bootstrap)** handle pacman file advisories for missing packages by @nettlesh in [#12932](https://github.com/jdx/mise/pull/12932)
 - **(bootstrap)** sign macOS notification helper in releases by @jdx in [#12946](https://github.com/jdx/mise/pull/12946)
 - **(config)** make default inline shell portable by @jdx in [#12949](https://github.com/jdx/mise/pull/12949)
-- **(github)** authenticate git operations with mise credentials by @jdx in [#12945](https://github.com/jdx/mise/pull/12945)
+- **(github)** authenticate git operations with pakro credentials by @jdx in [#12945](https://github.com/jdx/mise/pull/12945)
 - **(java)** fold version verification into install progress by @jdx in [#12943](https://github.com/jdx/mise/pull/12943)
 - **(sandbox)** allow metadata access to macOS private directory by @jdx in [#12940](https://github.com/jdx/mise/pull/12940)
 - **(version)** use = syntax in auto_update hint by @jdx in [#12957](https://github.com/jdx/mise/pull/12957)
@@ -1602,7 +1602,7 @@
 - **(schema)** model inline dotfile content by @risu729 in [#12738](https://github.com/jdx/mise/pull/12738)
 - **(schema)** add missing built-in deps providers by @risu729 in [#12739](https://github.com/jdx/mise/pull/12739)
 - **(shim)** match lazy tool names on windows by @jdx in [#12699](https://github.com/jdx/mise/pull/12699)
-- **(shim)** resolve mise-shim.exe through a symlinked mise.exe on Windows by @acooler15 in [#12915](https://github.com/jdx/mise/pull/12915)
+- **(shim)** resolve pakro-shim.exe through a symlinked pakro.exe on Windows by @acooler15 in [#12915](https://github.com/jdx/mise/pull/12915)
 - **(task)** prevent symlink loops in task globs by @jdx in [#12711](https://github.com/jdx/mise/pull/12711)
 - **(task)** stop pre-converting PATH for POSIX shells; the shell already does it by @JamBalaya56562 in [#12696](https://github.com/jdx/mise/pull/12696)
 - **(task)** preserve task status when cache audit tracer fails by @jdx in [#12769](https://github.com/jdx/mise/pull/12769)
@@ -1668,7 +1668,7 @@
 
 - **(ci)** reuse appliance-local mbx cache by @jdx in [#12703](https://github.com/jdx/mise/pull/12703)
 - **(ci)** speed up test workflow by @jdx in [#12912](https://github.com/jdx/mise/pull/12912)
-- **(shim)** skip the mise binary lookup when no lazy tool needs a shim by @jdx in [#12742](https://github.com/jdx/mise/pull/12742)
+- **(shim)** skip the pakro binary lookup when no lazy tool needs a shim by @jdx in [#12742](https://github.com/jdx/mise/pull/12742)
 
 ### 🧪 Testing
 
@@ -1768,7 +1768,7 @@
 - **(install)** name the file when the install marker cannot be created by @JamBalaya56562 in [#12624](https://github.com/jdx/mise/pull/12624)
 - **(install)** stop s3 --dry-run claiming it would install what it cannot by @hktitof in [#12641](https://github.com/jdx/mise/pull/12641)
 - **(shim)** support shared executable directories by @jdx in [#12675](https://github.com/jdx/mise/pull/12675)
-- **(task)** install lazy tools invoked from tasks and mise x by @jdx in [#12687](https://github.com/jdx/mise/pull/12687)
+- **(task)** install lazy tools invoked from tasks and pakro x by @jdx in [#12687](https://github.com/jdx/mise/pull/12687)
 - **(upgrade)** prevent recursive deferred pruning by @jdx in [#12676](https://github.com/jdx/mise/pull/12676)
 
 ### 📦️ Dependency Updates
@@ -1814,7 +1814,7 @@
 
 ### 🐛 Bug Fixes
 
-- **(install)** expose postinstall tool to nested mise by @jdx in [#12635](https://github.com/jdx/mise/pull/12635)
+- **(install)** expose postinstall tool to nested pakro by @jdx in [#12635](https://github.com/jdx/mise/pull/12635)
 
 ### 📦️ Dependency Updates
 
@@ -1918,7 +1918,7 @@
 - **(backend)** detect rolling updates behind versions host by @jdx in [#12440](https://github.com/jdx/mise/pull/12440)
 - **(bootstrap)** preserve brew cask dependencies during prune by @jdx in [#12461](https://github.com/jdx/mise/pull/12461)
 - **(ci)** keep release builds on one compiler path by @jdx in [#12536](https://github.com/jdx/mise/pull/12536)
-- **(ci)** use large release runners for mise-en-dev by @jdx in [#12601](https://github.com/jdx/mise/pull/12601)
+- **(ci)** use large release runners for pakro-en-dev by @jdx in [#12601](https://github.com/jdx/mise/pull/12601)
 - **(config)** merge minimum release age exclusions by @jdx in [#12460](https://github.com/jdx/mise/pull/12460)
 - **(config)** preserve request-specific tool options by @risu729 in [#12060](https://github.com/jdx/mise/pull/12060)
 - **(config)** resolve a bare tool_alias value through the registry by @Marukome0743 in [#12506](https://github.com/jdx/mise/pull/12506)
@@ -1929,7 +1929,7 @@
 - **(file)** silence chunks_exact_to_as_chunks in decode_text by @JamBalaya56562 in [#12449](https://github.com/jdx/mise/pull/12449)
 - **(file)** remove a link whose target is gone by @JamBalaya56562 in [#12468](https://github.com/jdx/mise/pull/12468)
 - **(generate)** deliver Windows launcher arguments intact by @JamBalaya56562 in [#12463](https://github.com/jdx/mise/pull/12463)
-- **(generate)** say when a --mise-bin path has no Windows launcher by @JamBalaya56562 in [#12496](https://github.com/jdx/mise/pull/12496)
+- **(generate)** say when a --pakro-bin path has no Windows launcher by @JamBalaya56562 in [#12496](https://github.com/jdx/mise/pull/12496)
 - **(github)** retry stale cached attestations by @jdx in [#12495](https://github.com/jdx/mise/pull/12495)
 - **(http)** copy raw binaries on Windows, where a junction cannot name a file by @Marukome0743 in [#12465](https://github.com/jdx/mise/pull/12465)
 - **(http)** explain a download that fails because the path is too long by @JamBalaya56562 in [#12550](https://github.com/jdx/mise/pull/12550)
@@ -2208,7 +2208,7 @@
 ### 🚀 Features
 
 - **(bootstrap)** add skip-dirty repo updates by @jdx in [#12364](https://github.com/jdx/mise/pull/12364)
-- **(config)** support mise/conf.d fragments by @jdx in [#12395](https://github.com/jdx/mise/pull/12395)
+- **(config)** support pakro/conf.d fragments by @jdx in [#12395](https://github.com/jdx/mise/pull/12395)
 - **(task)** add task discovery exclusions by @jdx in [#12366](https://github.com/jdx/mise/pull/12366)
 
 ### 🐛 Bug Fixes
@@ -2231,7 +2231,7 @@
 - **(github)** skip provenance API calls when lockfile has checksum but no provenance by @effati in [#12377](https://github.com/jdx/mise/pull/12377)
 - **(lockfile)** include monorepo root requests in lockfile maintenance by @pikeas in [#12382](https://github.com/jdx/mise/pull/12382)
 - **(lockfile)** attribute each new version to its own request source by @pikeas in [#12381](https://github.com/jdx/mise/pull/12381)
-- **(nushell)** unset __MISE_SESSION on deactivate by @NgoQuocViet2001 in [#12361](https://github.com/jdx/mise/pull/12361)
+- **(nushell)** unset __PAKRO_SESSION on deactivate by @NgoQuocViet2001 in [#12361](https://github.com/jdx/mise/pull/12361)
 - **(pipx)** track latest git revisions by @jdx in [#12407](https://github.com/jdx/mise/pull/12407)
 - **(pipx)** reject unavailable configured executable by @jdx in [#12416](https://github.com/jdx/mise/pull/12416)
 - **(prune)** remove tracked configs that cannot be a config file by @Marukome0743 in [#12380](https://github.com/jdx/mise/pull/12380)
@@ -2239,7 +2239,7 @@
 - **(task)** say which sandbox paths do not exist yet by @Marukome0743 in [#12309](https://github.com/jdx/mise/pull/12309)
 - **(task)** flush a keep-order buffer instead of discarding it by @Marukome0743 in [#12370](https://github.com/jdx/mise/pull/12370)
 - **(task)** anchor injected tasks at their parent's keep-order slot by @Marukome0743 in [#12397](https://github.com/jdx/mise/pull/12397)
-- **(task)** stop dropping #MISE header keys that need quoting by @Marukome0743 in [#12415](https://github.com/jdx/mise/pull/12415)
+- **(task)** stop dropping #PAKRO header keys that need quoting by @Marukome0743 in [#12415](https://github.com/jdx/mise/pull/12415)
 - **(task)** reject negative template argument bounds by @jdx in [#12421](https://github.com/jdx/mise/pull/12421)
 - **(trust)** refuse a path that does not exist instead of trusting its parent by @JamBalaya56562 in [#12372](https://github.com/jdx/mise/pull/12372)
 - **(ui)** stop padding the last table column past its content by @JamBalaya56562 in [#12334](https://github.com/jdx/mise/pull/12334)
@@ -2302,7 +2302,7 @@
 - **(brew-cask)** recognize Homebrew-owned casks by @donbeave in [#12346](https://github.com/jdx/mise/pull/12346)
 - **(cli)** report a cd target it cannot enter instead of panicking by @JamBalaya56562 in [#12314](https://github.com/jdx/mise/pull/12314)
 - **(config)** skip disabled idiomatic tracked configs by @xqm32 in [#12194](https://github.com/jdx/mise/pull/12194)
-- **(config)** keep comments when saving from mise edit by @Marukome0743 in [#12319](https://github.com/jdx/mise/pull/12319)
+- **(config)** keep comments when saving from pakro edit by @Marukome0743 in [#12319](https://github.com/jdx/mise/pull/12319)
 - **(config)** strip a byte-order mark before reading a version file by @JamBalaya56562 in [#12325](https://github.com/jdx/mise/pull/12325)
 - **(doctor)** report installs that provide no executables by @Marukome0743 in [#12321](https://github.com/jdx/mise/pull/12321)
 - **(env)** say why an age SSH identity could not be used by @Marukome0743 in [#12339](https://github.com/jdx/mise/pull/12339)
@@ -2320,7 +2320,7 @@
 
 ### 📚 Documentation
 
-- **(tasks)** point extensionless pwsh tasks at MISE_TASK_DIR by @JamBalaya56562 in [#12313](https://github.com/jdx/mise/pull/12313)
+- **(tasks)** point extensionless pwsh tasks at PAKRO_TASK_DIR by @JamBalaya56562 in [#12313](https://github.com/jdx/mise/pull/12313)
 
 ### 📦️ Dependency Updates
 
@@ -2346,7 +2346,7 @@
 
 ### 🚀 Features
 
-- **(bootstrap)** install mise on remote targets by @jdx in [#12284](https://github.com/jdx/mise/pull/12284)
+- **(bootstrap)** install pakro on remote targets by @jdx in [#12284](https://github.com/jdx/mise/pull/12284)
 - **(config)** deprecate alpine all_compile default by @risu729 in [#12287](https://github.com/jdx/mise/pull/12287)
 - **(java)** enable oracle graalvm innovation releases by @roele in [#12189](https://github.com/jdx/mise/pull/12189)
 - **(lock)** version lockfiles and bind requests by @jdx in [#12299](https://github.com/jdx/mise/pull/12299)
@@ -2377,7 +2377,7 @@
 - **(oci)** relocate pipx virtual environments by @jdx in [#12211](https://github.com/jdx/mise/pull/12211)
 - **(ruby)** skip glibc precompiled binaries on musl linux by @risu729 in [#12289](https://github.com/jdx/mise/pull/12289)
 - **(sandbox)** allow macOS root path traversal by @jrandolf in [#12263](https://github.com/jdx/mise/pull/12263)
-- **(set)** refuse a --file mise cannot read back by @JamBalaya56562 in [#12207](https://github.com/jdx/mise/pull/12207)
+- **(set)** refuse a --file pakro cannot read back by @JamBalaya56562 in [#12207](https://github.com/jdx/mise/pull/12207)
 - **(task)** map Rust cache paths to task root by @jrandolf in [#12235](https://github.com/jdx/mise/pull/12235)
 - **(task)** preserve Git task snapshots by @risu729 in [#12000](https://github.com/jdx/mise/pull/12000)
 - **(task)** enforce global task scope precedence by @risu729 in [#12229](https://github.com/jdx/mise/pull/12229)
@@ -2399,7 +2399,7 @@
 - **(env)** clarify _.source is bash-only by @risu729 in [#12286](https://github.com/jdx/mise/pull/12286)
 - **(env)** fix cacheable source example by @Marukome0743 in [#12278](https://github.com/jdx/mise/pull/12278)
 - **(hooks)** clarify cross-file execution order by @jdx in [#12295](https://github.com/jdx/mise/pull/12295)
-- **(install)** clarify --system is shared storage, not a mise-free install by @jdx in [#12253](https://github.com/jdx/mise/pull/12253)
+- **(install)** clarify --system is shared storage, not a pakro-free install by @jdx in [#12253](https://github.com/jdx/mise/pull/12253)
 - **(lockfile)** say which backends strict mode skips by @Marukome0743 in [#12306](https://github.com/jdx/mise/pull/12306)
 - **(task)** note that tasks deps ignores run array refs by @risu729 in [#12285](https://github.com/jdx/mise/pull/12285)
 - **(task)** document that raw serializes execution by @Marukome0743 in [#12307](https://github.com/jdx/mise/pull/12307)
@@ -2524,13 +2524,13 @@
 - **(backend)** keep flavour queries from crossing a '+' by @Marukome0743 in [#12118](https://github.com/jdx/mise/pull/12118)
 - **(backend)** key the remote version cache by listing tool options by @JamBalaya56562 in [#12164](https://github.com/jdx/mise/pull/12164)
 - **(bootstrap)** create missing directory parents by @jdx in [#12096](https://github.com/jdx/mise/pull/12096)
-- **(docs)** route tool search results to mise-versions by @jdx in [#12097](https://github.com/jdx/mise/pull/12097)
+- **(docs)** route tool search results to pakro-versions by @jdx in [#12097](https://github.com/jdx/mise/pull/12097)
 - **(github)** match arm assets on arm64 by @jdx in [#12098](https://github.com/jdx/mise/pull/12098)
 - **(hook-env)** preserve runtime environment overrides by @jdx in [#12094](https://github.com/jdx/mise/pull/12094)
 - **(http)** order remote versions consistently by @jdx in [#12170](https://github.com/jdx/mise/pull/12170)
 - **(python)** resolve configured uv for automatic venv by @jdx in [#12177](https://github.com/jdx/mise/pull/12177)
 - **(shell)** branch on the exit code in the pwsh command-not-found hook by @JamBalaya56562 in [#12089](https://github.com/jdx/mise/pull/12089)
-- **(shell)** skip mise's own commands in the pwsh command-not-found hook by @JamBalaya56562 in [#12131](https://github.com/jdx/mise/pull/12131)
+- **(shell)** skip pakro's own commands in the pwsh command-not-found hook by @JamBalaya56562 in [#12131](https://github.com/jdx/mise/pull/12131)
 - **(shell)** refresh the environment on auto-install when --no-hook-env omits the hook by @JamBalaya56562 in [#12117](https://github.com/jdx/mise/pull/12117)
 - **(system)** resolve dependency executables on Windows by @jdx in [#12178](https://github.com/jdx/mise/pull/12178)
 - **(task)** support azure devops cloud ssh urls (remote git sources) by @cheesemans in [#12102](https://github.com/jdx/mise/pull/12102)
@@ -2544,11 +2544,11 @@
 
 ### 🚜 Refactor
 
-- **(backend)** remove legacy RTX environment variables by @jdx in [#12172](https://github.com/jdx/mise/pull/12172)
+- **(backend)** remove legacy PAKRO environment variables by @jdx in [#12172](https://github.com/jdx/mise/pull/12172)
 
 ### 📚 Documentation
 
-- fix installing mise links by @jdx in [#12104](https://github.com/jdx/mise/pull/12104)
+- fix installing pakro links by @jdx in [#12104](https://github.com/jdx/mise/pull/12104)
 
 ### ⚡ Performance
 
@@ -2623,7 +2623,7 @@
 ### 🚀 Features
 
 - **(bootstrap)** add launchd throttle and queue keys by @CallumKerson in [#12015](https://github.com/jdx/mise/pull/12015)
-- **(brew-cask)** add MISE_BREW_CASK_OPT_APPDIR by @st1971 in [#12068](https://github.com/jdx/mise/pull/12068)
+- **(brew-cask)** add PAKRO_BREW_CASK_OPT_APPDIR by @st1971 in [#12068](https://github.com/jdx/mise/pull/12068)
 - **(cache)** report action cache phase timings by @jdx in [#12077](https://github.com/jdx/mise/pull/12077)
 - **(config)** support project conf.d fragments by @Marukome0743 in [#12061](https://github.com/jdx/mise/pull/12061)
 - **(dotfiles)** create real symlinks on Windows when allowed by @JamBalaya56562 in [#11978](https://github.com/jdx/mise/pull/11978)
@@ -2654,14 +2654,14 @@
 - **(http)** detect archive formats after redirects by @Marukome0743 in [#12011](https://github.com/jdx/mise/pull/12011)
 - **(path)** show one separator in a displayed Windows path by @JamBalaya56562 in [#12024](https://github.com/jdx/mise/pull/12024)
 - **(path)** stop printing the extended-length prefix on UNC paths by @JamBalaya56562 in [#12078](https://github.com/jdx/mise/pull/12078)
-- **(release)** push mise tag separately by @jdx in [#12071](https://github.com/jdx/mise/pull/12071)
+- **(release)** push pakro tag separately by @jdx in [#12071](https://github.com/jdx/mise/pull/12071)
 - **(self-update)** refuse to update when TEMP would exceed MAX_PATH by @JamBalaya56562 in [#12062](https://github.com/jdx/mise/pull/12062)
 - **(self-update)** stop leaving 145MB copies behind and blaming a shim by @JamBalaya56562 in [#12080](https://github.com/jdx/mise/pull/12080)
 - **(settings)** split path lists on the OS separator in the CLI by @JamBalaya56562 in [#12012](https://github.com/jdx/mise/pull/12012)
 - **(shell)** escape single quotes in pwsh env output by @JamBalaya56562 in [#12016](https://github.com/jdx/mise/pull/12016)
 - **(shell)** detect the shell from SHELL on Windows by @JamBalaya56562 in [#12050](https://github.com/jdx/mise/pull/12050)
 - **(shim)** use snap payload for unix shims by @jdx in [#12035](https://github.com/jdx/mise/pull/12035)
-- **(shims)** match mise's own name case-insensitively on Windows by @JamBalaya56562 in [#11986](https://github.com/jdx/mise/pull/11986)
+- **(shims)** match pakro's own name case-insensitively on Windows by @JamBalaya56562 in [#11986](https://github.com/jdx/mise/pull/11986)
 - **(sops)** support multiple age keys by @Marukome0743 in [#12034](https://github.com/jdx/mise/pull/12034)
 - **(task)** warn on an unknown file-task header key instead of failing by @JamBalaya56562 in [#12007](https://github.com/jdx/mise/pull/12007)
 - **(task)** find a file task whose shebang follows a byte-order mark by @JamBalaya56562 in [#12013](https://github.com/jdx/mise/pull/12013)
@@ -2709,7 +2709,7 @@
 
 - install libgtk-3-0t64 so GTK tools can run their registry test by @dmezhnov in [#12009](https://github.com/jdx/mise/pull/12009)
 
-### Mise
+### Pakro
 
 - armv7: use hf suffix for gnueabi by @neheb in [#12082](https://github.com/jdx/mise/pull/12082)
 
@@ -2756,7 +2756,7 @@
 - **(cli)** reject --global alongside a path instead of ignoring it by @JamBalaya56562 in [#11935](https://github.com/jdx/mise/pull/11935)
 - **(conda)** preserve cross-platform lock data by @jdx in [#11946](https://github.com/jdx/mise/pull/11946)
 - **(conda)** honor url replacements by @Marukome0743 in [#11930](https://github.com/jdx/mise/pull/11930)
-- **(config)** allow typing j/k to filter in mise edit's tool picker by @jakedgy in [#11969](https://github.com/jdx/mise/pull/11969)
+- **(config)** allow typing j/k to filter in pakro edit's tool picker by @jakedgy in [#11969](https://github.com/jdx/mise/pull/11969)
 - **(config)** create the config directory before writing into it by @JamBalaya56562 in [#11934](https://github.com/jdx/mise/pull/11934)
 - **(config)** stop a conf.d drop-in from becoming the write target by @JamBalaya56562 in [#11917](https://github.com/jdx/mise/pull/11917)
 - **(dotfiles)** treat an unmanaged file as a conflict on Windows too by @JamBalaya56562 in [#11981](https://github.com/jdx/mise/pull/11981)
@@ -2799,7 +2799,7 @@
 
 - **(aqua)** cover claude registry install by @jdx in [#11925](https://github.com/jdx/mise/pull/11925)
 - **(aqua)** install latest claude release by @jdx in [#11931](https://github.com/jdx/mise/pull/11931)
-- **(windows)** restore MISE_TRUSTED_CONFIG_PATHS after the trust suite by @JamBalaya56562 in [#11948](https://github.com/jdx/mise/pull/11948)
+- **(windows)** restore PAKRO_TRUSTED_CONFIG_PATHS after the trust suite by @JamBalaya56562 in [#11948](https://github.com/jdx/mise/pull/11948)
 - **(windows)** drop teardown Pester already does by @JamBalaya56562 in [#11985](https://github.com/jdx/mise/pull/11985)
 - **(windows)** make the extensionless task test exercise the file it names by @JamBalaya56562 in [#11924](https://github.com/jdx/mise/pull/11924)
 
@@ -2861,7 +2861,7 @@
 
 - **(aqua)** apply explicit package type overrides by @Marukome0743 in [#11901](https://github.com/jdx/mise/pull/11901)
 - **(conda)** activate package commands by @Marukome0743 in [#11855](https://github.com/jdx/mise/pull/11855)
-- **(config)** apply ~/.config/mise/config.local.toml over config.toml by @halms in [#11906](https://github.com/jdx/mise/pull/11906)
+- **(config)** apply ~/.config/pakro/config.local.toml over config.toml by @halms in [#11906](https://github.com/jdx/mise/pull/11906)
 - **(config)** preserve tool table formatting by @Marukome0743 in [#11848](https://github.com/jdx/mise/pull/11848)
 - **(e2e)** drop the write sandbox the CI runners cannot provide by @JamBalaya56562 in [#11861](https://github.com/jdx/mise/pull/11861)
 - **(install)** run install hooks from project root by @jdx in [#11857](https://github.com/jdx/mise/pull/11857)
@@ -2918,7 +2918,7 @@
 
 - **(aqua)** resolve relative aqua.registries against the declaring config by @JamBalaya56562 in [#11804](https://github.com/jdx/mise/pull/11804)
 - **(backend)** classify and apply semantic version ordering by @jdx in [#11774](https://github.com/jdx/mise/pull/11774)
-- **(bootstrap)** prune mise-owned brew casks by @jdx in [#11810](https://github.com/jdx/mise/pull/11810)
+- **(bootstrap)** prune pakro-owned brew casks by @jdx in [#11810](https://github.com/jdx/mise/pull/11810)
 - **(bootstrap)** add platform filters to packages by @jdx in [#11809](https://github.com/jdx/mise/pull/11809)
 - **(brew)** add support for font artifact types from git urls by @roele in [#11781](https://github.com/jdx/mise/pull/11781)
 - **(cache)** add in-process cache session foundation by @jdx in [#11767](https://github.com/jdx/mise/pull/11767)
@@ -2929,7 +2929,7 @@
 - **(cache)** persist task rust action manifests by @jdx in [#11821](https://github.com/jdx/mise/pull/11821)
 - **(cache)** sync rust actions with remote cache by @jdx in [#11842](https://github.com/jdx/mise/pull/11842)
 - **(cache)** enforce CI trust and qualification policy by @jdx in [#11844](https://github.com/jdx/mise/pull/11844)
-- **(generate)** let git hooks carry mise flags by @JamBalaya56562 in [#11820](https://github.com/jdx/mise/pull/11820)
+- **(generate)** let git hooks carry pakro flags by @JamBalaya56562 in [#11820](https://github.com/jdx/mise/pull/11820)
 - **(ls)** match a tool name across backends by @JamBalaya56562 in [#11822](https://github.com/jdx/mise/pull/11822)
 - **(spm)** support commit revisions by @Marukome0743 in [#11815](https://github.com/jdx/mise/pull/11815)
 - **(upgrade)** add `upgrade.auto_prune`, and --prune to override it by @JamBalaya56562 in [#11788](https://github.com/jdx/mise/pull/11788)
@@ -3092,7 +3092,7 @@
 - **(bootstrap)** manage system services by @jdx in [#11688](https://github.com/jdx/mise/pull/11688)
 - **(bootstrap)** manage compose projects by @jdx in [#11689](https://github.com/jdx/mise/pull/11689)
 - **(bootstrap)** run bootstrap over ssh by @jdx in [#11690](https://github.com/jdx/mise/pull/11690)
-- **(bootstrap)** resolve remote mise artifacts by @jdx in [#11693](https://github.com/jdx/mise/pull/11693)
+- **(bootstrap)** resolve remote pakro artifacts by @jdx in [#11693](https://github.com/jdx/mise/pull/11693)
 - **(bootstrap)** manage Linux firewall rules by @jdx in [#11694](https://github.com/jdx/mise/pull/11694)
 - **(ruby)** require precompiled binaries with ruby.compile=false by @jdx in [#11710](https://github.com/jdx/mise/pull/11710)
 
@@ -3143,10 +3143,10 @@
 
 ### 🚀 Features
 
-- **(config)** accept --file on `mise use` and --path on `mise set` by @JamBalaya56562 in [#11577](https://github.com/jdx/mise/pull/11577)
-- **(config)** accept --file on `mise unuse` and --path on `mise unset` by @JamBalaya56562 in [#11616](https://github.com/jdx/mise/pull/11616)
+- **(config)** accept --file on `pakro use` and --path on `pakro set` by @JamBalaya56562 in [#11577](https://github.com/jdx/mise/pull/11577)
+- **(config)** accept --file on `pakro unuse` and --path on `pakro unset` by @JamBalaya56562 in [#11616](https://github.com/jdx/mise/pull/11616)
 - **(config)** accept --file wherever `--path` names a config to write by @JamBalaya56562 in [#11631](https://github.com/jdx/mise/pull/11631)
-- **(config)** accept --path on `mise config get` and `mise config set` by @JamBalaya56562 in [#11640](https://github.com/jdx/mise/pull/11640)
+- **(config)** accept --path on `pakro config get` and `pakro config set` by @JamBalaya56562 in [#11640](https://github.com/jdx/mise/pull/11640)
 - **(env)** warn when PATH is long enough for cmd.exe to ignore by @JamBalaya56562 in [#11643](https://github.com/jdx/mise/pull/11643)
 - **(task)** include global inputs in affected projects by @jdx in [#11587](https://github.com/jdx/mise/pull/11587)
 - **(task)** attribute pnpm lockfile changes by @jdx in [#11589](https://github.com/jdx/mise/pull/11589)
@@ -3409,7 +3409,7 @@
 - **(aqua)** include prefixed override candidates by @jdx in [#11482](https://github.com/jdx/mise/pull/11482)
 - **(brew)** support cask command wrappers and run steps by @jdx in [#11472](https://github.com/jdx/mise/pull/11472)
 - **(config)** preserve comments in alias and bootstrap writers by @JamBalaya56562 in [#11453](https://github.com/jdx/mise/pull/11453)
-- **(config)** match aliased tool keys when writing mise.toml by @JamBalaya56562 in [#11474](https://github.com/jdx/mise/pull/11474)
+- **(config)** match aliased tool keys when writing pakro.toml by @JamBalaya56562 in [#11474](https://github.com/jdx/mise/pull/11474)
 - **(config)** preserve comments between version array elements by @JamBalaya56562 in [#11454](https://github.com/jdx/mise/pull/11454)
 - **(hook-env)** ensure fast-path-forced runs refresh the session by @Marukome0743 in [#11458](https://github.com/jdx/mise/pull/11458)
 - **(lockfile)** avoid config root scans during shim resolution by @jdx in [#11468](https://github.com/jdx/mise/pull/11468)
@@ -3446,7 +3446,7 @@
 - **(bootstrap)** add bs command alias by @jdx in [#11439](https://github.com/jdx/mise/pull/11439)
 - **(cargo)** discover native binary release artifacts by @jdx in [#11433](https://github.com/jdx/mise/pull/11433)
 - **(dotfiles)** add unapply command by @jdx in [#11437](https://github.com/jdx/mise/pull/11437)
-- **(mcp)** serve mise's command effects to agents by @jdx in [#11389](https://github.com/jdx/mise/pull/11389)
+- **(mcp)** serve pakro's command effects to agents by @jdx in [#11389](https://github.com/jdx/mise/pull/11389)
 - **(spm)** add install_command option for source installs by @Marukome0743 in [#11369](https://github.com/jdx/mise/pull/11369)
 - **(task)** add command inputs to cache by @jdx in [#11381](https://github.com/jdx/mise/pull/11381)
 - **(task)** add per-run cache controls by @jdx in [#11396](https://github.com/jdx/mise/pull/11396)
@@ -3464,19 +3464,19 @@
 
 - **(aqua)** preserve legacy root binary layouts by @jdx in [#11397](https://github.com/jdx/mise/pull/11397)
 - **(backend)** report version listing fetch failures instead of blaming filters by @jdx in [#11391](https://github.com/jdx/mise/pull/11391)
-- **(bootstrap)** honor MISE_VERSION and MISE_INSTALL_PATH in generated script by @JamBalaya56562 in [#11401](https://github.com/jdx/mise/pull/11401)
-- **(bootstrap)** detect mise-managed mas by @jdx in [#11429](https://github.com/jdx/mise/pull/11429)
+- **(bootstrap)** honor PAKRO_VERSION and PAKRO_INSTALL_PATH in generated script by @JamBalaya56562 in [#11401](https://github.com/jdx/mise/pull/11401)
+- **(bootstrap)** detect pakro-managed mas by @jdx in [#11429](https://github.com/jdx/mise/pull/11429)
 - **(brew)** maintain linked-keg compatibility records by @benjaminwestern in [#11371](https://github.com/jdx/mise/pull/11371)
 - **(brew)** adopt existing cask completion links by @jdx in [#11383](https://github.com/jdx/mise/pull/11383)
 - **(brew)** use download client for artifacts by @jdx in [#11428](https://github.com/jdx/mise/pull/11428)
-- **(config)** preserve trailing comments when rewriting mise.toml by @JamBalaya56562 in [#11415](https://github.com/jdx/mise/pull/11415)
+- **(config)** preserve trailing comments when rewriting pakro.toml by @JamBalaya56562 in [#11415](https://github.com/jdx/mise/pull/11415)
 - **(dotfiles)** prune stale symlink-each links, add exclude patterns by @jdx in [#11388](https://github.com/jdx/mise/pull/11388)
 - **(generate)** respect quiet flags for git pre-commit by @Marukome0743 in [#11310](https://github.com/jdx/mise/pull/11310)
 - **(generate)** use current env directive syntax by @Marukome0743 in [#11311](https://github.com/jdx/mise/pull/11311)
 - **(generate)** resolve hooks in git worktrees by @Marukome0743 in [#11313](https://github.com/jdx/mise/pull/11313)
 - **(link)** reject selector-style link requests by @risu729 in [#11218](https://github.com/jdx/mise/pull/11218)
-- **(npm)** trust packages pinned in mise lockfiles by @jdx in [#11384](https://github.com/jdx/mise/pull/11384)
-- **(npm)** route aube prompts through mise by @jdx in [#11441](https://github.com/jdx/mise/pull/11441)
+- **(npm)** trust packages pinned in pakro lockfiles by @jdx in [#11384](https://github.com/jdx/mise/pull/11384)
+- **(npm)** route aube prompts through pakro by @jdx in [#11441](https://github.com/jdx/mise/pull/11441)
 - **(oci)** accept 201 Created on chunked blob PATCH (AWS ECR compat) by @fire-ant in [#11376](https://github.com/jdx/mise/pull/11376)
 - **(pipx)** don't suggest uv when uvx is disabled for the package by @JamBalaya56562 in [#11373](https://github.com/jdx/mise/pull/11373)
 - **(shim)** attribute missing executables to configured tools by @jdx in [#11398](https://github.com/jdx/mise/pull/11398)
@@ -3560,7 +3560,7 @@
 - **(brew)** resolve link targets one hop when collecting a keg's links for prune by @mjun0812 in [#11330](https://github.com/jdx/mise/pull/11330)
 - **(env)** expand ~/ with platform path separators by @JamBalaya56562 in [#11312](https://github.com/jdx/mise/pull/11312)
 - **(generate)** error instead of clobbering when task-docs markers are missing by @JamBalaya56562 in [#11359](https://github.com/jdx/mise/pull/11359)
-- **(mcp)** report mise as the server name in initialize by @jdx in [#11361](https://github.com/jdx/mise/pull/11361)
+- **(mcp)** report pakro as the server name in initialize by @jdx in [#11361](https://github.com/jdx/mise/pull/11361)
 - **(shell)** make pwsh activation work under Set-StrictMode by @JamBalaya56562 in [#11314](https://github.com/jdx/mise/pull/11314)
 - **(task)** make source_freshness_hash_contents skip mtime entirely by @rabadin in [#11319](https://github.com/jdx/mise/pull/11319)
 - **(task)** run newly executable file tasks by @jdx in [#11337](https://github.com/jdx/mise/pull/11337)
@@ -3636,7 +3636,7 @@
 - **(aqua)** preserve v prefix in HTTP lock URLs by @jdx in [#11267](https://github.com/jdx/mise/pull/11267)
 - **(backend)** strip platform suffix from single binary inside archives by @Marukome0743 in [#11232](https://github.com/jdx/mise/pull/11232)
 - **(brew)** support cask completion stanzas, system_command, and elevated artifact links by @jdx in [#11273](https://github.com/jdx/mise/pull/11273)
-- **(completions)** stop offering mise's own flags after a task name by @jdx in [#11284](https://github.com/jdx/mise/pull/11284)
+- **(completions)** stop offering pakro's own flags after a task name by @jdx in [#11284](https://github.com/jdx/mise/pull/11284)
 - **(env)** make env file expansion opt-in by @jdx in [#11269](https://github.com/jdx/mise/pull/11269)
 - **(env)** convert remaining std::env::vars() call sites to vars_safe() by @JamBalaya56562 in [#11309](https://github.com/jdx/mise/pull/11309)
 - **(github)** prefer .exe assets on Windows by @gologames in [#11257](https://github.com/jdx/mise/pull/11257)
@@ -3804,10 +3804,10 @@
 ### 🚀 Features
 
 - **(bootstrap)** support relative paths in [bootstrap.repos] by @lilienblum in [#11155](https://github.com/jdx/mise/pull/11155)
-- **(config)** add MISE_SAFE mode to block repo-controlled code execution by @jdx in [#11146](https://github.com/jdx/mise/pull/11146)
+- **(config)** add PAKRO_SAFE mode to block repo-controlled code execution by @jdx in [#11146](https://github.com/jdx/mise/pull/11146)
 - **(config)** ignore project [env]/aliases/settings and skip trust in safe mode by @jdx in [#11151](https://github.com/jdx/mise/pull/11151)
 - **(core)** verify node/swift signatures in-process with rpgp, drop external gpg by @jdx in [#11148](https://github.com/jdx/mise/pull/11148)
-- **(lock)** add `mise lock --bump` to advance lockfile selectors by @jdx in [#11145](https://github.com/jdx/mise/pull/11145)
+- **(lock)** add `pakro lock --bump` to advance lockfile selectors by @jdx in [#11145](https://github.com/jdx/mise/pull/11145)
 - **(npm)** resolve versions over HTTP, groundwork for embedding aube by @jdx in [#11147](https://github.com/jdx/mise/pull/11147)
 - **(npm)** embed aube for node-free npm: version resolution and installs by @jdx in [#11149](https://github.com/jdx/mise/pull/11149)
 - **(oci)** built-in registry push client, drop skopeo/crane dependency by @jdx in [#11132](https://github.com/jdx/mise/pull/11132)
@@ -3886,7 +3886,7 @@
 ### 🐛 Bug Fixes
 
 - **(bootstrap)** support auto-updating cask metadata by @casparbreloh in [#11107](https://github.com/jdx/mise/pull/11107)
-- **(bootstrap)** resolve bare systemd timer unit names to dev.mise.<name>.service by @jdx in [#11128](https://github.com/jdx/mise/pull/11128)
+- **(bootstrap)** resolve bare systemd timer unit names to dev.pakro.<name>.service by @jdx in [#11128](https://github.com/jdx/mise/pull/11128)
 - **(bootstrap)** macos defaults bail if key or domain does not exist yet by @roele in [#11118](https://github.com/jdx/mise/pull/11118)
 - **(config)** reject conflicting tool selectors by @risu729 in [#11069](https://github.com/jdx/mise/pull/11069)
 - **(http)** make raw executables readable, not just executable by @jdx in [#11135](https://github.com/jdx/mise/pull/11135)
@@ -3901,7 +3901,7 @@
 
 ### 📚 Documentation
 
-- **(environments)** clarify mise directory variables by @jdx in [#11127](https://github.com/jdx/mise/pull/11127)
+- **(environments)** clarify pakro directory variables by @jdx in [#11127](https://github.com/jdx/mise/pull/11127)
 - fix dead VersionFox and MCP documentation links by @Bartok9 in [#11117](https://github.com/jdx/mise/pull/11117)
 
 ### ⚡ Performance
@@ -3973,7 +3973,7 @@
 
 - **(bootstrap)** ignore macos metadata in cask artifacts by @jdx in [#11063](https://github.com/jdx/mise/pull/11063)
 - **(config)** deprecate env directive value aliases by @risu729 in [#11062](https://github.com/jdx/mise/pull/11062)
-- **(config)** deprecate env.mise directives by @risu729 in [#11053](https://github.com/jdx/mise/pull/11053)
+- **(config)** deprecate env.pakro directives by @risu729 in [#11053](https://github.com/jdx/mise/pull/11053)
 - **(config)** reject non-string postinstall hooks by @risu729 in [#11061](https://github.com/jdx/mise/pull/11061)
 - **(config)** deprecate experimental monorepo root key by @risu729 in [#11052](https://github.com/jdx/mise/pull/11052)
 - **(hooks)** reject nested hook arrays by @risu729 in [#11051](https://github.com/jdx/mise/pull/11051)
@@ -4012,7 +4012,7 @@
 
 - **(bootstrap)** ignore macos metadata in cask artifacts by @jdx in [#11063](https://github.com/jdx/mise/pull/11063)
 - **(config)** deprecate env directive value aliases by @risu729 in [#11062](https://github.com/jdx/mise/pull/11062)
-- **(config)** deprecate env.mise directives by @risu729 in [#11053](https://github.com/jdx/mise/pull/11053)
+- **(config)** deprecate env.pakro directives by @risu729 in [#11053](https://github.com/jdx/mise/pull/11053)
 - **(config)** reject non-string postinstall hooks by @risu729 in [#11061](https://github.com/jdx/mise/pull/11061)
 - **(config)** deprecate experimental monorepo root key by @risu729 in [#11052](https://github.com/jdx/mise/pull/11052)
 - **(hooks)** reject nested hook arrays by @risu729 in [#11051](https://github.com/jdx/mise/pull/11051)
@@ -4306,7 +4306,7 @@
 ### 🚀 Features
 
 - **(bootstrap)** stabilize bootstrap commands by @jdx in [#10869](https://github.com/jdx/mise/pull/10869)
-- skip re-install in mise.run script when matching version present by @JamBalaya56562 in [#10882](https://github.com/jdx/mise/pull/10882)
+- skip re-install in pakro.run script when matching version present by @JamBalaya56562 in [#10882](https://github.com/jdx/mise/pull/10882)
 
 ### 🐛 Bug Fixes
 
@@ -4545,7 +4545,7 @@
 - **(dotnet)** validate SDK installs with list-sdks by @jdx in [#10691](https://github.com/jdx/mise/pull/10691)
 - **(generate)** respect lockfile_platforms for tool stubs by @JamBalaya56562 in [#10709](https://github.com/jdx/mise/pull/10709)
 - **(github)** handle missing lockfile url_api by @jdx in [#10703](https://github.com/jdx/mise/pull/10703)
-- **(hooks)** set MISE_INSTALLED_TOOLS to [] on no-op install (keep running postinstall) by @JamBalaya56562 in [#10615](https://github.com/jdx/mise/pull/10615)
+- **(hooks)** set PAKRO_INSTALLED_TOOLS to [] on no-op install (keep running postinstall) by @JamBalaya56562 in [#10615](https://github.com/jdx/mise/pull/10615)
 - **(http)** don't let netrc clobber forge tokens for un-redirected URLs by @yacchi in [#10713](https://github.com/jdx/mise/pull/10713)
 - **(install)** respect lockfile backend during locked installs by @risu729 in [#10599](https://github.com/jdx/mise/pull/10599)
 - **(install)** suggest source install for unsupported arches by @risu729 in [#10627](https://github.com/jdx/mise/pull/10627)
@@ -4557,7 +4557,7 @@
 - **(sigstore)** retry GitHub attestations with TUF root by @jdx in [#10695](https://github.com/jdx/mise/pull/10695)
 - **(task)** render monorepo subproject task templates with their own env by @jdx in [#10706](https://github.com/jdx/mise/pull/10706)
 - **(task)** correct env for `task.show_full_cmd` setting by @muzimuzhi in [#10714](https://github.com/jdx/mise/pull/10714)
-- **(vfox)** make os.getenv use mise env by @jdx in [#10719](https://github.com/jdx/mise/pull/10719)
+- **(vfox)** make os.getenv use pakro env by @jdx in [#10719](https://github.com/jdx/mise/pull/10719)
 - **(watch)** forward --ignore, --ignore-file, and --print-events to watchexec by @JamBalaya56562 in [#10629](https://github.com/jdx/mise/pull/10629)
 - stop forcing no-yjit ruby on older glibc by @jdx in [#10620](https://github.com/jdx/mise/pull/10620)
 - allow GHCUp to be installed on Windows by @cprecioso in [#10670](https://github.com/jdx/mise/pull/10670)
@@ -4629,7 +4629,7 @@
 ### 🐛 Bug Fixes
 
 - **(brew-cask)** handle raw binaries, $APPDIR paths, and app bundle copying by @arthurh4 in [#10626](https://github.com/jdx/mise/pull/10626)
-- **(hooks)** set MISE_INSTALLED_TOOLS to [] on no-op install (keep running postinstall) by @JamBalaya56562 in [#10615](https://github.com/jdx/mise/pull/10615)
+- **(hooks)** set PAKRO_INSTALLED_TOOLS to [] on no-op install (keep running postinstall) by @JamBalaya56562 in [#10615](https://github.com/jdx/mise/pull/10615)
 - **(install)** respect lockfile backend during locked installs by @risu729 in [#10599](https://github.com/jdx/mise/pull/10599)
 - **(install)** suggest source install for unsupported arches by @risu729 in [#10627](https://github.com/jdx/mise/pull/10627)
 - **(oci)** resolve host install symlinks and symlinked paths during `PATH` rebasing by @salim-b in [#10624](https://github.com/jdx/mise/pull/10624)
@@ -4677,7 +4677,7 @@
 
 ### 📚 Documentation
 
-- add mise song page by @jdx in [#10614](https://github.com/jdx/mise/pull/10614)
+- add pakro song page by @jdx in [#10614](https://github.com/jdx/mise/pull/10614)
 
 ### New Contributors
 
@@ -4759,10 +4759,10 @@
 - **(npm)** warn when system pnpm/bun may not support minimum_release_age by @risu729 in [#10491](https://github.com/jdx/mise/pull/10491)
 - **(pipx)** upgrade shared pip for release age installs by @risu729 in [#10472](https://github.com/jdx/mise/pull/10472)
 - **(pipx)** warn for unsupported uv exclude-newer by @risu729 in [#10510](https://github.com/jdx/mise/pull/10510)
-- **(pipx)** force pip backend for mise pipx subprocess calls by @risu729 in [#10513](https://github.com/jdx/mise/pull/10513)
+- **(pipx)** force pip backend for pakro pipx subprocess calls by @risu729 in [#10513](https://github.com/jdx/mise/pull/10513)
 - **(system)** drop bare -- from dnf argv (breaks DNF5 install/upgrade) by @spencergilbert in [#10538](https://github.com/jdx/mise/pull/10538)
 - **(task)** align duplicate config task precedence by @risu729 in [#10471](https://github.com/jdx/mise/pull/10471)
-- **(task)** skip mise configs in task include dirs by @jdx in [#10500](https://github.com/jdx/mise/pull/10500)
+- **(task)** skip pakro configs in task include dirs by @jdx in [#10500](https://github.com/jdx/mise/pull/10500)
 - **(task)** error on empty task shell by @jdx in [#10517](https://github.com/jdx/mise/pull/10517)
 - **(task)** honor show_full_cmd in the task command header by @JamBalaya56562 in [#10518](https://github.com/jdx/mise/pull/10518)
 - **(vfox)** resolve tools=true env path templates against the dependency toolset by @JamBalaya56562 in [#10481](https://github.com/jdx/mise/pull/10481)
@@ -4771,7 +4771,7 @@
 
 - **(dotfiles)** make self-managing config first-run safe by @jdx in [#10494](https://github.com/jdx/mise/pull/10494)
 - **(env)** remove emoji checkboxes by @jdx in [#10504](https://github.com/jdx/mise/pull/10504)
-- recommend keeping mise current by @jdx in [#10505](https://github.com/jdx/mise/pull/10505)
+- recommend keeping pakro current by @jdx in [#10505](https://github.com/jdx/mise/pull/10505)
 
 ### 📦️ Dependency Updates
 
@@ -4819,7 +4819,7 @@
 - **(deno)** parse PowerShell checksum files by @risu729 in [#10464](https://github.com/jdx/mise/pull/10464)
 - **(docs)** align removal version of Tera task arguments with the CLI by @reitzig in [#10453](https://github.com/jdx/mise/pull/10453)
 - **(http)** include auto strip in cache key by @risu729 in [#10468](https://github.com/jdx/mise/pull/10468)
-- **(install)** don't treat http cache symlinks as mise link when resolving lockfile by @risu729 in [#10463](https://github.com/jdx/mise/pull/10463)
+- **(install)** don't treat http cache symlinks as pakro link when resolving lockfile by @risu729 in [#10463](https://github.com/jdx/mise/pull/10463)
 - **(rust)** store toolchain options on idiomatic requests by @risu729 in [#10178](https://github.com/jdx/mise/pull/10178)
 - **(shim)** don't create extension-less shims in exe mode on Windows by @JamBalaya56562 in [#10475](https://github.com/jdx/mise/pull/10475)
 - **(task)** reject bare monorepo task paths by @jdx in [#10479](https://github.com/jdx/mise/pull/10479)
@@ -4871,7 +4871,7 @@
 ### 🐛 Bug Fixes
 
 - **(backend)** enable 7z archives on unix by @risu729 in [#10434](https://github.com/jdx/mise/pull/10434)
-- **(env)** drop stale mise install dirs from mise x/run child PATH by @JamBalaya56562 in [#10422](https://github.com/jdx/mise/pull/10422)
+- **(env)** drop stale pakro install dirs from pakro x/run child PATH by @JamBalaya56562 in [#10422](https://github.com/jdx/mise/pull/10422)
 - **(env)** expand shell defaults like POSIX by @jdx in [#10445](https://github.com/jdx/mise/pull/10445)
 - **(file)** atomically replace symlinks to avoid spurious EEXIST warnings by @JamBalaya56562 in [#10414](https://github.com/jdx/mise/pull/10414)
 - **(shims)** guard Windows bash shims against WSL PATH interop by @JamBalaya56562 in [#10421](https://github.com/jdx/mise/pull/10421)
@@ -4960,7 +4960,7 @@
 
 ### 🐛 Bug Fixes
 
-- **(activate)** don't reorder PATH for the mise dir in --shims mode by @JamBalaya56562 in [#10394](https://github.com/jdx/mise/pull/10394)
+- **(activate)** don't reorder PATH for the pakro dir in --shims mode by @JamBalaya56562 in [#10394](https://github.com/jdx/mise/pull/10394)
 - **(aqua)** strip aqua asset formats from AssetWithoutExt by @risu729 in [#10104](https://github.com/jdx/mise/pull/10104)
 - **(aqua)** reject unsupported package formats by @risu729 in [#10409](https://github.com/jdx/mise/pull/10409)
 - **(bootstrap)** scope forced dotfile conflicts by @jdx in [#10410](https://github.com/jdx/mise/pull/10410)
@@ -4994,7 +4994,7 @@
 
 ### Chore
 
-- update mise.lock by @JamBalaya56562 in [#10418](https://github.com/jdx/mise/pull/10418)
+- update pakro.lock by @JamBalaya56562 in [#10418](https://github.com/jdx/mise/pull/10418)
 
 ### New Contributors
 
@@ -5006,15 +5006,15 @@
 
 - **(bootstrap)** add dotfiles workflow by @jdx in [#10376](https://github.com/jdx/mise/pull/10376)
 - **(bootstrap)** support brew taps and casks directly by @jdx in [#10383](https://github.com/jdx/mise/pull/10383)
-- **(config)** load safe mise.toml files without trust by @jdx in [#10360](https://github.com/jdx/mise/pull/10360)
+- **(config)** load safe pakro.toml files without trust by @jdx in [#10360](https://github.com/jdx/mise/pull/10360)
 - **(oci)** apply system files and apt packages by @jdx in [#10373](https://github.com/jdx/mise/pull/10373)
 - **(system)** add [system.defaults] for declarative macOS defaults by @jdx in [#10363](https://github.com/jdx/mise/pull/10363)
 - **(system)** build source formulae from source with a native formula DSL shim by @jdx in [#10364](https://github.com/jdx/mise/pull/10364)
 - **(system)** support wildcards in system files by @jdx in [#10374](https://github.com/jdx/mise/pull/10374)
 - **(system)** support custom brew taps by @jdx in [#10375](https://github.com/jdx/mise/pull/10375)
 - **(system)** add login shell bootstrap support by @jdx in [#10377](https://github.com/jdx/mise/pull/10377)
-- add `mise bootstrap` and declarative `[system.files]` by @jdx in [#10365](https://github.com/jdx/mise/pull/10365)
-- add `[system.edits]` for editing files mise doesn't own by @jdx in [#10368](https://github.com/jdx/mise/pull/10368)
+- add `pakro bootstrap` and declarative `[system.files]` by @jdx in [#10365](https://github.com/jdx/mise/pull/10365)
+- add `[system.edits]` for editing files pakro doesn't own by @jdx in [#10368](https://github.com/jdx/mise/pull/10368)
 
 ### 🐛 Bug Fixes
 
@@ -5088,7 +5088,7 @@
 - **(github)** add `matching` and `matching_regex` asset options by @devnulled in [#10325](https://github.com/jdx/mise/pull/10325)
 - **(oci)** add configurable layer owner by @ThomasK33 in [#10075](https://github.com/jdx/mise/pull/10075)
 - **(system)** declarative system packages (apt, dnf, pacman, and brew without brew) by @jdx in [#10326](https://github.com/jdx/mise/pull/10326)
-- **(system)** add mise system use and mise system upgrade by @jdx in [#10346](https://github.com/jdx/mise/pull/10346)
+- **(system)** add pakro system use and pakro system upgrade by @jdx in [#10346](https://github.com/jdx/mise/pull/10346)
 
 ### 🐛 Bug Fixes
 
@@ -5322,7 +5322,7 @@
 - **(completion)** rely on usage#649 for global flags, keep -r/-S promotion by @JamBalaya56562 in [#10176](https://github.com/jdx/mise/pull/10176)
 - **(spm)** track artifact bundle options in lock identity by @risu729 in [#10160](https://github.com/jdx/mise/pull/10160)
 - **(task)** honor task_config.includes order so a local task can override a git::include by @vmaleze in [#10191](https://github.com/jdx/mise/pull/10191)
-- **(task)** honor MISE_CYGDRIVE_PREFIX for Git Bash, not only Cygwin by @JamBalaya56562 in [#10190](https://github.com/jdx/mise/pull/10190)
+- **(task)** honor PAKRO_CYGDRIVE_PREFIX for Git Bash, not only Cygwin by @JamBalaya56562 in [#10190](https://github.com/jdx/mise/pull/10190)
 
 ### 📚 Documentation
 
@@ -5354,7 +5354,7 @@
 ### 🐛 Bug Fixes
 
 - **(conda)** include channel in lock identity by @risu729 in [#9984](https://github.com/jdx/mise/pull/9984)
-- **(config)** honor ceiling paths during miserc discovery by @risu729 in [#10165](https://github.com/jdx/mise/pull/10165)
+- **(config)** honor ceiling paths during pakrorc discovery by @risu729 in [#10165](https://github.com/jdx/mise/pull/10165)
 - **(env)** drop stale install paths during reactivation by @risu729 in [#10162](https://github.com/jdx/mise/pull/10162)
 - **(github)** include target artifact options in lock identity by @risu729 in [#9985](https://github.com/jdx/mise/pull/9985)
 - **(installer)** add missing warn helper by @risu729 in [#10157](https://github.com/jdx/mise/pull/10157)
@@ -5366,7 +5366,7 @@
 ### Chore
 
 - **(ci)** revert switch back to github-hosted runners by @jdx in [#10184](https://github.com/jdx/mise/pull/10184)
-- **(npm)** publish mise package by @jdx in [#10183](https://github.com/jdx/mise/pull/10183)
+- **(npm)** publish pakro package by @jdx in [#10183](https://github.com/jdx/mise/pull/10183)
 
 ## [2026.5.17](https://github.com/jdx/mise/compare/v2026.5.16..v2026.5.17) - 2026-05-31
 
@@ -5381,7 +5381,7 @@
 - **(env)** force uppercase PATH key on unix by @risu729 in [#9927](https://github.com/jdx/mise/pull/9927)
 - **(http)** limit versions host fallback retries by @jdx in [#10142](https://github.com/jdx/mise/pull/10142)
 - **(pipx)** upgrade shared pip environment when using version constraints by @iloveitaly in [#10138](https://github.com/jdx/mise/pull/10138)
-- **(shim)** refresh stale Windows shims after a mise version update by @JamBalaya56562 in [#10152](https://github.com/jdx/mise/pull/10152)
+- **(shim)** refresh stale Windows shims after a pakro version update by @JamBalaya56562 in [#10152](https://github.com/jdx/mise/pull/10152)
 - **(task)** honor explicit and quoted shell paths on Windows by @JamBalaya56562 in [#10148](https://github.com/jdx/mise/pull/10148)
 - **(task)** convert PATH to /cygdrive form for Cygwin bash tasks by @JamBalaya56562 in [#10147](https://github.com/jdx/mise/pull/10147)
 - **(ui)** honor color settings in interactive prompt themes by @JamBalaya56562 in [#10151](https://github.com/jdx/mise/pull/10151)
@@ -5610,7 +5610,7 @@
 
 ### 📚 Documentation
 
-- remove how i use mise article by @jdx in [#9996](https://github.com/jdx/mise/pull/9996)
+- remove how i use pakro article by @jdx in [#9996](https://github.com/jdx/mise/pull/9996)
 
 ### 🧪 Testing
 
@@ -5653,7 +5653,7 @@
 - **(backend)** pass install_env to postinstall by @risu729 in [#9930](https://github.com/jdx/mise/pull/9930)
 - **(backend)** apply install_env to install commands by @risu729 in [#9929](https://github.com/jdx/mise/pull/9929)
 - **(cargo)** skip binstall for cargo install options by @risu729 in [#9928](https://github.com/jdx/mise/pull/9928)
-- **(config)** restore MISE_ENV_FILE setting by @risu729 in [#9903](https://github.com/jdx/mise/pull/9903)
+- **(config)** restore PAKRO_ENV_FILE setting by @risu729 in [#9903](https://github.com/jdx/mise/pull/9903)
 
 ### 🚜 Refactor
 
@@ -5697,7 +5697,7 @@
 
 - **(backend)** avoid release age cutoff for dependency envs by @risu729 in [#9808](https://github.com/jdx/mise/pull/9808)
 - **(cache)** honor plugin filter when pruning cache by @risu729 in [#9914](https://github.com/jdx/mise/pull/9914)
-- **(config)** report invalid miserc files by @jdx in [#9937](https://github.com/jdx/mise/pull/9937)
+- **(config)** report invalid pakrorc files by @jdx in [#9937](https://github.com/jdx/mise/pull/9937)
 - **(doctor)** list installed plugins from install state by @risu729 in [#9863](https://github.com/jdx/mise/pull/9863)
 - **(erlang)** respect compile false for precompiled installs by @risu729 in [#9866](https://github.com/jdx/mise/pull/9866)
 - **(github)** asset picker handles ambiguous patterns and runtime archives by @jdx in [#9946](https://github.com/jdx/mise/pull/9946)
@@ -5834,14 +5834,14 @@
 
 #### Updated Packages (2)
 
-- [`alltuner/mise-completions-sync`](https://github.com/alltuner/mise-completions-sync)
+- [`alltuner/pakro-completions-sync`](https://github.com/alltuner/mise-completions-sync)
 - [`str4d/age-plugin-yubikey`](https://github.com/str4d/age-plugin-yubikey)
 
 ## [2026.5.8](https://github.com/jdx/mise/compare/v2026.5.7..v2026.5.8) - 2026-05-14
 
 ### 🚀 Features
 
-- **(patrons)** add `mise patrons` command by @jdx in [#9841](https://github.com/jdx/mise/pull/9841)
+- **(patrons)** add `pakro patrons` command by @jdx in [#9841](https://github.com/jdx/mise/pull/9841)
 
 ### 🐛 Bug Fixes
 
@@ -5897,7 +5897,7 @@
 - **(ci)** remove autofix.ci workflow by @jdx in [#9801](https://github.com/jdx/mise/pull/9801)
 - **(ci)** restore -large runner for Linux release builds by @jdx in [#9815](https://github.com/jdx/mise/pull/9815)
 - **(ci)** add zizmor workflow for github actions security analysis by @jdx in [#9804](https://github.com/jdx/mise/pull/9804)
-- **(ci)** assert mise run render produces no diff by @jdx in [#9803](https://github.com/jdx/mise/pull/9803)
+- **(ci)** assert pakro run render produces no diff by @jdx in [#9803](https://github.com/jdx/mise/pull/9803)
 - **(copr)** publish EL9 builds via centos-stream+epel-next-9 chroot by @jdx in [#9787](https://github.com/jdx/mise/pull/9787)
 
 ### Ci
@@ -5953,7 +5953,7 @@
 - **(activate)** guard bash chpwd hook under nounset by @risu729 in [#9716](https://github.com/jdx/mise/pull/9716)
 - **(backend)** date-check latest stable fast path by @risu729 in [#9650](https://github.com/jdx/mise/pull/9650)
 - **(config)** parse core tool options consistently by @risu729 in [#9742](https://github.com/jdx/mise/pull/9742)
-- **(exec)** propagate __MISE_DIFF so nested mise recovers pristine PATH by @jdx in [#9765](https://github.com/jdx/mise/pull/9765)
+- **(exec)** propagate __PAKRO_DIFF so nested pakro recovers pristine PATH by @jdx in [#9765](https://github.com/jdx/mise/pull/9765)
 - **(forgejo)** include prereleases when opted in by @risu729 in [#9717](https://github.com/jdx/mise/pull/9717)
 - **(github)** avoid caching empty release assets by @risu729 in [#9616](https://github.com/jdx/mise/pull/9616)
 - **(java)** resolve lockfile URLs from metadata by @risu729 in [#9719](https://github.com/jdx/mise/pull/9719)
@@ -6051,7 +6051,7 @@
 
 ### Chore
 
-- **(ci)** pass mise github token to tests by @risu729 in [#9684](https://github.com/jdx/mise/pull/9684)
+- **(ci)** pass pakro github token to tests by @risu729 in [#9684](https://github.com/jdx/mise/pull/9684)
 
 ### 📦 Aqua Registry Updates
 
@@ -6062,7 +6062,7 @@
 
 #### Updated Packages (3)
 
-- [`alltuner/mise-completions-sync`](https://github.com/alltuner/mise-completions-sync)
+- [`alltuner/pakro-completions-sync`](https://github.com/alltuner/mise-completions-sync)
 - [`iann0036/iamlive`](https://github.com/iann0036/iamlive)
 - [`pnpm/pnpm`](https://github.com/pnpm/pnpm)
 
@@ -6116,9 +6116,9 @@
 - **(lockfile)** respect existing platforms during auto-lock by @jdx in [#9621](https://github.com/jdx/mise/pull/9621)
 - **(pipx)** filter yanked pypi releases by @risu729 in [#9607](https://github.com/jdx/mise/pull/9607)
 - **(pipx)** declare python as a backend dependency by @jdx in [#9678](https://github.com/jdx/mise/pull/9678)
-- **(schema)** update refs to $defs in mise-registry-tool.json by @risu729 in [#9671](https://github.com/jdx/mise/pull/9671)
+- **(schema)** update refs to $defs in pakro-registry-tool.json by @risu729 in [#9671](https://github.com/jdx/mise/pull/9671)
 - **(task)** terminate parallel siblings on failure via process groups by @jdx in [#9655](https://github.com/jdx/mise/pull/9655)
-- **(task)** stable MISE_PROJECT_ROOT for monorepo tasks, add MISE_MONOREPO_ROOT by @jdx in [#9657](https://github.com/jdx/mise/pull/9657)
+- **(task)** stable PAKRO_PROJECT_ROOT for monorepo tasks, add PAKRO_MONOREPO_ROOT by @jdx in [#9657](https://github.com/jdx/mise/pull/9657)
 - **(trust)** run enter hooks after trusting config by @risu729 in [#9634](https://github.com/jdx/mise/pull/9634)
 - **(ui)** stop clearing screen for prompts by @jdx in [#9619](https://github.com/jdx/mise/pull/9619)
 - use /bin/cp on macos by @pdehlke in [#9656](https://github.com/jdx/mise/pull/9656)
@@ -6130,7 +6130,7 @@
 - **(deps)** remove serde_derive dependency by @risu729 in [#9670](https://github.com/jdx/mise/pull/9670)
 - **(deps)** remove anyhow dependency by @risu729 in [#9661](https://github.com/jdx/mise/pull/9661)
 - **(deps)** use std::sync::LazyLock instead of once_cell::Lazy by @risu729 in [#9668](https://github.com/jdx/mise/pull/9668)
-- **(schema)** generate task schema from mise schema by @risu729 in [#9581](https://github.com/jdx/mise/pull/9581)
+- **(schema)** generate task schema from pakro schema by @risu729 in [#9581](https://github.com/jdx/mise/pull/9581)
 - **(schema)** reuse task props with unevaluatedProperties by @risu729 in [#9582](https://github.com/jdx/mise/pull/9582)
 - **(schema)** reuse registry common types by @risu729 in [#9648](https://github.com/jdx/mise/pull/9648)
 - **(schema)** reuse plugin script config by @risu729 in [#9647](https://github.com/jdx/mise/pull/9647)
@@ -6225,7 +6225,7 @@
 
 - **(release)** always append sponsor block to release notes by @jdx in [#9580](https://github.com/jdx/mise/pull/9580)
 - warn on vendored vfox embedded plugins by @risu729 in [#9588](https://github.com/jdx/mise/pull/9588)
-- prefer registry shorthands over cargo/npm backends in mise.toml by @risu729 in [#9595](https://github.com/jdx/mise/pull/9595)
+- prefer registry shorthands over cargo/npm backends in pakro.toml by @risu729 in [#9595](https://github.com/jdx/mise/pull/9595)
 
 ### 📦 Aqua Registry Updates
 
@@ -6418,7 +6418,7 @@
 
 ### 🚀 Features
 
-- **(task)** add --name-only flag to mise tasks ls by @jdx in [#9435](https://github.com/jdx/mise/pull/9435)
+- **(task)** add --name-only flag to pakro tasks ls by @jdx in [#9435](https://github.com/jdx/mise/pull/9435)
 
 ### 🐛 Bug Fixes
 
@@ -6448,7 +6448,7 @@
 ### 🐛 Bug Fixes
 
 - **(http)** retry transient HTTP failures with backoff and warn on rescue by @jdx in [#9414](https://github.com/jdx/mise/pull/9414)
-- **(release)** purge mise.en.dev CDN zone after each S3 publish by @jdx in [#9416](https://github.com/jdx/mise/pull/9416)
+- **(release)** purge pakro.en.dev CDN zone after each S3 publish by @jdx in [#9416](https://github.com/jdx/mise/pull/9416)
 
 ### 📚 Documentation
 
@@ -6481,7 +6481,7 @@
 ### Chore
 
 - **(ci)** improve pr-closer workflow by @jdx in [#9403](https://github.com/jdx/mise/pull/9403)
-- **(docs)** switch canonical domain to mise.en.dev by @jdx in [#9411](https://github.com/jdx/mise/pull/9411)
+- **(docs)** switch canonical domain to pakro.en.dev by @jdx in [#9411](https://github.com/jdx/mise/pull/9411)
 - **(release)** stop appending sponsor blurb when communique succeeds by @jdx in [#9395](https://github.com/jdx/mise/pull/9395)
 
 ### New Contributors
@@ -6620,7 +6620,7 @@ Included aqua-registry releases:
 ### 🚀 Features
 
 - **(backend)** support aqua vars templates by @risu729 in [#9110](https://github.com/jdx/mise/pull/9110)
-- **(oci)** build OCI images from mise.toml with per-tool layers by @jdx in [#9273](https://github.com/jdx/mise/pull/9273)
+- **(oci)** build OCI images from pakro.toml with per-tool layers by @jdx in [#9273](https://github.com/jdx/mise/pull/9273)
 - add gsudo (Sudo for Windows) to registry by @matracey in [#9281](https://github.com/jdx/mise/pull/9281)
 
 ### 🐛 Bug Fixes
@@ -6640,7 +6640,7 @@ Included aqua-registry releases:
 ### 🚜 Refactor
 
 - **(core)** centralize install_before resolution by @risu729 in [#9286](https://github.com/jdx/mise/pull/9286)
-- **(deps)** store deps state under $MISE_STATE_DIR by @jdx in [#9301](https://github.com/jdx/mise/pull/9301)
+- **(deps)** store deps state under $PAKRO_STATE_DIR by @jdx in [#9301](https://github.com/jdx/mise/pull/9301)
 
 ### 📚 Documentation
 
@@ -6693,11 +6693,11 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- **(latest)** add --before flag to mise latest by @risu729 in [#9168](https://github.com/jdx/mise/pull/9168)
+- **(latest)** add --before flag to pakro latest by @risu729 in [#9168](https://github.com/jdx/mise/pull/9168)
 - **(npm)** add aube package manager support by @jdx in [#9256](https://github.com/jdx/mise/pull/9256)
 - **(spm)** add filter_bins option to restrict built executables by @jdx in [#9253](https://github.com/jdx/mise/pull/9253)
 - **(vfox)** support plugin-declared dependencies via metadata.lua by @ahemon in [#9051](https://github.com/jdx/mise/pull/9051)
-- rename `mise prepare` to `mise deps` and add package management by @jdx in [#9056](https://github.com/jdx/mise/pull/9056)
+- rename `pakro prepare` to `pakro deps` and add package management by @jdx in [#9056](https://github.com/jdx/mise/pull/9056)
 
 ### 🐛 Bug Fixes
 
@@ -6918,8 +6918,8 @@ Included aqua-registry releases:
 ### 🐛 Bug Fixes
 
 - **(go)** honor install_before for module versions by @mariusvniekerk in [#9097](https://github.com/jdx/mise/pull/9097)
-- **(vfox-plugin)** support Git URL with commit hash for mise.toml by @Oyami-Srk in [#9099](https://github.com/jdx/mise/pull/9099)
-- `MISE_FETCH_REMOTE_VERSIONS_CACHE` not respected by @mcncl in [#9096](https://github.com/jdx/mise/pull/9096)
+- **(vfox-plugin)** support Git URL with commit hash for pakro.toml by @Oyami-Srk in [#9099](https://github.com/jdx/mise/pull/9099)
+- `PAKRO_FETCH_REMOTE_VERSIONS_CACHE` not respected by @mcncl in [#9096](https://github.com/jdx/mise/pull/9096)
 
 ### 📦️ Dependency Updates
 
@@ -6942,9 +6942,9 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- **(activate)** export __MISE_EXE and resolve bare ARGV0 to absolute path by @fru1tworld in [#9081](https://github.com/jdx/mise/pull/9081)
+- **(activate)** export __PAKRO_EXE and resolve bare ARGV0 to absolute path by @fru1tworld in [#9081](https://github.com/jdx/mise/pull/9081)
 - **(install)** support aliased installs sharing a backend by @jdx in [#9093](https://github.com/jdx/mise/pull/9093)
-- **(shim)** use which_no_shims when resolving mise binary in reshim and doctor by @kevinswiber in [#9071](https://github.com/jdx/mise/pull/9071)
+- **(shim)** use which_no_shims when resolving pakro binary in reshim and doctor by @kevinswiber in [#9071](https://github.com/jdx/mise/pull/9071)
 - filter empty segments in colon-separated env var parsing by @baby-joel in [#9076](https://github.com/jdx/mise/pull/9076)
 
 ### 📚 Documentation
@@ -7002,7 +7002,7 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- ignore MISE_TOOL_VERSION in nested postinstall runs by @risu729 in [#9050](https://github.com/jdx/mise/pull/9050)
+- ignore PAKRO_TOOL_VERSION in nested postinstall runs by @risu729 in [#9050](https://github.com/jdx/mise/pull/9050)
 
 ## [2026.4.9](https://github.com/jdx/mise/compare/v2026.4.8..v2026.4.9) - 2026-04-11
 
@@ -7012,7 +7012,7 @@ Included aqua-registry releases:
 - **(env)** skip tools=true module hooks in dependency_env by @jdx in [#9011](https://github.com/jdx/mise/pull/9011)
 - **(lockfile)** resolve SLSA provenance URLs deterministically for all platforms by @cameronbrill in [#8982](https://github.com/jdx/mise/pull/8982)
 - **(registry)** test of docuum in registry by @jylenhof in [#8996](https://github.com/jdx/mise/pull/8996)
-- **(release)** publish extracted mise.exe alongside Windows zip by @zeitlinger in [#8997](https://github.com/jdx/mise/pull/8997)
+- **(release)** publish extracted pakro.exe alongside Windows zip by @zeitlinger in [#8997](https://github.com/jdx/mise/pull/8997)
 - **(schema)** add missing config fields by @risu729 in [#9044](https://github.com/jdx/mise/pull/9044)
 - **(task)** support sandbox fields in task templates by @risu729 in [#9046](https://github.com/jdx/mise/pull/9046)
 - **(tasks)** respect env precedence for task config by @risu729 in [#9039](https://github.com/jdx/mise/pull/9039)
@@ -7070,7 +7070,7 @@ Included aqua-registry releases:
 ### Security
 
 - **(ci)** run test-tool inside Docker container by @jdx in [#9055](https://github.com/jdx/mise/pull/9055)
-- **(ci)** avoid exposing MISE_GH_TOKEN to test-tool scripts by @jdx in [#9053](https://github.com/jdx/mise/pull/9053)
+- **(ci)** avoid exposing PAKRO_GH_TOKEN to test-tool scripts by @jdx in [#9053](https://github.com/jdx/mise/pull/9053)
 
 ### New Contributors
 
@@ -7094,14 +7094,14 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- **(activate)** handle empty __MISE_FLAGS array with set -u on bash 3.2 by @jdx in [#8988](https://github.com/jdx/mise/pull/8988)
+- **(activate)** handle empty __PAKRO_FLAGS array with set -u on bash 3.2 by @jdx in [#8988](https://github.com/jdx/mise/pull/8988)
 - **(env)** add trace logging for module hook PATH diagnostics by @jdx in [#8981](https://github.com/jdx/mise/pull/8981)
 - **(go)** Query module proxy directly for version resolution by @c22 in [#8968](https://github.com/jdx/mise/pull/8968)
 - **(install)** render tera templates in tool postinstall hooks by @jdx in [#8978](https://github.com/jdx/mise/pull/8978)
 - **(install)** add missing env vars to tool postinstall hooks by @jdx in [#8977](https://github.com/jdx/mise/pull/8977)
 - **(task)** prevent hang when skipped task has dependents by @jdx in [#8937](https://github.com/jdx/mise/pull/8937)
 - **(task)** invalidate dependent task sources when dependency runs by @jdx in [#8975](https://github.com/jdx/mise/pull/8975)
-- **(task)** prevent deadlock when MISE_JOBS=1 with sub-task references by @jdx in [#8976](https://github.com/jdx/mise/pull/8976)
+- **(task)** prevent deadlock when PAKRO_JOBS=1 with sub-task references by @jdx in [#8976](https://github.com/jdx/mise/pull/8976)
 - **(task)** fetch remote task files before parsing usage specs by @jdx in [#8979](https://github.com/jdx/mise/pull/8979)
 - **(task)** prevent panic when running parallel sub-tasks with replacing output by @jdx in [#8986](https://github.com/jdx/mise/pull/8986)
 - **(upgrade)** update lockfile and config when upgrading to specific version by @jdx in [#8983](https://github.com/jdx/mise/pull/8983)
@@ -7135,11 +7135,11 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- **(config)** Add Tera template support to miserc.toml by @richardthe3rd in [#8867](https://github.com/jdx/mise/pull/8867)
+- **(config)** Add Tera template support to pakrorc.toml by @richardthe3rd in [#8867](https://github.com/jdx/mise/pull/8867)
 
 ### 🐛 Bug Fixes
 
-- **(env)** include tools-only redactions in `mise env --redacted` by @jakedgy in [#8956](https://github.com/jdx/mise/pull/8956)
+- **(env)** include tools-only redactions in `pakro env --redacted` by @jakedgy in [#8956](https://github.com/jdx/mise/pull/8956)
 - **(env)** pass dependency env to vfox backend plugin hooks by @cprecioso in [#8952](https://github.com/jdx/mise/pull/8952)
 - **(shim)** fix race condition when removing in make_shim, when multiple plugins provide the same shim by @brander-john in [#8947](https://github.com/jdx/mise/pull/8947)
 - **(spm)** derive API URL from host for self-hosted instances by @ThomasDutartre in [#8955](https://github.com/jdx/mise/pull/8955)
@@ -7147,7 +7147,7 @@ Included aqua-registry releases:
 
 ### 📚 Documentation
 
-- **(python)** clarify attestation settings must be under [settings] in mise.toml by @fru1tworld in [#8939](https://github.com/jdx/mise/pull/8939)
+- **(python)** clarify attestation settings must be under [settings] in pakro.toml by @fru1tworld in [#8939](https://github.com/jdx/mise/pull/8939)
 
 ### 📦 Registry
 
@@ -7181,7 +7181,7 @@ Included aqua-registry releases:
 ### 📚 Documentation
 
 - **(node)** add section on pinning npm version by @jdx in [#8925](https://github.com/jdx/mise/pull/8925)
-- add Windows default paths and mise.toml examples alongside CLI commands by @jdx in [#8926](https://github.com/jdx/mise/pull/8926)
+- add Windows default paths and pakro.toml examples alongside CLI commands by @jdx in [#8926](https://github.com/jdx/mise/pull/8926)
 - clarify common sources of confusion from GitHub discussions by @jdx in [#8927](https://github.com/jdx/mise/pull/8927)
 - clarify Python venv mechanisms, JAVA_HOME behavior, and activation performance by @jdx in [#8928](https://github.com/jdx/mise/pull/8928)
 - add FAQ and troubleshooting entries based on common Discord questions by @jdx in [#8930](https://github.com/jdx/mise/pull/8930)
@@ -7218,10 +7218,10 @@ Included aqua-registry releases:
 - **(github)** preserve tool options like filter_bins when version specified via CLI by @jdx in [#8888](https://github.com/jdx/mise/pull/8888)
 - **(github)** use alias-specific options when tool_alias has its own config by @jdx in [#8892](https://github.com/jdx/mise/pull/8892)
 - **(install)** add locked_verify_provenance setting and detect github attestations at lock time by @jdx in [#8901](https://github.com/jdx/mise/pull/8901)
-- **(lock)** prune stale version entries during filtered `mise lock <tool>` runs by @altendky in [#8599](https://github.com/jdx/mise/pull/8599)
+- **(lock)** prune stale version entries during filtered `pakro lock <tool>` runs by @altendky in [#8599](https://github.com/jdx/mise/pull/8599)
 - **(python)** use lockfile URL for precompiled installs by @hehaoqian in [#8750](https://github.com/jdx/mise/pull/8750)
 - **(release)** verify all build targets succeed before releasing by @jdx in [#8886](https://github.com/jdx/mise/pull/8886)
-- **(ruby)** support build revisions for precompiled binaries in mise.lock by @jdx in [#8900](https://github.com/jdx/mise/pull/8900)
+- **(ruby)** support build revisions for precompiled binaries in pakro.lock by @jdx in [#8900](https://github.com/jdx/mise/pull/8900)
 - **(swift)** fall back to Ubuntu 24.04 for unsupported Ubuntu versions by @jdx in [#8916](https://github.com/jdx/mise/pull/8916)
 - **(zsh)** avoid duplicate trust warning after cd by @timothysparg in [#8898](https://github.com/jdx/mise/pull/8898)
 - update flake.lock and add fix for rust-bindgen to default.nix by @esteve in [#8874](https://github.com/jdx/mise/pull/8874)
@@ -7294,7 +7294,7 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- **(exec)** add process sandboxing for mise x and mise run by @jdx in [#8845](https://github.com/jdx/mise/pull/8845)
+- **(exec)** add process sandboxing for pakro x and pakro run by @jdx in [#8845](https://github.com/jdx/mise/pull/8845)
 
 ### 📚 Documentation
 
@@ -7319,7 +7319,7 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- **(cli)** respect `-q` flag in `mise prepare` command by @Marukome0743 in [#8792](https://github.com/jdx/mise/pull/8792)
+- **(cli)** respect `-q` flag in `pakro prepare` command by @Marukome0743 in [#8792](https://github.com/jdx/mise/pull/8792)
 - fall back to compile-time musl detection when no system linker found by @davireis in [#8825](https://github.com/jdx/mise/pull/8825)
 
 ### 📚 Documentation
@@ -7482,7 +7482,7 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- **(github)** add github_tokens.toml, git credential fill, and `mise github token` command by @jdx in [#8742](https://github.com/jdx/mise/pull/8742)
+- **(github)** add github_tokens.toml, git credential fill, and `pakro github token` command by @jdx in [#8742](https://github.com/jdx/mise/pull/8742)
 - **(registry)** add tart by @mnm364 in [#8727](https://github.com/jdx/mise/pull/8727)
 
 ### 🐛 Bug Fixes
@@ -7545,7 +7545,7 @@ Included aqua-registry releases:
 
 - **(github)** read tokens from gh CLI hosts.yml config by @jdx in [#8692](https://github.com/jdx/mise/pull/8692)
 - **(task)** support optional `args` and `env` fields in `run` entries by @jdx in [#8687](https://github.com/jdx/mise/pull/8687)
-- **(task)** add --skip-tools flag to mise run by @jdx in [#8699](https://github.com/jdx/mise/pull/8699)
+- **(task)** add --skip-tools flag to pakro run by @jdx in [#8699](https://github.com/jdx/mise/pull/8699)
 - **(vfox)** add try_get, try_head, try_download_file to Lua HTTP module by @jdx in [#8697](https://github.com/jdx/mise/pull/8697)
 
 ### 🐛 Bug Fixes
@@ -7557,7 +7557,7 @@ Included aqua-registry releases:
 - **(implode)** include system data dir in implode cleanup by @jdx in [#8696](https://github.com/jdx/mise/pull/8696)
 - **(install)** skip GitHub API calls for aqua tools in --locked mode by @jdx in [#8679](https://github.com/jdx/mise/pull/8679)
 - **(install)** skip redundant provenance verification when lockfile has integrity data by @jdx in [#8688](https://github.com/jdx/mise/pull/8688)
-- **(lock)** respect existing platforms in lockfile when running `mise lock` by @jdx in [#8708](https://github.com/jdx/mise/pull/8708)
+- **(lock)** respect existing platforms in lockfile when running `pakro lock` by @jdx in [#8708](https://github.com/jdx/mise/pull/8708)
 - **(lock)** skip global config lockfile by default by @jdx in [#8707](https://github.com/jdx/mise/pull/8707)
 - **(node)** expand tilde in default_packages_file path by @jdx in [#8709](https://github.com/jdx/mise/pull/8709)
 - **(shell)** error when no version specified instead of silent no-op by @jdx in [#8693](https://github.com/jdx/mise/pull/8693)
@@ -7569,7 +7569,7 @@ Included aqua-registry releases:
 - **(test)** update vfox provenance test for checksum-backed skip by @jdx in [#8703](https://github.com/jdx/mise/pull/8703)
 - improve usage spec element support in tasks by @nkakouros in [#8623](https://github.com/jdx/mise/pull/8623)
 - make env plugin (Module) vars available in Tera template context by @victor-founder in [#8682](https://github.com/jdx/mise/pull/8682)
-- respect MISE_COLOR=0 for color_eyre error output by @jdx in [#8690](https://github.com/jdx/mise/pull/8690)
+- respect PAKRO_COLOR=0 for color_eyre error output by @jdx in [#8690](https://github.com/jdx/mise/pull/8690)
 - add windows support for usage tool registry by @jdx in [#8713](https://github.com/jdx/mise/pull/8713)
 
 ### 📚 Documentation
@@ -7595,7 +7595,7 @@ Included aqua-registry releases:
 - **(config)** resolve trust hash collision for same-name directories by @tdragon in [#8628](https://github.com/jdx/mise/pull/8628)
 - **(docs)** fix width of tools table by @himkt in [#8625](https://github.com/jdx/mise/pull/8625)
 - **(docs)** prevent homepage hero atmosphere overflow by @nygmaaa in [#8642](https://github.com/jdx/mise/pull/8642)
-- **(doctor)** detect PATH ordering issues when mise is activated by @jdx in [#8585](https://github.com/jdx/mise/pull/8585)
+- **(doctor)** detect PATH ordering issues when pakro is activated by @jdx in [#8585](https://github.com/jdx/mise/pull/8585)
 - **(git)** use origin as remote name by @bentinata in [#8626](https://github.com/jdx/mise/pull/8626)
 - **(installer)** normalize current version before comparison by @tak848 in [#8649](https://github.com/jdx/mise/pull/8649)
 - **(lockfile)** Resolve symlink when updating lockfiles by @chancez in [#8589](https://github.com/jdx/mise/pull/8589)
@@ -7609,7 +7609,7 @@ Included aqua-registry releases:
 - failing rebuild of runtime symlinks for shared tools by @roele in [#8647](https://github.com/jdx/mise/pull/8647)
 - add spaces around current element operator in flutter version_expr by @roele in [#8616](https://github.com/jdx/mise/pull/8616)
 - complete task arguments correctly by @KevSlashNull in [#8601](https://github.com/jdx/mise/pull/8601)
-- remove hidden `--prefix`, `--interleave` from `mise run` by @nkakouros in [#8669](https://github.com/jdx/mise/pull/8669)
+- remove hidden `--prefix`, `--interleave` from `pakro run` by @nkakouros in [#8669](https://github.com/jdx/mise/pull/8669)
 
 ### 📚 Documentation
 
@@ -7659,7 +7659,7 @@ Included aqua-registry releases:
 #### New Packages (8)
 
 - [`acsandmann/rift`](https://github.com/acsandmann/rift)
-- [`alltuner/mise-completions-sync`](https://github.com/alltuner/mise-completions-sync)
+- [`alltuner/pakro-completions-sync`](https://github.com/alltuner/mise-completions-sync)
 - [`atlassian.com/acli`](https://github.com/atlassian.com/acli)
 - [`berbicanes/apiark`](https://github.com/berbicanes/apiark)
 - [`gitlab.com/graphviz/graphviz`](https://github.com/gitlab.com/graphviz/graphviz)
@@ -7689,9 +7689,9 @@ Included aqua-registry releases:
 ### 🐛 Bug Fixes
 
 - **(aqua)** expose main binary when files field is empty and symlink_bins is enabled by @AlexanderTheGrey in [#8550](https://github.com/jdx/mise/pull/8550)
-- **(env)** redact secrets in `mise set` listing and task-specific env by @jdx in [#8583](https://github.com/jdx/mise/pull/8583)
+- **(env)** redact secrets in `pakro set` listing and task-specific env by @jdx in [#8583](https://github.com/jdx/mise/pull/8583)
 - **(prepare)** install config tools before running prepare steps by @jdx in [#8582](https://github.com/jdx/mise/pull/8582)
-- **(task)** allow ctrl-c to interrupt tool downloads during `mise run` by @jdx in [#8571](https://github.com/jdx/mise/pull/8571)
+- **(task)** allow ctrl-c to interrupt tool downloads during `pakro run` by @jdx in [#8571](https://github.com/jdx/mise/pull/8571)
 - **(tasks)** add file task header parser support for spaces around = by @roele in [#8574](https://github.com/jdx/mise/pull/8574)
 
 ### 📚 Documentation
@@ -7805,10 +7805,10 @@ Included aqua-registry releases:
 ### 🐛 Bug Fixes
 
 - **(activate)** reorder shims to front of PATH on re-source in fish by @jdx in [#8534](https://github.com/jdx/mise/pull/8534)
-- **(backend)** strip mise shims from dependency_env PATH to prevent fork bomb by @pose in [#8475](https://github.com/jdx/mise/pull/8475)
+- **(backend)** strip pakro shims from dependency_env PATH to prevent fork bomb by @pose in [#8475](https://github.com/jdx/mise/pull/8475)
 - **(github)** resolve "latest" version correctly via GitHub API by @jdx in [#8532](https://github.com/jdx/mise/pull/8532)
 - **(lock)** set env tags and clarify lockfile docs by @jdx in [#8519](https://github.com/jdx/mise/pull/8519)
-- **(lock)** use separate mise.<env>.lock files instead of env tags by @jdx in [#8523](https://github.com/jdx/mise/pull/8523)
+- **(lock)** use separate pakro.<env>.lock files instead of env tags by @jdx in [#8523](https://github.com/jdx/mise/pull/8523)
 - **(task)** include args in task output prefix and truncate long prefixes by @jdx in [#8533](https://github.com/jdx/mise/pull/8533)
 - **(task)** only include args in task prefix when disambiguating duplicates by @jdx in [#8536](https://github.com/jdx/mise/pull/8536)
 - **(test)** pin goreleaser version in attestation e2e test by @jdx in [#8518](https://github.com/jdx/mise/pull/8518)
@@ -7860,7 +7860,7 @@ Included aqua-registry releases:
 
 - **(env)** skip remote version fetching for "latest" in prefer-offline mode by @jdx in [#8500](https://github.com/jdx/mise/pull/8500)
 - **(tasks)** deduplicate shared deps across task delegation by @vadimpiven in [#8497](https://github.com/jdx/mise/pull/8497)
-- **(windows)** correctly identify mise binary without extension by @jdx in [#8503](https://github.com/jdx/mise/pull/8503)
+- **(windows)** correctly identify pakro binary without extension by @jdx in [#8503](https://github.com/jdx/mise/pull/8503)
 
 ### 🚜 Refactor
 
@@ -7872,7 +7872,7 @@ Included aqua-registry releases:
 
 ### Chore
 
-- **(ci)** temporarily disable `mise up` in release-plz by @jdx in [#8504](https://github.com/jdx/mise/pull/8504)
+- **(ci)** temporarily disable `pakro up` in release-plz by @jdx in [#8504](https://github.com/jdx/mise/pull/8504)
 - consolidate all linters into hk.pkl by @jdx in [#8498](https://github.com/jdx/mise/pull/8498)
 
 ### 📦 Aqua Registry Updates
@@ -7894,7 +7894,7 @@ Included aqua-registry releases:
 
 - **(github)** use registry platform options during install by @jdx in [#8492](https://github.com/jdx/mise/pull/8492)
 - **(http)** store tool opts as native TOML to fix platform switching by @jdx in [#8448](https://github.com/jdx/mise/pull/8448)
-- **(installer)** error if MISE_INSTALL_PATH is a directory by @jdx in [#8468](https://github.com/jdx/mise/pull/8468)
+- **(installer)** error if PAKRO_INSTALL_PATH is a directory by @jdx in [#8468](https://github.com/jdx/mise/pull/8468)
 - **(prepare)** resolve sources/outputs relative to `dir` when set by @jdx in [#8472](https://github.com/jdx/mise/pull/8472)
 - **(ruby)** fetch precompiled binary by release tag instead of listing all releases by @jdx in [#8488](https://github.com/jdx/mise/pull/8488)
 - **(schema)** support structured objects in task depends by @risu729 in [#8463](https://github.com/jdx/mise/pull/8463)
@@ -8017,7 +8017,7 @@ Included aqua-registry releases:
 - **(prepare)** improve git submodule parser and fix check_staleness error handling by @jdx in [#8412](https://github.com/jdx/mise/pull/8412)
 - **(python)** respect precompiled settings in lock file generation by @jdx in [#8399](https://github.com/jdx/mise/pull/8399)
 - **(python)** clarify uv_venv_auto docs + prevent uv shim recursion in venv creation by @halms in [#8402](https://github.com/jdx/mise/pull/8402)
-- **(task)** remove deprecated `# mise` task header syntax by @jdx in [#8403](https://github.com/jdx/mise/pull/8403)
+- **(task)** remove deprecated `# pakro` task header syntax by @jdx in [#8403](https://github.com/jdx/mise/pull/8403)
 - **(vfox)** avoid eager metadata loading during config file detection by @jdx in [#8397](https://github.com/jdx/mise/pull/8397)
 - clarify GitHub attestations to be artifact ones by @scop in [#8394](https://github.com/jdx/mise/pull/8394)
 - ignore comments in idiomatic version files by @iloveitaly in [#7682](https://github.com/jdx/mise/pull/7682)
@@ -8075,7 +8075,7 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- add `--outdated` flag to `mise plugins ls` by @jdx in [#8360](https://github.com/jdx/mise/pull/8360)
+- add `--outdated` flag to `pakro plugins ls` by @jdx in [#8360](https://github.com/jdx/mise/pull/8360)
 
 ### 🐛 Bug Fixes
 
@@ -8110,8 +8110,8 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- **(exec)** respect PATH order for virtualenv resolution in mise x by @jdx in [#8342](https://github.com/jdx/mise/pull/8342)
-- **(task)** revert process group changes that cause hangs with nested mise tasks by @jdx in [#8347](https://github.com/jdx/mise/pull/8347)
+- **(exec)** respect PATH order for virtualenv resolution in pakro x by @jdx in [#8342](https://github.com/jdx/mise/pull/8342)
+- **(task)** revert process group changes that cause hangs with nested pakro tasks by @jdx in [#8347](https://github.com/jdx/mise/pull/8347)
 - **(task)** resolve vars from subdirectory configs for monorepo tasks by @jdx in [#8343](https://github.com/jdx/mise/pull/8343)
 - **(task)** resolve dependencies before prepare to fix monorepo glob deps by @jdx in [#8353](https://github.com/jdx/mise/pull/8353)
 - python noarch with Conda backend by @wolfv in [#8349](https://github.com/jdx/mise/pull/8349)
@@ -8150,7 +8150,7 @@ Included aqua-registry releases:
 - **(env)** include watch_files in fast-path early exit check by @jdx in [#8317](https://github.com/jdx/mise/pull/8317)
 - **(env)** clear fish completions when setting/unsetting shell aliases by @jdx in [#8324](https://github.com/jdx/mise/pull/8324)
 - **(lockfile)** prevent lockfile writes when --locked is set by @jdx in [#8308](https://github.com/jdx/mise/pull/8308)
-- **(lockfile)** prune orphan tool entries on mise lock by @mackwic in [#8265](https://github.com/jdx/mise/pull/8265)
+- **(lockfile)** prune orphan tool entries on pakro lock by @mackwic in [#8265](https://github.com/jdx/mise/pull/8265)
 - **(lockfile)** error on contradictory locked=true + lockfile=false config by @jdx in [#8329](https://github.com/jdx/mise/pull/8329)
 - **(regal)** Update package location by @charlieegan3 in [#8315](https://github.com/jdx/mise/pull/8315)
 - **(release)** strip markdown heading prefix from communique release title by @jdx in [#8303](https://github.com/jdx/mise/pull/8303)
@@ -8200,7 +8200,7 @@ Included aqua-registry releases:
 
 ### Chore
 
-- **(release)** run communique via mise x for PATH resolution by @jdx in [#8294](https://github.com/jdx/mise/pull/8294)
+- **(release)** run communique via pakro x for PATH resolution by @jdx in [#8294](https://github.com/jdx/mise/pull/8294)
 
 ### 📦 Aqua Registry Updates
 
@@ -8220,7 +8220,7 @@ Included aqua-registry releases:
 - **(config)** respect --yes flag for config trust prompts by @jdx in [#8288](https://github.com/jdx/mise/pull/8288)
 - **(exec)** strip shims from PATH on Unix to prevent infinite recursion by @jdx in [#8276](https://github.com/jdx/mise/pull/8276)
 - **(install)** validate --locked before --dry-run short-circuit by @altendky in [#8290](https://github.com/jdx/mise/pull/8290)
-- **(release)** refresh PATH after mise up in release-plz by @jdx in [#8292](https://github.com/jdx/mise/pull/8292)
+- **(release)** refresh PATH after pakro up in release-plz by @jdx in [#8292](https://github.com/jdx/mise/pull/8292)
 - **(schema)** replace unevaluatedProperties with additionalProperties by @jdx in [#8285](https://github.com/jdx/mise/pull/8285)
 - **(task)** avoid duplicated stderr on task failure in replacing mode by @jdx in [#8275](https://github.com/jdx/mise/pull/8275)
 - **(task)** use process groups to kill child process trees on Unix by @jdx in [#8279](https://github.com/jdx/mise/pull/8279)
@@ -8232,7 +8232,7 @@ Included aqua-registry releases:
 
 ### 📚 Documentation
 
-- clarify that MISE_CEILING_PATHS excludes the ceiling directory itself by @jdx in [#8283](https://github.com/jdx/mise/pull/8283)
+- clarify that PAKRO_CEILING_PATHS excludes the ceiling directory itself by @jdx in [#8283](https://github.com/jdx/mise/pull/8283)
 
 ### Chore
 
@@ -8266,7 +8266,7 @@ Included aqua-registry releases:
 
 - **(install)** use backend bin paths for per-tool postinstall hooks by @jdx in [#8234](https://github.com/jdx/mise/pull/8234)
 - **(use)** write to config.toml instead of config.local.toml by @jdx in [#8240](https://github.com/jdx/mise/pull/8240)
-- default legacy .mise.backend installs to non-explicit by @jean-humann in [#8245](https://github.com/jdx/mise/pull/8245)
+- default legacy .pakro.backend installs to non-explicit by @jean-humann in [#8245](https://github.com/jdx/mise/pull/8245)
 
 ### 🚜 Refactor
 
@@ -8286,7 +8286,7 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- **(mcp)** add run_task tool for executing mise tasks by @joaommartins in [#8179](https://github.com/jdx/mise/pull/8179)
+- **(mcp)** add run_task tool for executing pakro tasks by @joaommartins in [#8179](https://github.com/jdx/mise/pull/8179)
 - **(node)** suggest setting node.flavor if the flavor is not found in mirror by @risu729 in [#8206](https://github.com/jdx/mise/pull/8206)
 
 ### 🐛 Bug Fixes
@@ -8294,7 +8294,7 @@ Included aqua-registry releases:
 - **(java)** sort order for shorthand versions by @roele in [#8197](https://github.com/jdx/mise/pull/8197)
 - **(node)** migrate env vars to settings by @risu729 in [#8200](https://github.com/jdx/mise/pull/8200)
 - **(registry)** apply overrides in shims by @risu729 in [#8199](https://github.com/jdx/mise/pull/8199)
-- migrate MISE_CARGO_BINSTALL_ONLY to settings by @risu729 in [#8202](https://github.com/jdx/mise/pull/8202)
+- migrate PAKRO_CARGO_BINSTALL_ONLY to settings by @risu729 in [#8202](https://github.com/jdx/mise/pull/8202)
 
 ### 📚 Documentation
 
@@ -8356,7 +8356,7 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- **(vfox)** allow plugins to request env var redaction via MiseEnvResult by @jdx in [#8166](https://github.com/jdx/mise/pull/8166)
+- **(vfox)** allow plugins to request env var redaction via PakroEnvResult by @jdx in [#8166](https://github.com/jdx/mise/pull/8166)
 - add a default_host setting for rust by @aacebedo in [#8154](https://github.com/jdx/mise/pull/8154)
 - add github_content package support for aqua backend by @risu729 in [#8147](https://github.com/jdx/mise/pull/8147)
 - support devEngines.runtime in deno by @risu729 in [#8144](https://github.com/jdx/mise/pull/8144)
@@ -8364,7 +8364,7 @@ Included aqua-registry releases:
 ### 🐛 Bug Fixes
 
 - **(asset_matcher)** penalize vsix files by @risu729 in [#8151](https://github.com/jdx/mise/pull/8151)
-- **(edit)** strip formatting whitespace from TOML values in `mise edit` by @jdx in [#8162](https://github.com/jdx/mise/pull/8162)
+- **(edit)** strip formatting whitespace from TOML values in `pakro edit` by @jdx in [#8162](https://github.com/jdx/mise/pull/8162)
 - **(install)** improve --locked support for python and ubi backends by @jdx in [#8163](https://github.com/jdx/mise/pull/8163)
 - **(npm)** suppress npm update notifier while npm install by @risu729 in [#8152](https://github.com/jdx/mise/pull/8152)
 - **(schema)** add task_templates, extends, and timeout by @risu729 in [#8145](https://github.com/jdx/mise/pull/8145)
@@ -8454,7 +8454,7 @@ Included aqua-registry releases:
 
 - **(backend)** improve conda patchelf and dependency resolution for complex packages by @jdx in [#8087](https://github.com/jdx/mise/pull/8087)
 - **(ci)** fix validate-new-tools grep pattern for test field by @jdx in [#8100](https://github.com/jdx/mise/pull/8100)
-- **(config)** make MISE_OFFLINE work correctly by gracefully skipping network calls by @jdx in [#8109](https://github.com/jdx/mise/pull/8109)
+- **(config)** make PAKRO_OFFLINE work correctly by gracefully skipping network calls by @jdx in [#8109](https://github.com/jdx/mise/pull/8109)
 - **(github)** skip v prefix for "latest" version by @jdx in [#8105](https://github.com/jdx/mise/pull/8105)
 - **(gitlab)** resolve tool options from config for aliased tools by @jdx in [#8084](https://github.com/jdx/mise/pull/8084)
 - **(install)** use version_expr for Flutter to fix version resolution by @jdx in [#8081](https://github.com/jdx/mise/pull/8081)
@@ -8468,7 +8468,7 @@ Included aqua-registry releases:
 
 ### 📚 Documentation
 
-- use mise activate for PowerShell in getting-started by @rileychh in [#8112](https://github.com/jdx/mise/pull/8112)
+- use pakro activate for PowerShell in getting-started by @rileychh in [#8112](https://github.com/jdx/mise/pull/8112)
 
 ### 📦 Registry
 
@@ -8507,7 +8507,7 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- **(shim)** update mise-shim.exe during self-update on Windows by @jdx in [#8075](https://github.com/jdx/mise/pull/8075)
+- **(shim)** update pakro-shim.exe during self-update on Windows by @jdx in [#8075](https://github.com/jdx/mise/pull/8075)
 - Bump xx to 2.5 by @erickt in [#8077](https://github.com/jdx/mise/pull/8077)
 
 ### 📚 Documentation
@@ -8534,7 +8534,7 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- **(core)** respect MISE_ARCH override in bun and erlang plugins by @jdx in [#8062](https://github.com/jdx/mise/pull/8062)
+- **(core)** respect PAKRO_ARCH override in bun and erlang plugins by @jdx in [#8062](https://github.com/jdx/mise/pull/8062)
 - **(hooks)** resolve 12 community-reported hooks issues by @jdx in [#8058](https://github.com/jdx/mise/pull/8058)
 - accept key=value format in set/add subcommands by @jdx in [#8053](https://github.com/jdx/mise/pull/8053)
 
@@ -8591,11 +8591,11 @@ Included aqua-registry releases:
 - **(gem)** revert gem.rs script newline change by @my1e5 in [#8034](https://github.com/jdx/mise/pull/8034)
 - **(lock)** write tools to lockfile matching their source config by @jdx in [#8012](https://github.com/jdx/mise/pull/8012)
 - **(ls)** sort sources deterministically in --all-sources output by @jdx in [#8037](https://github.com/jdx/mise/pull/8037)
-- **(task)** auto-install tools from mise.toml for file tasks by @jdx in [#8030](https://github.com/jdx/mise/pull/8030)
+- **(task)** auto-install tools from pakro.toml for file tasks by @jdx in [#8030](https://github.com/jdx/mise/pull/8030)
 
 ### 📚 Documentation
 
-- fix wrong positions of `mise run` flags by @muzimuzhi in [#8036](https://github.com/jdx/mise/pull/8036)
+- fix wrong positions of `pakro run` flags by @muzimuzhi in [#8036](https://github.com/jdx/mise/pull/8036)
 
 ### 📦️ Dependency Updates
 
@@ -8647,7 +8647,7 @@ Included aqua-registry releases:
 - **(env)** resolve sourced env for tool templates by @corymhall in [#7895](https://github.com/jdx/mise/pull/7895)
 - **(npm)** only declare the configured package manager as a dependency by @jdx in [#7995](https://github.com/jdx/mise/pull/7995)
 - **(upgrade)** respect use_locked_version when checking tracked configs by @jdx in [#7997](https://github.com/jdx/mise/pull/7997)
-- ignore MISE_TOOL_VERSION in env var parsing by @jdx in [#8004](https://github.com/jdx/mise/pull/8004)
+- ignore PAKRO_TOOL_VERSION in env var parsing by @jdx in [#8004](https://github.com/jdx/mise/pull/8004)
 
 ### New Contributors
 
@@ -8744,20 +8744,20 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- **(edit)** add interactive config editor (`mise edit`) by @jdx in [#7930](https://github.com/jdx/mise/pull/7930)
+- **(edit)** add interactive config editor (`pakro edit`) by @jdx in [#7930](https://github.com/jdx/mise/pull/7930)
 - **(lockfile)** graduate lockfiles from experimental by @jdx in [#7929](https://github.com/jdx/mise/pull/7929)
 - **(task)** add support for usage values in task confirm dialog by @roele in [#7924](https://github.com/jdx/mise/pull/7924)
 - **(task)** improve source freshness checking with edge case handling by @jdx in [#7932](https://github.com/jdx/mise/pull/7932)
 
 ### 🐛 Bug Fixes
 
-- **(activate)** preserve ordering of paths appended after mise activate by @jdx in [#7919](https://github.com/jdx/mise/pull/7919)
+- **(activate)** preserve ordering of paths appended after pakro activate by @jdx in [#7919](https://github.com/jdx/mise/pull/7919)
 - **(install)** sort failed installations for deterministic error output by @jdx in [#7936](https://github.com/jdx/mise/pull/7936)
 - **(lockfile)** preserve URL and prefer sha256 when merging platform info by @jdx in [#7923](https://github.com/jdx/mise/pull/7923)
 - **(lockfile)** add atomic writes and cache invalidation by @jdx in [#7927](https://github.com/jdx/mise/pull/7927)
-- **(release)** add mise-interactive-config to release-plz publish workflow by @jdx in [#7940](https://github.com/jdx/mise/pull/7940)
-- **(release)** handle mise-interactive-config schema during cargo publish by @jdx in [#7942](https://github.com/jdx/mise/pull/7942)
-- **(release)** include mise.json in mise-interactive-config package by @jdx in [3689a4a](https://github.com/jdx/mise/commit/3689a4a83c7e886ba15082f99674ebc6398056e3)
+- **(release)** add pakro-interactive-config to release-plz publish workflow by @jdx in [#7940](https://github.com/jdx/mise/pull/7940)
+- **(release)** handle pakro-interactive-config schema during cargo publish by @jdx in [#7942](https://github.com/jdx/mise/pull/7942)
+- **(release)** include pakro.json in pakro-interactive-config package by @jdx in [3689a4a](https://github.com/jdx/mise/commit/3689a4a83c7e886ba15082f99674ebc6398056e3)
 - **(task)** discover and run shebang file tasks on Windows by @jdx in [#7941](https://github.com/jdx/mise/pull/7941)
 - **(templates)** use sha256 for hash filter instead of blake3 by @jdx in [#7925](https://github.com/jdx/mise/pull/7925)
 - **(upgrade)** respect tracked configs when pruning old versions by @jdx in [#7926](https://github.com/jdx/mise/pull/7926)
@@ -8781,7 +8781,7 @@ Included aqua-registry releases:
 
 ### Chore
 
-- use github backend instead of ubi in mise.lock by @jdx in [#7922](https://github.com/jdx/mise/pull/7922)
+- use github backend instead of ubi in pakro.lock by @jdx in [#7922](https://github.com/jdx/mise/pull/7922)
 
 ### New Contributors
 
@@ -8802,7 +8802,7 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- **(config)** load local .config/miserc.toml too by @scop in [#7896](https://github.com/jdx/mise/pull/7896)
+- **(config)** load local .config/pakrorc.toml too by @scop in [#7896](https://github.com/jdx/mise/pull/7896)
 - **(vfox)** pass constructed env to module hooks for cmd.exec by @jdx in [#7908](https://github.com/jdx/mise/pull/7908)
 
 ### 🐛 Bug Fixes
@@ -8815,22 +8815,22 @@ Included aqua-registry releases:
 - **(registry)** revert daytona asset pattern to simple naming by @jdx in [#7911](https://github.com/jdx/mise/pull/7911)
 - **(run)** show task info instead of executing when --help used without usage spec by @jdx in [#7893](https://github.com/jdx/mise/pull/7893)
 - **(task)** fix wait_for with env overrides and re-render outputs by @jdx in [#7888](https://github.com/jdx/mise/pull/7888)
-- use correct MISE comment format and remove invalid usage field by @jdx in [89d87ba](https://github.com/jdx/mise/commit/89d87ba1331a60ffa5c1f55ee8da96e6be59c59c)
+- use correct PAKRO comment format and remove invalid usage field by @jdx in [89d87ba](https://github.com/jdx/mise/commit/89d87ba1331a60ffa5c1f55ee8da96e6be59c59c)
 - add #USAGE arg spec for check-release-failures task by @jdx in [8bfab84](https://github.com/jdx/mise/commit/8bfab845d310ec26337f24f154e2b63fc12cdf86)
-- use mise tool --json instead of regex parsing registry files by @jdx in [22d1513](https://github.com/jdx/mise/commit/22d1513eb7a3e97f1f806960dafa3a06732eafbb)
+- use pakro tool --json instead of regex parsing registry files by @jdx in [22d1513](https://github.com/jdx/mise/commit/22d1513eb7a3e97f1f806960dafa3a06732eafbb)
 
 ### 🚜 Refactor
 
-- consolidate retry + grace period logic into mise task by @jdx in [794efb4](https://github.com/jdx/mise/commit/794efb40ff0b8c5be1bdbb78146b7358b255fac7)
+- consolidate retry + grace period logic into pakro task by @jdx in [794efb4](https://github.com/jdx/mise/commit/794efb40ff0b8c5be1bdbb78146b7358b255fac7)
 
 ### 📚 Documentation
 
-- **(gitlab)** explain MISE_GITLAB_TOKEN for private repo by @lchagnoleau in [#7902](https://github.com/jdx/mise/pull/7902)
+- **(gitlab)** explain PAKRO_GITLAB_TOKEN for private repo by @lchagnoleau in [#7902](https://github.com/jdx/mise/pull/7902)
 
 ### ⚡ Performance
 
-- **(exec)** reduce startup overhead for `mise x` by @jdx in [#7890](https://github.com/jdx/mise/pull/7890)
-- **(install)** replace per-tool .mise.backend with consolidated manifest by @jdx in [#7892](https://github.com/jdx/mise/pull/7892)
+- **(exec)** reduce startup overhead for `pakro x` by @jdx in [#7890](https://github.com/jdx/mise/pull/7890)
+- **(install)** replace per-tool .pakro.backend with consolidated manifest by @jdx in [#7892](https://github.com/jdx/mise/pull/7892)
 
 ### 📦️ Dependency Updates
 
@@ -8858,7 +8858,7 @@ Included aqua-registry releases:
 
 - **(doctor)** add backend mismatch warnings by @jdx in [#7847](https://github.com/jdx/mise/pull/7847)
 - **(http)** add rename_exe support for archive extraction by @jdx in [#7874](https://github.com/jdx/mise/pull/7874)
-- **(http)** send x-mise-ci header for CI environment tracking by @jdx in [#7875](https://github.com/jdx/mise/pull/7875)
+- **(http)** send x-pakro-ci header for CI environment tracking by @jdx in [#7875](https://github.com/jdx/mise/pull/7875)
 - **(install)** auto-install plugins from [plugins] config section by @jdx in [#7856](https://github.com/jdx/mise/pull/7856)
 - **(registry)** add vercel by @mikecurtis in [#7844](https://github.com/jdx/mise/pull/7844)
 - **(task)** support glob patterns in task_config.includes by @jdx in [#7870](https://github.com/jdx/mise/pull/7870)
@@ -8875,7 +8875,7 @@ Included aqua-registry releases:
 - **(pipx)** ensure Python minor version symlink exists for postinstall hooks by @jdx in [#7869](https://github.com/jdx/mise/pull/7869)
 - **(registry)** prevent duplicate -stable suffix in Flutter download URLs by @jdx in [#7872](https://github.com/jdx/mise/pull/7872)
 - **(task)** pass env to usage parser for env-backed arguments by @jdx in [#7848](https://github.com/jdx/mise/pull/7848)
-- **(task)** propagate MISE_ENV to child tasks when using -E flag by @jdx in [06ee776](https://github.com/jdx/mise/commit/06ee77643fcebfe03b37e6a235cf4f1c258a4e34)
+- **(task)** propagate PAKRO_ENV to child tasks when using -E flag by @jdx in [06ee776](https://github.com/jdx/mise/commit/06ee77643fcebfe03b37e6a235cf4f1c258a4e34)
 - **(vfox-dotnet)** use os.execute() to fix Windows installation by @prodrigues1912 in [#7843](https://github.com/jdx/mise/pull/7843)
 
 ### 📚 Documentation
@@ -9051,7 +9051,7 @@ Included aqua-registry releases:
 - **(locked)** exempt tool stubs from lockfile requirements by @jdx in [#7729](https://github.com/jdx/mise/pull/7729)
 - **(python)** sort CPython versions at end of ls-remote output by @jdx in [#7721](https://github.com/jdx/mise/pull/7721)
 - **(task)** resolve remote task files before display and validation commands by @yannrouillard in [#7681](https://github.com/jdx/mise/pull/7681)
-- **(task)** support monorepo paths in `mise tasks deps` by @chadxz in [#7699](https://github.com/jdx/mise/pull/7699)
+- **(task)** support monorepo paths in `pakro tasks deps` by @chadxz in [#7699](https://github.com/jdx/mise/pull/7699)
 - **(task)** resolve all monorepo path hints in deps by @chadxz in [#7698](https://github.com/jdx/mise/pull/7698)
 
 ### 📚 Documentation
@@ -9097,8 +9097,8 @@ Included aqua-registry releases:
 ### 🚀 Features
 
 - **(s3)** add S3 backend for private artifact storage by @jdx in [#7668](https://github.com/jdx/mise/pull/7668)
-- **(upgrade)** use installed_tool completer for mise upgrade by @jdx in [#7670](https://github.com/jdx/mise/pull/7670)
-- **(upgrade)** add --exclude flag to mise upgrade command by @jdx in [#7669](https://github.com/jdx/mise/pull/7669)
+- **(upgrade)** use installed_tool completer for pakro upgrade by @jdx in [#7670](https://github.com/jdx/mise/pull/7670)
+- **(upgrade)** add --exclude flag to pakro upgrade command by @jdx in [#7669](https://github.com/jdx/mise/pull/7669)
 - add no hooks and no env flags by @aacebedo in [#7560](https://github.com/jdx/mise/pull/7560)
 
 ### 🐛 Bug Fixes
@@ -9159,7 +9159,7 @@ Included aqua-registry releases:
 ### 📚 Documentation
 
 - **(tasks)** remove documentation for unimplemented features by @turbocrime in [#7599](https://github.com/jdx/mise/pull/7599)
-- update `mise aliases` references to `mise tool-alias` by @muzimuzhi in [#7615](https://github.com/jdx/mise/pull/7615)
+- update `pakro aliases` references to `pakro tool-alias` by @muzimuzhi in [#7615](https://github.com/jdx/mise/pull/7615)
 - use call operator in PowerShell profile example by @shina1024 in [#7639](https://github.com/jdx/mise/pull/7639)
 - replace ASCII .pub key with binary .gpg for signed-by on Ubuntu/Debian by @gmalinowski in [#7649](https://github.com/jdx/mise/pull/7649)
 - add missing word by @henrebotha in [#7653](https://github.com/jdx/mise/pull/7653)
@@ -9201,12 +9201,12 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- **(config)** add .miserc.toml for early initialization settings by @jdx in [#7596](https://github.com/jdx/mise/pull/7596)
+- **(config)** add .pakrorc.toml for early initialization settings by @jdx in [#7596](https://github.com/jdx/mise/pull/7596)
 - allow to include tasks from git repositories by @vmaleze in [#7582](https://github.com/jdx/mise/pull/7582)
 
 ### 🐛 Bug Fixes
 
-- **(config)** mise use writes to lowest precedence config file by @jdx in [#7598](https://github.com/jdx/mise/pull/7598)
+- **(config)** pakro use writes to lowest precedence config file by @jdx in [#7598](https://github.com/jdx/mise/pull/7598)
 - **(python)** sort miniconda versions by conda version instead of version string by @jdx in [#7595](https://github.com/jdx/mise/pull/7595)
 - Rust channel updates installing twice by @rjvkn in [#7565](https://github.com/jdx/mise/pull/7565)
 - use Bearer instead of token in authorization headers by @risu729 in [#7593](https://github.com/jdx/mise/pull/7593)
@@ -9263,7 +9263,7 @@ Included aqua-registry releases:
 - fix invalid config section `[aliases]` by @muzimuzhi in [#7518](https://github.com/jdx/mise/pull/7518)
 - Fix path to GitLab backend source by @henrebotha in [#7529](https://github.com/jdx/mise/pull/7529)
 - Fix path to GitLab backend source by @henrebotha in [#7531](https://github.com/jdx/mise/pull/7531)
-- update `mise --version` output by @muzimuzhi in [#7530](https://github.com/jdx/mise/pull/7530)
+- update `pakro --version` output by @muzimuzhi in [#7530](https://github.com/jdx/mise/pull/7530)
 
 ### 🧪 Testing
 
@@ -9335,7 +9335,7 @@ Included aqua-registry releases:
 - add link to COPR package page for Fedora/RHEL by @jdx in [bc8ac73](https://github.com/jdx/mise/commit/bc8ac732e3bdecfd12affd7b8c54cdebcdb87da1)
 - improve installation documentation by @jdx in [#7403](https://github.com/jdx/mise/pull/7403)
 - add comprehensive glossary by @jdx in [#7401](https://github.com/jdx/mise/pull/7401)
-- use `mise run` uniformly in its examples by @muzimuzhi in [#7444](https://github.com/jdx/mise/pull/7444)
+- use `pakro run` uniformly in its examples by @muzimuzhi in [#7444](https://github.com/jdx/mise/pull/7444)
 - update source file for asset autodetection by @muzimuzhi in [#7513](https://github.com/jdx/mise/pull/7513)
 
 ### 🧪 Testing
@@ -9392,9 +9392,9 @@ Included aqua-registry releases:
 
 ### Chore
 
-- **(docker)** add Node LTS to mise Docker image by @jdx in [#7405](https://github.com/jdx/mise/pull/7405)
-- rename mise-tools to mise-versions by @jdx in [ab3e1b8](https://github.com/jdx/mise/commit/ab3e1b8e64c2aa881c43af7636d6b492c6001e6f)
-- s/mise task/mise tasks/g in docs and tests by @muzimuzhi in [#7400](https://github.com/jdx/mise/pull/7400)
+- **(docker)** add Node LTS to pakro Docker image by @jdx in [#7405](https://github.com/jdx/mise/pull/7405)
+- rename pakro-tools to pakro-versions by @jdx in [ab3e1b8](https://github.com/jdx/mise/commit/ab3e1b8e64c2aa881c43af7636d6b492c6001e6f)
+- s/pakro task/pakro tasks/g in docs and tests by @muzimuzhi in [#7400](https://github.com/jdx/mise/pull/7400)
 - update singular/plural forms for word "task" by @muzimuzhi in [#7448](https://github.com/jdx/mise/pull/7448)
 
 ### New Contributors
@@ -9451,7 +9451,7 @@ Included aqua-registry releases:
 - **(toolset)** filter tools by OS in list_current_versions by @jdx in [#7356](https://github.com/jdx/mise/pull/7356)
 - **(ubi)** only show deprecation warning during installation by @jdx in [#7380](https://github.com/jdx/mise/pull/7380)
 - **(ui)** remove noisy "record size" message during install by @jdx in [#7381](https://github.com/jdx/mise/pull/7381)
-- update mise-versions URL to use /tools/ prefix by @jdx in [#7378](https://github.com/jdx/mise/pull/7378)
+- update pakro-versions URL to use /tools/ prefix by @jdx in [#7378](https://github.com/jdx/mise/pull/7378)
 
 ### 🚜 Refactor
 
@@ -9504,7 +9504,7 @@ Included aqua-registry releases:
 
 - **(aqua)** add tuist aqua backend by @jdx in [#7323](https://github.com/jdx/mise/pull/7323)
 - **(ls-remote)** add release_url to VersionInfo for --json output by @jdx in [#7322](https://github.com/jdx/mise/pull/7322)
-- **(prepare)** add `mise prepare` command for dependency preparation by @jdx in [#7281](https://github.com/jdx/mise/pull/7281)
+- **(prepare)** add `pakro prepare` command for dependency preparation by @jdx in [#7281](https://github.com/jdx/mise/pull/7281)
 - **(registry)** add aqua backend for zigmod by @jdx in [#7319](https://github.com/jdx/mise/pull/7319)
 
 ### 🐛 Bug Fixes
@@ -9524,9 +9524,9 @@ Included aqua-registry releases:
 - **(conda)** add dependency resolution for conda packages by @jdx in [#7280](https://github.com/jdx/mise/pull/7280)
 - **(go)** add created_at support to ls-remote --json by @jdx in [#7305](https://github.com/jdx/mise/pull/7305)
 - **(hook-env)** add hook_env.cache_ttl and hook_env.chpwd_only settings for NFS optimization by @jdx in [#7312](https://github.com/jdx/mise/pull/7312)
-- **(hooks)** add MISE_TOOL_NAME and MISE_TOOL_VERSION to preinstall/postinstall hooks by @jdx in [#7311](https://github.com/jdx/mise/pull/7311)
+- **(hooks)** add PAKRO_TOOL_NAME and PAKRO_TOOL_VERSION to preinstall/postinstall hooks by @jdx in [#7311](https://github.com/jdx/mise/pull/7311)
 - **(shell_alias)** add shell_alias support for cross-shell aliases by @jdx in [#7316](https://github.com/jdx/mise/pull/7316)
-- **(tool)** add security field to mise tool --json by @jdx in [#7303](https://github.com/jdx/mise/pull/7303)
+- **(tool)** add security field to pakro tool --json by @jdx in [#7303](https://github.com/jdx/mise/pull/7303)
 - add --before flag for date-based version filtering by @jdx in [#7298](https://github.com/jdx/mise/pull/7298)
 
 ### 🐛 Bug Fixes
@@ -9585,7 +9585,7 @@ Included aqua-registry releases:
 ### 📚 Documentation
 
 - add Versions link to nav bar by @jdx in [#7283](https://github.com/jdx/mise/pull/7283)
-- add mise-tools link to nav bar by @jdx in [#7285](https://github.com/jdx/mise/pull/7285)
+- add pakro-tools link to nav bar by @jdx in [#7285](https://github.com/jdx/mise/pull/7285)
 
 ## [2025.12.5](https://github.com/jdx/mise/compare/v2025.12.4..v2025.12.5) - 2025-12-13
 
@@ -9595,12 +9595,12 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- **(config)** respect MISE_CONFIG_DIR when set to non-default location by @jdx in [#7271](https://github.com/jdx/mise/pull/7271)
+- **(config)** respect PAKRO_CONFIG_DIR when set to non-default location by @jdx in [#7271](https://github.com/jdx/mise/pull/7271)
 - **(http)** move http-tarballs from cache to data directory by @jdx in [#7273](https://github.com/jdx/mise/pull/7273)
 - **(pipx)** expand wildcards in install command for backend tools by @jdx in [#7275](https://github.com/jdx/mise/pull/7275)
-- **(tasks)** position-based flag parsing for `mise run` by @jdx in [#7278](https://github.com/jdx/mise/pull/7278)
+- **(tasks)** position-based flag parsing for `pakro run` by @jdx in [#7278](https://github.com/jdx/mise/pull/7278)
 - **(tera)** handle empty strings in path filters by @jdx in [#7276](https://github.com/jdx/mise/pull/7276)
-- **(vfox)** make mise_env and mise_path hooks optional by @jdx in [#7274](https://github.com/jdx/mise/pull/7274)
+- **(vfox)** make pakro_env and pakro_path hooks optional by @jdx in [#7274](https://github.com/jdx/mise/pull/7274)
 
 ### 📚 Documentation
 
@@ -9627,7 +9627,7 @@ Included aqua-registry releases:
 
 ### 📚 Documentation
 
-- fix type of mise_env in templates by @risu729 in [#7261](https://github.com/jdx/mise/pull/7261)
+- fix type of pakro_env in templates by @risu729 in [#7261](https://github.com/jdx/mise/pull/7261)
 
 ### 🧪 Testing
 
@@ -9657,7 +9657,7 @@ Included aqua-registry releases:
 
 - **(node)** fetch GPG keys from nodejs/release-keys repo by @jdx in [#7242](https://github.com/jdx/mise/pull/7242)
 - **(release)** run fetch-gpg-keys before build by @jdx in [2608caf](https://github.com/jdx/mise/commit/2608cafec410befc911f53181850fbc720bc33ce)
-- **(tasks)** disable ctrl-c exit behavior during mise run by @jdx in [#7232](https://github.com/jdx/mise/pull/7232)
+- **(tasks)** disable ctrl-c exit behavior during pakro run by @jdx in [#7232](https://github.com/jdx/mise/pull/7232)
 
 ### 📦 Registry
 
@@ -9668,7 +9668,7 @@ Included aqua-registry releases:
 ### 🚀 Features
 
 - **(npm)** support pnpm as a package manager for npm backend by @risu729 in [#7214](https://github.com/jdx/mise/pull/7214)
-- **(tool-stubs)** add --bootstrap flag to mise generate tool-stub by @jdx in [#7203](https://github.com/jdx/mise/pull/7203)
+- **(tool-stubs)** add --bootstrap flag to pakro generate tool-stub by @jdx in [#7203](https://github.com/jdx/mise/pull/7203)
 
 ### 🐛 Bug Fixes
 
@@ -9711,7 +9711,7 @@ Included aqua-registry releases:
 
 - **(lock)** validate platform qualifiers when reading from lockfile by @jdx in [#7181](https://github.com/jdx/mise/pull/7181)
 - **(task)** retry shebang scripts on ETXTBUSY by @iamkroot in [#7162](https://github.com/jdx/mise/pull/7162)
-- **(ui)** remove duplicate 'mise' prefix in verbose footer output by @jdx in [#7174](https://github.com/jdx/mise/pull/7174)
+- **(ui)** remove duplicate 'pakro' prefix in verbose footer output by @jdx in [#7174](https://github.com/jdx/mise/pull/7174)
 
 ### 📦️ Dependency Updates
 
@@ -9725,7 +9725,7 @@ Included aqua-registry releases:
 
 ### Chore
 
-- add fd to mise.toml by @blampe in [#7178](https://github.com/jdx/mise/pull/7178)
+- add fd to pakro.toml by @blampe in [#7178](https://github.com/jdx/mise/pull/7178)
 
 ### New Contributors
 
@@ -9810,7 +9810,7 @@ Included aqua-registry releases:
 
 - **(registry)** ignore deleted tools in test-tool workflow by @risu729 in [#7081](https://github.com/jdx/mise/pull/7081)
 - **(release)** show registry section last in changelog by @jdx in [#7156](https://github.com/jdx/mise/pull/7156)
-- update mise.lock with checksums by @jdx in [71e9123](https://github.com/jdx/mise/commit/71e9123efac62924b5804e1f56e61400adf22470)
+- update pakro.lock with checksums by @jdx in [71e9123](https://github.com/jdx/mise/commit/71e9123efac62924b5804e1f56e61400adf22470)
 - disable cancel-in-progress for test workflow on main branch by @risu729 in [#7152](https://github.com/jdx/mise/pull/7152)
 
 ## [2025.11.10](https://github.com/jdx/mise/compare/v2025.11.9..v2025.11.10) - 2025-11-27
@@ -9871,7 +9871,7 @@ Included aqua-registry releases:
 ### 🐛 Bug Fixes
 
 - **(core)** trim `core:` prefix in unalias_backend by @kou029w in [#7040](https://github.com/jdx/mise/pull/7040)
-- **(exec)** make `mise x tool@latest` auto-install actual latest version by @jdx in [#7064](https://github.com/jdx/mise/pull/7064)
+- **(exec)** make `pakro x tool@latest` auto-install actual latest version by @jdx in [#7064](https://github.com/jdx/mise/pull/7064)
 - **(go)** use -mod=readonly for go install by @joonas in [#7052](https://github.com/jdx/mise/pull/7052)
 - **(npm)** handle v-prefixed versions correctly by @jdx in [#7062](https://github.com/jdx/mise/pull/7062)
 - **(tasks)** add missing task fields to JSON output by @roele in [#7044](https://github.com/jdx/mise/pull/7044)
@@ -9881,7 +9881,7 @@ Included aqua-registry releases:
 
 ### 📚 Documentation
 
-- add MISE and USAGE syntax hl queries to neovim cookbook by @okuuva in [#7047](https://github.com/jdx/mise/pull/7047)
+- add PAKRO and USAGE syntax hl queries to neovim cookbook by @okuuva in [#7047](https://github.com/jdx/mise/pull/7047)
 - use local assets for screenshots by @okuuva in [#7056](https://github.com/jdx/mise/pull/7056)
 - remove GitHub issues link from roadmap by @jdx in [6897286](https://github.com/jdx/mise/commit/689728642b386e197a549ea8b5dd591c3b950b42)
 
@@ -9916,7 +9916,7 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- **(exec)** ensure MISE_ENV is set in spawned shell when specified via -E flag by @ceelian in [#7007](https://github.com/jdx/mise/pull/7007)
+- **(exec)** ensure PAKRO_ENV is set in spawned shell when specified via -E flag by @ceelian in [#7007](https://github.com/jdx/mise/pull/7007)
 
 ### 🐛 Bug Fixes
 
@@ -9944,7 +9944,7 @@ Included aqua-registry releases:
 
 - **(nushell)** add missing `| parse env | update-env` for deactivation operations by @jokeyrhyme in [#6994](https://github.com/jdx/mise/pull/6994)
 - **(pwsh)** wrap the executable path with double quotes by @leosuncin in [#6993](https://github.com/jdx/mise/pull/6993)
-- in `activate bash` output, wrap mise executable path in single-quotes by @cspotcode in [#7002](https://github.com/jdx/mise/pull/7002)
+- in `activate bash` output, wrap pakro executable path in single-quotes by @cspotcode in [#7002](https://github.com/jdx/mise/pull/7002)
 - On Windows, preserve/proxy the exit code of tools, to match behavior on Unix by @cspotcode in [#7001](https://github.com/jdx/mise/pull/7001)
 
 ### 📚 Documentation
@@ -9982,7 +9982,7 @@ Included aqua-registry releases:
 ### 🐛 Bug Fixes
 
 - **(bootstrap)** wrong directory on first run by @vmeurisse in [#6971](https://github.com/jdx/mise/pull/6971)
-- **(tasks)** fix nested colons with `mise task edit` by @jdx in [#6978](https://github.com/jdx/mise/pull/6978)
+- **(tasks)** fix nested colons with `pakro task edit` by @jdx in [#6978](https://github.com/jdx/mise/pull/6978)
 - Use compatible env flags by @thejcannon in [#6964](https://github.com/jdx/mise/pull/6964)
 - Flush vfox download buffer by @blampe in [#6969](https://github.com/jdx/mise/pull/6969)
 
@@ -10002,14 +10002,14 @@ Included aqua-registry releases:
 ### 🚀 Features
 
 - **(gem-backend)** use gem command for backend operations by @andrewthauer in [#6650](https://github.com/jdx/mise/pull/6650)
-- **(tasks)** add `mise task validate` command for task validation by @jdx in [#6958](https://github.com/jdx/mise/pull/6958)
+- **(tasks)** add `pakro task validate` command for task validation by @jdx in [#6958](https://github.com/jdx/mise/pull/6958)
 - Add `--skip-deps` flag to run specified tasks, skipping dependencies by @hverlin in [#6894](https://github.com/jdx/mise/pull/6894)
 
 ### 🐛 Bug Fixes
 
 - **(cli)** intercept --help flag to show task help instead of executing task by @jdx in [#6955](https://github.com/jdx/mise/pull/6955)
-- **(cli)** handle `mise help` without requiring tasks by @jdx in [#6961](https://github.com/jdx/mise/pull/6961)
-- **(pwsh)** remove __MISE_DIFF env var instead of __MISE_WATCH on deactivate by @IMXEren in [#6886](https://github.com/jdx/mise/pull/6886)
+- **(cli)** handle `pakro help` without requiring tasks by @jdx in [#6961](https://github.com/jdx/mise/pull/6961)
+- **(pwsh)** remove __PAKRO_DIFF env var instead of __PAKRO_WATCH on deactivate by @IMXEren in [#6886](https://github.com/jdx/mise/pull/6886)
 - remove temporary files after install by @vmeurisse in [#6948](https://github.com/jdx/mise/pull/6948)
 
 ### 📚 Documentation
@@ -10049,7 +10049,7 @@ Included aqua-registry releases:
 ### 🐛 Bug Fixes
 
 - **(clippy)** resolve comparison and derivable impl warnings by @jdx in [#6924](https://github.com/jdx/mise/pull/6924)
-- **(config)** add `mise/config.local.toml` to config paths by @risu729 in [#6882](https://github.com/jdx/mise/pull/6882)
+- **(config)** add `pakro/config.local.toml` to config paths by @risu729 in [#6882](https://github.com/jdx/mise/pull/6882)
 - **(java)** unable to install JDKs of release type EA by @roele in [#6907](https://github.com/jdx/mise/pull/6907)
 - interactive task selection when monorepo tasks are enabled by @halms in [#6891](https://github.com/jdx/mise/pull/6891)
 
@@ -10089,7 +10089,7 @@ Included aqua-registry releases:
 - **(generate)** update git pre-commit script to use null separator by @azais-corentin in [#6874](https://github.com/jdx/mise/pull/6874)
 - **(stubs)** lookup for aqua tools stubs fails because of tool options by @roele in [#6867](https://github.com/jdx/mise/pull/6867)
 - **(task)** resolve aliases correctly for monorepo tasks by @jdx in [#6857](https://github.com/jdx/mise/pull/6857)
-- **(task)** prevent MISE_TASK_OUTPUT from propagating to nested tasks by @jdx in [#6860](https://github.com/jdx/mise/pull/6860)
+- **(task)** prevent PAKRO_TASK_OUTPUT from propagating to nested tasks by @jdx in [#6860](https://github.com/jdx/mise/pull/6860)
 - **(tasks)** simplify task command display to show only first line by @jdx in [#6863](https://github.com/jdx/mise/pull/6863)
 - **(tasks)** implement smart flag routing for task arguments by @jdx in [#6861](https://github.com/jdx/mise/pull/6861)
 - **(xonsh)** prevent KeyError when activating in nested shells by @jdx in [#6856](https://github.com/jdx/mise/pull/6856)
@@ -10109,7 +10109,7 @@ Included aqua-registry releases:
 
 ### 📦 Registry
 
-- rename mise-haskell -> asdf-haskell by @jdx in [#6859](https://github.com/jdx/mise/pull/6859)
+- rename pakro-haskell -> asdf-haskell by @jdx in [#6859](https://github.com/jdx/mise/pull/6859)
 
 ### New Contributors
 
@@ -10126,7 +10126,7 @@ Included aqua-registry releases:
 ### 🐛 Bug Fixes
 
 - **(activate)** prevent hash table errors during deactivation by @jdx in [#6846](https://github.com/jdx/mise/pull/6846)
-- **(install)** error on non-existent tools in `mise install` by @jdx in [#6844](https://github.com/jdx/mise/pull/6844)
+- **(install)** error on non-existent tools in `pakro install` by @jdx in [#6844](https://github.com/jdx/mise/pull/6844)
 
 ### 📦 Registry
 
@@ -10181,7 +10181,7 @@ Included aqua-registry releases:
 - **(cache)** exclude http backend tarballs from autoprune by @jdx in [#6806](https://github.com/jdx/mise/pull/6806)
 - **(ci)** prevent release job from running when dependencies fail by @jdx in [#6804](https://github.com/jdx/mise/pull/6804)
 - **(fish)** remove --move flag from fish_add_path to prevent PATH corruption by @jdx in [#6800](https://github.com/jdx/mise/pull/6800)
-- **(tasks)** support local .config/mise/conf.d/*.toml tasks by @syhol in [#6792](https://github.com/jdx/mise/pull/6792)
+- **(tasks)** support local .config/pakro/conf.d/*.toml tasks by @syhol in [#6792](https://github.com/jdx/mise/pull/6792)
 
 ### 📚 Documentation
 
@@ -10434,8 +10434,8 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- **(cli)** make `mise //foo` equivalent to `mise run //foo` by @neongreen in [#6641](https://github.com/jdx/mise/pull/6641)
-- **(config)** load MISE_ENV configs for monorepo tasks by @jdx in [#6624](https://github.com/jdx/mise/pull/6624)
+- **(cli)** make `pakro //foo` equivalent to `pakro run //foo` by @neongreen in [#6641](https://github.com/jdx/mise/pull/6641)
+- **(config)** load PAKRO_ENV configs for monorepo tasks by @jdx in [#6624](https://github.com/jdx/mise/pull/6624)
 - improve ... pattern matching for monorepo tasks by @neongreen in [#6635](https://github.com/jdx/mise/pull/6635)
 
 ### 🛡️ Security
@@ -10459,7 +10459,7 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- **(config)** Add a ceiling to how mise searchs for config & tasks by @richardthe3rd in [#6041](https://github.com/jdx/mise/pull/6041)
+- **(config)** Add a ceiling to how pakro searchs for config & tasks by @richardthe3rd in [#6041](https://github.com/jdx/mise/pull/6041)
 - **(release)** include aqua-registry updates in changelog and release notes by @jdx in [#6623](https://github.com/jdx/mise/pull/6623)
 
 ### 🐛 Bug Fixes
@@ -10467,7 +10467,7 @@ Included aqua-registry releases:
 - **(task)** use config_root instead of project_root for task base path by @risu729 in [#6609](https://github.com/jdx/mise/pull/6609)
 - **(task)** resolve project tasks in run blocks using TaskLoadContext by @jdx in [#6614](https://github.com/jdx/mise/pull/6614)
 - **(task)** dont truncate task message when CI is set by @roele in [#6620](https://github.com/jdx/mise/pull/6620)
-- **(tasks)** restore MISE_ENV environment inheritance for tasks by @glasser in [#6621](https://github.com/jdx/mise/pull/6621)
+- **(tasks)** restore PAKRO_ENV environment inheritance for tasks by @glasser in [#6621](https://github.com/jdx/mise/pull/6621)
 - **(ui)** prevent OSC 9;4 progress sequences from being written to non-terminals by @jdx in [#6615](https://github.com/jdx/mise/pull/6615)
 
 ### 📦 Registry
@@ -10476,7 +10476,7 @@ Included aqua-registry releases:
 
 ### Chore
 
-- remove cosign/slsa-verifier from mise.toml by @jdx in [#6616](https://github.com/jdx/mise/pull/6616)
+- remove cosign/slsa-verifier from pakro.toml by @jdx in [#6616](https://github.com/jdx/mise/pull/6616)
 
 ### New Contributors
 
@@ -10530,7 +10530,7 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- **(installing-mise.md)** broken link by @equirosa in [#6555](https://github.com/jdx/mise/pull/6555)
+- **(installing-pakro.md)** broken link by @equirosa in [#6555](https://github.com/jdx/mise/pull/6555)
 - **(task)** remote git tasks now properly inherit tools from parent configs by @jdx in [#6558](https://github.com/jdx/mise/pull/6558)
 - **(tasks)** restore tool loading from idiomatic version files by @jdx in [#6559](https://github.com/jdx/mise/pull/6559)
 
@@ -10635,7 +10635,7 @@ Included aqua-registry releases:
 ### 🐛 Bug Fixes
 
 - **(self-update)** add missing functions to self_update stub by @jdx in [#6502](https://github.com/jdx/mise/pull/6502)
-- **(set)** allow --prompt flag to work with `mise set` by @jdx in [#6485](https://github.com/jdx/mise/pull/6485)
+- **(set)** allow --prompt flag to work with `pakro set` by @jdx in [#6485](https://github.com/jdx/mise/pull/6485)
 
 ### 📚 Documentation
 
@@ -10644,7 +10644,7 @@ Included aqua-registry releases:
 
 ### 🧪 Testing
 
-- **(e2e)** remove deprecated MISE_LEGACY_VERSION_FILE assertions by @jdx in [#6505](https://github.com/jdx/mise/pull/6505)
+- **(e2e)** remove deprecated PAKRO_LEGACY_VERSION_FILE assertions by @jdx in [#6505](https://github.com/jdx/mise/pull/6505)
 
 ### 📦 Registry
 
@@ -10659,7 +10659,7 @@ Included aqua-registry releases:
 ### 🐛 Bug Fixes
 
 - **(auto-install)** support installing non-active backend versions by @jdx in [#6484](https://github.com/jdx/mise/pull/6484)
-- **(install)** remove duplicate 'mise' text in install header by @jdx in [#6489](https://github.com/jdx/mise/pull/6489)
+- **(install)** remove duplicate 'pakro' text in install header by @jdx in [#6489](https://github.com/jdx/mise/pull/6489)
 - **(task)** prevent hang when tasks with multiple dependencies fail by @stempler in [#6481](https://github.com/jdx/mise/pull/6481)
 
 ### 🧪 Testing
@@ -10683,7 +10683,7 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- **(age)** support age encrypted env vars in mise.toml files by @jdx in [#6463](https://github.com/jdx/mise/pull/6463)
+- **(age)** support age encrypted env vars in pakro.toml files by @jdx in [#6463](https://github.com/jdx/mise/pull/6463)
 
 ### 🐛 Bug Fixes
 
@@ -10702,7 +10702,7 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- **(set)** unify config file resolution for mise set and mise use by @jdx in [#6467](https://github.com/jdx/mise/pull/6467)
+- **(set)** unify config file resolution for pakro set and pakro use by @jdx in [#6467](https://github.com/jdx/mise/pull/6467)
 
 ### Chore
 
@@ -10725,7 +10725,7 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- **(cache)** add mise cache path command by @jdx in [#6442](https://github.com/jdx/mise/pull/6442)
+- **(cache)** add pakro cache path command by @jdx in [#6442](https://github.com/jdx/mise/pull/6442)
 - **(github)** add support for compressed binaries and Buck2 to registry by @jdx in [#6439](https://github.com/jdx/mise/pull/6439)
 
 ### 🐛 Bug Fixes
@@ -10794,7 +10794,7 @@ Included aqua-registry releases:
 
 ### 📦 Registry
 
-- fix mise-ghcup plugin managed tools descriptions by @risu729 in [#6411](https://github.com/jdx/mise/pull/6411)
+- fix pakro-ghcup plugin managed tools descriptions by @risu729 in [#6411](https://github.com/jdx/mise/pull/6411)
 - add Tinymist by @3w36zj6 in [#6412](https://github.com/jdx/mise/pull/6412)
 - revert djinni backend to ubi by @risu729 in [#6410](https://github.com/jdx/mise/pull/6410)
 
@@ -10838,7 +10838,7 @@ Included aqua-registry releases:
 
 ### 📚 Documentation
 
-- document MISE_ENV behavior for global/system configs by @jdx in [#6385](https://github.com/jdx/mise/pull/6385)
+- document PAKRO_ENV behavior for global/system configs by @jdx in [#6385](https://github.com/jdx/mise/pull/6385)
 
 ### New Contributors
 
@@ -10885,7 +10885,7 @@ Included aqua-registry releases:
 
 ### 🧪 Testing
 
-- **(e2e)** resolve mise via PATH in backend missing deps test by @jdx in [#6362](https://github.com/jdx/mise/pull/6362)
+- **(e2e)** resolve pakro via PATH in backend missing deps test by @jdx in [#6362](https://github.com/jdx/mise/pull/6362)
 - **(vfox)** replace flaky external HTTP tests with local mock server by @jdx in [#6354](https://github.com/jdx/mise/pull/6354)
 
 ### 📦️ Dependency Updates
@@ -10898,7 +10898,7 @@ Included aqua-registry releases:
 
 ### Chore
 
-- **(install.sh)** add `MISE_INSTALL_MUSL` to force installing musl variants on Linux by @malept in [#6355](https://github.com/jdx/mise/pull/6355)
+- **(install.sh)** add `PAKRO_INSTALL_MUSL` to force installing musl variants on Linux by @malept in [#6355](https://github.com/jdx/mise/pull/6355)
 
 ## [2025.9.14](https://github.com/jdx/mise/compare/v2025.9.13..v2025.9.14) - 2025-09-20
 
@@ -10974,7 +10974,7 @@ Included aqua-registry releases:
 
 - **(ci)** run all registry tools when workflow_dispatch is triggered by @jdx in [#6295](https://github.com/jdx/mise/pull/6295)
 - **(cli)** handle non-existent working directories gracefully by @jdx in [#6304](https://github.com/jdx/mise/pull/6304)
-- **(set)** add -E/--env flag to mise set command by @jdx in [#6291](https://github.com/jdx/mise/pull/6291)
+- **(set)** add -E/--env flag to pakro set command by @jdx in [#6291](https://github.com/jdx/mise/pull/6291)
 - **(tasks)** make auto outputs default by @risu729 in [#6137](https://github.com/jdx/mise/pull/6137)
 
 ### 🐛 Bug Fixes
@@ -10998,7 +10998,7 @@ Included aqua-registry releases:
 
 - **(aqua-registry)** remove unused aqua-registry files by @jdx in [#6294](https://github.com/jdx/mise/pull/6294)
 - **(release)** make release-plz idempotent for existing crate versions by @jdx in [dbdfd6a](https://github.com/jdx/mise/commit/dbdfd6a713852a1d55a6bb8376d2996545e128ce)
-- **(release)** skip publishing mise when aqua-registry is a path dep by @jdx in [47efffd](https://github.com/jdx/mise/commit/47efffdfc0316100f41c6c077d17fd6014663f4f)
+- **(release)** skip publishing pakro when aqua-registry is a path dep by @jdx in [47efffd](https://github.com/jdx/mise/commit/47efffdfc0316100f41c6c077d17fd6014663f4f)
 - keep aqua-registry LICENSE file by @risu729 in [#6297](https://github.com/jdx/mise/pull/6297)
 
 ### New Contributors
@@ -11061,7 +11061,7 @@ Included aqua-registry releases:
 ### 🐛 Bug Fixes
 
 - **(tasks)** prevent hang when task fails in sequence by @jdx in [#6260](https://github.com/jdx/mise/pull/6260)
-- **(version)** fetch mise version if cached version is older than the current by @risu729 in [#6252](https://github.com/jdx/mise/pull/6252)
+- **(version)** fetch pakro version if cached version is older than the current by @risu729 in [#6252](https://github.com/jdx/mise/pull/6252)
 
 ### 📦️ Dependency Updates
 
@@ -11092,7 +11092,7 @@ Included aqua-registry releases:
 
 - **(backend)** add Backend trait methods for metadata fetching by @jdx in [#6228](https://github.com/jdx/mise/pull/6228)
 - **(core)** implement metadata fetching for Node.js and Bun by @jdx in [#6230](https://github.com/jdx/mise/pull/6230)
-- **(mise-test-tool)** add release scripts for automated GitHub releases by @jdx in [bd0eadd](https://github.com/jdx/mise/commit/bd0eadde5fff3897cda47d533c02cfe8e2b20048)
+- **(pakro-test-tool)** add release scripts for automated GitHub releases by @jdx in [bd0eadd](https://github.com/jdx/mise/commit/bd0eadde5fff3897cda47d533c02cfe8e2b20048)
 - **(platform)** implement platform parsing and CLI integration by @jdx in [#6227](https://github.com/jdx/mise/pull/6227)
 - migrate tools from ubi to github backend which work by @jdx in [#6232](https://github.com/jdx/mise/pull/6232)
 
@@ -11101,7 +11101,7 @@ Included aqua-registry releases:
 - **(task)** use terminal width instead of hardcoded 60-char limit for task display by @jdx in [#6218](https://github.com/jdx/mise/pull/6218)
 - **(task)** use terminal width instead of hardcoded 60-char limit for task display by @jdx in [#6220](https://github.com/jdx/mise/pull/6220)
 - nix flake build failure on macOS by @okuuva in [#6223](https://github.com/jdx/mise/pull/6223)
-- only use multi-version syntax in mise.lock by @jdx in [#6224](https://github.com/jdx/mise/pull/6224)
+- only use multi-version syntax in pakro.lock by @jdx in [#6224](https://github.com/jdx/mise/pull/6224)
 
 ### 🧪 Testing
 
@@ -11122,7 +11122,7 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- **(task)** remove MISE_TASK_UNNEST functionality by @jdx in [#6217](https://github.com/jdx/mise/pull/6217)
+- **(task)** remove PAKRO_TASK_UNNEST functionality by @jdx in [#6217](https://github.com/jdx/mise/pull/6217)
 
 ### Chore
 
@@ -11212,7 +11212,7 @@ Included aqua-registry releases:
 - **(sync)** create uv_versions_path dir if it doesn't exist by @risu729 in [#6142](https://github.com/jdx/mise/pull/6142)
 - **(ubi)** show relevent error messages for v-prefixed tags by @risu729 in [#6183](https://github.com/jdx/mise/pull/6183)
 - remove nodejs/golang alias migrate code by @risu729 in [#6141](https://github.com/jdx/mise/pull/6141)
-- mise activate not working on powershell v5 by @L0RD-ZER0 in [#6168](https://github.com/jdx/mise/pull/6168)
+- pakro activate not working on powershell v5 by @L0RD-ZER0 in [#6168](https://github.com/jdx/mise/pull/6168)
 
 ### 📚 Documentation
 
@@ -11252,7 +11252,7 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- use fish_add_path when activating mise for fish shell by @roele in [#6074](https://github.com/jdx/mise/pull/6074)
+- use fish_add_path when activating pakro for fish shell by @roele in [#6074](https://github.com/jdx/mise/pull/6074)
 
 ## [2025.8.19](https://github.com/jdx/mise/compare/v2025.8.18..v2025.8.19) - 2025-08-22
 
@@ -11275,7 +11275,7 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- **(aqua)** remove mise-versions aqua registry by @risu729 in [#6097](https://github.com/jdx/mise/pull/6097)
+- **(aqua)** remove pakro-versions aqua registry by @risu729 in [#6097](https://github.com/jdx/mise/pull/6097)
 
 ### 📚 Documentation
 
@@ -11376,7 +11376,7 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- **(task)** allow more #MISE comments patterns by @risu729 in [#6011](https://github.com/jdx/mise/pull/6011)
+- **(task)** allow more #PAKRO comments patterns by @risu729 in [#6011](https://github.com/jdx/mise/pull/6011)
 
 ### 🐛 Bug Fixes
 
@@ -11412,13 +11412,13 @@ Included aqua-registry releases:
 ### 🚀 Features
 
 - **(aqua)** make bin paths executable by @risu729 in [#6010](https://github.com/jdx/mise/pull/6010)
-- added header bar during `mise install` by @jdx in [#6022](https://github.com/jdx/mise/pull/6022)
+- added header bar during `pakro install` by @jdx in [#6022](https://github.com/jdx/mise/pull/6022)
 
 ### 🐛 Bug Fixes
 
 - **(aqua)** improve warnings for packages without repo_owner and repo_name  (2nd attempt) by @risu729 in [#6009](https://github.com/jdx/mise/pull/6009)
 - version prefix detection by @risu729 in [#5943](https://github.com/jdx/mise/pull/5943)
-- respect MISE_DEFAULT_CONFIG_FILENAME by @risu729 in [#5899](https://github.com/jdx/mise/pull/5899)
+- respect PAKRO_DEFAULT_CONFIG_FILENAME by @risu729 in [#5899](https://github.com/jdx/mise/pull/5899)
 
 ### 📦 Registry
 
@@ -11442,8 +11442,8 @@ Included aqua-registry releases:
 
 - **(aqua)** add executable permissions for zip-extracted binaries by @itochan in [#5998](https://github.com/jdx/mise/pull/5998)
 - **(core)** auto-repair corrupted pyenv cache by recloning on update failure by @jdx in [#6003](https://github.com/jdx/mise/pull/6003)
-- **(uv_venv)** fixes PATH ordering with `mise x` by @jdx in [#6005](https://github.com/jdx/mise/pull/6005)
-- duplicate versions and validation in `mise tool` by @jdx in [#6001](https://github.com/jdx/mise/pull/6001)
+- **(uv_venv)** fixes PATH ordering with `pakro x` by @jdx in [#6005](https://github.com/jdx/mise/pull/6005)
+- duplicate versions and validation in `pakro tool` by @jdx in [#6001](https://github.com/jdx/mise/pull/6001)
 
 ### 📚 Documentation
 
@@ -11508,7 +11508,7 @@ Included aqua-registry releases:
 ### 🐛 Bug Fixes
 
 - **(lockfile)** fix multiple lockfile issues with version management by @jdx in [#5907](https://github.com/jdx/mise/pull/5907)
-- **(toolset)** properly handle MISE_ADD_PATH from plugins by @jdx in [#5937](https://github.com/jdx/mise/pull/5937)
+- **(toolset)** properly handle PAKRO_ADD_PATH from plugins by @jdx in [#5937](https://github.com/jdx/mise/pull/5937)
 
 ### 📦 Registry
 
@@ -11567,7 +11567,7 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- **(tasks)** **breaking** Add environment variable directives for mise tasks by @jdx in [#5638](https://github.com/jdx/mise/pull/5638)
+- **(tasks)** **breaking** Add environment variable directives for pakro tasks by @jdx in [#5638](https://github.com/jdx/mise/pull/5638)
 
 ## [2025.8.3](https://github.com/jdx/mise/compare/v2025.8.2..v2025.8.3) - 2025-08-03
 
@@ -11731,7 +11731,7 @@ Included aqua-registry releases:
 ### 🐛 Bug Fixes
 
 - **(aqua)** avoid unnecessary head requests in version resolution by @risu729 in [#5800](https://github.com/jdx/mise/pull/5800)
-- **(toolset)** use join_paths for MISE_ADD_PATH by @risu729 in [#5785](https://github.com/jdx/mise/pull/5785)
+- **(toolset)** use join_paths for PAKRO_ADD_PATH by @risu729 in [#5785](https://github.com/jdx/mise/pull/5785)
 - check lib64 directories for .disable-self-update file by @jdx in [#5809](https://github.com/jdx/mise/pull/5809)
 
 ### 🚜 Refactor
@@ -11759,7 +11759,7 @@ Included aqua-registry releases:
 ### 🐛 Bug Fixes
 
 - **(copr)** disable self-update by @jdx in [#5780](https://github.com/jdx/mise/pull/5780)
-- **(link.md)** correct example comment in mise link documentation by @mmurdockk in [#5760](https://github.com/jdx/mise/pull/5760)
+- **(link.md)** correct example comment in pakro link documentation by @mmurdockk in [#5760](https://github.com/jdx/mise/pull/5760)
 - use github releases in install.sh for non-current version by @jdx in [c2b1ef1](https://github.com/jdx/mise/commit/c2b1ef1c53d736e14fb64365aa1339dc955d6c59)
 
 ### New Contributors
@@ -11782,14 +11782,14 @@ Included aqua-registry releases:
 
 ### Chore
 
-- add MISE_INSTALL_FROM_GITHUB option for mise.run by @jdx in [#5772](https://github.com/jdx/mise/pull/5772)
+- add PAKRO_INSTALL_FROM_GITHUB option for pakro.run by @jdx in [#5772](https://github.com/jdx/mise/pull/5772)
 
 ## [2025.7.22](https://github.com/jdx/mise/compare/v2025.7.21..v2025.7.22) - 2025-07-24
 
 ### 🚀 Features
 
 - **(doctor)** display # of baked-in aqua registry tools by @jdx in [#5756](https://github.com/jdx/mise/pull/5756)
-- **(lock)** `mise lock` enhancements by @jdx in [#5765](https://github.com/jdx/mise/pull/5765)
+- **(lock)** `pakro lock` enhancements by @jdx in [#5765](https://github.com/jdx/mise/pull/5765)
 - registry.toml: add SST by @juxuanu in [#5758](https://github.com/jdx/mise/pull/5758)
 
 ### 🐛 Bug Fixes
@@ -11808,7 +11808,7 @@ Included aqua-registry releases:
 
 - **(copr)** chmod +x by @jdx in [71cf6ee](https://github.com/jdx/mise/commit/71cf6eee0d1766bbc214c6cf307b3d7ae300cd33)
 - **(hyperfine)** temporarily remove uncached benchmarks since they are not reporting right by @jdx in [#5769](https://github.com/jdx/mise/pull/5769)
-- added `mise` shim for devcontainer by @jdx in [#5768](https://github.com/jdx/mise/pull/5768)
+- added `pakro` shim for devcontainer by @jdx in [#5768](https://github.com/jdx/mise/pull/5768)
 
 ### Task-configuration.md
 
@@ -11834,7 +11834,7 @@ Included aqua-registry releases:
 
 - **(README)** mention project alexandria by @jdx in [681bc75](https://github.com/jdx/mise/commit/681bc751025a848411b7dff322cd14d9487dd59f)
 - Removes invalid array in redaction example by @EverlastingBugstopper in [#5752](https://github.com/jdx/mise/pull/5752)
-- document mise-versions app by @jdx in [785ef24](https://github.com/jdx/mise/commit/785ef24e65259b95f56ecccebe9463a8a0c37519)
+- document pakro-versions app by @jdx in [785ef24](https://github.com/jdx/mise/commit/785ef24e65259b95f56ecccebe9463a8a0c37519)
 
 ### 🧪 Testing
 
@@ -11852,7 +11852,7 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- use mise.run for rosetta tip by @jdx in [#5739](https://github.com/jdx/mise/pull/5739)
+- use pakro.run for rosetta tip by @jdx in [#5739](https://github.com/jdx/mise/pull/5739)
 
 ### 🐛 Bug Fixes
 
@@ -11897,7 +11897,7 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- mise up parallel execution by @jdx in [#5591](https://github.com/jdx/mise/pull/5591)
+- pakro up parallel execution by @jdx in [#5591](https://github.com/jdx/mise/pull/5591)
 - ppa releases by @jdx in [#5717](https://github.com/jdx/mise/pull/5717)
 
 ### 📚 Documentation
@@ -11931,7 +11931,7 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- mise.run cloudflare worker publish by @jdx in [#5704](https://github.com/jdx/mise/pull/5704)
+- pakro.run cloudflare worker publish by @jdx in [#5704](https://github.com/jdx/mise/pull/5704)
 
 ### Chore
 
@@ -11948,7 +11948,7 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- mise.run cloudflare worker syntax by @jdx in [#5693](https://github.com/jdx/mise/pull/5693)
+- pakro.run cloudflare worker syntax by @jdx in [#5693](https://github.com/jdx/mise/pull/5693)
 
 ### 📦️ Dependency Updates
 
@@ -12051,7 +12051,7 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- **(shim)** prevent mise-specific flags from interfering with shim execution by @jdx in [#5616](https://github.com/jdx/mise/pull/5616)
+- **(shim)** prevent pakro-specific flags from interfering with shim execution by @jdx in [#5616](https://github.com/jdx/mise/pull/5616)
 - github asset auto-detection by @jdx in [#5622](https://github.com/jdx/mise/pull/5622)
 
 ### 🐛 Bug Fixes
@@ -12089,7 +12089,7 @@ Included aqua-registry releases:
 ### 📚 Documentation
 
 - **(cursor)** fix conventional commits rule formatting by @jdx in [#5597](https://github.com/jdx/mise/pull/5597)
-- **(cursor)** add testing rule for mise codebase by @jdx in [#5598](https://github.com/jdx/mise/pull/5598)
+- **(cursor)** add testing rule for pakro codebase by @jdx in [#5598](https://github.com/jdx/mise/pull/5598)
 
 ### 🧪 Testing
 
@@ -12112,9 +12112,9 @@ Included aqua-registry releases:
 - set workspace resolver by @jdx in [#5606](https://github.com/jdx/mise/pull/5606)
 - add workspace resolver = 3 by @jdx in [304547a](https://github.com/jdx/mise/commit/304547a0b9a324b5d925c45e2841cadc3f6e938b)
 - fix release-plz with workspace by @jdx in [5b3be6e](https://github.com/jdx/mise/commit/5b3be6eb8f06c509964a2b030eccb2f6e006f398)
-- only bump mise version for release-plz by @jdx in [8f14d10](https://github.com/jdx/mise/commit/8f14d1014d217c91c36a96beaad4565a3aaf567e)
+- only bump pakro version for release-plz by @jdx in [8f14d10](https://github.com/jdx/mise/commit/8f14d1014d217c91c36a96beaad4565a3aaf567e)
 - add cargo-release by @jdx in [f657db5](https://github.com/jdx/mise/commit/f657db512fdb7ea4f58ac98af729ac6495e61100)
-- mise up by @jdx in [4872ae6](https://github.com/jdx/mise/commit/4872ae6b4d63de54de4ac93e72e9a3cd51e20c2e)
+- pakro up by @jdx in [4872ae6](https://github.com/jdx/mise/commit/4872ae6b4d63de54de4ac93e72e9a3cd51e20c2e)
 - fix release-plz with workspace by @jdx in [bdb7119](https://github.com/jdx/mise/commit/bdb71196d6930091c68a6198d445fa16e108f75e)
 - set-version by @jdx in [82fcd4f](https://github.com/jdx/mise/commit/82fcd4f22116bb92e1e615d9f1c03723d02aaaba)
 - set-version by @jdx in [54388a4](https://github.com/jdx/mise/commit/54388a419427c664e557aa4ea034e13a2443bb8e)
@@ -12185,14 +12185,14 @@ Included aqua-registry releases:
 ### 🚀 Features
 
 - **(registry)** add zizmor by @risu729 in [#5519](https://github.com/jdx/mise/pull/5519)
-- Add `self_update_available` to `mise doctor` output by @joehorsnell in [#5534](https://github.com/jdx/mise/pull/5534)
+- Add `self_update_available` to `pakro doctor` output by @joehorsnell in [#5534](https://github.com/jdx/mise/pull/5534)
 
 ### 🐛 Bug Fixes
 
 - **(aqua)** use the version in url to verify and install by @risu729 in [#5537](https://github.com/jdx/mise/pull/5537)
 - **(registry)** use aqua for numbat, gokey, golines by @risu729 in [#5518](https://github.com/jdx/mise/pull/5518)
 - `self-update` on MITM firewall (attempt #2) by @joehorsnell in [#5459](https://github.com/jdx/mise/pull/5459)
-- mise panic in removed directory by @roele in [#5532](https://github.com/jdx/mise/pull/5532)
+- pakro panic in removed directory by @roele in [#5532](https://github.com/jdx/mise/pull/5532)
 
 ### 📚 Documentation
 
@@ -12349,11 +12349,11 @@ Included aqua-registry releases:
 - **(registry)** use aqua backend for watchexec by @risu729 in [#5390](https://github.com/jdx/mise/pull/5390)
 - **(shim)** improve resolve_symlink for Windows by @qianlongzt in [#5361](https://github.com/jdx/mise/pull/5361)
 - add compression-zip-deflate feature on self_update crate for windows target by @roele in [#5391](https://github.com/jdx/mise/pull/5391)
-- suppress hint on 'cargo search mise' command by @roele in [#5400](https://github.com/jdx/mise/pull/5400)
+- suppress hint on 'cargo search pakro' command by @roele in [#5400](https://github.com/jdx/mise/pull/5400)
 
 ### 📚 Documentation
 
-- Fix typo in README.md - Install mise by @cytsai1008 in [#5366](https://github.com/jdx/mise/pull/5366)
+- Fix typo in README.md - Install pakro by @cytsai1008 in [#5366](https://github.com/jdx/mise/pull/5366)
 - Document trivial task syntax by @JayBazuzi in [#5352](https://github.com/jdx/mise/pull/5352)
 
 ### 🧪 Testing
@@ -12375,7 +12375,7 @@ Included aqua-registry releases:
 
 ### Ci
 
-- use cargo info to retrieve latest mise version by @risu729 in [#5401](https://github.com/jdx/mise/pull/5401)
+- use cargo info to retrieve latest pakro version by @risu729 in [#5401](https://github.com/jdx/mise/pull/5401)
 
 ### New Contributors
 
@@ -12445,7 +12445,7 @@ Included aqua-registry releases:
 
 - **(cli/doctor)** reduce severity of new version to warnings by @risu729 in [#5317](https://github.com/jdx/mise/pull/5317)
 - **(doctor)** ignored config roots not displaying by @jdx in [#5336](https://github.com/jdx/mise/pull/5336)
-- ls command does not respect MISE_COLOR value by @roele in [#5322](https://github.com/jdx/mise/pull/5322)
+- ls command does not respect PAKRO_COLOR value by @roele in [#5322](https://github.com/jdx/mise/pull/5322)
 
 ### 📚 Documentation
 
@@ -12506,7 +12506,7 @@ Included aqua-registry releases:
 
 ### ⚡ Performance
 
-- re-enable parallelism for `mise up` by @jdx in [#5249](https://github.com/jdx/mise/pull/5249)
+- re-enable parallelism for `pakro up` by @jdx in [#5249](https://github.com/jdx/mise/pull/5249)
 
 ## [2025.5.16](https://github.com/jdx/mise/compare/v2025.5.15..v2025.5.16) - 2025-05-29
 
@@ -12535,7 +12535,7 @@ Included aqua-registry releases:
 - use a better completion dir for more compatibility by @ken-kuro in [#5207](https://github.com/jdx/mise/pull/5207)
 - set handler for ctrlc on windows shell by @L0RD-ZER0 in [#5209](https://github.com/jdx/mise/pull/5209)
 - prevent go installation failure on go.mod version mismatch by @roele in [#5212](https://github.com/jdx/mise/pull/5212)
-- mise run --cd <dir> not working with latest mise by @roele in [#5221](https://github.com/jdx/mise/pull/5221)
+- pakro run --cd <dir> not working with latest pakro by @roele in [#5221](https://github.com/jdx/mise/pull/5221)
 
 ### 📚 Documentation
 
@@ -12568,7 +12568,7 @@ Included aqua-registry releases:
 - output was silenced on task fail with keep-order by @artemisart in [#5175](https://github.com/jdx/mise/pull/5175)
 - avoid mapfile to run e2e tests on macOS (bash 3.2) by @artemisart in [#5170](https://github.com/jdx/mise/pull/5170)
 - flaky keep-order e2e test by @artemisart in [#5178](https://github.com/jdx/mise/pull/5178)
-- watch mise.lock for changes by @jdx in [#5184](https://github.com/jdx/mise/pull/5184)
+- watch pakro.lock for changes by @jdx in [#5184](https://github.com/jdx/mise/pull/5184)
 - remote task dependency does not work by @roele in [#5183](https://github.com/jdx/mise/pull/5183)
 - rayon -> tokio by @jdx in [#5172](https://github.com/jdx/mise/pull/5172)
 - cache results from version host by @jdx in [#5187](https://github.com/jdx/mise/pull/5187)
@@ -12622,8 +12622,8 @@ Included aqua-registry releases:
 ### 🐛 Bug Fixes
 
 - **(registry)** remove full from taplo by @risu729 in [#5160](https://github.com/jdx/mise/pull/5160)
-- mise registry links for ubi with exe selector by @mnm364 in [#5156](https://github.com/jdx/mise/pull/5156)
-- mise settings add idiomatic_version_file_enable_tools stores duplicates in config by @roele in [#5162](https://github.com/jdx/mise/pull/5162)
+- pakro registry links for ubi with exe selector by @mnm364 in [#5156](https://github.com/jdx/mise/pull/5156)
+- pakro settings add idiomatic_version_file_enable_tools stores duplicates in config by @roele in [#5162](https://github.com/jdx/mise/pull/5162)
 - infinite sourcing loop on bash-completion by @ken-kuro in [#5150](https://github.com/jdx/mise/pull/5150)
 
 ### 🧪 Testing
@@ -12641,7 +12641,7 @@ Included aqua-registry releases:
 
 - **(registry)** add process-compose by @evanleck in [#4788](https://github.com/jdx/mise/pull/4788)
 - **(registry)** add tailpipe by @pdecat in [#4858](https://github.com/jdx/mise/pull/4858)
-- mise search by @roele in [#5153](https://github.com/jdx/mise/pull/5153)
+- pakro search by @roele in [#5153](https://github.com/jdx/mise/pull/5153)
 
 ### 🐛 Bug Fixes
 
@@ -12730,7 +12730,7 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- **(config)** project root for files in .config/ or mise/ by @scop in [#5102](https://github.com/jdx/mise/pull/5102)
+- **(config)** project root for files in .config/ or pakro/ by @scop in [#5102](https://github.com/jdx/mise/pull/5102)
 - Clarify some of the filters and fix the config_root filter example by @afranchuk in [#5086](https://github.com/jdx/mise/pull/5086)
 
 ### 🚜 Refactor
@@ -12743,7 +12743,7 @@ Included aqua-registry releases:
 - remove go.mod from idiomatic version files by @Gandem in [#5090](https://github.com/jdx/mise/pull/5090)
 - remove stray backquote from toml-tasks by @scop in [#5097](https://github.com/jdx/mise/pull/5097)
 - add some missing vue interpolation escapes by @scop in [#5099](https://github.com/jdx/mise/pull/5099)
-- remove some references to rtx by @jdx in [#5105](https://github.com/jdx/mise/pull/5105)
+- remove some references to pakro by @jdx in [#5105](https://github.com/jdx/mise/pull/5105)
 
 ### 📦️ Dependency Updates
 
@@ -12794,7 +12794,7 @@ Included aqua-registry releases:
 ### 🐛 Bug Fixes
 
 - **(registry)** update glab ubi provider by @StingRayZA in [#5052](https://github.com/jdx/mise/pull/5052)
-- mise panics if CI env var isn't a boolean by @roele in [#5059](https://github.com/jdx/mise/pull/5059)
+- pakro panics if CI env var isn't a boolean by @roele in [#5059](https://github.com/jdx/mise/pull/5059)
 - `aqua` version test by @joehorsnell in [#5038](https://github.com/jdx/mise/pull/5038)
 - run hook-env after trusting config file by @jdx in [#5062](https://github.com/jdx/mise/pull/5062)
 
@@ -12845,7 +12845,7 @@ Included aqua-registry releases:
 
 ### 📚 Documentation
 
-- hide rtx docs by @jdx in [90ae2ce](https://github.com/jdx/mise/commit/90ae2ce5abf4faa65ef2414385e587d97ff0ca2c)
+- hide pakro docs by @jdx in [90ae2ce](https://github.com/jdx/mise/commit/90ae2ce5abf4faa65ef2414385e587d97ff0ca2c)
 - describe cache auto-prune by @jdx in [#5013](https://github.com/jdx/mise/pull/5013)
 - mark idiomatic_version_file_disable_tools as deprecated by @jdx in [9bb80f3](https://github.com/jdx/mise/commit/9bb80f301e29fcc668f51de8e0a168a32c9ac8db)
 
@@ -12859,7 +12859,7 @@ Included aqua-registry releases:
 ### 🚀 Features
 
 - **(registry)** use aqua for taplo by @risu729 in [#4991](https://github.com/jdx/mise/pull/4991)
-- add mise_env tera variable for templates by @auxesis in [#5002](https://github.com/jdx/mise/pull/5002)
+- add pakro_env tera variable for templates by @auxesis in [#5002](https://github.com/jdx/mise/pull/5002)
 
 ### 🐛 Bug Fixes
 
@@ -12905,7 +12905,7 @@ Included aqua-registry releases:
 
 - **(aqua)** fix bin_path of tools in monorepo by @risu729 in [#4954](https://github.com/jdx/mise/pull/4954)
 - **(schema)** allow array of objects for hooks by @risu729 in [#4955](https://github.com/jdx/mise/pull/4955)
-- store tool version opts in .mise.backend by @roele in [#4960](https://github.com/jdx/mise/pull/4960)
+- store tool version opts in .pakro.backend by @roele in [#4960](https://github.com/jdx/mise/pull/4960)
 
 ### 📚 Documentation
 
@@ -12926,7 +12926,7 @@ Included aqua-registry releases:
 - **(cargo)** allow customizable registry by @acesyde in [#4948](https://github.com/jdx/mise/pull/4948)
 - **(doctor)** show error if tool not installed by @jdx in [#4952](https://github.com/jdx/mise/pull/4952)
 - added sd by @jdx in [#4950](https://github.com/jdx/mise/pull/4950)
-- MISE_LOG_HTTP by @jdx in [#4951](https://github.com/jdx/mise/pull/4951)
+- PAKRO_LOG_HTTP by @jdx in [#4951](https://github.com/jdx/mise/pull/4951)
 
 ### 🐛 Bug Fixes
 
@@ -12949,7 +12949,7 @@ Included aqua-registry releases:
 
 - **(hook-env)** path order by @jdx in [#4946](https://github.com/jdx/mise/pull/4946)
 - **(unuse)** allow unusing any version if version not specified by @jdx in [#4944](https://github.com/jdx/mise/pull/4944)
-- Always use env::MISE_BIN when calling mise from itself by @hverlin in [#4943](https://github.com/jdx/mise/pull/4943)
+- Always use env::PAKRO_BIN when calling pakro from itself by @hverlin in [#4943](https://github.com/jdx/mise/pull/4943)
 
 ### 📚 Documentation
 
@@ -12958,7 +12958,7 @@ Included aqua-registry releases:
 ### Chore
 
 - checkout for homebrew bump by @jdx in [6d7b0f6](https://github.com/jdx/mise/commit/6d7b0f6fdf83ee9d7be29a61b5b5be202ac0526a)
-- mise.lock by @jdx in [05c9a24](https://github.com/jdx/mise/commit/05c9a241744fa330677402a365344b8430a4984c)
+- pakro.lock by @jdx in [05c9a24](https://github.com/jdx/mise/commit/05c9a241744fa330677402a365344b8430a4984c)
 - updated deps by @jdx in [ac5cf5d](https://github.com/jdx/mise/commit/ac5cf5d840dc3a997dce0b1d3a1af963ef456ac2)
 - brew developer by @jdx in [445e313](https://github.com/jdx/mise/commit/445e313985cb948cf2a7cb57d896055b898a0f67)
 
@@ -13000,7 +13000,7 @@ Included aqua-registry releases:
 
 - use macos-latest in GHA by @jdx in [05b5d49](https://github.com/jdx/mise/commit/05b5d49eaa3c4e78f1102dd2d9cfbca63c276ec0)
 - attempt to fix brew bump by @jdx in [043f97f](https://github.com/jdx/mise/commit/043f97f23e9af914772474ee0379b5a7d9399f3e)
-- mise up by @jdx in [ee7436d](https://github.com/jdx/mise/commit/ee7436d65c89416ee39ee424e296ae329f747323)
+- pakro up by @jdx in [ee7436d](https://github.com/jdx/mise/commit/ee7436d65c89416ee39ee424e296ae329f747323)
 
 ### New Contributors
 
@@ -13022,7 +13022,7 @@ Included aqua-registry releases:
 ### 🚀 Features
 
 - **(registry)** added oxipng by @ldrouard in [#4452](https://github.com/jdx/mise/pull/4452)
-- `mise tasks --local|--global` by @jdx in [#4907](https://github.com/jdx/mise/pull/4907)
+- `pakro tasks --local|--global` by @jdx in [#4907](https://github.com/jdx/mise/pull/4907)
 
 ### 🐛 Bug Fixes
 
@@ -13081,8 +13081,8 @@ Included aqua-registry releases:
 - **(ubi)** API URL for GitHub should not have /repos segement by @roele in [#4848](https://github.com/jdx/mise/pull/4848)
 - **(ubi)** URL syntax fails by @roele in [#4859](https://github.com/jdx/mise/pull/4859)
 - allow to install non-numeric elixir versions by @roele in [#4850](https://github.com/jdx/mise/pull/4850)
-- removed possible single-point-of-failure while running `mise upgrade` by @hitblast in [#4847](https://github.com/jdx/mise/pull/4847)
-- `#MISE tools=` in task header by @jdx in [#4860](https://github.com/jdx/mise/pull/4860)
+- removed possible single-point-of-failure while running `pakro upgrade` by @hitblast in [#4847](https://github.com/jdx/mise/pull/4847)
+- `#PAKRO tools=` in task header by @jdx in [#4860](https://github.com/jdx/mise/pull/4860)
 
 ### 🧪 Testing
 
@@ -13109,7 +13109,7 @@ Included aqua-registry releases:
 ### 📚 Documentation
 
 - Update configuration.md by @jdx in [#4829](https://github.com/jdx/mise/pull/4829)
-- correct `mise use` paths by @jdx in [c8374c0](https://github.com/jdx/mise/commit/c8374c00ca68e5722c28f9abfd2425b9722bdd83)
+- correct `pakro use` paths by @jdx in [c8374c0](https://github.com/jdx/mise/commit/c8374c00ca68e5722c28f9abfd2425b9722bdd83)
 
 ## [2025.4.2](https://github.com/jdx/mise/compare/v2025.4.1..v2025.4.2) - 2025-04-11
 
@@ -13119,8 +13119,8 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- do not default to writing to mise.$MISE_ENV.toml by @jdx in [#4817](https://github.com/jdx/mise/pull/4817)
-- mise watch forward --exts and --filter to watchexec by @cmhms in [#4826](https://github.com/jdx/mise/pull/4826)
+- do not default to writing to pakro.$PAKRO_ENV.toml by @jdx in [#4817](https://github.com/jdx/mise/pull/4817)
+- pakro watch forward --exts and --filter to watchexec by @cmhms in [#4826](https://github.com/jdx/mise/pull/4826)
 
 ### 📚 Documentation
 
@@ -13128,7 +13128,7 @@ Included aqua-registry releases:
 - branding by @jdx in [9ad2c17](https://github.com/jdx/mise/commit/9ad2c17ec75b7460ebea09a9f0601a561349cc7f)
 - remove references to not-working docker: tasks by @jdx in [2c2fd27](https://github.com/jdx/mise/commit/2c2fd272e3d76329a7c67e4070bfb122ae1e1120)
 - document some dependencies by @jdx in [6e8bd51](https://github.com/jdx/mise/commit/6e8bd518757c5e49624fc2bef5777a2f2339c304)
-- simplify mise.toml example by @jdx in [66d927b](https://github.com/jdx/mise/commit/66d927ba4db81ba70de261cd76e399e9f4fe35da)
+- simplify pakro.toml example by @jdx in [66d927b](https://github.com/jdx/mise/commit/66d927ba4db81ba70de261cd76e399e9f4fe35da)
 
 ### 📦️ Dependency Updates
 
@@ -13156,7 +13156,7 @@ Included aqua-registry releases:
 ### 📚 Documentation
 
 - all experimental note for lockfile by @zeitlinger in [#4781](https://github.com/jdx/mise/pull/4781)
-- Include post about Mise secrets in the context of Swift app dev by @pepicrft in [#4809](https://github.com/jdx/mise/pull/4809)
+- Include post about Pakro secrets in the context of Swift app dev by @pepicrft in [#4809](https://github.com/jdx/mise/pull/4809)
 
 ### Chore
 
@@ -13290,7 +13290,7 @@ Included aqua-registry releases:
 - Update to the latest version of ubi by @autarch in [#4648](https://github.com/jdx/mise/pull/4648)
 - bump expr by @jdx in [#4666](https://github.com/jdx/mise/pull/4666)
 - added android-sdk by @jdx in [#4668](https://github.com/jdx/mise/pull/4668)
-- rename mise-php to asdf-php by @jdx in [#4674](https://github.com/jdx/mise/pull/4674)
+- rename pakro-php to asdf-php by @jdx in [#4674](https://github.com/jdx/mise/pull/4674)
 
 ### New Contributors
 
@@ -13435,7 +13435,7 @@ Included aqua-registry releases:
 ### 📚 Documentation
 
 - **(cookbook)** add shell powerline-go config env recipe by @scop in [#4532](https://github.com/jdx/mise/pull/4532)
-- update mise.el repo link by @tecoholic in [#4534](https://github.com/jdx/mise/pull/4534)
+- update pakro.el repo link by @tecoholic in [#4534](https://github.com/jdx/mise/pull/4534)
 
 ### Chore
 
@@ -13469,8 +13469,8 @@ Included aqua-registry releases:
 
 - behavior of .disable-self-update by @ZeroAurora in [#4476](https://github.com/jdx/mise/pull/4476)
 - devcontainer by @acesyde in [#4483](https://github.com/jdx/mise/pull/4483)
-- mise outdated --json does not return json if all tools are up-to-date by @roele in [#4493](https://github.com/jdx/mise/pull/4493)
-- bug when using mise use -g when MISE_ENV is filled by @roele in [#4494](https://github.com/jdx/mise/pull/4494)
+- pakro outdated --json does not return json if all tools are up-to-date by @roele in [#4493](https://github.com/jdx/mise/pull/4493)
+- bug when using pakro use -g when PAKRO_ENV is filled by @roele in [#4494](https://github.com/jdx/mise/pull/4494)
 - config of symlink tracked on windows is not respected by @NavyD in [#4501](https://github.com/jdx/mise/pull/4501)
 - pruning unused tool leaves broken symlinks by @roele in [#4507](https://github.com/jdx/mise/pull/4507)
 
@@ -13505,7 +13505,7 @@ Included aqua-registry releases:
 
 - **(cli/run)** inherit stdio by --raw even when redactions are enabled by @risu729 in [#4446](https://github.com/jdx/mise/pull/4446)
 - **(task)** Running programs on windows without cmd.exe by @NavyD in [#4459](https://github.com/jdx/mise/pull/4459)
-- bugs with grep in tar_supports_zstd in mise.run script by @glasser in [#4453](https://github.com/jdx/mise/pull/4453)
+- bugs with grep in tar_supports_zstd in pakro.run script by @glasser in [#4453](https://github.com/jdx/mise/pull/4453)
 
 ### 📚 Documentation
 
@@ -13582,7 +13582,7 @@ Included aqua-registry releases:
 
 - update Fedora install for dnf5 by @rkben in [#4387](https://github.com/jdx/mise/pull/4387)
 - fix links to idiomatic version file option by @pietrodn in [#4382](https://github.com/jdx/mise/pull/4382)
-- add mise bootstrap example in CI docs by @hverlin in [#4351](https://github.com/jdx/mise/pull/4351)
+- add pakro bootstrap example in CI docs by @hverlin in [#4351](https://github.com/jdx/mise/pull/4351)
 - Update link in comparison-to-asdf.md by @hverlin in [#4401](https://github.com/jdx/mise/pull/4401)
 
 ### 📦️ Dependency Updates
@@ -13636,7 +13636,7 @@ Included aqua-registry releases:
 
 - **(schema)** fix description of task.dir default by @risu729 in [#4324](https://github.com/jdx/mise/pull/4324)
 - Add PowerShell example by @jahanson in [#3857](https://github.com/jdx/mise/pull/3857)
-- Include "A Mise guide for Swift developers" by @pepicrft in [#4329](https://github.com/jdx/mise/pull/4329)
+- Include "A Pakro guide for Swift developers" by @pepicrft in [#4329](https://github.com/jdx/mise/pull/4329)
 - Update documentation for core tools by @hverlin in [#4341](https://github.com/jdx/mise/pull/4341)
 - Update vitepress to fix search by @hverlin in [#4342](https://github.com/jdx/mise/pull/4342)
 
@@ -13688,8 +13688,8 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- mise does not operate well under Git Bash on Windows by @roele in [#4048](https://github.com/jdx/mise/pull/4048)
-- mise rm removes/reports wrong version of tool by @roele in [#4272](https://github.com/jdx/mise/pull/4272)
+- pakro does not operate well under Git Bash on Windows by @roele in [#4048](https://github.com/jdx/mise/pull/4048)
+- pakro rm removes/reports wrong version of tool by @roele in [#4272](https://github.com/jdx/mise/pull/4272)
 
 ### 📚 Documentation
 
@@ -13699,7 +13699,7 @@ Included aqua-registry releases:
 
 ### Hooks.md
 
-- MISE_PROJECT_DIR -> MISE_PROJECT_ROOT by @jubr in [#4269](https://github.com/jdx/mise/pull/4269)
+- PAKRO_PROJECT_DIR -> PAKRO_PROJECT_ROOT by @jubr in [#4269](https://github.com/jdx/mise/pull/4269)
 
 ### New Contributors
 
@@ -13721,7 +13721,7 @@ Included aqua-registry releases:
 
 ### 📚 Documentation
 
-- Add devtools.fm episode about mise to external-resources.md by @CanRau in [#4253](https://github.com/jdx/mise/pull/4253)
+- Add devtools.fm episode about pakro to external-resources.md by @CanRau in [#4253](https://github.com/jdx/mise/pull/4253)
 - Update sections about idiomatic version files by @hverlin in [#4252](https://github.com/jdx/mise/pull/4252)
 
 ### Chore
@@ -13753,7 +13753,7 @@ Included aqua-registry releases:
 
 ### 📚 Documentation
 
-- **(how-i-use-mise)** switch to discussion by @risu729 in [#4225](https://github.com/jdx/mise/pull/4225)
+- **(how-i-use-pakro)** switch to discussion by @risu729 in [#4225](https://github.com/jdx/mise/pull/4225)
 - add hint about environment variable parsing by @roele in [#4219](https://github.com/jdx/mise/pull/4219)
 
 ### Chore
@@ -13775,7 +13775,7 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- spurious semver warning on `mise outdated` by @jdx in [#4199](https://github.com/jdx/mise/pull/4199)
+- spurious semver warning on `pakro outdated` by @jdx in [#4199](https://github.com/jdx/mise/pull/4199)
 
 ### Chore
 
@@ -13799,7 +13799,7 @@ Included aqua-registry releases:
 
 ### Chore
 
-- setup mise for release task by @jdx in [78d3dfb](https://github.com/jdx/mise/commit/78d3dfb164776cfb39a1920485c21fcd6ecd3ebe)
+- setup pakro for release task by @jdx in [78d3dfb](https://github.com/jdx/mise/commit/78d3dfb164776cfb39a1920485c21fcd6ecd3ebe)
 
 ## [2025.1.11](https://github.com/jdx/mise/compare/v2025.1.10..v2025.1.11) - 2025-01-23
 
@@ -13816,10 +13816,10 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- **(docs)** environment variable MISE_OVERRIDE_TOOL_VERSIONS_FILENAME should be plural by @roele in [#4183](https://github.com/jdx/mise/pull/4183)
+- **(docs)** environment variable PAKRO_OVERRIDE_TOOL_VERSIONS_FILENAME should be plural by @roele in [#4183](https://github.com/jdx/mise/pull/4183)
 - completions were missing non-asdf tools by @jdx in [55b31a4](https://github.com/jdx/mise/commit/55b31a452b807ada4e2ba40c8b5588b77b79642e)
 - broken link for `/tasks/task-configuration` by @134130 in [#4155](https://github.com/jdx/mise/pull/4155)
-- whitespace in mise.run script by @jdx in [#4153](https://github.com/jdx/mise/pull/4153)
+- whitespace in pakro.run script by @jdx in [#4153](https://github.com/jdx/mise/pull/4153)
 - confusing error in fish_command_not_found by @MrGreenTea in [#4162](https://github.com/jdx/mise/pull/4162)
 - use correct python path for venv creation in windows by @tisoft in [#4164](https://github.com/jdx/mise/pull/4164)
 
@@ -13853,7 +13853,7 @@ Included aqua-registry releases:
 
 - **(ruby)** remove ruby/gem tests by @jdx in [#4130](https://github.com/jdx/mise/pull/4130)
 - Fixes fish_command_not_found glob error by @halostatue in [#4133](https://github.com/jdx/mise/pull/4133)
-- completions for `mise use` by @jdx in [#4147](https://github.com/jdx/mise/pull/4147)
+- completions for `pakro use` by @jdx in [#4147](https://github.com/jdx/mise/pull/4147)
 
 ### 📦️ Dependency Updates
 
@@ -13888,7 +13888,7 @@ Included aqua-registry releases:
 
 ### Chore
 
-- remove minisign from mise.toml by @jdx in [b115ba9](https://github.com/jdx/mise/commit/b115ba962fce4e63e0d6ce85f41704f302ef3e9a)
+- remove minisign from pakro.toml by @jdx in [b115ba9](https://github.com/jdx/mise/commit/b115ba962fce4e63e0d6ce85f41704f302ef3e9a)
 
 ### New Contributors
 
@@ -13908,7 +13908,7 @@ Included aqua-registry releases:
 
 - use vars in [env] templates by @hverlin in [#4100](https://github.com/jdx/mise/pull/4100)
 - panic when directory name contains japanese characters by @roele in [#4104](https://github.com/jdx/mise/pull/4104)
-- incorrect config_root for project/.mise/config.toml by @roele in [#4108](https://github.com/jdx/mise/pull/4108)
+- incorrect config_root for project/.pakro/config.toml by @roele in [#4108](https://github.com/jdx/mise/pull/4108)
 
 ### 🚜 Refactor
 
@@ -13954,14 +13954,14 @@ Included aqua-registry releases:
 
 - added gdu and dua to registry by @sassdavid in [#4052](https://github.com/jdx/mise/pull/4052)
 - added prefix-dev/pixi by @jdx in [#4056](https://github.com/jdx/mise/pull/4056)
-- added `mise cfg --tracked-configs` by @jdx in [#4059](https://github.com/jdx/mise/pull/4059)
-- added `mise version --json` flag by @jdx in [#4061](https://github.com/jdx/mise/pull/4061)
-- added `mise ls --prunable` flag by @jdx in [#4062](https://github.com/jdx/mise/pull/4062)
+- added `pakro cfg --tracked-configs` by @jdx in [#4059](https://github.com/jdx/mise/pull/4059)
+- added `pakro version --json` flag by @jdx in [#4061](https://github.com/jdx/mise/pull/4061)
+- added `pakro ls --prunable` flag by @jdx in [#4062](https://github.com/jdx/mise/pull/4062)
 
 ### 🐛 Bug Fixes
 
 - switch jib back to asdf by @jdx in [#4055](https://github.com/jdx/mise/pull/4055)
-- `mise unuse` bug not pruning if not in config file by @jdx in [#4058](https://github.com/jdx/mise/pull/4058)
+- `pakro unuse` bug not pruning if not in config file by @jdx in [#4058](https://github.com/jdx/mise/pull/4058)
 
 ### 📚 Documentation
 
@@ -13969,7 +13969,7 @@ Included aqua-registry releases:
 
 ### 🧪 Testing
 
-- added test case for `mise rm` by @jdx in [f7511b6](https://github.com/jdx/mise/commit/f7511b696c2ada7af878074e89b0dfc1edb73197)
+- added test case for `pakro rm` by @jdx in [f7511b6](https://github.com/jdx/mise/commit/f7511b696c2ada7af878074e89b0dfc1edb73197)
 
 ### New Contributors
 
@@ -13985,7 +13985,7 @@ Included aqua-registry releases:
 ### 🐛 Bug Fixes
 
 - ignore github releases marked as draft by @jdx in [#4030](https://github.com/jdx/mise/pull/4030)
-- `mise run` shorthand with tasks that have an extension by @jdx in [#4029](https://github.com/jdx/mise/pull/4029)
+- `pakro run` shorthand with tasks that have an extension by @jdx in [#4029](https://github.com/jdx/mise/pull/4029)
 - use consistent casing by @jdx in [a4d4133](https://github.com/jdx/mise/commit/a4d41338139355b0dd86a068fd89790eb7e34584)
 - support latest ansible packages by @jdx in [#4045](https://github.com/jdx/mise/pull/4045)
 - use go backend for goconvey/ginkgo by @jdx in [#4047](https://github.com/jdx/mise/pull/4047)
@@ -14019,11 +14019,11 @@ Included aqua-registry releases:
 ### 🐛 Bug Fixes
 
 - **(rust)** respect RUSTUP_HOME/CARGO_HOME by @jdx in [#4026](https://github.com/jdx/mise/pull/4026)
-- mise fails to install kubectl on windows from aqua registry by @roele in [#4006](https://github.com/jdx/mise/pull/4006)
+- pakro fails to install kubectl on windows from aqua registry by @roele in [#4006](https://github.com/jdx/mise/pull/4006)
 - aliases with aqua by @jdx in [#4007](https://github.com/jdx/mise/pull/4007)
 - issue with enter hook and subdirs by @jdx in [#4008](https://github.com/jdx/mise/pull/4008)
 - allow using depends and depends_post on separate tasks by @jdx in [#4010](https://github.com/jdx/mise/pull/4010)
-- mise fails to install kubectl on windows from aqua registry by @roele in [#4024](https://github.com/jdx/mise/pull/4024)
+- pakro fails to install kubectl on windows from aqua registry by @roele in [#4024](https://github.com/jdx/mise/pull/4024)
 
 ### 📚 Documentation
 
@@ -14042,7 +14042,7 @@ Included aqua-registry releases:
 - migrate asdf plugins to aqua/ubi by @jdx in [#3962](https://github.com/jdx/mise/pull/3962)
 - migrate asdf plugins to aqua/ubi by @jdx in [#3978](https://github.com/jdx/mise/pull/3978)
 - migrate asdf plugins to aqua/ubi by @jdx in [#3991](https://github.com/jdx/mise/pull/3991)
-- replace asdf-spark plugin with mise-spark plugin by @benberryallwood in [#3994](https://github.com/jdx/mise/pull/3994)
+- replace asdf-spark plugin with pakro-spark plugin by @benberryallwood in [#3994](https://github.com/jdx/mise/pull/3994)
 - add kubectx/kubens to registry by @roele in [#3992](https://github.com/jdx/mise/pull/3992)
 - added ktlint from aqua by @jdx in [#4004](https://github.com/jdx/mise/pull/4004)
 
@@ -14051,10 +14051,10 @@ Included aqua-registry releases:
 - **(schema)** fix task sources and outputs schema by @risu729 in [#3988](https://github.com/jdx/mise/pull/3988)
 - **(schema)** update task schema by @risu729 in [#3999](https://github.com/jdx/mise/pull/3999)
 - correct age keyname by @jdx in [e28c293](https://github.com/jdx/mise/commit/e28c293bc5a241b043d0b72ec9aa0559e888f97b)
-- mise install rust failed on windows by @roele in [#3969](https://github.com/jdx/mise/pull/3969)
+- pakro install rust failed on windows by @roele in [#3969](https://github.com/jdx/mise/pull/3969)
 - maven-mvnd does not install with aqua by @roele in [#3982](https://github.com/jdx/mise/pull/3982)
 - maven-mvnd does not install with aqua by @roele in [#3993](https://github.com/jdx/mise/pull/3993)
-- use friendly error in `mise run` by @jdx in [#3998](https://github.com/jdx/mise/pull/3998)
+- use friendly error in `pakro run` by @jdx in [#3998](https://github.com/jdx/mise/pull/3998)
 - use task display_name in more places by @hverlin in [#3997](https://github.com/jdx/mise/pull/3997)
 - aqua:apache/spark doesn't work by @roele in [#3995](https://github.com/jdx/mise/pull/3995)
 
@@ -14086,17 +14086,17 @@ Included aqua-registry releases:
 - add databricks-cli to registry by @benberryallwood in [#3937](https://github.com/jdx/mise/pull/3937)
 - add navi to registry by @kit494way in [#3943](https://github.com/jdx/mise/pull/3943)
 - added allurectl to registry by @MontakOleg in [#3918](https://github.com/jdx/mise/pull/3918)
-- Add setting description to mise settings --json-extended output by @hverlin in [#3919](https://github.com/jdx/mise/pull/3919)
+- Add setting description to pakro settings --json-extended output by @hverlin in [#3919](https://github.com/jdx/mise/pull/3919)
 
 ### 🐛 Bug Fixes
 
-- improve mise generate bootstrap by @hverlin in [#3939](https://github.com/jdx/mise/pull/3939)
+- improve pakro generate bootstrap by @hverlin in [#3939](https://github.com/jdx/mise/pull/3939)
 - update year in copyright to dynamic with current year by @nexckycort in [#3957](https://github.com/jdx/mise/pull/3957)
 
 ### 📚 Documentation
 
 - Fix broken link to environment variables doc by @xcapaldi in [#3938](https://github.com/jdx/mise/pull/3938)
-- Add usage property to mise schema by @hverlin in [#3942](https://github.com/jdx/mise/pull/3942)
+- Add usage property to pakro schema by @hverlin in [#3942](https://github.com/jdx/mise/pull/3942)
 - clarity on relative paths vs config_root in _.path by @glasser in [#3923](https://github.com/jdx/mise/pull/3923)
 
 ### 📦️ Dependency Updates
@@ -14108,7 +14108,7 @@ Included aqua-registry releases:
 ### Chore
 
 - upgrade expr by @jdx in [c06a415](https://github.com/jdx/mise/commit/c06a41544e2cb09912244efe6a8f5bcc03eb24d7)
-- mise up by @jdx in [678f648](https://github.com/jdx/mise/commit/678f6489a9501b32bf3c36771977771d933f2466)
+- pakro up by @jdx in [678f648](https://github.com/jdx/mise/commit/678f6489a9501b32bf3c36771977771d933f2466)
 - cargo-show by @jdx in [69d44fd](https://github.com/jdx/mise/commit/69d44fd064d2fdaae08ff9ea3300a42e560630cd)
 - remove cargo-show dependency by @jdx in [ab8e9e9](https://github.com/jdx/mise/commit/ab8e9e9e429beeb23731c356537525f64bc59b28)
 - remove cargo-show dependency by @jdx in [ca2f89c](https://github.com/jdx/mise/commit/ca2f89c6cd36d828a9eab2884a3f8c9cc1fe2c19)
@@ -14137,8 +14137,8 @@ Included aqua-registry releases:
 - panic when setting config value by @roele in [#3823](https://github.com/jdx/mise/pull/3823)
 - add hidden settings/task --complete option by @jdx in [#3902](https://github.com/jdx/mise/pull/3902)
 - handle panic when task contains invalid template by @jdx in [#3904](https://github.com/jdx/mise/pull/3904)
-- missing checksums in mise.run script by @jdx in [#3906](https://github.com/jdx/mise/pull/3906)
-- active flag for symlinked tools in `mise ls --json` by @jdx in [#3907](https://github.com/jdx/mise/pull/3907)
+- missing checksums in pakro.run script by @jdx in [#3906](https://github.com/jdx/mise/pull/3906)
+- active flag for symlinked tools in `pakro ls --json` by @jdx in [#3907](https://github.com/jdx/mise/pull/3907)
 
 ### 📚 Documentation
 
@@ -14160,13 +14160,13 @@ Included aqua-registry releases:
 ### 🐛 Bug Fixes
 
 - winget release PRs by @jdx in [9dec542](https://github.com/jdx/mise/commit/9dec542188e731ef357fd74339dd08ac005cb9e3)
-- mise settings unset does not seem to work by @roele in [#3867](https://github.com/jdx/mise/pull/3867)
+- pakro settings unset does not seem to work by @roele in [#3867](https://github.com/jdx/mise/pull/3867)
 - gradle aqua package by @jdx in [#3880](https://github.com/jdx/mise/pull/3880)
 - **breaking** remove `root` env var in tasks by @jdx in [#3884](https://github.com/jdx/mise/pull/3884)
 
 ### 📚 Documentation
 
-- syntax in `mise watch` by @jdx in [beab480](https://github.com/jdx/mise/commit/beab48029b3e7a91047012b655f3efe4fd722acf)
+- syntax in `pakro watch` by @jdx in [beab480](https://github.com/jdx/mise/commit/beab48029b3e7a91047012b655f3efe4fd722acf)
 - Update registry link by @bmulholland in [#3864](https://github.com/jdx/mise/pull/3864)
 - clarify shims behaviour by @syhol in [#3881](https://github.com/jdx/mise/pull/3881)
 
@@ -14225,7 +14225,7 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- do not require "v" prefix in mise.run by @jdx in [#3800](https://github.com/jdx/mise/pull/3800)
+- do not require "v" prefix in pakro.run by @jdx in [#3800](https://github.com/jdx/mise/pull/3800)
 - add checksum for macos-x86 by @jdx in [#3815](https://github.com/jdx/mise/pull/3815)
 
 ### 📚 Documentation
@@ -14246,7 +14246,7 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- use zstd in mise.run by @jdx in [#3798](https://github.com/jdx/mise/pull/3798)
+- use zstd in pakro.run by @jdx in [#3798](https://github.com/jdx/mise/pull/3798)
 - verify zig with minisign by @jdx in [#3793](https://github.com/jdx/mise/pull/3793)
 
 ### Chore
@@ -14261,8 +14261,8 @@ Included aqua-registry releases:
 
 - allow dotnet prerelease by @acesyde in [#3753](https://github.com/jdx/mise/pull/3753)
 - added minisign to registry by @jdx in [#3788](https://github.com/jdx/mise/pull/3788)
-- `mise g bootstrap` by @jdx in [#3792](https://github.com/jdx/mise/pull/3792)
-- `mise g bootstrap` by @jdx in [f79ce71](https://github.com/jdx/mise/commit/f79ce719f9121eb6e0e821cf271af306f2a9d6c8)
+- `pakro g bootstrap` by @jdx in [#3792](https://github.com/jdx/mise/pull/3792)
+- `pakro g bootstrap` by @jdx in [f79ce71](https://github.com/jdx/mise/commit/f79ce719f9121eb6e0e821cf271af306f2a9d6c8)
 
 ### 🐛 Bug Fixes
 
@@ -14308,7 +14308,7 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- added a banner to `mise --version` by @jdx in [#3748](https://github.com/jdx/mise/pull/3748)
+- added a banner to `pakro --version` by @jdx in [#3748](https://github.com/jdx/mise/pull/3748)
 - add usage field to tasks by @jdx in [#3746](https://github.com/jdx/mise/pull/3746)
 - added keep-order task output type by @jdx in [#3763](https://github.com/jdx/mise/pull/3763)
 - `replacing` task output type by @jdx in [#3764](https://github.com/jdx/mise/pull/3764)
@@ -14322,7 +14322,7 @@ Included aqua-registry releases:
 
 ### 📚 Documentation
 
-- update mise-action version in tips and tricks by @scop in [#3749](https://github.com/jdx/mise/pull/3749)
+- update pakro-action version in tips and tricks by @scop in [#3749](https://github.com/jdx/mise/pull/3749)
 - Small cookbooks fixes by @hverlin in [#3754](https://github.com/jdx/mise/pull/3754)
 
 ### 🧪 Testing
@@ -14339,16 +14339,16 @@ Included aqua-registry releases:
 ### 🚀 Features
 
 - add dotnet backend by @acesyde in [#3737](https://github.com/jdx/mise/pull/3737)
-- added ignored_config_paths to `mise dr` by @jdx in [#3742](https://github.com/jdx/mise/pull/3742)
+- added ignored_config_paths to `pakro dr` by @jdx in [#3742](https://github.com/jdx/mise/pull/3742)
 
 ### 🐛 Bug Fixes
 
 - **(ruby)** fix Ruby plugin to use `ruby_install` option correctly by @yuhr in [#3732](https://github.com/jdx/mise/pull/3732)
-- `mise run` shorthand with options by @jdx in [#3719](https://github.com/jdx/mise/pull/3719)
+- `pakro run` shorthand with options by @jdx in [#3719](https://github.com/jdx/mise/pull/3719)
 - zig on windows by @jdx in [#3739](https://github.com/jdx/mise/pull/3739)
 - allow using previously defined vars by @jdx in [#3741](https://github.com/jdx/mise/pull/3741)
-- make --help consistent with `mise run` and `mise <task>` by @jdx in [#3723](https://github.com/jdx/mise/pull/3723)
-- use implicit keys for `mise config set` by @jdx in [#3744](https://github.com/jdx/mise/pull/3744)
+- make --help consistent with `pakro run` and `pakro <task>` by @jdx in [#3723](https://github.com/jdx/mise/pull/3723)
+- use implicit keys for `pakro config set` by @jdx in [#3744](https://github.com/jdx/mise/pull/3744)
 
 ### 📚 Documentation
 
@@ -14375,20 +14375,20 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- unnest output when `mise run` is nested by @jdx in [#3686](https://github.com/jdx/mise/pull/3686)
-- `mise rm` by @jdx in [#3627](https://github.com/jdx/mise/pull/3627)
+- unnest output when `pakro run` is nested by @jdx in [#3686](https://github.com/jdx/mise/pull/3686)
+- `pakro rm` by @jdx in [#3627](https://github.com/jdx/mise/pull/3627)
 - added *:_default task name by @jdx in [#3690](https://github.com/jdx/mise/pull/3690)
-- `mise run --continue-on-error by @jdx in [#3692](https://github.com/jdx/mise/pull/3692)
-- added .tool-versions -> mise.toml converter by @jdx in [#3693](https://github.com/jdx/mise/pull/3693)
-- get mise sync python --uv to work by @jdx in [#3706](https://github.com/jdx/mise/pull/3706)
-- `mise install-into` by @jdx in [#3711](https://github.com/jdx/mise/pull/3711)
-- added `mise dr --json` by @jdx in [#3715](https://github.com/jdx/mise/pull/3715)
+- `pakro run --continue-on-error by @jdx in [#3692](https://github.com/jdx/mise/pull/3692)
+- added .tool-versions -> pakro.toml converter by @jdx in [#3693](https://github.com/jdx/mise/pull/3693)
+- get pakro sync python --uv to work by @jdx in [#3706](https://github.com/jdx/mise/pull/3706)
+- `pakro install-into` by @jdx in [#3711](https://github.com/jdx/mise/pull/3711)
+- added `pakro dr --json` by @jdx in [#3715](https://github.com/jdx/mise/pull/3715)
 
 ### 🐛 Bug Fixes
 
-- retain "os" options in `mise up --bump` by @jdx in [#3688](https://github.com/jdx/mise/pull/3688)
+- retain "os" options in `pakro up --bump` by @jdx in [#3688](https://github.com/jdx/mise/pull/3688)
 - unnest task cmd output by @jdx in [#3691](https://github.com/jdx/mise/pull/3691)
-- ensure MISE_PROJECT_ROOT is set with no mise.toml by @jdx in [#3695](https://github.com/jdx/mise/pull/3695)
+- ensure PAKRO_PROJECT_ROOT is set with no pakro.toml by @jdx in [#3695](https://github.com/jdx/mise/pull/3695)
 - create venv uses absolute tool paths by @syhol in [#3698](https://github.com/jdx/mise/pull/3698)
 - jj repository moved to an organization by @phyrog in [#3703](https://github.com/jdx/mise/pull/3703)
 - disable reverse uv syncing by @jdx in [#3704](https://github.com/jdx/mise/pull/3704)
@@ -14404,7 +14404,7 @@ Included aqua-registry releases:
 ### 📚 Documentation
 
 - fix some broken anchor links by @hverlin in [#3694](https://github.com/jdx/mise/pull/3694)
-- note hooks require `mise activate` by @jdx in [211d3d3](https://github.com/jdx/mise/commit/211d3d3b91c52e418a3e25af4a021da93c64ed4d)
+- note hooks require `pakro activate` by @jdx in [211d3d3](https://github.com/jdx/mise/commit/211d3d3b91c52e418a3e25af4a021da93c64ed4d)
 
 ### 🧪 Testing
 
@@ -14453,7 +14453,7 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- `mise task add` by @jdx in [#3616](https://github.com/jdx/mise/pull/3616)
+- `pakro task add` by @jdx in [#3616](https://github.com/jdx/mise/pull/3616)
 - elixir core tool by @jdx in [#3620](https://github.com/jdx/mise/pull/3620)
 - elixir on windows by @jdx in [#3623](https://github.com/jdx/mise/pull/3623)
 - added install_env tool option by @jdx in [#3622](https://github.com/jdx/mise/pull/3622)
@@ -14463,14 +14463,14 @@ Included aqua-registry releases:
 ### 🐛 Bug Fixes
 
 - run venv after tools are loaded by @jdx in [#3612](https://github.com/jdx/mise/pull/3612)
-- some improvements to `mise fmt` by @jdx in [#3615](https://github.com/jdx/mise/pull/3615)
+- some improvements to `pakro fmt` by @jdx in [#3615](https://github.com/jdx/mise/pull/3615)
 - always run postinstall hook by @jdx in [#3618](https://github.com/jdx/mise/pull/3618)
 - move bat from aqua to ubi by @jdx in [60d0c79](https://github.com/jdx/mise/commit/60d0c798f695199bdc81f8beec737f0e2a8589e0)
-- do not require version for `mise sh --unset` by @jdx in [#3628](https://github.com/jdx/mise/pull/3628)
+- do not require version for `pakro sh --unset` by @jdx in [#3628](https://github.com/jdx/mise/pull/3628)
 - back nomad with nomad, not levant by @rliebz in [#3633](https://github.com/jdx/mise/pull/3633)
 - correct python precompiled urls for freebsd by @jdx in [#3637](https://github.com/jdx/mise/pull/3637)
 - bug fixes with tools=true in env by @jdx in [#3639](https://github.com/jdx/mise/pull/3639)
-- sort keys in `__MISE_DIFF` to make the serialised value deterministic by @joshbode in [#3640](https://github.com/jdx/mise/pull/3640)
+- sort keys in `__PAKRO_DIFF` to make the serialised value deterministic by @joshbode in [#3640](https://github.com/jdx/mise/pull/3640)
 - resolve config_root for dir tasks option by @risu729 in [#3649](https://github.com/jdx/mise/pull/3649)
 
 ### 📚 Documentation
@@ -14503,7 +14503,7 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- added MISE_SOPS_ROPS setting by @jdx in [#3603](https://github.com/jdx/mise/pull/3603)
+- added PAKRO_SOPS_ROPS setting by @jdx in [#3603](https://github.com/jdx/mise/pull/3603)
 - respect CLICOLOR_FORCE by @jdx in [#3607](https://github.com/jdx/mise/pull/3607)
 - only create 1 venv by @jdx in [#3610](https://github.com/jdx/mise/pull/3610)
 - set bash --noprofile for env._.source by @jdx in [#3611](https://github.com/jdx/mise/pull/3611)
@@ -14526,12 +14526,12 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- added selector for `mise use` with no args by @jdx in [#3570](https://github.com/jdx/mise/pull/3570)
+- added selector for `pakro use` with no args by @jdx in [#3570](https://github.com/jdx/mise/pull/3570)
 - added tool descriptions by @jdx in [#3571](https://github.com/jdx/mise/pull/3571)
-- added `mise sync python --uv` by @jdx in [#3575](https://github.com/jdx/mise/pull/3575)
+- added `pakro sync python --uv` by @jdx in [#3575](https://github.com/jdx/mise/pull/3575)
 - `sync ruby --brew` by @jdx in [#3577](https://github.com/jdx/mise/pull/3577)
 - encrypted configs by @jdx in [#3584](https://github.com/jdx/mise/pull/3584)
-- added `mise --no-config` by @jdx in [#3590](https://github.com/jdx/mise/pull/3590)
+- added `pakro --no-config` by @jdx in [#3590](https://github.com/jdx/mise/pull/3590)
 - allow _.file in vars by @jdx in [#3593](https://github.com/jdx/mise/pull/3593)
 
 ### 🐛 Bug Fixes
@@ -14539,12 +14539,12 @@ Included aqua-registry releases:
 - **(python)** reduce network usage for python precompiled manifests by @jdx in [#3568](https://github.com/jdx/mise/pull/3568)
 - **(python)** check only if first or specified python is installed for _.venv by @jdx in [#3576](https://github.com/jdx/mise/pull/3576)
 - **(swift)** prevent swift from using linux platforms that are not available by @jdx in [#3583](https://github.com/jdx/mise/pull/3583)
-- correct headers on `mise ls` by @jdx in [5af3b17](https://github.com/jdx/mise/commit/5af3b17a41decd2d7368f5985f2cb5d3e3b341e8)
-- correct message truncation in `mise run` by @jdx in [c668857](https://github.com/jdx/mise/commit/c6688571cfb0eca70a55377b70ec6b9cd0cb6a68)
+- correct headers on `pakro ls` by @jdx in [5af3b17](https://github.com/jdx/mise/commit/5af3b17a41decd2d7368f5985f2cb5d3e3b341e8)
+- correct message truncation in `pakro run` by @jdx in [c668857](https://github.com/jdx/mise/commit/c6688571cfb0eca70a55377b70ec6b9cd0cb6a68)
 - include uv in path for hook-env by @jdx in [#3572](https://github.com/jdx/mise/pull/3572)
-- correct subtitle in `mise use` selector by @jdx in [4be6d79](https://github.com/jdx/mise/commit/4be6d798f9398f9e072d4067a56e134463e71b41)
+- correct subtitle in `pakro use` selector by @jdx in [4be6d79](https://github.com/jdx/mise/commit/4be6d798f9398f9e072d4067a56e134463e71b41)
 - some bugs with status.show_tools and status.show_env by @jdx in [#3586](https://github.com/jdx/mise/pull/3586)
-- use task.display_name for `mise run` by @jdx in [a009de1](https://github.com/jdx/mise/commit/a009de13ffa4319de89b0fcaf1ba54ae2524a9b6)
+- use task.display_name for `pakro run` by @jdx in [a009de1](https://github.com/jdx/mise/commit/a009de13ffa4319de89b0fcaf1ba54ae2524a9b6)
 - path is treated differently in nushell by @samuelallan72 in [#3592](https://github.com/jdx/mise/pull/3592)
 - allow number/bool in .env.json by @jdx in [#3594](https://github.com/jdx/mise/pull/3594)
 
@@ -14568,7 +14568,7 @@ Included aqua-registry releases:
 - **(python)** add other indygreg flavors by @jdx in [#3565](https://github.com/jdx/mise/pull/3565)
 - redactions by @jdx in [#3529](https://github.com/jdx/mise/pull/3529)
 - show unload messages/run leave hook by @jdx in [#3532](https://github.com/jdx/mise/pull/3532)
-- update demand and default `mise run` to filtering by @jdx in [48c366d](https://github.com/jdx/mise/commit/48c366d4d2256f6b12aabcbe82abe429622b120e)
+- update demand and default `pakro run` to filtering by @jdx in [48c366d](https://github.com/jdx/mise/commit/48c366d4d2256f6b12aabcbe82abe429622b120e)
 
 ### 🐛 Bug Fixes
 
@@ -14579,7 +14579,7 @@ Included aqua-registry releases:
 - add backend to lockfile by @jdx in [#3535](https://github.com/jdx/mise/pull/3535)
 - parse task env vars as templates by @jdx in [#3536](https://github.com/jdx/mise/pull/3536)
 - do not add ignore file if not tty by @jdx in [#3558](https://github.com/jdx/mise/pull/3558)
-- improve output of `mise tasks` by @jdx in [#3562](https://github.com/jdx/mise/pull/3562)
+- improve output of `pakro tasks` by @jdx in [#3562](https://github.com/jdx/mise/pull/3562)
 
 ### 📚 Documentation
 
@@ -14609,7 +14609,7 @@ Included aqua-registry releases:
 
 - make bash_completions lib optional by @jdx in [#3516](https://github.com/jdx/mise/pull/3516)
 - make plugin update work with libgit2 by @jdx in [#3519](https://github.com/jdx/mise/pull/3519)
-- bug with `mise task edit` and new tasks by @jdx in [#3521](https://github.com/jdx/mise/pull/3521)
+- bug with `pakro task edit` and new tasks by @jdx in [#3521](https://github.com/jdx/mise/pull/3521)
 - correct self-update message by @jdx in [eff0cff](https://github.com/jdx/mise/commit/eff0cffca079ee58fc2297396604b96e0253c324)
 - task source bug fixes by @jdx in [#3522](https://github.com/jdx/mise/pull/3522)
 
@@ -14656,20 +14656,20 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- add the users PATH to `mise doctor` by @syhol in [#3474](https://github.com/jdx/mise/pull/3474)
+- add the users PATH to `pakro doctor` by @syhol in [#3474](https://github.com/jdx/mise/pull/3474)
 - feat : Add superfile with aqua backend to registery by @yodatak in [#3479](https://github.com/jdx/mise/pull/3479)
 - added `task_auto_install` setting by @jdx in [#3481](https://github.com/jdx/mise/pull/3481)
 - Add yazi with aqua backend to registery by @yodatak in [#3485](https://github.com/jdx/mise/pull/3485)
 - Migrating Terragrunt asdf plugin over to gruntwork-io by @yhakbar in [#3486](https://github.com/jdx/mise/pull/3486)
 - add settings for python venv creation by @jdx in [#3489](https://github.com/jdx/mise/pull/3489)
-- added MISE_ARCH setting by @jdx in [#3490](https://github.com/jdx/mise/pull/3490)
+- added PAKRO_ARCH setting by @jdx in [#3490](https://github.com/jdx/mise/pull/3490)
 - add jj to registry by @phyrog in [#3495](https://github.com/jdx/mise/pull/3495)
 - add task descriptions to completions by @jdx in [#3497](https://github.com/jdx/mise/pull/3497)
 
 ### 🐛 Bug Fixes
 
-- mise upgrade with rust by @jdx in [#3475](https://github.com/jdx/mise/pull/3475)
-- improve arg parsing for mise watch by @jdx in [#3478](https://github.com/jdx/mise/pull/3478)
+- pakro upgrade with rust by @jdx in [#3475](https://github.com/jdx/mise/pull/3475)
+- improve arg parsing for pakro watch by @jdx in [#3478](https://github.com/jdx/mise/pull/3478)
 - skip reading ignored config dirs by @jdx in [#3480](https://github.com/jdx/mise/pull/3480)
 - deprecated attribute in json schema by @jdx in [#3482](https://github.com/jdx/mise/pull/3482)
 - simplify auto_install settings by @jdx in [#3483](https://github.com/jdx/mise/pull/3483)
@@ -14679,7 +14679,7 @@ Included aqua-registry releases:
 
 ### 📚 Documentation
 
-- updated `mise watch` docs to drop the `-t` by @jdx in [8ea6226](https://github.com/jdx/mise/commit/8ea622688cb01a0a0a2805692b38a4a7f1340ce5)
+- updated `pakro watch` docs to drop the `-t` by @jdx in [8ea6226](https://github.com/jdx/mise/commit/8ea622688cb01a0a0a2805692b38a4a7f1340ce5)
 
 ### Chore
 
@@ -14693,23 +14693,23 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- added descriptions to `mise run` by @jdx in [#3460](https://github.com/jdx/mise/pull/3460)
-- `mise format` by @jdx in [#3461](https://github.com/jdx/mise/pull/3461)
-- `mise fmt` (renamed from `mise format`) by @jdx in [#3465](https://github.com/jdx/mise/pull/3465)
-- `mise format` by @jdx in [d18b040](https://github.com/jdx/mise/commit/d18b040b8ae8eea16ed98b7f7b884a6f52797edc)
+- added descriptions to `pakro run` by @jdx in [#3460](https://github.com/jdx/mise/pull/3460)
+- `pakro format` by @jdx in [#3461](https://github.com/jdx/mise/pull/3461)
+- `pakro fmt` (renamed from `pakro format`) by @jdx in [#3465](https://github.com/jdx/mise/pull/3465)
+- `pakro format` by @jdx in [d18b040](https://github.com/jdx/mise/commit/d18b040b8ae8eea16ed98b7f7b884a6f52797edc)
 
 ### 🐛 Bug Fixes
 
 - **(swift)** remove clang bins by @jdx in [#3468](https://github.com/jdx/mise/pull/3468)
 - use 7zip for windows zip by @jdx in [475ae62](https://github.com/jdx/mise/commit/475ae62d209795cf8fe9cc846f258755e1092918)
-- disable filtering by default on `mise run` by @jdx in [507ee27](https://github.com/jdx/mise/commit/507ee27a736b8cd57714a8365fc88855edf62507)
+- disable filtering by default on `pakro run` by @jdx in [507ee27](https://github.com/jdx/mise/commit/507ee27a736b8cd57714a8365fc88855edf62507)
 - deprecate direnv integration by @jdx in [#3464](https://github.com/jdx/mise/pull/3464)
 - remove hidden commands from docs by @jdx in [42a9a05](https://github.com/jdx/mise/commit/42a9a0567fbd8ef61550cf2bfe956074777c7d76)
 - improve hook-env by @jdx in [#3466](https://github.com/jdx/mise/pull/3466)
 - deprecate @system versions by @jdx in [#3467](https://github.com/jdx/mise/pull/3467)
-- do not reuse local tool options for `mise use -g` by @jdx in [#3469](https://github.com/jdx/mise/pull/3469)
+- do not reuse local tool options for `pakro use -g` by @jdx in [#3469](https://github.com/jdx/mise/pull/3469)
 - allow "~" in python.default_packages_file by @jdx in [#3472](https://github.com/jdx/mise/pull/3472)
-- read all config files for `mise set` by @jdx in [#3473](https://github.com/jdx/mise/pull/3473)
+- read all config files for `pakro set` by @jdx in [#3473](https://github.com/jdx/mise/pull/3473)
 
 ### 📚 Documentation
 
@@ -14729,15 +14729,15 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- make `mise trust` act on directories instead of files by @jdx in [#3454](https://github.com/jdx/mise/pull/3454)
+- make `pakro trust` act on directories instead of files by @jdx in [#3454](https://github.com/jdx/mise/pull/3454)
 
 ### 🐛 Bug Fixes
 
 - correctly lowercase "zsh" for shell hooks by @jdx in [035ae59](https://github.com/jdx/mise/commit/035ae59bd898a16be4fcd55b708ae8ba620c60fe)
-- read MISE_CONFIG_DIR/conf.d/*.toml configs by @jdx in [#3439](https://github.com/jdx/mise/pull/3439)
+- read PAKRO_CONFIG_DIR/conf.d/*.toml configs by @jdx in [#3439](https://github.com/jdx/mise/pull/3439)
 - retains spm artifacts by @jdx in [#3441](https://github.com/jdx/mise/pull/3441)
-- add env var for MISE_NPM_BUN setting by @jdx in [b3c57e2](https://github.com/jdx/mise/commit/b3c57e29bd26d772e2f708351a3c61bf04ee3d65)
-- hide hidden tasks in `mise run` selector UI by @jdx in [#3449](https://github.com/jdx/mise/pull/3449)
+- add env var for PAKRO_NPM_BUN setting by @jdx in [b3c57e2](https://github.com/jdx/mise/commit/b3c57e29bd26d772e2f708351a3c61bf04ee3d65)
+- hide hidden tasks in `pakro run` selector UI by @jdx in [#3449](https://github.com/jdx/mise/pull/3449)
 - trim run scripts whitespace by @jdx in [#3450](https://github.com/jdx/mise/pull/3450)
 - shell-escape arg() in tasks by @jdx in [#3453](https://github.com/jdx/mise/pull/3453)
 - use shebang in run script to determine how arg escaping should work by @jdx in [#3455](https://github.com/jdx/mise/pull/3455)
@@ -14759,7 +14759,7 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- add staged files to `mise generate git-pre-commit` by @jdx in [#3410](https://github.com/jdx/mise/pull/3410)
+- add staged files to `pakro generate git-pre-commit` by @jdx in [#3410](https://github.com/jdx/mise/pull/3410)
 - shell hooks by @jdx in [#3414](https://github.com/jdx/mise/pull/3414)
 - added cowsay by @jdx in [#3420](https://github.com/jdx/mise/pull/3420)
 - add openbao by @phyrog in [#3426](https://github.com/jdx/mise/pull/3426)
@@ -14768,7 +14768,7 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- do not set debug mode when calling `mise -v` by @jdx in [#3418](https://github.com/jdx/mise/pull/3418)
+- do not set debug mode when calling `pakro -v` by @jdx in [#3418](https://github.com/jdx/mise/pull/3418)
 - issue with usage and arg completions by @jdx in [#3433](https://github.com/jdx/mise/pull/3433)
 
 ### 📚 Documentation
@@ -14811,7 +14811,7 @@ Included aqua-registry releases:
 ### 🚀 Features
 
 - **(registry)** add zls to registry by @hverlin in [#3392](https://github.com/jdx/mise/pull/3392)
-- Add --json-extended option to mise env by @hverlin in [#3389](https://github.com/jdx/mise/pull/3389)
+- Add --json-extended option to pakro env by @hverlin in [#3389](https://github.com/jdx/mise/pull/3389)
 
 ### 🐛 Bug Fixes
 
@@ -14838,10 +14838,10 @@ Included aqua-registry releases:
 ### 🚀 Features
 
 - **(registry)** use aqua for some tools by @risu729 in [#3375](https://github.com/jdx/mise/pull/3375)
-- allow filtering `mise bin-paths` on tools by @jdx in [#3367](https://github.com/jdx/mise/pull/3367)
+- allow filtering `pakro bin-paths` on tools by @jdx in [#3367](https://github.com/jdx/mise/pull/3367)
 - added aws-cli from aqua by @jdx in [#3370](https://github.com/jdx/mise/pull/3370)
-- multiple MISE_ENV environments by @jdx in [#3371](https://github.com/jdx/mise/pull/3371)
-- add mise-task.json schema by @hverlin in [#3374](https://github.com/jdx/mise/pull/3374)
+- multiple PAKRO_ENV environments by @jdx in [#3371](https://github.com/jdx/mise/pull/3371)
+- add pakro-task.json schema by @hverlin in [#3374](https://github.com/jdx/mise/pull/3374)
 - automatically call `hook-env` by @jdx in [#3373](https://github.com/jdx/mise/pull/3373)
 
 ### 🐛 Bug Fixes
@@ -14880,9 +14880,9 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- add exec to `mise g git-pre-commit` by @jdx in [27a3aef](https://github.com/jdx/mise/commit/27a3aefa767c8ef142009dd54c4d7dcc19c235b2)
+- add exec to `pakro g git-pre-commit` by @jdx in [27a3aef](https://github.com/jdx/mise/commit/27a3aefa767c8ef142009dd54c4d7dcc19c235b2)
 - bake gpg keys in by @jdx in [#3318](https://github.com/jdx/mise/pull/3318)
-- deprecate `mise local|global` by @jdx in [#3350](https://github.com/jdx/mise/pull/3350)
+- deprecate `pakro local|global` by @jdx in [#3350](https://github.com/jdx/mise/pull/3350)
 
 ### 🚜 Refactor
 
@@ -14923,7 +14923,7 @@ Included aqua-registry releases:
 - handle General/Complex Versioning in --bump by @liskin in [#2889](https://github.com/jdx/mise/pull/2889)
 - broken path example by @minddust in [#3296](https://github.com/jdx/mise/pull/3296)
 - swift path on macos by @jdx in [#3299](https://github.com/jdx/mise/pull/3299)
-- do not auto-install on `mise x` if some tools are passed by @jdx in [35d31a1](https://github.com/jdx/mise/commit/35d31a1baf96fe6f0e764e26228c1b03ba24ddce)
+- do not auto-install on `pakro x` if some tools are passed by @jdx in [35d31a1](https://github.com/jdx/mise/commit/35d31a1baf96fe6f0e764e26228c1b03ba24ddce)
 - fix: also make certain we are not auto installing inside shims by checking by @jdx in [b0c4a74](https://github.com/jdx/mise/commit/b0c4a749309064825852041d8d72c7eac9fb116c)
 - cache github release information for 24 hours by @jdx in [#3300](https://github.com/jdx/mise/pull/3300)
 
@@ -14933,13 +14933,13 @@ Included aqua-registry releases:
 
 ### ◀️ Revert
 
-- Revert "fix: always prefer glibc to musl in mise run " by @jdx in [#3298](https://github.com/jdx/mise/pull/3298)
+- Revert "fix: always prefer glibc to musl in pakro run " by @jdx in [#3298](https://github.com/jdx/mise/pull/3298)
 
 ### Chore
 
 - bump expr-lang by @jdx in [#3297](https://github.com/jdx/mise/pull/3297)
-- mise up --bump by @jdx in [6872b54](https://github.com/jdx/mise/commit/6872b5469622140335a12131dfa4acf310fc0c2a)
-- update mise.lock by @jdx in [4c12502](https://github.com/jdx/mise/commit/4c12502c459ba2e214689c3f55d964b8f75966af)
+- pakro up --bump by @jdx in [6872b54](https://github.com/jdx/mise/commit/6872b5469622140335a12131dfa4acf310fc0c2a)
+- update pakro.lock by @jdx in [4c12502](https://github.com/jdx/mise/commit/4c12502c459ba2e214689c3f55d964b8f75966af)
 - disable tool tests until I can sort out gh rate limit issues by @jdx in [f42f010](https://github.com/jdx/mise/commit/f42f010f03a57cab128290c0b9d936fd7a90c785)
 
 ### New Contributors
@@ -14950,7 +14950,7 @@ Included aqua-registry releases:
 
 ### Chore
 
-- mise i by @jdx in [8150732](https://github.com/jdx/mise/commit/81507327e7f1c9f2137b3dadcf35a8245d43a8ba)
+- pakro i by @jdx in [8150732](https://github.com/jdx/mise/commit/81507327e7f1c9f2137b3dadcf35a8245d43a8ba)
 
 ## [2024.11.35](https://github.com/jdx/mise/compare/v2024.11.34..v2024.11.35) - 2024-11-29
 
@@ -14960,11 +14960,11 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- remove conflicting MISE_SHELL setting by @jdx in [#3284](https://github.com/jdx/mise/pull/3284)
+- remove conflicting PAKRO_SHELL setting by @jdx in [#3284](https://github.com/jdx/mise/pull/3284)
 
 ### 🚜 Refactor
 
-- simplify __MISE_WATCH variable to only contain the most recent timestamp by @jdx in [#3282](https://github.com/jdx/mise/pull/3282)
+- simplify __PAKRO_WATCH variable to only contain the most recent timestamp by @jdx in [#3282](https://github.com/jdx/mise/pull/3282)
 
 ### 🧪 Testing
 
@@ -14980,7 +14980,7 @@ Included aqua-registry releases:
 
 - fragmented configs by @jdx in [#3273](https://github.com/jdx/mise/pull/3273)
 - hooks by @jdx in [#3256](https://github.com/jdx/mise/pull/3256)
-- added MISE_TASK_DISABLE_PATHS setting by @jdx in [9c2e6e4](https://github.com/jdx/mise/commit/9c2e6e40f3a98f352fbf03107e1901dec445a7f5)
+- added PAKRO_TASK_DISABLE_PATHS setting by @jdx in [9c2e6e4](https://github.com/jdx/mise/commit/9c2e6e40f3a98f352fbf03107e1901dec445a7f5)
 - gpg verification for node by @jdx in [#3277](https://github.com/jdx/mise/pull/3277)
 
 ### 🐛 Bug Fixes
@@ -15009,9 +15009,9 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- respect --quiet in `mise run` by @jdx in [#3257](https://github.com/jdx/mise/pull/3257)
-- added special "_" portion of mise.toml for custom data by @jdx in [#3259](https://github.com/jdx/mise/pull/3259)
-- **breaking** added MISE_OVERRIDE_CONFIG_FILENAMES config by @jdx in [#3266](https://github.com/jdx/mise/pull/3266)
+- respect --quiet in `pakro run` by @jdx in [#3257](https://github.com/jdx/mise/pull/3257)
+- added special "_" portion of pakro.toml for custom data by @jdx in [#3259](https://github.com/jdx/mise/pull/3259)
+- **breaking** added PAKRO_OVERRIDE_CONFIG_FILENAMES config by @jdx in [#3266](https://github.com/jdx/mise/pull/3266)
 - added swift by @jdx in [#3271](https://github.com/jdx/mise/pull/3271)
 
 ### 🐛 Bug Fixes
@@ -15019,7 +15019,7 @@ Included aqua-registry releases:
 - **(spm)** git proxy config by @jdx in [#3264](https://github.com/jdx/mise/pull/3264)
 - clean up some windows error cases by @jdx in [#3255](https://github.com/jdx/mise/pull/3255)
 - run `hook-env` on directory change by @jdx in [#3258](https://github.com/jdx/mise/pull/3258)
-- always prefer glibc to musl in mise run by @jdx in [#3261](https://github.com/jdx/mise/pull/3261)
+- always prefer glibc to musl in pakro run by @jdx in [#3261](https://github.com/jdx/mise/pull/3261)
 - issue with non-default backends not getting tool options by @jdx in [#3265](https://github.com/jdx/mise/pull/3265)
 - explicitly stop progress bars when exiting by @jdx in [#3272](https://github.com/jdx/mise/pull/3272)
 
@@ -15031,7 +15031,7 @@ Included aqua-registry releases:
 
 ### 📚 Documentation
 
-- describe mise behavior when mise version is lower than min_version by @erickguan in [#2994](https://github.com/jdx/mise/pull/2994)
+- describe pakro behavior when pakro version is lower than min_version by @erickguan in [#2994](https://github.com/jdx/mise/pull/2994)
 
 ### Chore
 
@@ -15044,7 +15044,7 @@ Included aqua-registry releases:
 
 ### 🚀 Features
 
-- allow running tasks without `mise run`, e.g.: `mise test` as shorthand for `mise run test` by @jdx in [#3235](https://github.com/jdx/mise/pull/3235)
+- allow running tasks without `pakro run`, e.g.: `pakro test` as shorthand for `pakro run test` by @jdx in [#3235](https://github.com/jdx/mise/pull/3235)
 - default task directory config by @jdx in [#3238](https://github.com/jdx/mise/pull/3238)
 - standalone tasks by @jdx in [#3240](https://github.com/jdx/mise/pull/3240)
 - automatic uv venv activation by @jdx in [#3239](https://github.com/jdx/mise/pull/3239)
@@ -15089,11 +15089,11 @@ Included aqua-registry releases:
 
 ### 🐛 Bug Fixes
 
-- use tv.pathname() in `mise ls` by @jdx in [#3217](https://github.com/jdx/mise/pull/3217)
+- use tv.pathname() in `pakro ls` by @jdx in [#3217](https://github.com/jdx/mise/pull/3217)
 - show gh rate limit reset time by @jdx in [#3221](https://github.com/jdx/mise/pull/3221)
 - add @version back into show_tools by @jdx in [fd7d8d1](https://github.com/jdx/mise/commit/fd7d8d10395f8c80a80c60c0de89bf78e31fd762)
 - use pipx for yamllint by @jdx in [#3227](https://github.com/jdx/mise/pull/3227)
-- remove shims directory in `mise activate` by @jdx in [#3232](https://github.com/jdx/mise/pull/3232)
+- remove shims directory in `pakro activate` by @jdx in [#3232](https://github.com/jdx/mise/pull/3232)
 
 ### 🚜 Refactor
 
@@ -15120,7 +15120,7 @@ Included aqua-registry releases:
 - migrate wren-cli to ubi by @jdx in [#3193](https://github.com/jdx/mise/pull/3193)
 - migrate more tools away from asdf by @jdx in [#3202](https://github.com/jdx/mise/pull/3202)
 - automatically set `set -e` in toml tasks by @jdx in [#3215](https://github.com/jdx/mise/pull/3215)
-- added MISE_ORIGINAL_CWD to tasks by @jdx in [#3214](https://github.com/jdx/mise/pull/3214)
+- added PAKRO_ORIGINAL_CWD to tasks by @jdx in [#3214](https://github.com/jdx/mise/pull/3214)
 - add ruby backend by @andrewthauer in [#1657](https://github.com/jdx/mise/pull/1657)
 - migrate more tools away from asdf by @jdx in [#3205](https://github.com/jdx/mise/pull/3205)
 
@@ -15180,13 +15180,13 @@ Included aqua-registry releases:
 ### 🚀 Features
 
 - migrate more tools away from asdf by @jdx in [#3170](https://github.com/jdx/mise/pull/3170)
-- auto-install tools on `mise run` by @jdx in [#3181](https://github.com/jdx/mise/pull/3181)
+- auto-install tools on `pakro run` by @jdx in [#3181](https://github.com/jdx/mise/pull/3181)
 - move more tools away from asdf by @jdx in [#3179](https://github.com/jdx/mise/pull/3179)
 
 ### 🐛 Bug Fixes
 
 - allow passing integers to task env by @jdx in [#3177](https://github.com/jdx/mise/pull/3177)
-- remove __MISE_WATCH,__MISE_DIFF env vars on `mise deactivate` by @jdx in [#3178](https://github.com/jdx/mise/pull/3178)
+- remove __PAKRO_WATCH,__PAKRO_DIFF env vars on `pakro deactivate` by @jdx in [#3178](https://github.com/jdx/mise/pull/3178)
 
 ### 📚 Documentation
 

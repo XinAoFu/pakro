@@ -31,7 +31,7 @@ pub fn find_non_executable_task_files(includes: &[PathBuf], excludes: &[PathBuf]
             let root = d.clone();
             walkdir::WalkDir::new(d)
                 .into_iter()
-                // skip hidden directories, but allow the root itself to be hidden (e.g. .mise-tasks)
+                // skip hidden directories, but allow the root itself to be hidden (e.g. .pakro-tasks)
                 .filter_entry(move |e| {
                     e.path() == root || !e.file_name().to_string_lossy().starts_with('.')
                 })
@@ -62,7 +62,7 @@ fn validate_monorepo_setup(config: &Arc<Config>) -> Result<()> {
         bail!(
             "Monorepo task paths (like `//path:task` or `:task`) require a monorepo root configuration.\n\
             \n\
-            To set up monorepo support, add this to your root mise.toml:\n\
+            To set up monorepo support, add this to your root pakro.toml:\n\
             {}\n\
             \n\
             Then create task files in subdirectories that will be automatically discovered.\n\
@@ -150,7 +150,7 @@ fn append_available_tasks(
         .unwrap_or("Name".len());
 
     if showing_all_tasks {
-        err_msg.push_str("\n\nAvailable tasks (`mise tasks ls --all`):");
+        err_msg.push_str("\n\nAvailable tasks (`pakro tasks ls --all`):");
     } else {
         err_msg.push_str("\n\nAvailable tasks:");
     }
@@ -175,7 +175,7 @@ fn append_available_tasks(
     if remaining > 0 {
         let noun = if remaining == 1 { "task" } else { "tasks" };
         err_msg.push_str(&format!(
-            "\n  ... and {remaining} more {noun}. Run `mise tasks ls --all` to list all tasks."
+            "\n  ... and {remaining} more {noun}. Run `pakro tasks ls --all` to list all tasks."
         ));
     }
 }
@@ -224,7 +224,7 @@ async fn make_task_executable(
     let windows_has_no_prompt = cfg!(windows);
     let remedy = if windows_has_no_prompt {
         // The stop matters: without it the path and the remedy run together into one unreadable
-        // line -- `...\mise-tasks\build Add a shebang line to ...`.
+        // line -- `...\pakro-tasks\build Add a shebang line to ...`.
         format!(". {}", file::make_executable_hint(&path))
     } else {
         String::new()
@@ -278,7 +278,7 @@ async fn err_no_task(
             let mut err_msg = format!("unknown command: {}", style::ered(name));
             err_msg.push_str("\n\nDid you mean:");
             for cmd_name in &similar_cmds {
-                err_msg.push_str(&format!("\n  mise {cmd_name}"));
+                err_msg.push_str(&format!("\n  pakro {cmd_name}"));
             }
             bail!(err_msg);
         }
@@ -310,7 +310,7 @@ async fn err_no_task(
                     .collect::<Vec<_>>()
                     .join(", ");
                 bail!(
-                    "Config file(s) in {} are not trusted: {}\nTrust them with `mise trust`. See https://mise.jdx.dev/cli/trust.html for more information.",
+                    "Config file(s) in {} are not trusted: {}\nTrust them with `pakro trust`. See https://mise.jdx.dev/cli/trust.html for more information.",
                     display_path(cwd),
                     paths
                 );
@@ -370,7 +370,7 @@ async fn err_no_task(
     if !similar_cmds.is_empty() {
         err_msg.push_str("\n\nDid you mean the command:");
         for cmd_name in &similar_cmds {
-            err_msg.push_str(&format!("\n  mise {cmd_name}"));
+            err_msg.push_str(&format!("\n  pakro {cmd_name}"));
         }
     }
 

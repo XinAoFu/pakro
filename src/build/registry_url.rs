@@ -1,5 +1,5 @@
 //! Validation for a registry entry's `url`, shared by the build-time registry and
-//! the floating registry so both reject what `schema/mise-registry-tool.json` rejects.
+//! the floating registry so both reject what `schema/pakro-registry-tool.json` rejects.
 
 /// Whether `url` is a project homepage or repository: `http(s)://` followed by a
 /// non-empty value with no whitespace and no `{`/`}`, which rules out backend

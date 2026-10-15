@@ -5,15 +5,15 @@
 # This test simulates the scenario where:
 # 1. Original PATH has system paths
 # 2. User adds some Homebrew paths
-# 3. Mise adds its tool paths
+# 3. Pakro adds its tool paths
 # 4. User adds MORE Homebrew paths (which get interleaved with system paths)
 # Result: Paths after the first system path match were being lost
 
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 
-# Simulate the PATH that existed when mise was first activated
+# Simulate the PATH that existed when pakro was first activated
 # (before user's full shell config ran)
-export __MISE_ORIG_PATH="/usr/local/bin:/usr/bin:/bin"
+export __PAKRO_ORIG_PATH="/usr/local/bin:/usr/bin:/bin"
 
 # Simulate current PATH with interleaved Homebrew and system paths
 # This mimics a situation where:
@@ -23,13 +23,13 @@ export __MISE_ORIG_PATH="/usr/local/bin:/usr/bin:/bin"
 export PATH="/opt/homebrew/opt/curl/bin:/usr/local/bin:/opt/homebrew/opt/findutils/libexec/gnubin:/usr/bin:/opt/homebrew/opt/grep/libexec/gnubin:/bin"
 
 # Create a project with a tool
-cat >.mise.toml <<EOF
+cat >.pakro.toml <<EOF
 [tools]
 tiny = "latest"
 EOF
 
 # Run hook-env and source it
-eval "$(mise hook-env -s bash)"
+eval "$(pakro hook-env -s bash)"
 
 # Verify that all Homebrew paths are still present
 # The bug would cause paths after /usr/local/bin to be lost

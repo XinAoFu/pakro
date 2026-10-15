@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks."test:unit"]
 run = "echo unit"
 
@@ -16,12 +16,12 @@ depends = [
 run = "echo test"
 EOF
 
-output="$(mise run test)"
+output="$(pakro run test)"
 assert_contains_text "$output" "unit"
 assert_contains_text "$output" "integration"
 assert_contains_text "$output" "test"
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.test]
 depends = [{ task = "missing", optional = true }]
 depends_post = [{ task = "missing-post", optional = true }]
@@ -29,23 +29,23 @@ wait_for = [{ task = "missing-wait", optional = true }]
 run = "echo test"
 EOF
 
-assert "mise run test" "test"
-assert_contains "mise tasks validate" "validated successfully"
+assert "pakro run test" "test"
+assert_contains "pakro tasks validate" "validated successfully"
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.test]
 depends = [{ task = "missing", optional = false }]
 run = "echo test"
 EOF
 
-assert_fail "mise run test" "task not found: missing"
-assert_contains "mise tasks validate 2>&1 || true" "Dependency 'missing' not found"
+assert_fail "pakro run test" "task not found: missing"
+assert_contains "pakro tasks validate 2>&1 || true" "Dependency 'missing' not found"
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.test]
 depends = [{ task = "invalid/path:task", optional = true }]
 run = "echo test"
 EOF
 
-assert_fail "mise run test" "relative path syntax"
-assert_contains "mise tasks validate 2>&1 || true" "relative path syntax"
+assert_fail "pakro run test" "relative path syntax"
+assert_contains "pakro tasks validate 2>&1 || true" "relative path syntax"

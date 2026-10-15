@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-export MISE_OFFLINE=1
+export PAKRO_OFFLINE=1
 export DAEMON_LOG="$PWD/pitchfork.log"
 : >"$DAEMON_LOG"
 cat >~/bin/pitchfork <<'SH'
@@ -56,22 +56,22 @@ SH
 chmod u+x ~/bin/pitchfork
 export PATH="$HOME/bin:$PATH"
 
-# mise keeps each project's generated configuration in a state directory named
+# pakro keeps each project's generated configuration in a state directory named
 # after a hash of the project root, so the several projects this test sets up
 # are indistinguishable by path and a bare `find` returns whichever one the
 # filesystem happens to list first. state.json records the root it belongs to.
 daemon_state_dir() {
   local requested="${1:-$PWD}" root state
-  # mise records the physical path; bash keeps symlinks in $PWD.
+  # pakro records the physical path; bash keeps symlinks in $PWD.
   root=$(cd -- "$requested" >/dev/null && pwd -P) || fail "cannot resolve daemon root $requested"
-  state=$(jq -r --arg root "$root" 'select(.root == $root) | input_filename' "$MISE_STATE_DIR"/daemons/*/state.json)
+  state=$(jq -r --arg root "$root" 'select(.root == $root) | input_filename' "$PAKRO_STATE_DIR"/daemons/*/state.json)
   test -n "$state" || fail "no daemon state directory for $root"
   # One root means one directory; anything else would put us back to picking one
   # arbitrarily, and a multi-line "$state" would silently build a garbled path.
   test "$(echo "$state" | wc -l)" -eq 1 || fail "several daemon state directories for $root: $state"
   echo "${state%/state.json}"
 }
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons]
@@ -84,24 +84,24 @@ port = 5433
 [env]
 PGPORT = "1234"
 TOML
-assert_fail_contains "mise daemons start nonexistent 2>&1" 'no matching project daemons'
-assert_fail_contains "mise daemons start --force nonexistent 2>&1" 'no matching project daemons'
-assert_fail_contains "mise daemons start postgres nonexistent 2>&1" 'no matching project daemons'
+assert_fail_contains "pakro daemons start nonexistent 2>&1" 'no matching project daemons'
+assert_fail_contains "pakro daemons start --force nonexistent 2>&1" 'no matching project daemons'
+assert_fail_contains "pakro daemons start postgres nonexistent 2>&1" 'no matching project daemons'
 for action in start stop restart status logs; do
-  assert_fail_contains "mise daemons $action --group web 2>&1" 'no [daemon_groups] entry named'
-  assert_fail_contains "mise daemons $action postgres --group=web 2>&1" 'no [daemon_groups] entry named'
+  assert_fail_contains "pakro daemons $action --group web 2>&1" 'no [daemon_groups] entry named'
+  assert_fail_contains "pakro daemons $action postgres --group=web 2>&1" 'no [daemon_groups] entry named'
 done
 assert "test ! -s '$DAEMON_LOG'"
-assert_contains "mise daemons ls --json" '"preset": "postgres"'
-assert_contains "mise env -s bash" 'PGPORT=1234'
-assert_contains "mise env -s bash" 'redis://127.0.0.1:6379'
+assert_contains "pakro daemons ls --json" '"preset": "postgres"'
+assert_contains "pakro env -s bash" 'PGPORT=1234'
+assert_contains "pakro env -s bash" 'redis://127.0.0.1:6379'
 assert_not_contains "cat '$DAEMON_LOG'" 'config add'
 assert_not_contains "cat '$DAEMON_LOG'" 'supervisor'
-assert_contains "mise ls --json" 'mise.toml-daemon'
-assert_contains "mise unuse postgres 2>&1" 'declared by [daemons]'
-assert_contains "cat mise.toml" 'postgres = "18"'
+assert_contains "pakro ls --json" 'pakro.toml-daemon'
+assert_contains "pakro unuse postgres 2>&1" 'declared by [daemons]'
+assert_contains "cat pakro.toml" 'postgres = "18"'
 
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons.api]
@@ -109,33 +109,33 @@ run = "sleep 30"
 ready_cmd = "echo {{ env.SOMETHING }}"
 TOML
 # Registration prepares the complete project without starting any daemon.
-mise daemons register
+pakro daemons register
 assert_contains "cat '$DAEMON_LOG'" 'config add'
 assert_not_contains "cat '$DAEMON_LOG'" 'args=start '
 assert_not_contains "cat '$DAEMON_LOG'" 'args=restart '
-assert_fail "mise daemons register api"
-assert_fail "MISE_SAFE=1 mise daemons register"
+assert_fail "pakro daemons register api"
+assert_fail "PAKRO_SAFE=1 pakro daemons register"
 : >"$DAEMON_LOG"
-assert_fail "OLD_PITCHFORK=1 mise daemons start"
-assert_contains "OLD_PITCHFORK=1 mise daemons start 2>&1 || true" 'external configuration support'
+assert_fail "OLD_PITCHFORK=1 pakro daemons start"
+assert_contains "OLD_PITCHFORK=1 pakro daemons start 2>&1 || true" 'external configuration support'
 # Only task daemons need pitchfork's argv `run`; a project without them is not asked for it.
-OLD_ARGV=1 mise daemons start
+OLD_ARGV=1 pakro daemons start
 : >"$DAEMON_LOG"
-mise daemons start
+pakro daemons start
 assert_contains "cat '$DAEMON_LOG'" 'config add'
 assert_contains "cat '$DAEMON_LOG'" '/api'
 assert "test ! -f pitchfork.toml"
 generated="$(daemon_state_dir)/pitchfork.toml"
-assert_contains "cat '$generated'" 'mise = true'
-assert_not_contains "cat '$generated'" 'MISE_ENV = ""'
+assert_contains "cat '$generated'" 'pakro = true'
+assert_not_contains "cat '$generated'" 'PAKRO_ENV = ""'
 assert_contains "cat '$generated'" '{{ env.SOMETHING }}'
-mise daemons stop
+pakro daemons stop
 assert_contains "cat '$DAEMON_LOG'" 'args=stop '
-assert_fail "MISE_EXPERIMENTAL=0 mise daemons ls"
-assert_fail "MISE_SAFE=1 mise daemons start"
+assert_fail "PAKRO_EXPERIMENTAL=0 pakro daemons ls"
+assert_fail "PAKRO_SAFE=1 pakro daemons start"
 
 # Groups expand to project daemons; pitchfork's own groups stay out of reach.
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons.postgres]
@@ -151,7 +151,7 @@ default = ["postgres", "core", "node0"]
 two-cluster = ["default", "core2"]
 TOML
 : >"$DAEMON_LOG"
-mise daemons start two-cluster
+pakro daemons start two-cluster
 started=$(grep 'args=start ' "$DAEMON_LOG")
 assert_contains "echo '$started'" '/postgres'
 assert_contains "echo '$started'" '/core2'
@@ -160,23 +160,23 @@ assert_contains "cat '$generated'" '[groups.two-cluster]'
 assert_contains "cat '$generated'" '[groups.default]'
 # A bare start selects the default group instead of every daemon.
 : >"$DAEMON_LOG"
-mise daemons start
+pakro daemons start
 started=$(grep 'args=start ' "$DAEMON_LOG")
 assert_contains "echo '$started'" '/postgres'
 assert_not_contains "echo '$started'" '/core2'
 # --group accepts a declared group and rejects anything else.
 : >"$DAEMON_LOG"
-mise daemons stop --group two-cluster
+pakro daemons stop --group two-cluster
 assert_contains "cat '$DAEMON_LOG'" '/core2'
-assert_fail_contains "mise daemons start --group backend 2>&1" 'no [daemon_groups] entry named'
-assert_fail_contains "mise daemons start missing-group 2>&1" 'no matching project daemons'
+assert_fail_contains "pakro daemons start --group backend 2>&1" 'no [daemon_groups] entry named'
+assert_fail_contains "pakro daemons start missing-group 2>&1" 'no matching project daemons'
 
 # A bare start covers a project without a default group, even when an inherited
 # project has one.
 group_base=$PWD
 mkdir -p group-parent/child
 cd group-parent
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons.parent-a]
@@ -187,12 +187,12 @@ run = "sleep 30"
 default = ["parent-a"]
 TOML
 cd child
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [daemons.child-a]
 run = "sleep 30"
 TOML
 : >"$DAEMON_LOG"
-mise daemons start
+pakro daemons start
 started=$(grep 'args=start ' "$DAEMON_LOG")
 # The parent honors its own default group.
 assert_contains "echo '$started'" '/parent-a'
@@ -201,19 +201,19 @@ assert_not_contains "echo '$started'" '/parent-b'
 assert_contains "echo '$started'" '/child-a'
 # restart uses the default group the same way; stop still covers everything.
 : >"$DAEMON_LOG"
-mise daemons restart
+pakro daemons restart
 restarted=$(grep 'args=restart ' "$DAEMON_LOG")
 assert_contains "echo '$restarted'" '/parent-a'
 assert_not_contains "echo '$restarted'" '/parent-b'
 : >"$DAEMON_LOG"
-mise daemons stop
+pakro daemons stop
 stopped=$(grep 'args=stop ' "$DAEMON_LOG")
 assert_contains "echo '$stopped'" '/parent-b'
 # A child redefining a daemon name takes it over: one process starts, under the
 # child's namespace, and the parent keeps running the daemons it still owns.
 mkdir -p "$group_base/override/child"
 cd "$group_base/override"
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons.postgres]
@@ -224,12 +224,12 @@ run = "parent api"
 default = ["postgres", "api"]
 TOML
 cd child
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [daemons.postgres]
 run = "child postgres"
 TOML
 : >"$DAEMON_LOG"
-mise daemons start
+pakro daemons start
 parent_start=$(grep 'args=start ' "$DAEMON_LOG" | grep -v 'override/child ')
 # The parent starts what it still owns, and not the name the child took over.
 assert_contains "echo '$parent_start'" '/api'
@@ -243,54 +243,54 @@ assert_not_contains "cat '$parent_conf'" 'parent postgres'
 cd "$group_base/group-parent/child"
 
 # A removed group points at ls rather than failing silently.
-assert_fail_contains "mise daemons stop --group gone 2>&1" 'mise daemons ls'
+assert_fail_contains "pakro daemons stop --group gone 2>&1" 'pakro daemons ls'
 cd "$group_base"
 
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [daemons.api]
 run = "sleep 30"
 [daemon_groups]
 web = ["api", "missing"]
 TOML
-assert_contains "mise daemons ls 2>&1 || true" 'is not a daemon or group declared for'
-cat >mise.toml <<'TOML'
+assert_contains "pakro daemons ls 2>&1 || true" 'is not a daemon or group declared for'
+cat >pakro.toml <<'TOML'
 [daemons.api]
 run = "sleep 30"
 [daemon_groups]
 api = ["api"]
 TOML
-assert_contains "mise daemons ls 2>&1 || true" 'conflicts with the daemon of the same name'
+assert_contains "pakro daemons ls 2>&1 || true" 'conflicts with the daemon of the same name'
 
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [daemons]
 unknown_preset = "1"
 TOML
-assert_contains "mise daemons ls 2>&1 || true" 'available presets: cockroachdb, nats, postgres, redis, spicedb'
-cat >mise.toml <<'TOML'
+assert_contains "pakro daemons ls 2>&1 || true" 'available presets: cockroachdb, nats, postgres, redis, spicedb'
+cat >pakro.toml <<'TOML'
 [daemons.bad]
 version = "18"
 TOML
-assert_contains "mise daemons ls 2>&1 || true" 'requires preset'
-cat >mise.toml <<'TOML'
+assert_contains "pakro daemons ls 2>&1 || true" 'requires preset'
+cat >pakro.toml <<'TOML'
 [daemons.".."]
 preset = "postgres"
 version = "18"
 TOML
-assert_contains "mise daemons ls 2>&1 || true" 'invalid daemon name'
+assert_contains "pakro daemons ls 2>&1 || true" 'invalid daemon name'
 
 # Dry runs validate task-backed daemons without starting pitchfork.
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tasks.dev]
 daemons = ["api"]
 run = "echo dev"
 [daemons.api]
 task = "missing"
 TOML
-assert_fail_contains "mise run --dry-run dev 2>&1" 'daemon api runs unknown task "missing"'
+assert_fail_contains "pakro run --dry-run dev 2>&1" 'daemon api runs unknown task "missing"'
 
 # A task that requires daemons starts them through pitchfork before it runs, and
 # the task the daemon supervises keeps its own depends.
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [tasks.dev]
@@ -307,20 +307,20 @@ run = "sleep 30"
 task = "dev:core"
 TOML
 : >"$DAEMON_LOG"
-assert_contains "mise run dev" 'dev-ran'
+assert_contains "pakro run dev" 'dev-ran'
 assert_contains "cat '$DAEMON_LOG'" 'args=start '
 assert_contains "cat '$DAEMON_LOG'" '/api'
 assert_not_contains "cat '$DAEMON_LOG'" '/core'
 generated="$(daemon_state_dir)/pitchfork.toml"
-# The supervised task runs through plain `mise run`, so its depends still run;
+# The supervised task runs through plain `pakro run`, so its depends still run;
 # a marker in the daemon environment is what stops the recursion instead.
 assert_not_contains "cat '$generated'" 'skip-deps'
-assert_contains "cat '$generated'" 'MISE_DAEMON_TASK'
+assert_contains "cat '$generated'" 'PAKRO_DAEMON_TASK'
 # The task starts without a shell: `run` is an argv, not an `exec` command line.
 assert_contains "cat '$generated'" '"dev:core"'
 assert_not_contains "cat '$generated'" "exec '"
 # That needs pitchfork 2.28.0; an older one gets a clear error, not a broken daemon.
-assert_fail_contains "OLD_ARGV=1 mise daemons start core 2>&1" 'needs pitchfork 2.28.0 or later'
+assert_fail_contains "OLD_ARGV=1 pakro daemons start core 2>&1" 'needs pitchfork 2.28.0 or later'
 # An unchanged configuration is still checked again once pitchfork changes, even when
 # an older one replaces it in place, as a package manager downgrading it would.
 cp ~/bin/pitchfork ~/pitchfork.current
@@ -329,26 +329,26 @@ cp ~/bin/pitchfork ~/pitchfork.current
   echo 'export OLD_ARGV=1'
   tail -n +2 ~/pitchfork.current
 } >~/bin/pitchfork
-assert_fail_contains "mise run dev 2>&1" 'needs pitchfork 2.28.0 or later'
+assert_fail_contains "pakro run dev 2>&1" 'needs pitchfork 2.28.0 or later'
 cp ~/pitchfork.current ~/bin/pitchfork
 # The marker makes that nested run skip daemons rather than fail on them.
-assert_contains "MISE_DAEMON_TASK=1 mise run dev" 'dev-ran'
+assert_contains "PAKRO_DAEMON_TASK=1 pakro run dev" 'dev-ran'
 : >"$DAEMON_LOG"
 assert "test ! -s '$DAEMON_LOG'"
-assert_contains "MISE_DAEMON_TASK=1 mise run dev" 'dev-ran'
+assert_contains "PAKRO_DAEMON_TASK=1 pakro run dev" 'dev-ran'
 assert "test ! -s '$DAEMON_LOG'"
 
-# An unknown daemon name fails the run and `mise tasks validate`.
-cat >mise.toml <<'TOML'
+# An unknown daemon name fails the run and `pakro tasks validate`.
+cat >pakro.toml <<'TOML'
 [tasks.dev]
 daemons = ["nope"]
 run = "echo dev"
 TOML
-assert_fail_contains "mise run dev 2>&1" 'not defined in [daemons]'
-assert_fail_contains "mise tasks validate 2>&1" 'missing-daemon'
+assert_fail_contains "pakro run dev 2>&1" 'not defined in [daemons]'
+assert_fail_contains "pakro tasks validate 2>&1" 'missing-daemon'
 
 # Daemon names are templates, like task dependencies.
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [vars]
 db = "postgres"
 [tasks.dev]
@@ -357,89 +357,89 @@ run = "echo dev"
 [daemons]
 postgres = "18"
 TOML
-assert_contains "mise tasks info dev" 'postgres'
-assert_succeed "mise tasks validate"
+assert_contains "pakro tasks info dev" 'postgres'
+assert_succeed "pakro tasks validate"
 
 # An empty daemon requirement is a no-op and does not require experimental mode.
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tasks.dev]
 daemons = []
 run = "echo dev"
 TOML
-assert_succeed "MISE_EXPERIMENTAL=0 mise run --dry-run dev"
+assert_succeed "PAKRO_EXPERIMENTAL=0 pakro run --dry-run dev"
 
 # Preset tool requests obey their declaring configuration's lock policy.
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tool_config]
 locked = true
 [daemons]
 postgres = "18"
 TOML
-assert_fail_contains "MISE_LOCKFILE=1 mise install --dry-run 2>&1" "tool_config.locked"
+assert_fail_contains "PAKRO_LOCKFILE=1 pakro install --dry-run 2>&1" "tool_config.locked"
 
 # The dashboard opens once in the current project, even with inherited daemons.
-: >mise.toml
+: >pakro.toml
 mkdir -p tui-parent/child
 cd tui-parent
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons.parent]
 run = "sleep 30"
 TOML
 cd child
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [daemons.child]
 run = "sleep 30"
 TOML
 : >"$DAEMON_LOG"
-SUPERVISOR_STATUS=up mise daemons tui -- --help
+SUPERVISOR_STATUS=up pakro daemons tui -- --help
 assert "test $(grep -c 'args=tui --help$' "$DAEMON_LOG") -eq 1"
 assert_contains "cat '$DAEMON_LOG'" "cwd=$PWD args=tui --help"
-assert_fail "mise daemons tui"
+assert_fail "pakro daemons tui"
 
-assert_fail "mise daemons tui parent"
+assert_fail "pakro daemons tui parent"
 
-# Updating a profile must persist ownership even if mise=false leaves the config unchanged.
+# Updating a profile must persist ownership even if pakro=false leaves the config unchanged.
 mkdir -p "$HOME/profile-cache"
 cd "$HOME/profile-cache"
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons.api]
 run = "sleep 30"
-mise = false
+pakro = false
 auto = ["start"]
 TOML
-MISE_ENV=first mise daemons start
+PAKRO_ENV=first pakro daemons start
 profile_state="$(daemon_state_dir)/state.json"
-unset __MISE_SESSION
-MISE_ENV=second mise hook-env --shell-pid "$$" -s bash >"$TMPDIR/profile-hook"
+unset __PAKRO_SESSION
+PAKRO_ENV=second pakro hook-env --shell-pid "$$" -s bash >"$TMPDIR/profile-hook"
 assert_contains "jq -r '.profile[]' '$profile_state'" second
 
 # Deleting a project leaves its daemon state behind until it is pruned explicitly.
 mkdir -p "$HOME/live-project" "$HOME/doomed-project"
 cd "$HOME/live-project"
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons.api]
 run = "sleep 30"
 TOML
-mise daemons start
-live_state=$(find "$MISE_STATE_DIR/daemons" -name state.json -exec jq -r --arg root "$PWD" 'select(.root == $root) | input_filename' {} +)
-assert_contains "mise daemons ls --json" '"data_size"'
-assert_contains "mise daemons ls --json" "\"state_dir\": \"$(dirname "$live_state")\""
+pakro daemons start
+live_state=$(find "$PAKRO_STATE_DIR/daemons" -name state.json -exec jq -r --arg root "$PWD" 'select(.root == $root) | input_filename' {} +)
+assert_contains "pakro daemons ls --json" '"data_size"'
+assert_contains "pakro daemons ls --json" "\"state_dir\": \"$(dirname "$live_state")\""
 
 cd "$HOME/doomed-project"
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons.db]
 run = "sleep 30"
 TOML
-mise daemons start
-doomed_state=$(find "$MISE_STATE_DIR/daemons" -name state.json -exec jq -r --arg root "$PWD" 'select(.root == $root) | input_filename' {} +)
+pakro daemons start
+doomed_state=$(find "$PAKRO_STATE_DIR/daemons" -name state.json -exec jq -r --arg root "$PWD" 'select(.root == $root) | input_filename' {} +)
 doomed_dir=$(dirname "$doomed_state")
 mkdir -p "$doomed_dir/data/db"
 echo data >"$doomed_dir/data/db/file"
@@ -447,81 +447,81 @@ cd "$HOME"
 rm -rf "$HOME/doomed-project"
 
 # A dry run reports the deleted project without removing anything.
-assert_contains "mise daemons prune --dry-run 2>&1" 'dryrun'
-assert_contains "mise daemons prune --dry-run 2>&1" "$(basename "$doomed_dir")"
-assert_contains "mise daemons prune --dry-run 2>&1" 'from deleted ~/doomed-project'
+assert_contains "pakro daemons prune --dry-run 2>&1" 'dryrun'
+assert_contains "pakro daemons prune --dry-run 2>&1" "$(basename "$doomed_dir")"
+assert_contains "pakro daemons prune --dry-run 2>&1" 'from deleted ~/doomed-project'
 assert "test -f '$doomed_state'"
 
 # Starting daemons elsewhere hints at the leftover state but never deletes it.
 cd "$HOME/live-project"
-assert_contains "mise daemons start 2>&1" 'mise daemons prune'
+assert_contains "pakro daemons start 2>&1" 'pakro daemons prune'
 assert "test -f '$doomed_state'"
 
-mise daemons prune --yes
+pakro daemons prune --yes
 # The data and the state are gone; the lock files that made the removal safe
 # stay behind, and without state.json it is no longer an entry.
 assert "test ! -f '$doomed_state'"
 assert "test ! -d '$doomed_dir/data'"
 assert "test ! -f '$doomed_dir/pitchfork.toml'"
 assert "test -f '$live_state'"
-assert_contains "mise daemons prune --yes 2>&1" 'no daemon state'
+assert_contains "pakro daemons prune --yes 2>&1" 'no daemon state'
 
 # State for a project that still exists is kept even with no daemons declared.
-: >mise.toml
-mise daemons prune --yes
+: >pakro.toml
+pakro daemons prune --yes
 assert "test -f '$live_state'"
 
 # State whose absence could be an unmounted volume is never deleted by --yes.
 mkdir -p "$HOME/mountish/project"
 cd "$HOME/mountish/project"
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons.db]
 run = "sleep 30"
 TOML
-mise daemons start
-ambiguous_state=$(find "$MISE_STATE_DIR/daemons" -name state.json -exec jq -r --arg root "$PWD" 'select(.root == $root) | input_filename' {} +)
+pakro daemons start
+ambiguous_state=$(find "$PAKRO_STATE_DIR/daemons" -name state.json -exec jq -r --arg root "$PWD" 'select(.root == $root) | input_filename' {} +)
 cd "$HOME"
 # Removing the project leaves its parent empty, which is what an unmounted
-# mount point looks like, so mise cannot tell the two apart.
+# mount point looks like, so pakro cannot tell the two apart.
 rm -rf "$HOME/mountish/project"
-assert_contains "mise daemons prune --yes 2>&1" 'unmounted volume'
+assert_contains "pakro daemons prune --yes 2>&1" 'unmounted volume'
 assert "test -f '$ambiguous_state'"
 
 # A stop that pitchfork refuses must not let the data go while a daemon runs.
 mkdir -p "$HOME/still-running"
 cd "$HOME/still-running"
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons.db]
 run = "sleep 30"
 TOML
-mise daemons start
-running_state=$(find "$MISE_STATE_DIR/daemons" -name state.json -exec jq -r --arg root "$PWD" 'select(.root == $root) | input_filename' {} +)
+pakro daemons start
+running_state=$(find "$PAKRO_STATE_DIR/daemons" -name state.json -exec jq -r --arg root "$PWD" 'select(.root == $root) | input_filename' {} +)
 running_id=$(jq -r '.ids[0]' "$running_state")
 cd "$HOME"
 rm -rf "$HOME/still-running"
 # The supervisor is up, the stop is refused for an id it has forgotten, and the
 # remaining daemon is still running: the state must survive.
 export SUPERVISOR_STATUS=up STOP_FAILS="gone/other" RUNNING_ID="$running_id"
-assert_contains "mise daemons prune --yes 2>&1" 'is still running'
+assert_contains "pakro daemons prune --yes 2>&1" 'is still running'
 assert "test -f '$running_state'"
 
 # A status pitchfork cannot answer is not an answer: the state stays.
 unset RUNNING_ID
 export STATUS_BROKEN=1
-assert_contains "mise daemons prune --yes 2>&1" 'cannot check'
+assert_contains "pakro daemons prune --yes 2>&1" 'cannot check'
 assert "test -f '$running_state'"
 # A status that fails without saying anything is not an answer either.
 export STATUS_BROKEN=silent
-assert_contains "mise daemons prune --yes 2>&1" 'cannot check'
+assert_contains "pakro daemons prune --yes 2>&1" 'cannot check'
 assert "test -f '$running_state'"
 unset STATUS_BROKEN
 
 # With nothing running any more, the same state prunes.
-mise daemons prune --yes
+pakro daemons prune --yes
 assert "test ! -f '$running_state'"
 unset SUPERVISOR_STATUS STOP_FAILS
 
@@ -529,38 +529,38 @@ unset SUPERVISOR_STATUS STOP_FAILS
 # that is up; a supervisor that is down cannot reach anything.
 mkdir -p "$HOME/forgotten"
 cd "$HOME/forgotten"
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons.db]
 run = "sleep 30"
 TOML
-mise daemons start
-forgotten_state=$(find "$MISE_STATE_DIR/daemons" -name state.json -exec jq -r --arg root "$PWD" 'select(.root == $root) | input_filename' {} +)
+pakro daemons start
+forgotten_state=$(find "$PAKRO_STATE_DIR/daemons" -name state.json -exec jq -r --arg root "$PWD" 'select(.root == $root) | input_filename' {} +)
 forgotten_id=$(jq -r '.ids[0]' "$forgotten_state")
 cd "$HOME"
 rm -rf "$HOME/forgotten"
 export UNKNOWN_ID="$forgotten_id"
-assert_contains "mise daemons prune --yes 2>&1" 'cannot check'
+assert_contains "pakro daemons prune --yes 2>&1" 'cannot check'
 assert "test -f '$forgotten_state'"
 
 # An I/O error can carry both a missing-file phrase and the daemon's short name
 # in a path, which is not pitchfork saying it has no such daemon.
 export STATUS_BROKEN=path SUPERVISOR_STATUS=up
-assert_contains "mise daemons prune --yes 2>&1" 'cannot check'
+assert_contains "pakro daemons prune --yes 2>&1" 'cannot check'
 assert "test -f '$forgotten_state'"
 unset STATUS_BROKEN SUPERVISOR_STATUS
 
 # With the supervisor up, the same answer is one pitchfork is able to give.
-SUPERVISOR_STATUS=up mise daemons prune --yes
+SUPERVISOR_STATUS=up pakro daemons prune --yes
 assert "test ! -f '$forgotten_state'"
 unset UNKNOWN_ID
 
 # port = "auto" keeps the base port in an ordinary checkout and moves it in a
-# linked worktree, and the resolved port must reach mise env, not pitchfork only.
+# linked worktree, and the resolved port must reach pakro env, not pitchfork only.
 mkdir -p "$HOME/auto-primary/.git"
 cd "$HOME/auto-primary"
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons.api]
@@ -573,8 +573,8 @@ preset = "postgres"
 version = "18"
 port = "auto"
 TOML
-assert_contains "mise env -s bash" "API_PORT=3000"
-assert_contains "mise env -s bash" "PGPORT=5432"
+assert_contains "pakro env -s bash" "API_PORT=3000"
+assert_contains "pakro env -s bash" "PGPORT=5432"
 
 # A linked worktree of that checkout gets its own ports.
 mkdir -p "$HOME/auto-primary/.git/worktrees/wt"
@@ -582,22 +582,22 @@ printf 'ref: refs/heads/main\n' >"$HOME/auto-primary/.git/HEAD"
 printf '../..\n' >"$HOME/auto-primary/.git/worktrees/wt/commondir"
 mkdir -p "$HOME/auto-wt"
 printf 'gitdir: %s\n' "$HOME/auto-primary/.git/worktrees/wt" >"$HOME/auto-wt/.git"
-cp mise.toml "$HOME/auto-wt/mise.toml"
+cp pakro.toml "$HOME/auto-wt/pakro.toml"
 cd "$HOME/auto-wt"
-wt_api=$(mise env -s bash | sed -n 's/^export API_PORT=//p' | tr -d "'\"")
-wt_pg=$(mise env -s bash | sed -n 's/^export PGPORT=//p' | tr -d "'\"")
+wt_api=$(pakro env -s bash | sed -n 's/^export API_PORT=//p' | tr -d "'\"")
+wt_pg=$(pakro env -s bash | sed -n 's/^export PGPORT=//p' | tr -d "'\"")
 assert "test -n '$wt_api' && test '$wt_api' != 3000"
 assert "test -n '$wt_pg' && test '$wt_pg' != 5432"
 # Stable across invocations, and the daemon listing reports the same port.
-assert "test \"\$(mise env -s bash | sed -n 's/^export API_PORT=//p' | tr -d \"'\\\"\")\" = '$wt_api'"
-assert_contains "mise daemons ls --json | jq -r '.[] | select(.name == \"api\") | .port'" "$wt_api"
-assert_contains "mise daemons ls --json | jq -r '.[] | select(.name == \"api\") | .port_auto'" "true"
+assert "test \"\$(pakro env -s bash | sed -n 's/^export API_PORT=//p' | tr -d \"'\\\"\")\" = '$wt_api'"
+assert_contains "pakro daemons ls --json | jq -r '.[] | select(.name == \"api\") | .port'" "$wt_api"
+assert_contains "pakro daemons ls --json | jq -r '.[] | select(.name == \"api\") | .port_auto'" "true"
 
 # Hostnames separate the same project's checkouts without moving a port, so an
 # HTTP service can be addressed by URL while a database keeps its port.
 mkdir -p "$HOME/url-shop/.git"
 cd "$HOME/url-shop"
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons_settings]
@@ -624,21 +624,21 @@ APP_BASE_URL = "{{ env.API_URL }}"
 TOML
 # The primary checkout has no worktree component; adding one would be a
 # hostname pitchfork cannot route.
-assert_contains "mise env -s bash" "API_URL='https://api.shop.localhost'"
-assert_contains "mise env -s bash" "APP_BASE_URL='https://api.shop.localhost'"
+assert_contains "pakro env -s bash" "API_URL='https://api.shop.localhost'"
+assert_contains "pakro env -s bash" "APP_BASE_URL='https://api.shop.localhost'"
 # A per-daemon label replaces only that daemon's own component.
-assert_contains "mise env -s bash" "WEB_URL='https://front.shop.localhost'"
+assert_contains "pakro env -s bash" "WEB_URL='https://front.shop.localhost'"
 # Pitchfork routes only a daemon that configures a port.
-assert_not_contains "mise env -s bash" "WORKER_URL="
+assert_not_contains "pakro env -s bash" "WORKER_URL="
 # A database is not an HTTP service, so the preset opts out and keeps its port.
-assert_not_contains "mise env -s bash" "DB_URL="
-assert_contains "mise env -s bash" "PGPORT=5432"
-assert_contains "mise daemons ls --json | jq -r '.[] | select(.name == \"api\") | .url'" "https://api.shop.localhost"
-assert_contains "mise daemons ls --json | jq -r '.[] | select(.name == \"db\") | .proxy'" "off"
-assert_contains "mise daemons ls --json | jq -r '.[] | select(.name == \"web\") | .proxy'" "passthrough"
-assert_contains "mise daemons ls --json | jq -r '.[] | select(.name == \"api\") | .proxy'" "terminate"
-assert_contains "mise daemons urls" "https://front.shop.localhost"
-assert_contains "mise daemons urls" "project: https://shop.localhost"
+assert_not_contains "pakro env -s bash" "DB_URL="
+assert_contains "pakro env -s bash" "PGPORT=5432"
+assert_contains "pakro daemons ls --json | jq -r '.[] | select(.name == \"api\") | .url'" "https://api.shop.localhost"
+assert_contains "pakro daemons ls --json | jq -r '.[] | select(.name == \"db\") | .proxy'" "off"
+assert_contains "pakro daemons ls --json | jq -r '.[] | select(.name == \"web\") | .proxy'" "passthrough"
+assert_contains "pakro daemons ls --json | jq -r '.[] | select(.name == \"api\") | .proxy'" "terminate"
+assert_contains "pakro daemons urls" "https://front.shop.localhost"
+assert_contains "pakro daemons urls" "project: https://shop.localhost"
 
 # A linked worktree serves the same daemons at its own hostnames.
 mkdir -p "$HOME/url-shop/.git/worktrees/wt"
@@ -646,15 +646,15 @@ printf 'ref: refs/heads/main\n' >"$HOME/url-shop/.git/HEAD"
 printf '../..\n' >"$HOME/url-shop/.git/worktrees/wt/commondir"
 mkdir -p "$HOME/url-shop-pr-42"
 printf 'gitdir: %s\n' "$HOME/url-shop/.git/worktrees/wt" >"$HOME/url-shop-pr-42/.git"
-cp mise.toml "$HOME/url-shop-pr-42/mise.toml"
+cp pakro.toml "$HOME/url-shop-pr-42/pakro.toml"
 cd "$HOME/url-shop-pr-42"
-assert_contains "mise env -s bash" "API_URL='https://api.url-shop-pr-42.shop.localhost'"
-# Pitchfork reads worktree_label from the checkout's own config, so mise does too.
+assert_contains "pakro env -s bash" "API_URL='https://api.url-shop-pr-42.shop.localhost'"
+# Pitchfork reads worktree_label from the checkout's own config, so pakro does too.
 printf 'worktree_label = "pr-42"\n' >pitchfork.toml
-assert_contains "mise env -s bash" "API_URL='https://api.pr-42.shop.localhost'"
-assert_contains "mise daemons urls" "stack:   https://pr-42.shop.localhost"
+assert_contains "pakro env -s bash" "API_URL='https://api.pr-42.shop.localhost'"
+assert_contains "pakro daemons urls" "stack:   https://pr-42.shop.localhost"
 # The generated pitchfork config carries what the proxy needs to route it.
-mise daemons start api
+pakro daemons start api
 generated="$(daemon_state_dir)/pitchfork.toml"
 assert_contains "cat '$generated'" 'proxy = "front"'
 assert_contains "cat '$generated'" 'proxy_tls = "passthrough"'
@@ -666,7 +666,7 @@ assert_contains "cat '$generated'" 'proxy = false'
 # Registration includes all local daemons, even outside the default group, and
 # prepares the complete dependency closure in an imported project's own scope.
 mkdir -p "$HOME/register/shared" "$HOME/register/app"
-cat >"$HOME/register/shared/mise.toml" <<'TOML'
+cat >"$HOME/register/shared/pakro.toml" <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons_settings]
@@ -677,7 +677,7 @@ run = "sleep 600"
 run = "sleep 600"
 depends = ["storage"]
 TOML
-cat >"$HOME/register/app/mise.toml" <<'TOML'
+cat >"$HOME/register/app/pakro.toml" <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons_settings]
@@ -693,10 +693,10 @@ run = "sleep 600"
 [daemon_groups]
 default = ["api"]
 TOML
-mise trust "$HOME/register/shared/mise.toml"
+pakro trust "$HOME/register/shared/pakro.toml"
 cd "$HOME/register/app"
 : >"$DAEMON_LOG"
-mise daemons register
+pakro daemons register
 assert_contains "cat '$DAEMON_LOG'" '--namespace register-shared'
 assert_contains "cat '$DAEMON_LOG'" '--namespace register-app'
 assert_not_contains "cat '$DAEMON_LOG'" 'args=start '

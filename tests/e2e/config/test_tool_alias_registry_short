@@ -8,7 +8,7 @@
 # when no such plugin exists (`llama = "llama.cpp"`).
 # See: https://github.com/jdx/mise/discussions/9316
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [tool_alias]
 myjq = "jq"
 llama = "llama.cpp"
@@ -17,28 +17,28 @@ mynode = "nodejs"
 mytool = "aqua:jqlang/jq"
 EOF
 
-# `mise tool` resolves the backend without listing versions, so this needs no
+# `pakro tool` resolves the backend without listing versions, so this needs no
 # network and cannot be satisfied by a cached listing. The backend it prints is
 # the whole point: before the fix `myjq` reported a bare `jq`, which is a tool
 # name rather than a backend, and `llama` failed to resolve at all.
-assert_contains "mise tool myjq" "aqua:jqlang/jq"
-assert_contains "mise tool llama" "github:ggml-org/llama.cpp"
+assert_contains "pakro tool myjq" "aqua:jqlang/jq"
+assert_contains "pakro tool llama" "github:ggml-org/llama.cpp"
 
 # Resolving the backend is only half of it. Options, version order and OS
 # support all key on a registry short, and `llama` is not one -- so without
 # carrying the resolved key into those lookups the alias would install the right
 # tool and then misread every version of it. `llama.cpp` exists in the registry
 # precisely because of its non-standard versioning, which is what this pins.
-assert_contains "mise tool llama" 'version_prefix=String("b")'
+assert_contains "pakro tool llama" 'version_prefix=String("b")'
 
 # A legacy spelling still finds its canonical entry.
-assert_contains "mise tool mynode" "core:node"
+assert_contains "pakro tool mynode" "core:node"
 
 # A value the registry does not know keeps its current meaning, so anyone whose
 # alias names a plugin rather than a tool is unaffected. Matching the message
 # rather than just a nonzero exit: a bare `assert_fail` would stay green if this
 # started failing through some unrelated path.
-assert_fail_contains "mise tool notatool" "not found in mise tool registry"
+assert_fail_contains "pakro tool notatool" "not found in pakro tool registry"
 
 # An explicit backend is passed through untouched.
-assert_contains "mise tool mytool" "aqua:jqlang/jq"
+assert_contains "pakro tool mytool" "aqua:jqlang/jq"

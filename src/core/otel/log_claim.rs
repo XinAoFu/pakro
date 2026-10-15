@@ -1,22 +1,22 @@
-//! Hand-off of OTLP log export between nested `mise run` invocations.
+//! Hand-off of OTLP log export between nested `pakro run` invocations.
 //!
 //! A task's stdout/stderr is piped through this process, so when that task
-//! shells out to `mise run`, the inner run's output flows up through our pipe
+//! shells out to `pakro run`, the inner run's output flows up through our pipe
 //! too. Both processes would then export the same lines: the inner run
 //! attributed to its own task spans, and this one attributed to the outer
 //! task's span.
 //!
 //! The inner run is the more precise reporter, so it wins. Before spawning a
-//! task we hand it a claim directory; a nested `mise run` that exports its own
+//! task we hand it a claim directory; a nested `pakro run` that exports its own
 //! task logs creates a file named after its pid there for as long as it lives,
 //! and we skip forwarding while any such file belongs to a live process. Each
 //! nested run owns its own file, so concurrent nested runs
-//! (`mise run a & mise run b &`) keep the stream claimed until the last one
+//! (`pakro run a & pakro run b &`) keep the stream claimed until the last one
 //! exits. Sequential nested runs hand the stream back and forth, so output the
 //! outer task writes itself is still exported by us:
 //!
 //! ```text
-//! run = "echo building; mise run inner; echo done"
+//! run = "echo building; pakro run inner; echo done"
 //!         └─ outer span    └─ inner span   └─ outer span
 //! ```
 //!
@@ -26,10 +26,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// Env var naming the claim directory a nested `mise run` registers in while
+/// Env var naming the claim directory a nested `pakro run` registers in while
 /// it is exporting its own task logs. Set on task subprocesses only when this
 /// process is actually capturing their output.
-pub(crate) const LOG_CLAIM_ENV: &str = "MISE_TASK_OTEL_LOG_CLAIM";
+pub(crate) const LOG_CLAIM_ENV: &str = "PAKRO_TASK_OTEL_LOG_CLAIM";
 
 /// Parent side: the claim directory handed to a task's subprocess.
 #[derive(Clone, Debug)]
@@ -46,7 +46,7 @@ impl LogClaimWatcher {
         &self.dir
     }
 
-    /// Whether a live nested `mise run` currently owns the stream.
+    /// Whether a live nested `pakro run` currently owns the stream.
     ///
     /// Checked per forwarded line, which is what lets the outer task resume
     /// exporting the moment the nested run finishes. When no claim exists —
@@ -138,7 +138,7 @@ pub(crate) struct LogClaim {
 }
 
 impl LogClaim {
-    /// Claim the stream if an ancestor `mise` handed us a claim directory.
+    /// Claim the stream if an ancestor `pakro` handed us a claim directory.
     ///
     /// Only call this when we will actually export our own task logs —
     /// claiming without exporting would drop the lines on both sides.
@@ -216,7 +216,7 @@ mod tests {
     fn concurrent_claims_hold_the_stream_until_the_last_is_released() {
         let dir = tempfile::tempdir().unwrap();
         let watcher = LogClaimWatcher::new(dir.path().to_path_buf());
-        // `mise run a & mise run b &`: two live nested runs under one task.
+        // `pakro run a & pakro run b &`: two live nested runs under one task.
         let mut other = std::process::Command::new("sleep")
             .arg("30")
             .spawn()

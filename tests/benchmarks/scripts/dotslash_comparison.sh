@@ -5,7 +5,7 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 cd "$repo_root"
 
-echo "🚀 Node.js Performance Comparison: Direct vs mise vs DotSlash"
+echo "🚀 Node.js Performance Comparison: Direct vs pakro vs DotSlash"
 echo "=============================================================="
 
 cargo b --profile=release
@@ -13,12 +13,12 @@ cargo b --profile=release
 # Create temporary directory for the test
 TEMP_DIR=$(mktemp -d)
 echo "📁 Working in temporary directory: $TEMP_DIR"
-cp target/release/mise "$TEMP_DIR"
+cp target/release/pakro "$TEMP_DIR"
 cd "$TEMP_DIR"
 PATH="$TEMP_DIR:$PATH"
 
-# Set up mise config for dependencies
-cat >.mise.toml <<'EOF'
+# Set up pakro config for dependencies
+cat >.pakro.toml <<'EOF'
 [tools]
 hyperfine = "latest"
 "ubi:facebook/dotslash" = "latest"
@@ -26,12 +26,12 @@ node = "20.0.0"
 EOF
 
 echo "📦 Installing dependencies..."
-mise install
+pakro install
 
 # Add tools to PATH
-PATH="$(mise where hyperfine)/bin:$PATH"
-PATH="$(mise where ubi:facebook/dotslash):$PATH"
-PATH="$(mise where node)/bin:$PATH"
+PATH="$(pakro where hyperfine)/bin:$PATH"
+PATH="$(pakro where ubi:facebook/dotslash):$PATH"
+PATH="$(pakro where node)/bin:$PATH"
 
 # Verify installations
 echo "🔍 Verifying installations..."
@@ -46,18 +46,18 @@ mkdir -p bin
 DIRECT_NODE_PATH="$(which node)"
 echo "🎯 Direct Node.js path: $DIRECT_NODE_PATH"
 
-# Create mise tool stub
-cat >bin/node-mise <<'EOF'
-#!/usr/bin/env -S mise tool-stub
+# Create pakro tool stub
+cat >bin/node-pakro <<'EOF'
+#!/usr/bin/env -S pakro tool-stub
 version = "20.0.0"
 tool = "node"
 bin = "node"
 EOF
-chmod +x bin/node-mise
+chmod +x bin/node-pakro
 
-# Test mise tool stub works
-echo "📋 Testing mise tool stub..."
-./bin/node-mise --version
+# Test pakro tool stub works
+echo "📋 Testing pakro tool stub..."
+./bin/node-pakro --version
 
 # Create DotSlash shim
 cat >bin/node-dotslash <<'EOF'
@@ -109,7 +109,7 @@ hyperfine \
 	--export-markdown results.md \
 	--export-json results.json \
 	--command-name "Direct Node.js" "$DIRECT_NODE_PATH --version" \
-	--command-name "Mise Shim" "./bin/node-mise --version" \
+	--command-name "Pakro Shim" "./bin/node-pakro --version" \
 	--command-name "DotSlash Shim" "./bin/node-dotslash --version"
 
 echo ""
@@ -122,21 +122,21 @@ if command -v jq &>/dev/null && command -v bc &>/dev/null; then
 	echo "📊 Overhead Analysis:"
 
 	direct_time=$(jq -r '.results[0].mean' results.json)
-	mise_time=$(jq -r '.results[1].mean' results.json)
+	pakro_time=$(jq -r '.results[1].mean' results.json)
 	dotslash_time=$(jq -r '.results[2].mean' results.json)
 
-	mise_overhead=$(echo "scale=1; ($mise_time - $direct_time) / $direct_time * 100" | bc)
+	pakro_overhead=$(echo "scale=1; ($pakro_time - $direct_time) / $direct_time * 100" | bc)
 	dotslash_overhead=$(echo "scale=1; ($dotslash_time - $direct_time) / $direct_time * 100" | bc)
 
 	echo "  Direct Node.js:     ${direct_time}s (baseline)"
-	echo "  Mise overhead:      +${mise_overhead}%"
+	echo "  Pakro overhead:      +${pakro_overhead}%"
 	echo "  DotSlash overhead:  +${dotslash_overhead}%"
 
 	# File sizes
 	echo ""
 	echo "📝 File Sizes:"
 	echo "  Direct Node.js:     $(du -h "$DIRECT_NODE_PATH" | cut -f1)"
-	echo "  Mise shim:          $(du -h bin/node-mise | cut -f1)"
+	echo "  Pakro shim:          $(du -h bin/node-pakro | cut -f1)"
 	echo "  DotSlash shim:      $(du -h bin/node-dotslash | cut -f1)"
 fi
 

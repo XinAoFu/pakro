@@ -2,7 +2,7 @@ use eyre::{Result, bail};
 
 use super::{display_arg, local_time, short};
 use crate::system::history::journal;
-use crate::ui::table::MiseTable;
+use crate::ui::table::PakroTable;
 
 /// Show one checkpoint: what triggered it, what changed, and its journal
 #[derive(Debug, usage_rs::Args)]
@@ -35,31 +35,31 @@ impl HistoryShow {
             path.as_deref(),
         )?;
         if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&entry)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&entry)?);
             return Ok(());
         }
         let c = &entry.checkpoint;
-        miseprintln!("Checkpoint {} ({})", entry.id, c.trigger.as_str());
-        miseprintln!("  Description: {}", c.description);
-        miseprintln!("  When:        {}", local_time(&c.created_at));
-        miseprintln!("  UUID:        {}", c.uuid);
-        miseprintln!("  Machine:     {}", c.machine.name);
+        pakroprintln!("Checkpoint {} ({})", entry.id, c.trigger.as_str());
+        pakroprintln!("  Description: {}", c.description);
+        pakroprintln!("  When:        {}", local_time(&c.created_at));
+        pakroprintln!("  UUID:        {}", c.uuid);
+        pakroprintln!("  Machine:     {}", c.machine.name);
         if !c.labels.is_empty() {
-            miseprintln!("  Labels:      {}", c.labels.join(", "));
+            pakroprintln!("  Labels:      {}", c.labels.join(", "));
         }
         if let Some(operation) = &c.operation {
-            miseprintln!(
+            pakroprintln!(
                 "  Operation:   {} ({})",
                 operation.kind.as_str(),
                 operation.status.as_str()
             );
-            miseprintln!("  Command:     mise {}", operation.command);
+            pakroprintln!("  Command:     pakro {}", operation.command);
             if let Some(before) = &operation.before
                 && let Some(before) = entries
                     .iter()
                     .find(|entry| &entry.checkpoint.uuid == before)
             {
-                miseprintln!("  Before:      checkpoint {}", before.id);
+                pakroprintln!("  Before:      checkpoint {}", before.id);
             }
             for source in &operation.sources {
                 let label = entries
@@ -69,17 +69,17 @@ impl HistoryShow {
                     .unwrap_or_else(|| {
                         format!("checkpoint {} (unavailable)", short(&source.checkpoint))
                     });
-                miseprintln!("  Source:      {label}: {}", source.paths.join(", "));
+                pakroprintln!("  Source:      {label}: {}", source.paths.join(", "));
             }
             if let Some(message) = &operation.message {
-                miseprintln!("  Note:        {message}");
+                pakroprintln!("  Note:        {message}");
             }
             if let Some(error) = &operation.error {
-                miseprintln!("  Error:       {error}");
+                pakroprintln!("  Error:       {error}");
             }
         }
         if c.tree.available {
-            miseprintln!(
+            pakroprintln!(
                 "  Snapshot:    {} ({} files)",
                 c.tree
                     .snapshot
@@ -89,32 +89,32 @@ impl HistoryShow {
                 c.tree.roots.iter().map(|root| root.files).sum::<u64>()
             );
         } else {
-            miseprintln!(
+            pakroprintln!(
                 "  Snapshot:    unavailable ({})",
                 c.tree.reason.as_deref().unwrap_or("unknown reason")
             );
         }
         let changes = &c.changes;
         if !changes.is_empty() {
-            miseprintln!("");
-            miseprintln!("Changes since the previous checkpoint:");
+            pakroprintln!("");
+            pakroprintln!("Changes since the previous checkpoint:");
             for path in &changes.modified {
-                miseprintln!("  M {path}");
+                pakroprintln!("  M {path}");
             }
             for path in &changes.added {
-                miseprintln!("  A {path}");
+                pakroprintln!("  A {path}");
             }
             for path in &changes.removed {
-                miseprintln!("  D {path}");
+                pakroprintln!("  D {path}");
             }
             if changes.truncated {
-                miseprintln!("  … (list truncated)");
+                pakroprintln!("  … (list truncated)");
             }
         }
         let coverage = &c.tree.coverage;
         if !coverage.entries.is_empty() {
-            miseprintln!("");
-            let mut table = MiseTable::new(false, &["Tracked", "Mode", "Policy", "State"]);
+            pakroprintln!("");
+            let mut table = PakroTable::new(false, &["Tracked", "Mode", "Policy", "State"]);
             for entry in &coverage.entries {
                 table.add_row(vec![
                     entry.path.clone(),
@@ -136,41 +136,41 @@ impl HistoryShow {
             // word — `include = []` and `include = ["none"]` are
             // different selections and must not read the same to
             // someone auditing a checkpoint. Patterns print bare, here
-            // and in `mise dot paths`, so a parenthesised phrase is
+            // and in `pakro dot paths`, so a parenthesised phrase is
             // plainly a statement about the list rather than a member
             // of it.
             for entry in &coverage.entries {
                 if let Some(include) = &entry.include {
                     match include.is_empty() {
-                        true => miseprintln!("  include ({}): (selects nothing)", entry.path),
+                        true => pakroprintln!("  include ({}): (selects nothing)", entry.path),
                         false => {
                             for glob in include {
-                                miseprintln!("  include ({}): {glob}", entry.path);
+                                pakroprintln!("  include ({}): {glob}", entry.path);
                             }
                         }
                     }
                 }
                 for glob in entry.exclude.iter().flatten() {
-                    miseprintln!("  exclude ({}): {glob}", entry.path);
+                    pakroprintln!("  exclude ({}): {glob}", entry.path);
                 }
             }
         }
         for omitted in &coverage.omitted {
-            miseprintln!("  omitted: {} ({})", omitted.path, omitted.reason);
+            pakroprintln!("  omitted: {} ({})", omitted.path, omitted.reason);
         }
         for nested in &coverage.nested {
-            miseprintln!("  nested: {} ({})", nested.path, nested.reason);
+            pakroprintln!("  nested: {} ({})", nested.path, nested.reason);
         }
         for incomplete in &coverage.incomplete {
-            miseprintln!("  incomplete: {} ({})", incomplete.path, incomplete.reason);
+            pakroprintln!("  incomplete: {} ({})", incomplete.path, incomplete.reason);
         }
         if let Some(operation) = &c.operation
             && !operation.journal.is_empty()
         {
-            miseprintln!("");
-            miseprintln!("Journal:");
+            pakroprintln!("");
+            pakroprintln!("Journal:");
             for line in journal::render(&operation.journal) {
-                miseprintln!("  - {line}");
+                pakroprintln!("  - {line}");
             }
         }
         if self.files {
@@ -180,11 +180,11 @@ impl HistoryShow {
             let Some(repo) = store.repo() else {
                 bail!("listing snapshot files requires git");
             };
-            miseprintln!("");
-            miseprintln!("Files:");
+            pakroprintln!("");
+            pakroprintln!("Files:");
             for file in repo.ls_tree(tree)? {
                 let size = file.size.map(|size| size.to_string()).unwrap_or_default();
-                miseprintln!(
+                pakroprintln!(
                     "  {} {:>8} {}",
                     file.mode,
                     size,

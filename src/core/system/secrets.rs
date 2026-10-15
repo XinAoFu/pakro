@@ -84,7 +84,7 @@ pub struct SecretValues {
 
 #[derive(Debug, thiserror::Error)]
 #[error(
-    "required bootstrap secrets are unavailable: {details}. Supply them in the environment (for example, `fnox exec -- mise bootstrap ...`) or pass --prompt-secrets"
+    "required bootstrap secrets are unavailable: {details}. Supply them in the environment (for example, `fnox exec -- pakro bootstrap ...`) or pass --prompt-secrets"
 )]
 struct SecretUnavailable {
     details: String,
@@ -538,7 +538,7 @@ mod tests {
                     name.clone(),
                     SecretDeclaration {
                         name: name.clone(),
-                        env: "MISE_TEST_UNAVAILABLE_SECRET".to_string(),
+                        env: "PAKRO_TEST_UNAVAILABLE_SECRET".to_string(),
                         description: None,
                         allow_empty: false,
                     },

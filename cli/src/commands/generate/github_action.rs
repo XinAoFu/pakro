@@ -5,7 +5,7 @@ use crate::git::Git;
 
 /// Generate a GitHub Action workflow file
 ///
-/// This command generates a GitHub Action workflow file that runs a mise task like `mise run ci`
+/// This command generates a GitHub Action workflow file that runs a pakro task like `pakro run ci`
 /// on pull requests, tags, manual dispatch, and pushes to the current Git branch.
 /// Prints YAML by default; `--write` saves it under .github/workflows. Define
 /// the selected task and review the generated triggers before committing.
@@ -13,8 +13,8 @@ use crate::git::Git;
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise generate github-action --task=ci
-mise generate github-action --write --task=ci
+        r###"pakro generate github-action --task=ci
+pakro generate github-action --write --task=ci
 git add .github/workflows/ci.yml"###,
         help = r###"Preview before writing the workflow"###
     )
@@ -39,9 +39,9 @@ impl GithubAction {
                 .join(".github/workflows")
                 .join(format!("{}.yml", self.name));
             file::write(&path, &output)?;
-            miseprintln!("Wrote to {}", display_path(&path));
+            pakroprintln!("Wrote to {}", display_path(&path));
         } else {
-            miseprintln!("{output}");
+            pakroprintln!("{output}");
         }
         Ok(())
     }
@@ -65,7 +65,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  MISE_EXPERIMENTAL: true
+  PAKRO_EXPERIMENTAL: true
 
 jobs:
   {name}:
@@ -74,7 +74,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: jdx/mise-action@v3
-      - run: mise run {task}
+      - run: pakro run {task}
 "#
         ))
     }

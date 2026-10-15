@@ -7,7 +7,7 @@ use crate::toolset::install_state;
 
 /// List all available remote plugins
 #[derive(Debug, usage_rs::Args)]
-#[usage(visible_aliases = ["list-remote", "list-all"], long_about = LONG_ABOUT, example(r###"mise plugins ls-remote"###), verbatim_doc_comment)]
+#[usage(visible_aliases = ["list-remote", "list-all"], long_about = LONG_ABOUT, example(r###"pakro plugins ls-remote"###), verbatim_doc_comment)]
 pub(super) struct PluginsLsRemote {
     /// Show the git url for each plugin, e.g. https://github.com/mise-plugins/mise-poetry.git
     #[usage(short, long)]
@@ -43,7 +43,7 @@ impl PluginsLsRemote {
                     };
                 let url = if self.urls { repo } else { "" };
                 let plugin = pad_str(plugin, max_plugin_len, Alignment::Left, None);
-                miseprintln!("{} {}{}", plugin, installed, url);
+                pakroprintln!("{} {}{}", plugin, installed, url);
             }
         }
 

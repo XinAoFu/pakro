@@ -1,8 +1,8 @@
 FROM ubuntu:resolute-20260912@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78
 
 LABEL maintainer="jdx"
-LABEL org.opencontainers.image.source=https://github.com/jdx/mise
-LABEL org.opencontainers.image.description="mise e2e test environment"
+LABEL org.opencontainers.image.title="pakro test environment"
+LABEL org.opencontainers.image.description="pakro e2e test environment"
 LABEL org.opencontainers.image.licenses=MIT
 
 ENV DEBIAN_FRONTEND=noninteractive

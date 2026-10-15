@@ -1,32 +1,32 @@
-use crate::config::config_file::mise_toml::MiseToml;
+use crate::config::config_file::pakro_toml::PakroToml;
 use crate::config::settings::{SETTINGS_META, SettingsType};
 use crate::file::display_path;
 use crate::toml::dedup_toml_array;
 use eyre::bail;
 use std::path::PathBuf;
 
-/// Set a value in one mise TOML file
+/// Set a value in one pakro TOML file
 ///
 /// Edits the highest-precedence loaded TOML file by default, which may be an
 /// environment-specific override. Use `--file` to select an existing project file,
 /// or `--global`/`--system` to edit or create those config files.
 ///
-/// This edits configuration without installing tools. Use `mise use` to install and
+/// This edits configuration without installing tools. Use `pakro use` to install and
 /// select a version together. Known settings use their declared type; other values
 /// are strings or booleans unless `--type` is given. Use `--type string` when a value
 /// such as `true` should remain literal text.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     example(
-        r###"mise config set tools.python 3.12
-mise config set settings.always_keep_download true
-mise config set env.TEST_ENV_VAR ABC
-mise config set settings.disable_tools node,rust
-mise config set --append env._.path ~/.local/bin
-mise config set --remove env._.path ~/.local/bin"###
+        r###"pakro config set tools.python 3.12
+pakro config set settings.always_keep_download true
+pakro config set env.TEST_ENV_VAR ABC
+pakro config set settings.disable_tools node,rust
+pakro config set --append env._.path ~/.local/bin
+pakro config set --remove env._.path ~/.local/bin"###
     ),
     example(
-        r###"mise config set settings.jobs 4"###,
+        r###"pakro config set settings.jobs 4"###,
         help = r###"Type for `settings` is inferred"###
     ),
     verbatim_doc_comment
@@ -39,7 +39,7 @@ pub(super) struct ConfigSet {
     /// The value to set the key to (optional if provided as KEY=VALUE)
     pub value: Option<String>,
 
-    /// The path to the mise.toml file to edit
+    /// The path to the pakro.toml file to edit
     ///
     /// Can be a file path or directory. If a directory is provided, the config file in that directory is used.
     ///
@@ -100,7 +100,7 @@ impl ConfigSet {
             None => {
                 let (k, v) = self.key.split_once('=').ok_or_else(|| {
                     eyre::eyre!(
-                        "Usage: mise config set <KEY>=<VALUE> or mise config set <KEY> <VALUE>"
+                        "Usage: pakro config set <KEY>=<VALUE> or pakro config set <KEY> <VALUE>"
                     )
                 })?;
                 (k.to_string(), v.to_string())
@@ -108,7 +108,7 @@ impl ConfigSet {
         };
         let file = super::target_file(self.file, self.global, self.system)?;
         let Some(file) = file else {
-            bail!("No mise.toml file found");
+            bail!("No pakro.toml file found");
         };
         if !file.to_string_lossy().ends_with(".toml") {
             bail!(
@@ -227,7 +227,7 @@ impl ConfigSet {
         }
 
         let raw = config.to_string();
-        MiseToml::from_str(&raw, &file)?;
+        PakroToml::from_str(&raw, &file)?;
         if let Some(parent) = file.parent() {
             std::fs::create_dir_all(parent)?;
         }

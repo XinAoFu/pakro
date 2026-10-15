@@ -14,71 +14,71 @@ EOF
 chmod +x "$fake_bin/mbx" "$fake_bin/cargo"
 export PATH="$fake_bin:$PATH"
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [wrappers.cargo]
 command = "mbx"
 env = { MBX_CARGO_SHIM_MODE = "1" }
 EOF
 
-mise reshim
-assert_contains "mise hook-env -s bash --force" "$MISE_DATA_DIR/command-wrappers/bin"
-assert_contains "mise activate bash --shims" "$MISE_DATA_DIR/command-wrappers/bin"
-eval "$(mise activate bash --shims)"
-eval "$(mise activate bash --shims)"
-assert "printf '%s\n' \"\$PATH\" | tr ':' '\n' | grep -cx '$MISE_DATA_DIR/command-wrappers/bin'" "1"
-assert "printf '%s\n' \"\$PATH\" | tr ':' '\n' | grep -cx '$MISE_DATA_DIR/shims'" "1"
-assert "mise x -- cargo check" "mbx:1
+pakro reshim
+assert_contains "pakro hook-env -s bash --force" "$PAKRO_DATA_DIR/command-wrappers/bin"
+assert_contains "pakro activate bash --shims" "$PAKRO_DATA_DIR/command-wrappers/bin"
+eval "$(pakro activate bash --shims)"
+eval "$(pakro activate bash --shims)"
+assert "printf '%s\n' \"\$PATH\" | tr ':' '\n' | grep -cx '$PAKRO_DATA_DIR/command-wrappers/bin'" "1"
+assert "printf '%s\n' \"\$PATH\" | tr ':' '\n' | grep -cx '$PAKRO_DATA_DIR/shims'" "1"
+assert "pakro x -- cargo check" "mbx:1
 system-cargo"
 assert "cargo check" "mbx:1
 system-cargo"
 
-# Windows exe- and file-mode shims do not run mise as cargo. They run
-# `mise x -- cargo` with __MISE_SHIM_PATH naming themselves, which used to skip
+# Windows exe- and file-mode shims do not run pakro as cargo. They run
+# `pakro x -- cargo` with __PAKRO_SHIM_PATH naming themselves, which used to skip
 # the wrapper's own shim as the active one and run the real cargo (#13671).
-assert "__MISE_SHIM_PATH='$MISE_DATA_DIR/command-wrappers/bin/cargo' mise x -- cargo check" "mbx:1
+assert "__PAKRO_SHIM_PATH='$PAKRO_DATA_DIR/command-wrappers/bin/cargo' pakro x -- cargo check" "mbx:1
 system-cargo"
-assert "__MISE_SHIM_PATH='$MISE_DATA_DIR/shims/cargo' mise x -- cargo check" "mbx:1
+assert "__PAKRO_SHIM_PATH='$PAKRO_DATA_DIR/shims/cargo' pakro x -- cargo check" "mbx:1
 system-cargo"
 
 # Disabling tool shim activation preserves configured wrappers.
-export MISE_ACTIVATE_SHIMS=false
-eval "$(mise activate bash --no-hook-env)"
-eval "$(mise hook-env -s bash --force)"
+export PAKRO_ACTIVATE_SHIMS=false
+eval "$(pakro activate bash --no-hook-env)"
+eval "$(pakro hook-env -s bash --force)"
 case ":$PATH:" in
-  *":$MISE_DATA_DIR/shims:"*) exit 1 ;;
+  *":$PAKRO_DATA_DIR/shims:"*) exit 1 ;;
 esac
 assert "cargo check" "mbx:1
 system-cargo"
-unset MISE_ACTIVATE_SHIMS
+unset PAKRO_ACTIVATE_SHIMS
 
-mise install dummy@1.0.0
-managed_bin="$MISE_DATA_DIR/installs/dummy/1.0.0/bin"
+pakro install dummy@1.0.0
+managed_bin="$PAKRO_DATA_DIR/installs/dummy/1.0.0/bin"
 cat >"$managed_bin/cargo" <<'EOF'
 #!/usr/bin/env bash
 echo managed-cargo
 EOF
 chmod +x "$managed_bin/cargo"
-cat >>mise.toml <<'EOF'
+cat >>pakro.toml <<'EOF'
 
 [tools]
 dummy = "1.0.0"
 EOF
 
-mise reshim
-assert "mise x -- cargo check" "mbx:1
+pakro reshim
+assert "pakro x -- cargo check" "mbx:1
 managed-cargo"
 assert "cargo check" "mbx:1
 managed-cargo"
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [wrappers]
 cargo = "mbx"
 EOF
-mise reshim
+pakro reshim
 assert "cargo check" "mbx:
 system-cargo"
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [wrappers.cargo]
 command = "mbx"
 args = ["--fixed"]
@@ -88,25 +88,25 @@ cat >"$fake_bin/mbx" <<'EOF'
 echo "$*"
 EOF
 chmod +x "$fake_bin/mbx"
-mise reshim
+pakro reshim
 assert "cargo check" "--fixed check"
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [wrappers]
 other = "mbx"
 EOF
-mise reshim
-assert_fail "test -e '$MISE_DATA_DIR/command-wrappers/bin/cargo'"
+pakro reshim
+assert_fail "test -e '$PAKRO_DATA_DIR/command-wrappers/bin/cargo'"
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [wrappers]
 cargo = " "
 EOF
-assert_fail "mise reshim" "must have a non-blank command"
+assert_fail "pakro reshim" "must have a non-blank command"
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [tools]
 dummy = "1.0.0"
 EOF
-mise reshim
-assert_fail "test -e '$MISE_DATA_DIR/command-wrappers/bin'"
+pakro reshim
+assert_fail "test -e '$PAKRO_DATA_DIR/command-wrappers/bin'"

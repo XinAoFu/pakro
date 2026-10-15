@@ -4,7 +4,7 @@
 # Reproduces issue: https://github.com/jdx/mise/discussions/6716
 
 # Setup global config with a task that uses dir="{{cwd}}"
-cat >~/.config/mise/config.toml <<EOF
+cat >~/.config/pakro/config.toml <<EOF
 [tasks.test-global-task]
 description = "Test task defined in global config with dir={{cwd}}"
 dir = "{{cwd}}"
@@ -18,8 +18,8 @@ EOF
 PROJECT_DIR="$PWD/test-project"
 mkdir -p "$PROJECT_DIR"
 
-# Project-level mise config with env vars
-cat >"$PROJECT_DIR/mise.toml" <<EOF
+# Project-level pakro config with env vars
+cat >"$PROJECT_DIR/pakro.toml" <<EOF
 [env]
 PROJECT_VAR = "project-value"
 GLOBAL_VAR = "overridden-by-project"
@@ -29,10 +29,10 @@ EOF
 cd "$PROJECT_DIR"
 
 # Mark the project directory as trusted
-mise trust
+pakro trust
 
 # Run the global task from the project directory
 # The task should inherit PROJECT_VAR and the overridden GLOBAL_VAR from the project config
 # The task should use the project-level env vars since dir="{{cwd}}" means it runs in the project context
-assert_contains "mise run test-global-task" "PROJECT_VAR: project-value"
-assert_contains "mise run test-global-task" "GLOBAL_VAR: overridden-by-project"
+assert_contains "pakro run test-global-task" "PROJECT_VAR: project-value"
+assert_contains "pakro run test-global-task" "GLOBAL_VAR: overridden-by-project"

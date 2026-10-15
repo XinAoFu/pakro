@@ -2,8 +2,8 @@
 # Test rename_exe with archives that have a bin/ subdirectory structure
 # Regression test: rename_exe should auto-detect bin/ when bin_path is not set
 
-export MISE_EXPERIMENTAL=1
-export MISE_GPG_VERIFY=false
+export PAKRO_EXPERIMENTAL=1
+export PAKRO_GPG_VERIFY=false
 
 # The tiny archive (e.g., tiny-2.0.0-linux-x64.tar.gz) contains:
 #   tiny-2.0.0/bin/tiny
@@ -11,10 +11,10 @@ export MISE_GPG_VERIFY=false
 #   install_path/bin/tiny
 # rename_exe should find the binary inside bin/ automatically
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools]
 "github:jdx/tiny" = { version = "2.0.0", rename_exe = "my-tiny" }
 EOF
 
-mise install
-assert_contains "mise x -- my-tiny" "tiny v2."
+pakro install
+assert_contains "pakro x -- my-tiny" "tiny v2."

@@ -25,7 +25,7 @@ use crate::{
     cache::{CacheManager, CacheManagerBuilder},
 };
 use crate::{
-    backend::{self, Backend, MISE_BINS_DIR, strict_metadata},
+    backend::{self, Backend, PAKRO_BINS_DIR, strict_metadata},
     config::Config,
 };
 use crate::{file, github, minisign};
@@ -307,7 +307,7 @@ impl Backend for AquaBackend {
             Err(_) => return vec![],
         };
 
-        // Release assets inform only the checksum entry: mise can verify the
+        // Release assets inform only the checksum entry: pakro can verify the
         // GitHub API digest even without checksum config.
         let release_assets = if !pkg.repo_owner.is_empty() && !pkg.repo_name.is_empty() {
             let repo = format!("{}/{}", pkg.repo_owner, pkg.repo_name);
@@ -614,16 +614,16 @@ impl Backend for AquaBackend {
         tv: &ToolVersion,
     ) -> Result<Vec<PathBuf>> {
         let runtime_path = tv.runtime_path();
-        let mise_bins_dir = tv.install_path().join(MISE_BINS_DIR);
+        let pakro_bins_dir = tv.install_path().join(PAKRO_BINS_DIR);
         let request_options = tv.request.options();
         let opts = AquaOptions::new(&request_options);
-        if opts.symlink_bins() || mise_bins_dir.is_dir() {
-            return Ok(vec![runtime_path.join(MISE_BINS_DIR)]);
+        if opts.symlink_bins() || pakro_bins_dir.is_dir() {
+            return Ok(vec![runtime_path.join(PAKRO_BINS_DIR)]);
         }
 
         let install_path = tv.install_path();
 
-        // For linked versions (external symlinks created via `mise link`),
+        // For linked versions (external symlinks created via `pakro link`),
         // skip aqua registry lookup — the linked install has its own layout.
         if let Ok(Some(target)) = file::resolve_symlink(&install_path)
             && target.is_absolute()
@@ -643,7 +643,7 @@ impl Backend for AquaBackend {
             // must not be trusted. No filename version bump is needed for that:
             // `CacheManagerBuilder` folds `built_info::PKG_VERSION` into the cache
             // key, so old caches are ignored automatically once this ships in a
-            // new mise version.
+            // new pakro version.
             CacheManagerBuilder::new(tv.cache_path().join("bin_paths.msgpack.z"))
                 .with_fresh_file(install_path.clone())
                 .with_fresh_duration(Settings::get().fetch_remote_versions_cache())
@@ -1165,7 +1165,7 @@ impl AquaBackend {
     ///
     /// A musl platform that nothing asked for explicitly keeps the registry's names: aqua
     /// registries list the builds that exist, and a tool whose entry names only a gnu build
-    /// has no musl build for mise to invent. The tool's `libc` option and `libc = "musl"` in
+    /// has no musl build for pakro to invent. The tool's `libc` option and `libc = "musl"` in
     /// settings are explicit, so they still select the musl build.
     fn asset_libc(target: &PlatformTarget, tool_libc: Option<&str>) -> Option<String> {
         let libc = Self::target_libc(target, tool_libc)?;
@@ -1306,10 +1306,10 @@ impl AquaBackend {
         pkg.with_var_values(var_values)
     }
 
-    /// Security checks mise performs when installing `pkg`, across the base
+    /// Security checks pakro performs when installing `pkg`, across the base
     /// package and every version override.
     ///
-    /// Provenance and signatures come from registry config only, because mise
+    /// Provenance and signatures come from registry config only, because pakro
     /// verifies nothing else: a `.sig` or `.intoto.jsonl` release asset without
     /// matching config is never checked.
     fn security_features(
@@ -1546,17 +1546,17 @@ impl AquaBackend {
     }
 
     /// A scratch directory for the lock-time artifact download, under
-    /// `MISE_CACHE_DIR/lock-provenance`.
+    /// `PAKRO_CACHE_DIR/lock-provenance`.
     ///
     /// Deliberately not `TEMP`. A lockfile is a committed artifact, so its contents must not
     /// depend on where a machine happens to point `TEMP` — and they did: on Windows a `TEMP`
     /// deep enough to push this download past `MAX_PATH` made the download fail, which drops
     /// `provenance` for the current platform from the generated lockfile.
     ///
-    /// Deliberately not `MISE_DOWNLOADS_DIR` either, though that is where install puts the same
+    /// Deliberately not `PAKRO_DOWNLOADS_DIR` either, though that is where install puts the same
     /// artifact. This copy is verified and thrown away, never reused, and `TempDir` cleanup is
     /// best-effort: a crash or a failed delete strands a randomly named directory. At the root of
-    /// the persistent downloads directory nothing would ever collect it — not `mise cache clear`,
+    /// the persistent downloads directory nothing would ever collect it — not `pakro cache clear`,
     /// not the per-tool download cleanup. Under a named directory in the cache, ordinary cache
     /// clearing sweeps it up.
     fn lock_time_download_dir() -> Result<tempfile::TempDir> {
@@ -1568,13 +1568,13 @@ impl AquaBackend {
     /// A note about the scratch directory's length, appended when lock-time verification fails.
     ///
     /// Moving the scratch out of `TEMP` removed one environment variable from the answer, not the
-    /// arithmetic: `MISE_CACHE_DIR` is configurable too, and past `MAX_PATH` the download comes back
+    /// arithmetic: `PAKRO_CACHE_DIR` is configurable too, and past `MAX_PATH` the download comes back
     /// as a bare `os error 3` while the lockfile quietly loses `provenance` for this platform.
-    /// Measured on 2026.8.6: with the cache at 200 characters `mise install` and `mise lock` both
+    /// Measured on 2026.8.6: with the cache at 200 characters `pakro install` and `pakro lock` both
     /// still exit 0, so nothing else fails at that depth to suggest why.
     ///
     /// This deliberately annotates the *failure* rather than predicting it. Several files land in
-    /// that directory — the artifact and its `.mise-part.json` sidecar, a checksum file, a
+    /// that directory — the artifact and its `.pakro-part.json` sidecar, a checksum file, a
     /// provenance or signature file — with names taken from URLs, and a check on any one of them
     /// passes while a later one is longer. Reporting after the fact covers all of them.
     fn scratch_length_hint() -> String {
@@ -1597,7 +1597,7 @@ impl AquaBackend {
             if len + ALLOWANCE >= crate::file::MAX_PATH {
                 return format!(
                     "\nthe download directory is {len} characters ({}) and Windows stops at {}, \
-                     which may be the reason — point MISE_CACHE_DIR at a shorter directory",
+                     which may be the reason — point PAKRO_CACHE_DIR at a shorter directory",
                     crate::file::display_path(root),
                     crate::file::MAX_PATH,
                 );
@@ -1610,7 +1610,7 @@ impl AquaBackend {
 
     /// Verify provenance at lock time by downloading the artifact to a scratch directory
     /// and running the appropriate cryptographic verification. Only called for the
-    /// current platform during `mise lock`.
+    /// current platform during `pakro lock`.
     async fn verify_provenance_at_lock_time(
         &self,
         pkg: &AquaPackage,
@@ -2344,7 +2344,7 @@ impl AquaBackend {
         }
     }
 
-    /// mise-versions serves any public github.com repo, but only the package's
+    /// pakro-versions serves any public github.com repo, but only the package's
     /// own repo may come from it: an aqua package that reads another repo's
     /// releases (a foreign attestation signer, say) asks GitHub directly.
     fn use_versions_host_for_github_metadata(&self, repo: &str) -> bool {
@@ -3478,10 +3478,10 @@ impl AquaBackend {
         Ok(())
     }
 
-    /// Creates a `.mise-bins` directory with symlinks only to the binaries defined in the aqua registry.
+    /// Creates a `.pakro-bins` directory with symlinks only to the binaries defined in the aqua registry.
     /// This prevents bundled dependencies (like Python in aws-cli) from being exposed on PATH.
     fn create_symlink_bin_dir(&self, tv: &ToolVersion, srcs: &[AquaFileLink]) -> Result<()> {
-        let symlink_dir = tv.install_path().join(MISE_BINS_DIR);
+        let symlink_dir = tv.install_path().join(PAKRO_BINS_DIR);
         Self::create_symlink_bin_dir_at(&symlink_dir, srcs)
     }
 
@@ -4254,14 +4254,14 @@ packages:
     fn an_ordinary_cache_path_gets_no_length_note() {
         // The note is only worth printing when length is a plausible explanation, so on a normal
         // machine it must stay out of the way. On unix it never appears at all.
-        let root = PathBuf::from(r"C:\Users\u\AppData\Local\Temp\mise\lock-provenance");
+        let root = PathBuf::from(r"C:\Users\u\AppData\Local\Temp\pakro\lock-provenance");
         assert_eq!(AquaBackend::scratch_length_hint_for(&root), "");
     }
 
     #[test]
     fn symlink_bin_dir_is_not_created_without_existing_bins() {
         let temp = tempfile::tempdir().unwrap();
-        let symlink_dir = temp.path().join(MISE_BINS_DIR);
+        let symlink_dir = temp.path().join(PAKRO_BINS_DIR);
         let bin = temp.path().join("missing-bin");
         let srcs = [AquaFileLink {
             src: bin.clone(),
@@ -4281,17 +4281,17 @@ packages:
     #[test]
     #[cfg(windows)]
     fn a_deep_cache_path_says_which_variable_to_change() {
-        // Measured: at a 200-character cache, `mise install` and `mise lock` both still exit 0, so
+        // Measured: at a 200-character cache, `pakro install` and `pakro lock` both still exit 0, so
         // a failure here comes with no other signal about why.
         let root = PathBuf::from(format!(r"C:\{}", "d".repeat(200)));
         let hint = AquaBackend::scratch_length_hint_for(&root);
-        assert!(hint.contains("MISE_CACHE_DIR"), "{hint}");
+        assert!(hint.contains("PAKRO_CACHE_DIR"), "{hint}");
         assert!(hint.contains("260"), "{hint}");
     }
 
     #[test]
     fn the_lock_time_download_lands_in_a_sweepable_cache_directory() {
-        // Two things at once. A lockfile is a committed artifact, so what `mise lock` writes must
+        // Two things at once. A lockfile is a committed artifact, so what `pakro lock` writes must
         // not depend on where the machine points TEMP — and the scratch has to sit somewhere
         // ordinary cache clearing reaches, because `TempDir` cleanup is best-effort and an orphan
         // under the persistent downloads directory would never be collected.
@@ -5328,7 +5328,7 @@ flavor = "full"
     #[test]
     fn test_srcs_default_src_to_file_name() {
         // mvdan/sh and (on Windows) astral-sh/uv list files by name only.
-        // `symlink_bins` builds `.mise-bins` from these links, so dropping
+        // `symlink_bins` builds `.pakro-bins` from these links, so dropping
         // them left the directory missing while PATH pointed at it.
         let mut pkg = AquaPackage::default();
         pkg.files = vec![
@@ -6042,7 +6042,7 @@ mod lock_candidate_tests {
     use crate::config::settings::SettingsPartial;
     use confique::Layer;
 
-    /// Pins the `libc` setting so a test does not depend on the runner's `MISE_LIBC` or
+    /// Pins the `libc` setting so a test does not depend on the runner's `PAKRO_LIBC` or
     /// global config. Dropping the guard restores the default settings.
     fn pin_libc_setting(libc: &str) -> crate::test::SettingsGuard {
         let guard = crate::test::SettingsGuard::lock();
@@ -6445,7 +6445,7 @@ asset: tool.tar.gz
 
     #[test]
     fn security_features_count_cosign_only_with_a_key_or_bundle() {
-        // Keyless Cosign expressed as CLI `opts` is not run by mise's native verifier.
+        // Keyless Cosign expressed as CLI `opts` is not run by pakro's native verifier.
         let opts_only = pkg_from_yaml(
             r#"
 type: github_release

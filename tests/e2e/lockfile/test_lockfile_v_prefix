@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 
-# Test that lockfile matching works when mise.toml uses "v" prefix but lockfile doesn't
+# Test that lockfile matching works when pakro.toml uses "v" prefix but lockfile doesn't
 
-export MISE_LOCKFILE=1
+export PAKRO_LOCKFILE=1
 
 detect_platform
-PLATFORM="$MISE_PLATFORM"
+PLATFORM="$PAKRO_PLATFORM"
 
-# --- Test: "v" prefix in mise.toml matches lockfile without "v" prefix ---
-cat <<'EOF' >mise.toml
+# --- Test: "v" prefix in pakro.toml matches lockfile without "v" prefix ---
+cat <<'EOF' >pakro.toml
 [tools]
 jq = "v1.7.1"
 EOF
 
-cat <<EOF >mise.lock
+cat <<EOF >pakro.lock
 [[tools.jq]]
 version = "1.7.1"
 backend = "aqua:jqlang/jq"
@@ -21,4 +21,4 @@ backend = "aqua:jqlang/jq"
 EOF
 
 # --locked --dry-run should succeed (version should match despite "v" prefix)
-assert_contains "mise install --locked --dry-run 2>&1" "would install"
+assert_contains "pakro install --locked --dry-run 2>&1" "would install"

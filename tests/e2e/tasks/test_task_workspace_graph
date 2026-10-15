@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 monorepo_root = true
 
 [monorepo.projects."node:app"]
@@ -18,12 +18,12 @@ metadata = { kind = "library" }
 root = "crates/core"
 EOF
 
-assert_contains "mise tasks graph" "node:app"
-assert_contains "mise tasks graph" "apps/app"
-assert_contains "mise tasks graph" "cargo:core, node:lib"
-assert_contains "mise tasks graph" '{"kind":"application"}'
+assert_contains "pakro tasks graph" "node:app"
+assert_contains "pakro tasks graph" "apps/app"
+assert_contains "pakro tasks graph" "cargo:core, node:lib"
+assert_contains "pakro tasks graph" '{"kind":"application"}'
 
-assert_json "mise tasks graph --json" '{
+assert_json "pakro tasks graph --json" '{
   "projects": [
     {
       "id": "cargo:core",
@@ -65,7 +65,7 @@ assert_json "mise tasks graph --json" '{
 mkdir -p apps/app
 (
   cd apps/app
-  assert_contains "mise tasks graph" "node:app"
+  assert_contains "pakro tasks graph" "node:app"
 )
 
-assert_fail_contains "MISE_EXPERIMENTAL=0 mise tasks graph" "experimental"
+assert_fail_contains "PAKRO_EXPERIMENTAL=0 pakro tasks graph" "experimental"

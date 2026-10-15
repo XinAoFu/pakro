@@ -3,20 +3,20 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-resolve_mise_bin() {
-  if [[ -n ${MISE_E2E_BIN:-} ]]; then
-    printf '%s\n' "$MISE_E2E_BIN"
+resolve_pakro_bin() {
+  if [[ -n ${PAKRO_E2E_BIN:-} ]]; then
+    printf '%s\n' "$PAKRO_E2E_BIN"
     return
   fi
-  local candidate="${CARGO_TARGET_DIR:-$ROOT/target}/debug/mise"
+  local candidate="${CARGO_TARGET_DIR:-$ROOT/target}/debug/pakro"
   if [[ -x $candidate ]]; then
     printf '%s\n' "$candidate"
     return
   fi
-  local mise_path
-  if ! mise_path="$(command -v mise 2>/dev/null)"; then
-    err "Could not find 'mise' in PATH and no local debug build was found. Set MISE_E2E_BIN or build/install mise."
+  local pakro_path
+  if ! pakro_path="$(command -v pakro 2>/dev/null)"; then
+    err "Could not find 'pakro' in PATH and no local debug build was found. Set PAKRO_E2E_BIN or build/install pakro."
     return 1
   fi
-  printf '%s\n' "$mise_path"
+  printf '%s\n' "$pakro_path"
 }

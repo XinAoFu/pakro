@@ -30,15 +30,15 @@ use tokio::sync::Mutex;
 use versions::Versioning;
 use xx::regex;
 
-const ATTESTATION_HELP: &str = "To disable attestation verification, set MISE_PYTHON_GITHUB_ATTESTATIONS=false\n\
-    or add `python.github_attestations = false` under [settings] in mise.toml";
+const ATTESTATION_HELP: &str = "To disable attestation verification, set PAKRO_PYTHON_GITHUB_ATTESTATIONS=false\n\
+    or add `python.github_attestations = false` under [settings] in pakro.toml";
 const PBS_RELEASE_DOWNLOAD_URL: &str =
     "https://github.com/astral-sh/python-build-standalone/releases/download/";
 /// PyPy's own release index. python-build-standalone ships CPython only, so this is where the
 /// precompiled path has to look for a `pypy*` version.
 const PYPY_VERSIONS_URL: &str = "https://downloads.python.org/pypy/versions.json";
 
-/// One entry of PyPy's `versions.json`. Only the fields mise uses are modeled.
+/// One entry of PyPy's `versions.json`. Only the fields pakro uses are modeled.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct PypyRelease {
     pypy_version: String,
@@ -361,7 +361,7 @@ impl PythonPlugin {
             .await
     }
 
-    /// Resolve the archive a `pypy*` version would install on `target`, for `mise lock`.
+    /// Resolve the archive a `pypy*` version would install on `target`, for `pakro lock`.
     ///
     /// The URL is always recorded when one exists; the checksum stays unset because PyPy publishes
     /// none in machine-readable form, and `verify_checksum` fills it in on first install. An
@@ -378,7 +378,7 @@ impl PythonPlugin {
         let (os, arch) = if target.is_current() {
             // settings.os(), not std::env::consts::OS: `is_current` compares against
             // Platform::current(), which is built from settings.os(). Reading the host OS here
-            // would let `MISE_OS=linux` on a windows host take this branch and then record a
+            // would let `PAKRO_OS=linux` on a windows host take this branch and then record a
             // win64 archive under the linux platform key.
             (settings.os(), settings.arch())
         } else {
@@ -520,7 +520,7 @@ impl PythonPlugin {
                             hint!(
                                 "python_compile",
                                 "To compile python from source, run",
-                                "mise settings python.compile=1"
+                                "pakro settings python.compile=1"
                             );
                         }
                         let platform = python_precompiled_platform();
@@ -531,7 +531,7 @@ impl PythonPlugin {
                         debug!("no precompiled python found for {}", tv.version);
                     } else {
                         warn!(
-                            "no precompiled python found for {}, force mise to use a precompiled version with `mise settings set python.compile=false`",
+                            "no precompiled python found for {}, force pakro to use a precompiled version with `pakro settings set python.compile=false`",
                             tv.version
                         );
                     }
@@ -548,7 +548,7 @@ impl PythonPlugin {
                     "python_precompiled",
                     "installing precompiled python from astral-sh/python-build-standalone\n\
                     if you experience issues with this python (e.g.: running poetry), switch to python-build by running",
-                    "mise settings python.compile=1"
+                    "pakro settings python.compile=1"
                 );
             }
 
@@ -803,7 +803,7 @@ impl PythonPlugin {
         let flavor = settings.python.precompiled_flavor.clone();
 
         // Prefer the PBS artifact already recorded in the lockfile so a plain
-        // `mise lock` refreshes the same artifact. `mise lock --bump` resolves
+        // `pakro lock` refreshes the same artifact. `pakro lock --bump` resolves
         // without the existing lockfile, so locked_filename is None and the
         // newest build wins.
         let result =
@@ -1111,7 +1111,7 @@ impl Backend for PythonPlugin {
                 // handling as the `_.python.venv` env directive)
                 let bin = virtualenv.join(if cfg!(windows) { "Scripts" } else { "bin" });
                 hm.insert("VIRTUAL_ENV".into(), virtualenv.to_string_lossy().into());
-                hm.insert("MISE_ADD_PATH".into(), bin.to_string_lossy().into());
+                hm.insert("PAKRO_ADD_PATH".into(), bin.to_string_lossy().into());
             }
             Ok(None) => {}
         };

@@ -2,17 +2,17 @@
 # Regression test for the read-only system installs dir scenario:
 # When tools are installed in a system dir that the current user cannot
 # write to (e.g. a Docker image where root installed at build time and a
-# non-root user runs `mise install` at runtime), `mise install` of an
+# non-root user runs `pakro install` at runtime), `pakro install` of an
 # unrelated tool must NOT try to rewrite the system dir's runtime symlinks.
 # https://github.com/jdx/mise/discussions/8596
 
-export MISE_SYSTEM_DATA_DIR="$HOME/.local/share/mise-system"
-SYSTEM_INSTALLS="$MISE_SYSTEM_DATA_DIR/installs"
-USER_INSTALLS="$MISE_DATA_DIR/installs"
+export PAKRO_SYSTEM_DATA_DIR="$HOME/.local/share/pakro-system"
+SYSTEM_INSTALLS="$PAKRO_SYSTEM_DATA_DIR/installs"
+USER_INSTALLS="$PAKRO_DATA_DIR/installs"
 
 # Install one version to user dir and another to "system" dir.
-mise install tiny@1.0.0
-mise install --system tiny@2.1.0
+pakro install tiny@1.0.0
+pakro install --system tiny@2.1.0
 
 # Sanity: both got their `latest` symlinks.
 assert "readlink $USER_INSTALLS/tiny/latest" "./1.0.0"
@@ -39,12 +39,12 @@ assert_silent_install() {
 # Re-installing a tool that lives only in the user dir must succeed without
 # any warning about the system dir — the system-side runtime symlink already
 # matches the desired state, so nothing should be written or attempted there.
-assert_silent_install "mise install --force tiny@1.0.0"
+assert_silent_install "pakro install --force tiny@1.0.0"
 assert "readlink $USER_INSTALLS/tiny/latest" "./1.0.0"
 assert "readlink $SYSTEM_INSTALLS/tiny/latest" "./2.1.0"
 
 # Installing a different tool that doesn't touch the system dir at all must
 # also succeed silently.
-assert_silent_install "mise install dummy@1.0.0"
+assert_silent_install "pakro install dummy@1.0.0"
 assert_directory_exists "$USER_INSTALLS/dummy/1.0.0"
 assert "readlink $SYSTEM_INSTALLS/tiny/latest" "./2.1.0"

@@ -150,7 +150,7 @@ pub async fn prune_plan(configured: &[PackageRequest]) -> Result<PrunePlan> {
 pub fn apply_prune_plan(plan: &PrunePlan, dry_run: bool) -> Result<()> {
     if dry_run {
         for candidate in &plan.remove {
-            miseprintln!("remove brew:{}@{}", candidate.name, candidate.version);
+            pakroprintln!("remove brew:{}@{}", candidate.name, candidate.version);
         }
         return Ok(());
     }
@@ -327,8 +327,8 @@ mod tests {
 
     impl BrewPrefixGuard {
         fn set(prefix: &Path) -> Self {
-            let previous = crate::env::var("MISE_SYSTEM_BREW_PREFIX").ok();
-            crate::env::set_var("MISE_SYSTEM_BREW_PREFIX", prefix);
+            let previous = crate::env::var("PAKRO_SYSTEM_BREW_PREFIX").ok();
+            crate::env::set_var("PAKRO_SYSTEM_BREW_PREFIX", prefix);
             Self { previous }
         }
     }
@@ -336,8 +336,8 @@ mod tests {
     impl Drop for BrewPrefixGuard {
         fn drop(&mut self) {
             match &self.previous {
-                Some(previous) => crate::env::set_var("MISE_SYSTEM_BREW_PREFIX", previous),
-                None => crate::env::remove_var("MISE_SYSTEM_BREW_PREFIX"),
+                Some(previous) => crate::env::set_var("PAKRO_SYSTEM_BREW_PREFIX", previous),
+                None => crate::env::remove_var("PAKRO_SYSTEM_BREW_PREFIX"),
             }
         }
     }

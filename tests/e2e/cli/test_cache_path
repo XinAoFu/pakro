@@ -2,16 +2,16 @@
 
 # Test cache path command and its alias
 
-# Test `mise cache` shows cache directory
-assert_contains "mise cache" "$MISE_CACHE_DIR"
+# Test `pakro cache` shows cache directory
+assert_contains "pakro cache" "$PAKRO_CACHE_DIR"
 
-# Test `mise cache path` shows cache directory
-assert_contains "mise cache path" "$MISE_CACHE_DIR"
+# Test `pakro cache path` shows cache directory
+assert_contains "pakro cache path" "$PAKRO_CACHE_DIR"
 
-# Test `mise cache dir` alias shows cache directory
-assert_contains "mise cache dir" "$MISE_CACHE_DIR"
+# Test `pakro cache dir` alias shows cache directory
+assert_contains "pakro cache dir" "$PAKRO_CACHE_DIR"
 
 # Test with custom cache directory
-export MISE_CACHE_DIR=/tmp/test-mise-cache
-assert_contains "mise cache path" "/tmp/test-mise-cache"
-assert_contains "mise cache dir" "/tmp/test-mise-cache"
+export PAKRO_CACHE_DIR=/tmp/test-pakro-cache
+assert_contains "pakro cache path" "/tmp/test-pakro-cache"
+assert_contains "pakro cache dir" "/tmp/test-pakro-cache"

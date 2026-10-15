@@ -6,7 +6,7 @@ use eyre::Result;
 
 use super::ProviderBase;
 
-/// Deps provider for user-defined custom rules from mise.toml [deps.*]
+/// Deps provider for user-defined custom rules from pakro.toml [deps.*]
 #[derive(Debug)]
 pub(crate) struct CustomDepsProvider {
     base: ProviderBase,

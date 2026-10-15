@@ -15,7 +15,7 @@ type LockfilesAfterInstall =
     fn(Arc<Config>, Vec<ToolVersion>) -> Pin<Box<dyn Future<Output = Result<()>> + Send>>;
 
 pub struct Frontend {
-    /// `mise lock` for the versions an install just added.
+    /// `pakro lock` for the versions an install just added.
     pub lockfiles_after_install: LockfilesAfterInstall,
     /// Every subcommand name and alias, for "did you mean" suggestions.
     pub subcommand_names: fn() -> Vec<String>,

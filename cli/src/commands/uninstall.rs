@@ -15,21 +15,21 @@ use crate::{config, dirs, exit, file};
 
 /// Remove installed tool versions
 ///
-/// This only removes the installed version; it does not modify mise.toml.
-/// Use `mise unuse` to remove a tool from mise.toml and uninstall it.
+/// This only removes the installed version; it does not modify pakro.toml.
+/// Use `pakro unuse` to remove a tool from pakro.toml and uninstall it.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise uninstall node@18.0.0"###,
+        r###"pakro uninstall node@18.0.0"###,
         help = r###"uninstall a specific version"###
     ),
     example(
-        r###"mise uninstall node"###,
+        r###"pakro uninstall node"###,
         help = r###"uninstall the current node version (if only one version is installed)"###
     ),
     example(
-        r###"mise uninstall --all node"###,
+        r###"pakro uninstall --all node"###,
         help = r###"uninstall every installed version of node"###
     )
 )]

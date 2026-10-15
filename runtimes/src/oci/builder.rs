@@ -1,4 +1,4 @@
-//! Orchestrates building an OCI image from a resolved mise Toolset.
+//! Orchestrates building an OCI image from a resolved pakro Toolset.
 //!
 //! Produces an OCI image layout with one layer per tool version so that
 //! bumping any single tool invalidates exactly one content-addressable blob.
@@ -23,17 +23,17 @@ use crate::system::ManagerPackages;
 use crate::system::files::{FileMode, FileRequest};
 use crate::toolset::{ToolVersion, Toolset};
 
-/// Annotations mise writes on tool layer descriptors. Together they form the
+/// Annotations pakro writes on tool layer descriptors. Together they form the
 /// cache key for reusing a layer from a previously pushed image: same tool,
 /// same version, same in-image prefix, same file ownership.
-pub(crate) const ANNOTATION_TOOL_SHORT: &str = "dev.mise.tool.short";
-pub(crate) const ANNOTATION_TOOL_VERSION: &str = "dev.mise.tool.version";
-pub(crate) const ANNOTATION_LAYER_PREFIX: &str = "dev.mise.layer.prefix";
-pub(crate) const ANNOTATION_LAYER_OWNER: &str = "dev.mise.layer.owner";
-pub(crate) const ANNOTATION_LAYER_RELOCATION: &str = "dev.mise.layer.relocation";
+pub(crate) const ANNOTATION_TOOL_SHORT: &str = "dev.pakro.tool.short";
+pub(crate) const ANNOTATION_TOOL_VERSION: &str = "dev.pakro.tool.version";
+pub(crate) const ANNOTATION_LAYER_PREFIX: &str = "dev.pakro.layer.prefix";
+pub(crate) const ANNOTATION_LAYER_OWNER: &str = "dev.pakro.layer.owner";
+pub(crate) const ANNOTATION_LAYER_RELOCATION: &str = "dev.pakro.layer.relocation";
 /// Legacy plugin fingerprint annotation, read only to prevent reuse of an old
 /// plugin-installed layer as a current non-plugin tool layer.
-pub(crate) const ANNOTATION_TOOL_PLUGIN: &str = "dev.mise.tool.plugin";
+pub(crate) const ANNOTATION_TOOL_PLUGIN: &str = "dev.pakro.tool.plugin";
 
 const TOOL_LAYER_RELOCATION_VERSION: &str = "2";
 
@@ -42,20 +42,20 @@ const TOOL_LAYER_RELOCATION_VERSION: &str = "2";
 pub struct BuildOptions {
     /// Output directory for the OCI image layout.
     pub out_dir: PathBuf,
-    /// Base image reference (overrides mise.toml and default setting).
+    /// Base image reference (overrides pakro.toml and default setting).
     pub from: Option<String>,
     /// Tag to write into index.json (ref.name annotation).
     pub tag: Option<String>,
-    /// Where mise tools get installed inside the image.
+    /// Where pakro tools get installed inside the image.
     pub mount_point: Option<String>,
     /// Numeric owner assigned to every tar entry in generated layers.
     pub owner: Option<LayerOwner>,
-    /// Host mise binary to embed at /usr/local/bin/mise, if any.
-    pub mise_binary: Option<PathBuf>,
+    /// Host pakro binary to embed at /usr/local/bin/pakro, if any.
+    pub pakro_binary: Option<PathBuf>,
     /// CLI-provided host paths copied after config-provided entries.
     pub copy: Vec<OciCopy>,
     /// A previously pushed image to reuse unchanged tool layers from
-    /// (`mise oci push` only). Reused layers skip the local tar/gzip build
+    /// (`pakro oci push` only). Reused layers skip the local tar/gzip build
     /// entirely — and the tool doesn't even need to be installed locally.
     /// NOTE: the resulting layout omits reused layer blobs, so it is only
     /// valid to push to the repository the cache image came from.
@@ -91,7 +91,7 @@ struct ReusedLayer {
 }
 
 /// Index a remote image's tool layers by their reuse cache key. Layers
-/// missing any key annotation (e.g. images pushed by older mise versions)
+/// missing any key annotation (e.g. images pushed by older pakro versions)
 /// are simply not reusable.
 fn build_reuse_index(remote: &registry::RemoteImage) -> IndexMap<ReuseKey, ReusedLayer> {
     let mut index = IndexMap::new();
@@ -179,7 +179,7 @@ impl Builder {
     pub async fn build(self) -> Result<BuildOutput> {
         let versions = self.ts.list_current_versions();
         if versions.is_empty() {
-            warn!("mise oci build: no tools in the toolset — image will have only the base layer");
+            warn!("pakro oci build: no tools in the toolset — image will have only the base layer");
         }
         reject_unsupported_backends(&versions)?;
 
@@ -199,7 +199,7 @@ impl Builder {
         if !mount_point.starts_with('/') {
             bail!(
                 "oci mount_point must be an absolute path (got {mount_point:?}); \
-                 a relative value makes MISE_DATA_DIR inside the container \
+                 a relative value makes PAKRO_DATA_DIR inside the container \
                  depend on the working directory and mis-resolve tools."
             );
         }
@@ -326,8 +326,8 @@ impl Builder {
         // Tool installs are host-native binaries. On non-linux hosts they'll
         // fail at runtime inside the linux container with `Exec format error`
         // — emit a single warning up front so the user isn't surprised after
-        // the image appears to build successfully. (`--no-mise` silences the
-        // mise-binary warning below but doesn't help with tool binaries; only
+        // the image appears to build successfully. (`--no-pakro` silences the
+        // pakro-binary warning below but doesn't help with tool binaries; only
         // running the build on a linux host does.)
         // Count only layers actually built on this host; reused layers came
         // from the cache image and aren't rebuilt, so they don't carry
@@ -338,7 +338,7 @@ impl Builder {
             warn!(
                 "building on {host} host — {n} tool layer(s) contain {host} binaries that \
                  will fail with `Exec format error` inside a linux container. Run \
-                 `mise oci build` on a linux host (or in a linux container) for a working image.",
+                 `pakro oci build` on a linux host (or in a linux container) for a working image.",
                 host = std::env::consts::OS,
                 n = built_tool_count
             );
@@ -435,7 +435,7 @@ impl Builder {
         for copy in copies {
             copy.validate().map_err(eyre::Report::msg)?;
             warn!(
-                "mise oci build: copying host path {} into the image at {} — review its \
+                "pakro oci build: copying host path {} into the image at {} — review its \
                  contents for secrets or credentials before sharing the image",
                 copy.host.display(),
                 copy.image
@@ -452,24 +452,24 @@ impl Builder {
             copy_layers.push((copy, blob));
         }
 
-        // --- 6. mise binary layer (optional) ---
-        let mut mise_layer: Option<LayerBlob> = None;
-        if let Some(exe) = &self.opts.mise_binary {
+        // --- 6. pakro binary layer (optional) ---
+        let mut pakro_layer: Option<LayerBlob> = None;
+        if let Some(exe) = &self.opts.pakro_binary {
             // OCI images are linux-targeted in v1 (we normalize `os` to
-            // "linux" above). Embedding a darwin/windows mise binary would
+            // "linux" above). Embedding a darwin/windows pakro binary would
             // pass the build but explode with `Exec format error` the first
-            // time anything inside the container invokes `mise`. Warn loudly.
+            // time anything inside the container invokes `pakro`. Warn loudly.
             if std::env::consts::OS != "linux" {
                 warn!(
-                    "embedding a {} mise binary in a linux OCI image — it will fail at runtime. \
-                     Run `mise oci build` on linux, or pass --no-mise to skip embedding.",
+                    "embedding a {} pakro binary in a linux OCI image — it will fail at runtime. \
+                     Run `pakro oci build` on linux, or pass --no-pakro to skip embedding.",
                     std::env::consts::OS
                 );
             }
             let bytes = std::fs::read(exe)
-                .wrap_err_with(|| format!("reading mise binary at {}", exe.display()))?;
-            let files = vec![("usr/local/bin/mise".to_string(), bytes, 0o755u32)];
-            mise_layer = Some(layer::build_layer_from_files(&files, owner)?);
+                .wrap_err_with(|| format!("reading pakro binary at {}", exe.display()))?;
+            let files = vec![("usr/local/bin/pakro".to_string(), bytes, 0o755u32)];
+            pakro_layer = Some(layer::build_layer_from_files(&files, owner)?);
         }
 
         // --- 5. Dotfiles layer (optional) ---
@@ -479,11 +479,11 @@ impl Builder {
             Some(build_dotfiles_layer(&self.cfg, &self.dotfiles, owner)?)
         };
 
-        // --- 6. Config layer: /etc/mise/config.toml ---
+        // --- 6. Config layer: /etc/pakro/config.toml ---
         let config_layer = {
             let config_toml = synthesize_embedded_config_toml(&versions, &mount_point);
             let files = vec![(
-                "etc/mise/config.toml".to_string(),
+                "etc/pakro/config.toml".to_string(),
                 config_toml.into_bytes(),
                 0o644u32,
             )];
@@ -495,7 +495,7 @@ impl Builder {
         let mut manifest_layers: Vec<Descriptor> = base_layers.clone();
         let mut all_diff_ids: Vec<String> = base_diff_ids.clone();
 
-        if let Some(m) = &mise_layer {
+        if let Some(m) = &pakro_layer {
             layout.write_blob_with_digest(&m.digest, &m.bytes)?;
             manifest_layers.push(Descriptor {
                 media_type: manifest::MEDIA_TYPE_OCI_LAYER_GZIP.to_string(),
@@ -511,7 +511,7 @@ impl Builder {
             layout.write_blob_with_digest(&blob.blob.digest, &blob.blob.bytes)?;
             let mut annotations = IndexMap::new();
             annotations.insert(
-                "dev.mise.system.packages".to_string(),
+                "dev.pakro.system.packages".to_string(),
                 blob.manager.to_string(),
             );
             manifest_layers.push(Descriptor {
@@ -576,7 +576,7 @@ impl Builder {
         for (copy, blob) in &copy_layers {
             layout.write_blob_with_digest(&blob.digest, &blob.bytes)?;
             let mut annotations = IndexMap::new();
-            annotations.insert("dev.mise.copy".to_string(), copy.image.clone());
+            annotations.insert("dev.pakro.copy".to_string(), copy.image.clone());
             manifest_layers.push(Descriptor {
                 media_type: manifest::MEDIA_TYPE_OCI_LAYER_GZIP.to_string(),
                 size: blob.size,
@@ -590,7 +590,7 @@ impl Builder {
         if let Some(blob) = &dotfiles_layer {
             layout.write_blob_with_digest(&blob.digest, &blob.bytes)?;
             let mut annotations = IndexMap::new();
-            annotations.insert("dev.mise.dotfiles".to_string(), "true".to_string());
+            annotations.insert("dev.pakro.dotfiles".to_string(), "true".to_string());
             manifest_layers.push(Descriptor {
                 media_type: manifest::MEDIA_TYPE_OCI_LAYER_GZIP.to_string(),
                 size: blob.size,
@@ -637,7 +637,7 @@ impl Builder {
         };
 
         // --- 9. Manifest ---
-        // Record the base image (standard annotation) so `mise oci push` can
+        // Record the base image (standard annotation) so `pakro oci push` can
         // attempt cross-repository blob mounts when the base lives on the
         // destination registry.
         let mut manifest_annotations: IndexMap<String, String> = Default::default();
@@ -723,7 +723,7 @@ impl Builder {
             }
         }
 
-        // User env from mise.toml (best-effort: use the already-merged config.env).
+        // User env from pakro.toml (best-effort: use the already-merged config.env).
         // NOTE: we don't re-resolve templates here — they were resolved at load time.
         //
         // WARNING: values sourced from `.env` files or `_.file = "..."` can
@@ -738,7 +738,7 @@ impl Builder {
             .wrap_err("resolving [env] for oci build (template error, missing file, etc.)")?;
         if !env.is_empty() {
             warn!(
-                "mise oci build: baking {} [env] var(s) into the image config. \
+                "pakro oci build: baking {} [env] var(s) into the image config. \
                  These are visible via `docker inspect` / `skopeo inspect`; \
                  if you have secrets in [env] or referenced .env files, move \
                  them to runtime (e.g. `docker run -e` or secret mounts) and \
@@ -778,12 +778,12 @@ impl Builder {
             env_pairs.insert(k.clone(), v.clone());
         }
 
-        // Mise data/config dirs — insert LAST so the user's [env] section
-        // can't accidentally shadow them (the embedded mise binary inside
+        // Pakro data/config dirs — insert LAST so the user's [env] section
+        // can't accidentally shadow them (the embedded pakro binary inside
         // the container must see these in-image paths, not whatever was
         // baked in from the host config).
-        env_pairs.insert("MISE_DATA_DIR".to_string(), mount_point.to_string());
-        env_pairs.insert("MISE_CONFIG_DIR".to_string(), "/etc/mise".to_string());
+        env_pairs.insert("PAKRO_DATA_DIR".to_string(), mount_point.to_string());
+        env_pairs.insert("PAKRO_CONFIG_DIR".to_string(), "/etc/pakro".to_string());
 
         // PATH: prepend each tool's real bin paths (from `list_bin_paths`),
         // rebased from the host install path to the in-image location. This
@@ -868,15 +868,15 @@ impl Builder {
         );
         labels.insert(
             "org.opencontainers.image.source".to_string(),
-            "mise oci build".to_string(),
+            "pakro oci build".to_string(),
         );
         labels.insert(
-            "dev.mise.version".to_string(),
+            "dev.pakro.version".to_string(),
             crate::version::VERSION_PLAIN.to_string(),
         );
         for (_, tv) in versions {
             labels.insert(
-                format!("dev.mise.tools.{}", sanitize_label(&tv.ba().short)),
+                format!("dev.pakro.tools.{}", sanitize_label(&tv.ba().short)),
                 tv.version.clone(),
             );
         }
@@ -907,7 +907,7 @@ impl Builder {
 
         Ok(ImageConfig {
             created: Some(created),
-            author: Some("mise".to_string()),
+            author: Some("pakro".to_string()),
             architecture: arch,
             os,
             variant: None,
@@ -949,7 +949,7 @@ fn require_tool_install(tv: &ToolVersion) -> Result<()> {
     let install_path = tv.install_path();
     if !install_path.is_dir() {
         bail!(
-            "{} install path does not exist: {}. Run `mise install` first.",
+            "{} install path does not exist: {}. Run `pakro install` first.",
             tv.style(),
             install_path.display()
         );
@@ -1249,7 +1249,7 @@ fn reject_unsupported_backends(
         .collect();
     if !bad.is_empty() {
         bail!(
-            "mise oci build does not support asdf plugins (their install scripts can \
+            "pakro oci build does not support asdf plugins (their install scripts can \
              write outside the per-version directory, breaking the one-layer-per-tool invariant). \
              Use another supported backend for: {}",
             bad.join(", ")
@@ -1271,14 +1271,14 @@ fn rebase_path_value(value: &str, host_prefix: &std::path::Path, in_image_prefix
 }
 
 /// In-image absolute path for a tool's install dir, e.g.
-/// `/mise/installs/node/20.0.0`. Used when we need a path that mise (or the
+/// `/pakro/installs/node/20.0.0`. Used when we need a path that pakro (or the
 /// image config's PATH / env vars) can reference at runtime.
 ///
-/// Uses the canonical directory names that mise itself uses on the host
+/// Uses the canonical directory names that pakro itself uses on the host
 /// (via `BackendArg::tool_dir_name` / `ToolVersion::tv_pathname`). A naive
 /// `short.replace([':', '/'], "-")` would diverge — the real path name goes
 /// through `to_kebab_case()` which also strips non-alphanumerics and splits
-/// camelCase boundaries. Mismatching would mean files land at a path mise
+/// camelCase boundaries. Mismatching would mean files land at a path pakro
 /// can't resolve inside the container.
 fn tool_in_image_path(mount_point: &str, tv: &ToolVersion) -> String {
     let plugin_dir = tv.ba().tool_dir_name();
@@ -1309,7 +1309,7 @@ fn synthesize_embedded_config_toml(
     versions: &[(Arc<dyn crate::backend::Backend>, ToolVersion)],
     _mount_point: &str,
 ) -> String {
-    let mut s = String::from("# Auto-generated by `mise oci build`. Do not edit.\n[tools]\n");
+    let mut s = String::from("# Auto-generated by `pakro oci build`. Do not edit.\n[tools]\n");
     for (_, tv) in versions {
         // Tool short names and versions can contain `"` and `\` (rare, but
         // possible for e.g. ref/branch specifiers), so serialize via the
@@ -1475,7 +1475,7 @@ mod tests {
             permissions: None,
             base: dir.path().to_path_buf(),
             origin: crate::system::resources::ResourceOrigin {
-                config: dir.path().join("mise.toml"),
+                config: dir.path().join("pakro.toml"),
                 config_root: dir.path().to_path_buf(),
                 environment: vec![],
                 source: Some(source.clone()),
@@ -1559,7 +1559,7 @@ mod tests {
             permissions: None,
             base: dir.to_path_buf(),
             origin: crate::system::resources::ResourceOrigin {
-                config: dir.join("mise.toml"),
+                config: dir.join("pakro.toml"),
                 config_root: dir.to_path_buf(),
                 environment: vec![],
                 source: Some(source.clone()),
@@ -1721,7 +1721,7 @@ mod tests {
         let base = [
             (ANNOTATION_TOOL_SHORT, "demo:hello"),
             (ANNOTATION_TOOL_VERSION, "1.0.0"),
-            (ANNOTATION_LAYER_PREFIX, "mise/installs/demo-hello/1.0.0"),
+            (ANNOTATION_LAYER_PREFIX, "pakro/installs/demo-hello/1.0.0"),
             (ANNOTATION_LAYER_OWNER, "0:0"),
             (ANNOTATION_LAYER_RELOCATION, TOOL_LAYER_RELOCATION_VERSION),
         ];
@@ -1742,7 +1742,7 @@ mod tests {
         let key = |plugin: &str| ReuseKey {
             short: "demo:hello".into(),
             version: "1.0.0".into(),
-            prefix: "mise/installs/demo-hello/1.0.0".into(),
+            prefix: "pakro/installs/demo-hello/1.0.0".into(),
             owner: "0:0".into(),
             relocation: TOOL_LAYER_RELOCATION_VERSION.into(),
             plugin: plugin.into(),
@@ -1767,19 +1767,19 @@ mod tests {
             config: serde_json::json!({
                 "config": {
                     "Env": [
-                        "PATH=/mise/installs/pnpm/9.15.9:/mise/installs/deno/2.0.0/bin:/mise/installs/pnpm/9.15.9/../../other/bin:/usr/bin"
+                        "PATH=/pakro/installs/pnpm/9.15.9:/pakro/installs/deno/2.0.0/bin:/pakro/installs/pnpm/9.15.9/../../other/bin:/usr/bin"
                     ]
                 }
             }),
         };
 
         assert_eq!(
-            cached_tool_path_entries(&remote, "/mise/installs/pnpm/9.15.9"),
-            vec!["/mise/installs/pnpm/9.15.9"]
+            cached_tool_path_entries(&remote, "/pakro/installs/pnpm/9.15.9"),
+            vec!["/pakro/installs/pnpm/9.15.9"]
         );
         assert_eq!(
-            cached_tool_path_entries(&remote, "/mise/installs/deno/2.0.0"),
-            vec!["/mise/installs/deno/2.0.0/bin"]
+            cached_tool_path_entries(&remote, "/pakro/installs/deno/2.0.0"),
+            vec!["/pakro/installs/deno/2.0.0/bin"]
         );
     }
 

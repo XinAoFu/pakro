@@ -898,7 +898,7 @@ impl SingleReport for TextToolProgress {
 
     fn println(&self, message: String) {
         // Explicit output (including build scripts) remains immediate, through
-        // the logger so that it is redacted like every other line mise prints.
+        // the logger so that it is redacted like every other line pakro prints.
         // The lock is released first: a child can emit a lot of these, and they
         // must not serialize behind another tool's status update.
         let prefix = self.state.lock().unwrap().tools[self.index].prefix.clone();
@@ -1055,7 +1055,7 @@ mod tests {
         state.tools[0].started = Some(start);
         state.tools[0].apply_message("uninstall".into());
         assert_eq!(state.tools[0].message, "removing");
-        state.tools[0].apply_message("remove ~/.local/share/mise/installs/tool0/1".into());
+        state.tools[0].apply_message("remove ~/.local/share/pakro/installs/tool0/1".into());
         assert_eq!(state.tools[0].message, "removing");
         state.finish_tool(
             0,

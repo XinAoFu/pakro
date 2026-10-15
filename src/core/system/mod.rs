@@ -5,18 +5,18 @@
 //! lifecycle — `[bootstrap.linux.firewall]` — declarative Linux host
 //! firewall policy — `[bootstrap.compose]` — declarative Compose projects —
 //! `[bootstrap.packages]` — declarative system packages installed by
-//! `mise bootstrap packages apply` — `[bootstrap.files]` and
+//! `pakro bootstrap packages apply` — `[bootstrap.files]` and
 //! `[bootstrap.directories]` — privileged filesystem resources —
 //! `[bootstrap.repos]` — declarative git checkouts — `[dotfiles]` —
 //! declarative config files applied by
-//! `mise dot apply` — `[bootstrap.mise_shell_activate]`
+//! `pakro dot apply` — `[bootstrap.pakro_shell_activate]`
 //! shell activation setup — `[bootstrap.macos.defaults]` — declarative macOS
 //! user defaults — `[bootstrap.macos.launchd.agents]` — declarative macOS
 //! LaunchAgents — `[bootstrap.linux.systemd.units]` — declarative Linux
 //! systemd user services — `[bootstrap.user].login_shell` — and
 //! `[bootstrap.hooks]` bootstrap phase hooks.
 //! These are intentionally not part of `[tools]`: they're unversioned,
-//! machine-global settings and resources, not mise's per-project toolset.
+//! machine-global settings and resources, not pakro's per-project toolset.
 
 #[cfg(unix)]
 use std::collections::{BTreeMap, BTreeSet};
@@ -83,7 +83,7 @@ pub(crate) mod templating;
 pub mod unapply;
 pub mod user_services;
 
-/// `[bootstrap]` as parsed from a single mise.toml
+/// `[bootstrap]` as parsed from a single pakro.toml
 #[derive(Debug, Default, Clone, Deserialize)]
 pub struct BootstrapTomlConfig {
     /// Independent configuration roots whose declarative files and dotfiles
@@ -107,14 +107,14 @@ pub struct BootstrapTomlConfig {
     /// Docker Compose project name -> declarative project lifecycle.
     #[serde(default)]
     pub compose: IndexMap<String, Templated<compose::ComposeTomlConfig>>,
-    /// OpenSSH targets used by `mise bootstrap remote`.
+    /// OpenSSH targets used by `pakro bootstrap remote`.
     #[serde(default)]
     pub remote: remote::RemoteTomlConfig,
     /// Legacy Lua package-plugin declarations, retained only to reject nonempty configuration.
     #[serde(default)]
     pub plugins: IndexMap<String, String>,
     /// `"manager:package"` -> version/options (`"latest"` or a manager-native pin).
-    /// String-keyed so configs using managers from newer mise versions (dnf,
+    /// String-keyed so configs using managers from newer pakro versions (dnf,
     /// pacman, winget, ...) parse fine on older ones.
     #[serde(default)]
     pub packages: IndexMap<String, PackageTomlConfig>,
@@ -142,7 +142,7 @@ pub struct BootstrapTomlConfig {
     /// Shell activation setup. Values stay raw TOML so future options can warn
     /// and be skipped without rejecting the whole config.
     #[serde(default)]
-    pub mise_shell_activate: IndexMap<String, toml::Value>,
+    pub pakro_shell_activate: IndexMap<String, toml::Value>,
     /// Bootstrap phase hooks. Values stay raw TOML so newer hook shapes can
     /// warn and be skipped without rejecting the whole config.
     #[serde(default)]
@@ -171,7 +171,7 @@ pub struct PackageOptionsTomlConfig {
     #[serde(default)]
     pub adopt: Option<bool>,
     /// `brew-cask` only: application directory for this cask and its cask
-    /// dependencies. Takes precedence over MISE_BREW_CASK_OPT_APPDIR.
+    /// dependencies. Takes precedence over PAKRO_BREW_CASK_OPT_APPDIR.
     #[serde(default)]
     pub appdir: Option<String>,
     /// `macos-app` only: direct download URL for the app archive.
@@ -261,7 +261,7 @@ impl PackageTomlConfig {
                 .any(|entry| crate::platform::os_selector_matches(entry))
     }
 
-    /// Whether this package is enabled by at least one active mise environment.
+    /// Whether this package is enabled by at least one active pakro environment.
     fn is_env_supported(&self, environments: &[String]) -> bool {
         let Self::Options(options) = self else {
             return true;
@@ -297,7 +297,7 @@ where
     Ok(values)
 }
 
-/// Deserialize one or more non-blank mise environment selectors.
+/// Deserialize one or more non-blank pakro environment selectors.
 fn deserialize_package_env<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -343,7 +343,7 @@ pub struct BootstrapMacosTomlConfig {
     #[serde(default)]
     pub trackpad: IndexMap<String, toml::Value>,
     /// `[bootstrap.macos.defaults.<domain>]` -> key -> value. Values stay raw TOML so
-    /// shapes from newer mise versions (arrays, dicts) parse fine on older
+    /// shapes from newer pakro versions (arrays, dicts) parse fine on older
     /// ones; the domain level is also raw so a malformed section warns
     /// instead of failing the whole config.
     #[serde(default)]
@@ -371,8 +371,8 @@ pub struct BootstrapMacosDefaultsEntry {
 
 #[derive(Debug, Default, Clone, Deserialize)]
 pub struct BootstrapMacosLaunchdTomlConfig {
-    /// User LaunchAgents, keyed by a short stable name. mise gives these a
-    /// `dev.mise.<name>` label when rendering the plist.
+    /// User LaunchAgents, keyed by a short stable name. pakro gives these a
+    /// `dev.pakro.<name>` label when rendering the plist.
     #[serde(default)]
     pub agents: IndexMap<String, Templated<LaunchdTomlConfig>>,
 }
@@ -390,8 +390,8 @@ pub struct BootstrapLinuxTomlConfig {
 
 #[derive(Debug, Default, Clone, Deserialize)]
 pub struct BootstrapLinuxSystemdTomlConfig {
-    /// User services and timers, keyed by a short stable name. mise gives
-    /// these a `dev.mise.<name>.<service|timer>` unit name when rendering.
+    /// User services and timers, keyed by a short stable name. pakro gives
+    /// these a `dev.pakro.<name>.<service|timer>` unit name when rendering.
     #[serde(default)]
     pub units: IndexMap<String, Templated<SystemdTomlConfig>>,
 }
@@ -409,7 +409,7 @@ pub struct SystemBrewTomlConfig {
     pub taps: IndexMap<String, String>,
 }
 
-/// `[dotfiles]` as parsed from a single mise.toml.
+/// `[dotfiles]` as parsed from a single pakro.toml.
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(transparent)]
 pub struct DotfilesTomlConfig(pub IndexMap<String, toml::Value>);
@@ -483,7 +483,7 @@ pub struct AppSpec {
 /// Validate an inline app declaration, returning its checksum and artifact.
 ///
 /// Every field is required: without a checksum there is nothing to verify the
-/// download against, and without an artifact name mise cannot tell which bundle
+/// download against, and without an artifact name pakro cannot tell which bundle
 /// in the archive to install.
 ///
 /// Platform-independent on purpose. A config shared across machines should
@@ -500,7 +500,7 @@ pub(crate) fn validate_app_declaration<'a>(
     // A plain http download is still integrity-checked, because `sha256` is
     // mandatory and verified, so this warns rather than refuses — an internal
     // mirror over http is a real case for this manager. It does not cover a
-    // redirect from https to http: mise's download client applies no redirect
+    // redirect from https to http: pakro's download client applies no redirect
     // policy, which is shared behaviour well outside this manager.
     if !url.starts_with("https://") {
         warn!(
@@ -546,7 +546,7 @@ pub(crate) fn validate_app_declaration<'a>(
     }
     if version == "latest" {
         eyre::bail!(
-            "macos-app:{name}: 'url' requires an explicit 'version'; mise cannot discover versions for a direct download"
+            "macos-app:{name}: 'url' requires an explicit 'version'; pakro cannot discover versions for a direct download"
         );
     }
     Ok((sha256, artifact))
@@ -587,9 +587,9 @@ pub fn parse_spec(spec: &str) -> eyre::Result<(String, String)> {
     }
 }
 
-/// Split a `mise bootstrap packages use` spec `manager:package[@version]` into its parts.
+/// Split a `pakro bootstrap packages use` spec `manager:package[@version]` into its parts.
 ///
-/// `@version` mirrors `mise use tool@version`; `@latest` (or no `@`) means no
+/// `@version` mirrors `pakro use tool@version`; `@latest` (or no `@`) means no
 /// pin. brew and brew-cask are exempt from `@` parsing: `@` is part of
 /// Homebrew names (`postgresql@17` — that name IS brew's versioning
 /// mechanism), and bottles/casks can't be installed at a pinned version
@@ -635,7 +635,7 @@ pub fn parse_use_spec(spec: &str) -> eyre::Result<(String, PackageRequest)> {
 }
 
 /// Build [`ManagerPackages`] from already-parsed requests (used by
-/// `mise bootstrap packages use`, where version pins come from the CLI spec). Unknown or
+/// `pakro bootstrap packages use`, where version pins come from the CLI spec). Unknown or
 /// settings-excluded managers are hard errors.
 pub fn packages_from_requests(
     by_mgr: IndexMap<String, Vec<PackageRequest>>,
@@ -685,7 +685,7 @@ pub fn package_configs_for_target(
 }
 
 /// Aggregate `[bootstrap.packages]` from the current merged config plus every
-/// tracked config file, mirroring the way `mise prune` protects tool versions
+/// tracked config file, mirroring the way `pakro prune` protects tool versions
 /// still referenced by other projects.
 #[cfg(unix)]
 pub async fn packages_from_config_and_tracked_config_files(
@@ -928,7 +928,7 @@ fn package_requests_from_config_files(
             debug!("[bootstrap.packages]: skipping '{spec}', not enabled for this platform");
             continue;
         }
-        if filter_env && !package.is_env_supported(&crate::env::MISE_ENV_WITH_AUTO) {
+        if filter_env && !package.is_env_supported(&crate::env::PAKRO_ENV_WITH_AUTO) {
             debug!("[bootstrap.packages]: skipping '{spec}', not enabled for this environment");
             continue;
         }
@@ -1795,7 +1795,7 @@ pub fn login_shell_from_config(config: &Config) -> Option<login_shell::LoginShel
     shell.map(|shell| login_shell::LoginShellRequest { shell })
 }
 
-/// Aggregate `[bootstrap.mise_shell_activate]` across all loaded config files.
+/// Aggregate `[bootstrap.pakro_shell_activate]` across all loaded config files.
 ///
 /// Target keys merge global -> local, with local config overriding broader
 /// config. Shell keys are shortcuts that expand to that shell's default target
@@ -1815,14 +1815,14 @@ pub fn shell_activation_from_config_files(config_files: &ConfigMap) -> Vec<Shell
         if let Some(sys) = cf.bootstrap_config() {
             let mut shell_entries = vec![];
             let mut target_entries = vec![];
-            for (key, value) in sys.mise_shell_activate {
+            for (key, value) in sys.pakro_shell_activate {
                 if let Some(shell) = ShellActivationShell::parse(&key) {
                     shell_entries.push((key, shell, value));
                 } else if let Some(target) = ShellActivationTarget::parse(&key) {
                     target_entries.push((key, target, value));
                 } else {
                     warn!(
-                        "[bootstrap.mise_shell_activate]: unknown target '{key}' \
+                        "[bootstrap.pakro_shell_activate]: unknown target '{key}' \
                          (expected {}), ignoring entry",
                         ShellActivationTarget::expected_keys()
                     );
@@ -1914,7 +1914,7 @@ fn shell_activation_setting(key: &str, value: toml::Value) -> Option<ShellActiva
         toml::Value::String(mode) => {
             let Some(mode) = ShellActivationMode::parse(&mode) else {
                 warn!(
-                    "[bootstrap.mise_shell_activate.{key}]: expected \"activate\" or \"shims\", \
+                    "[bootstrap.pakro_shell_activate.{key}]: expected \"activate\" or \"shims\", \
                      ignoring entry"
                 );
                 return None;
@@ -1932,7 +1932,7 @@ fn shell_activation_setting(key: &str, value: toml::Value) -> Option<ShellActiva
                 .collect::<Vec<_>>();
             if !unknown.is_empty() {
                 warn!(
-                    "[bootstrap.mise_shell_activate.{key}]: unknown field(s) {}, ignoring entry",
+                    "[bootstrap.pakro_shell_activate.{key}]: unknown field(s) {}, ignoring entry",
                     unknown.join(", ")
                 );
                 return None;
@@ -1941,13 +1941,15 @@ fn shell_activation_setting(key: &str, value: toml::Value) -> Option<ShellActiva
                 Some(toml::Value::Boolean(enabled)) => *enabled,
                 Some(_) => {
                     warn!(
-                        "[bootstrap.mise_shell_activate.{key}].enabled: expected bool, \
+                        "[bootstrap.pakro_shell_activate.{key}].enabled: expected bool, \
                          ignoring entry"
                     );
                     return None;
                 }
                 None => {
-                    warn!("[bootstrap.mise_shell_activate.{key}]: missing enabled, ignoring entry");
+                    warn!(
+                        "[bootstrap.pakro_shell_activate.{key}]: missing enabled, ignoring entry"
+                    );
                     return None;
                 }
             };
@@ -1955,7 +1957,7 @@ fn shell_activation_setting(key: &str, value: toml::Value) -> Option<ShellActiva
                 Some(toml::Value::String(mode)) => {
                     let Some(mode) = ShellActivationMode::parse(mode) else {
                         warn!(
-                            "[bootstrap.mise_shell_activate.{key}].mode: expected \"activate\" or \
+                            "[bootstrap.pakro_shell_activate.{key}].mode: expected \"activate\" or \
                              \"shims\", ignoring entry"
                         );
                         return None;
@@ -1964,7 +1966,7 @@ fn shell_activation_setting(key: &str, value: toml::Value) -> Option<ShellActiva
                 }
                 Some(_) => {
                     warn!(
-                        "[bootstrap.mise_shell_activate.{key}].mode: expected string, ignoring entry"
+                        "[bootstrap.pakro_shell_activate.{key}].mode: expected string, ignoring entry"
                     );
                     return None;
                 }
@@ -1974,7 +1976,7 @@ fn shell_activation_setting(key: &str, value: toml::Value) -> Option<ShellActiva
         }
         _ => {
             warn!(
-                "[bootstrap.mise_shell_activate.{key}]: expected bool, \"activate\", \"shims\", \
+                "[bootstrap.pakro_shell_activate.{key}]: expected bool, \"activate\", \"shims\", \
                  or table, ignoring entry"
             );
             None
@@ -2002,7 +2004,7 @@ fn warn_shell_activation_invalid_shell_retains_broader(
         .collect::<Vec<_>>();
     if !retained.is_empty() {
         warn!(
-            "[bootstrap.mise_shell_activate.{key}]: invalid entry ignored; keeping broader config \
+            "[bootstrap.pakro_shell_activate.{key}]: invalid entry ignored; keeping broader config \
              values {}",
             retained.join(", ")
         );
@@ -2016,7 +2018,7 @@ fn warn_shell_activation_invalid_target_retains_broader(
 ) {
     if let Some(mode) = merged.get(&target) {
         warn!(
-            "[bootstrap.mise_shell_activate.{key}]: invalid entry ignored; keeping broader config \
+            "[bootstrap.pakro_shell_activate.{key}]: invalid entry ignored; keeping broader config \
              value {}",
             shell_activation_setting_display(*mode)
         );
@@ -2074,8 +2076,8 @@ pub fn packages_from_specs_with_config(
 ///
 /// An explicit spec is not filtered by `os`/`env` — naming a package on the
 /// command line is the decision — but brew-cask options still come from the
-/// config so that `mise bootstrap packages apply brew-cask:firefox` adopts
-/// exactly what a full `mise bootstrap` would. Adoption is the documented way
+/// config so that `pakro bootstrap packages apply brew-cask:firefox` adopts
+/// exactly what a full `pakro bootstrap` would. Adoption is the documented way
 /// to migrate an app bundle without replacing it, and replacing it is what
 /// puts macOS Privacy & Security grants at risk.
 fn packages_from_specs_with_config_files(
@@ -2097,7 +2099,7 @@ fn packages_from_specs_with_config_files(
             continue;
         };
         if !configured.is_os_supported()
-            || !configured.is_env_supported(&crate::env::MISE_ENV_WITH_AUTO)
+            || !configured.is_env_supported(&crate::env::PAKRO_ENV_WITH_AUTO)
         {
             continue;
         }
@@ -2307,7 +2309,7 @@ fn validate_package_name(mgr: &str, name: &str) -> eyre::Result<()> {
 /// Collect export declarations before manager validation can warn and skip an
 /// invalid entry. Export must either represent the entire selection or fail.
 pub fn nix_packages_for_export(config: &Config) -> Vec<(String, PackageTomlConfig)> {
-    let environments = &crate::env::MISE_ENV_WITH_AUTO;
+    let environments = &crate::env::PAKRO_ENV_WITH_AUTO;
     package_configs_from_config_files(&config.config_files)
         .into_iter()
         .filter(|(spec, package)| {
@@ -2428,7 +2430,7 @@ fn resolve_managers(
 mod tests {
     use super::*;
     #[cfg(unix)]
-    use crate::config::config_file::{ConfigFile, mise_toml::MiseToml};
+    use crate::config::config_file::{ConfigFile, pakro_toml::PakroToml};
     #[cfg(unix)]
     use std::sync::Arc;
 
@@ -2446,7 +2448,7 @@ mod tests {
                 crate::file::create_dir_all(parent)?;
             }
             crate::file::write(&path, contents)?;
-            let cf: Arc<dyn ConfigFile> = Arc::new(MiseToml::from_file(&path)?);
+            let cf: Arc<dyn ConfigFile> = Arc::new(PakroToml::from_file(&path)?);
             config_files.insert(path, cf);
         }
         Ok((tmp, config_files))
@@ -2561,7 +2563,7 @@ mod tests {
     #[test]
     fn package_table_form_parses_absent_state() -> Result<()> {
         let (_dir, config_files) = config_map_from_toml(&[(
-            "mise.toml",
+            "pakro.toml",
             r#"
                 [bootstrap.packages]
                 "pacman:libreoffice-fresh" = { state = "absent" }
@@ -2625,7 +2627,7 @@ mod tests {
     #[test]
     fn test_brew_cask_adopt_option_reaches_package_request() -> Result<()> {
         let (_dir, config_files) = config_map_from_toml(&[(
-            "mise.toml",
+            "pakro.toml",
             r#"
                 [bootstrap.brew]
                 adopt = true
@@ -2651,7 +2653,7 @@ mod tests {
     #[test]
     fn brew_cask_appdir_option_reaches_package_request() -> Result<()> {
         let (_dir, config_files) = config_map_from_toml(&[(
-            "mise.toml",
+            "pakro.toml",
             r#"
                 [bootstrap.packages]
                 "brew-cask:1password" = { appdir = "/Applications" }
@@ -2690,7 +2692,7 @@ mod tests {
             "#,
         ] {
             let (_dir, config_files) = config_map_from_toml(&[(
-                "mise.toml",
+                "pakro.toml",
                 &format!("[bootstrap.packages]\n{declarations}"),
             )])?;
             let mut package_sets = vec![packages_from_config_files(&config_files)?];
@@ -2722,7 +2724,7 @@ mod tests {
     #[test]
     fn brew_cask_appdir_does_not_alias_custom_taps() -> Result<()> {
         let (_dir, config_files) = config_map_from_toml(&[(
-            "mise.toml",
+            "pakro.toml",
             r#"
                 [bootstrap.packages]
                 "brew-cask:acme/tools/firefox" = { appdir = "/Applications/acme" }
@@ -2748,7 +2750,7 @@ mod tests {
     #[test]
     fn invalid_brew_cask_appdir_keeps_the_configured_cask() -> Result<()> {
         let (_dir, config_files) = config_map_from_toml(&[(
-            "mise.toml",
+            "pakro.toml",
             r#"
                 [bootstrap.packages]
                 "brew-cask:firefox" = { appdir = "relative/Applications" }
@@ -2770,7 +2772,7 @@ mod tests {
     #[test]
     fn invalid_brew_cask_appdir_keeps_an_explicit_cask_request() -> Result<()> {
         let (_dir, config_files) = config_map_from_toml(&[(
-            "mise.toml",
+            "pakro.toml",
             r#"
                 [bootstrap.packages]
                 "brew-cask:firefox" = { appdir = "relative/Applications" }
@@ -2795,7 +2797,7 @@ mod tests {
     #[test]
     fn macos_app_declaration_reaches_manager_options() -> Result<()> {
         let (_dir, config_files) = config_map_from_toml(&[(
-            "mise.toml",
+            "pakro.toml",
             r#"
                 [bootstrap.packages]
                 "macos-app:nuvio" = { version = "1.1.20", url = "https://example.com/Nuvio-{{version}}-arm64.dmg", sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", artifact = "Nuvio.app", adopt = true }
@@ -2899,14 +2901,14 @@ mod tests {
     #[test]
     fn macos_app_explicit_cli_spec_carries_its_declaration() -> Result<()> {
         let (_dir, config_files) = config_map_from_toml(&[(
-            "mise.toml",
+            "pakro.toml",
             r#"
                 [bootstrap.packages]
                 "macos-app:nuvio" = { version = "1.1.20", url = "https://example.com/Nuvio-{{version}}.dmg", sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", artifact = "Nuvio.app", adopt = true }
             "#,
         )])?;
 
-        // `mise bootstrap packages apply macos-app:nuvio` must resolve the same
+        // `pakro bootstrap packages apply macos-app:nuvio` must resolve the same
         // declaration a full bootstrap would; there is no Homebrew fallback.
         let packages =
             packages_from_specs_with_config_files(&["macos-app:nuvio".to_string()], &config_files)?;
@@ -2927,7 +2929,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn macos_app_explicit_cli_spec_without_a_declaration_is_an_error() -> Result<()> {
-        let (_dir, config_files) = config_map_from_toml(&[("mise.toml", "[tools]\n")])?;
+        let (_dir, config_files) = config_map_from_toml(&[("pakro.toml", "[tools]\n")])?;
         let err = match packages_from_specs_with_config_files(
             &["macos-app:nuvio".to_string()],
             &config_files,
@@ -2970,7 +2972,7 @@ mod tests {
             "{missing_artifact}"
         );
 
-        // mise cannot discover versions for a direct download, so "latest" has
+        // pakro cannot discover versions for a direct download, so "latest" has
         // no meaning here and must be rejected rather than silently pinned.
         let latest = AppSpec::parse(
             "nuvio",
@@ -3009,7 +3011,7 @@ mod tests {
         // "needs url, sha256, artifact and version" diagnosis rather than
         // being accepted and failing later at download time.
         let (_dir, config_files) = config_map_from_toml(&[(
-            "mise.toml",
+            "pakro.toml",
             r#"
                 [bootstrap.packages]
                 "macos-app:nuvio" = { version = "1.1.20", url = "   ", sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", artifact = "Nuvio.app" }
@@ -3173,7 +3175,7 @@ mod tests {
     #[test]
     fn macos_app_rejects_inline_url_on_other_managers() -> Result<()> {
         let (_dir, config_files) = config_map_from_toml(&[(
-            "mise.toml",
+            "pakro.toml",
             r#"
                 [bootstrap.packages]
                 "brew-cask:nuvio" = { version = "1.1.20", url = "https://example.com/Nuvio.dmg", sha256 = "abc", artifact = "Nuvio.app" }
@@ -3196,7 +3198,7 @@ mod tests {
     #[test]
     fn test_brew_cask_adopt_option_reaches_explicit_cli_specs() -> Result<()> {
         let (_dir, config_files) = config_map_from_toml(&[(
-            "mise.toml",
+            "pakro.toml",
             r#"
                 [bootstrap.brew]
                 adopt = true
@@ -3229,7 +3231,7 @@ mod tests {
     #[test]
     fn explicit_cask_keeps_a_configured_dependency_appdir() -> Result<()> {
         let (_dir, config_files) = config_map_from_toml(&[(
-            "mise.toml",
+            "pakro.toml",
             r#"
                 [bootstrap.packages]
                 "brew-cask:parent" = { appdir = "/Applications/parent" }
@@ -3256,7 +3258,7 @@ mod tests {
     #[test]
     fn test_explicit_cli_specs_do_not_adopt_without_config() -> Result<()> {
         let (_dir, config_files) = config_map_from_toml(&[(
-            "mise.toml",
+            "pakro.toml",
             r#"
                 [bootstrap.packages]
                 "brew-cask:textmate" = "latest"
@@ -3279,7 +3281,7 @@ mod tests {
         // The installer looks adoption up by the name on the request, so a
         // tap-qualified entry has to be recorded under that same spelling.
         let (_dir, config_files) = config_map_from_toml(&[(
-            "mise.toml",
+            "pakro.toml",
             r#"
                 [bootstrap.packages]
                 "brew-cask:homebrew/cask/textmate" = { adopt = true }
@@ -3306,7 +3308,7 @@ mod tests {
         // Two taps can ship a cask with the same bare token. Adopting one must
         // not adopt the other, which explicitly asked to be replaced.
         let (_dir, config_files) = config_map_from_toml(&[(
-            "mise.toml",
+            "pakro.toml",
             r#"
                 [bootstrap.packages]
                 "brew-cask:acme/tools/textmate" = { adopt = true }
@@ -3349,7 +3351,7 @@ mod tests {
     #[test]
     fn test_explicit_spec_matches_the_official_tap_spelling() -> Result<()> {
         let (_dir, config_files) = config_map_from_toml(&[(
-            "mise.toml",
+            "pakro.toml",
             r#"
                 [bootstrap.packages]
                 "brew-cask:homebrew/cask/textmate" = { adopt = true }
@@ -3449,7 +3451,7 @@ mod tests {
     #[test]
     fn folded_package_names_that_disagree_are_rejected() -> Result<()> {
         let (_dir, config_files) = config_map_from_toml(&[(
-            "mise.toml",
+            "pakro.toml",
             r#"
                 [bootstrap.packages]
                 "winget:Git.Git" = "latest"
@@ -3472,7 +3474,7 @@ mod tests {
     #[test]
     fn verbatim_package_names_that_differ_only_by_case_are_kept() -> Result<()> {
         let (_dir, config_files) = config_map_from_toml(&[(
-            "mise.toml",
+            "pakro.toml",
             r#"
                 [bootstrap.packages]
                 "apt:Git" = "latest"
@@ -3506,7 +3508,7 @@ mod tests {
                 "winget:git.git" = {{ state = "absent", os = "{inactive_os}" }}
             "#
         );
-        let (_dir, config_files) = config_map_from_toml(&[("mise.toml", &config)])?;
+        let (_dir, config_files) = config_map_from_toml(&[("pakro.toml", &config)])?;
 
         let winget = packages_from_config_files(&config_files)?
             .into_iter()
@@ -3601,7 +3603,7 @@ mod tests {
             "config.toml",
             r#"
                 [bootstrap.packages]
-                "brew:profile-only" = { env = "__mise_inactive_test_env__" }
+                "brew:profile-only" = { env = "__pakro_inactive_test_env__" }
             "#,
         )])?;
 

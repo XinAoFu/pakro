@@ -139,7 +139,7 @@ impl TaskContextBuilder {
     }
 
     /// Resolve environment variables for a task using its config file context
-    /// This is used for monorepo tasks to load env vars from subdirectory mise.toml files
+    /// This is used for monorepo tasks to load env vars from subdirectory pakro.toml files
     /// Returns (env, task_env, resolved_vars) where resolved_vars contains vars from the
     /// task's config hierarchy (for injecting into tera context during script rendering)
     pub(crate) async fn resolve_task_env_with_config(
@@ -202,7 +202,7 @@ impl TaskContextBuilder {
                     .collect()
             } else {
                 // For regular tasks OR monorepo tasks that run in cwd:
-                // Use ALL config files from the current project (including MISE_ENV-specific ones)
+                // Use ALL config files from the current project (including PAKRO_ENV-specific ones)
                 // This fixes env inheritance for tasks with dir="{{cwd}}"
                 config
                     .config_files

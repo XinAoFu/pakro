@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 mkdir foo
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools]
 dummy = 'latest'
 
@@ -9,4 +9,4 @@ dummy = 'latest'
 enable_tools = ["foo"]
 EOF
 
-assert_not_contains "mise tool dummy 2>&1" "Config Source"
+assert_not_contains "pakro tool dummy 2>&1" "Config Source"

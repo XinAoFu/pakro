@@ -1,8 +1,8 @@
 name: "Fetch GitHub Token from Pool"
-description: "Fetches a token from mise-versions token pool"
+description: "Fetches a token from pakro-versions token pool"
 inputs:
   api-secret:
-    description: "API secret for mise-versions"
+    description: "API secret for pakro-versions"
     required: true
   count:
     description: "Number of tokens to fetch sequentially so the pool can rotate"

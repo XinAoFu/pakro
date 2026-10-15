@@ -86,7 +86,7 @@ struct List {
 
 /// Remove daemon state left behind by deleted project directories.
 ///
-/// Scan `$MISE_STATE_DIR/daemons/` for state belonging to deleted projects,
+/// Scan `$PAKRO_STATE_DIR/daemons/` for state belonging to deleted projects,
 /// including removed Git worktrees. Stop their daemons, unregister their
 /// configuration, and delete their state and data. Existing projects are preserved.
 ///
@@ -95,7 +95,7 @@ struct List {
 /// entries that may belong to an unmounted volume or a deleted symlink are skipped
 /// with `--yes` and require separate interactive confirmation.
 ///
-/// Pitchfork must be available. State is kept when mise cannot confirm that the
+/// Pitchfork must be available. State is kept when pakro cannot confirm that the
 /// daemons have stopped or cannot unregister their configuration.
 #[derive(Debug, usage_rs::Args)]
 #[usage(verbatim_doc_comment)]
@@ -137,7 +137,7 @@ impl Daemons {
     }
 
     pub(crate) async fn run(self) -> Result<()> {
-        Settings::get().ensure_experimental("mise daemons")?;
+        Settings::get().ensure_experimental("pakro daemons")?;
         Settings::ensure_not_safe("managing daemons")?;
         let (action, args, json) = match self.command {
             Some(Commands::Init(args)) => {
@@ -170,17 +170,17 @@ impl Daemons {
         let root = config
             .project_root
             .as_deref()
-            .ok_or_else(|| eyre::eyre!("mise daemons requires a project configuration"))?;
+            .ok_or_else(|| eyre::eyre!("pakro daemons requires a project configuration"))?;
         // The dashboard is global to the supervisor, not one invocation per daemon root.
         if action == "tui" {
             if args.first().is_some_and(|arg| !arg.starts_with('-')) {
-                bail!("mise daemons tui opens the dashboard; pass TUI flags, not daemon names");
+                bail!("pakro daemons tui opens the dashboard; pass TUI flags, not daemon names");
             }
             let previous = runtime::read_state(root)?;
             let (config, ts) = runtime::toolset(&config, None).await?;
             let runtime = Runtime::from_toolset(&config, &ts, Some(&previous.bin)).await?;
             if !runtime.supervisor_up(root).await? {
-                bail!("pitchfork supervisor is not running; run mise daemons start");
+                bail!("pitchfork supervisor is not running; run pakro daemons start");
             }
             return runtime
                 .exec(root, [vec!["tui".into()], args].concat())
@@ -288,7 +288,7 @@ impl Daemons {
                 let hint = if install {
                     "declare the group in [daemon_groups] or use pitchfork directly for its own groups"
                 } else {
-                    "declare the group in [daemon_groups], or run `mise daemons ls` to name daemons a removed group started"
+                    "declare the group in [daemon_groups], or run `pakro daemons ls` to name daemons a removed group started"
                 };
                 bail!("no [daemon_groups] entry named {group:?}; {hint}");
             }
@@ -373,7 +373,7 @@ impl Daemons {
         let mut pending = Vec::new();
         let mut rows = Vec::new();
         // The hostname components each listed root contributes, for the stack
-        // and project pages `mise daemons urls` prints alongside the daemons.
+        // and project pages `pakro daemons urls` prints alongside the daemons.
         let mut listed_roots: Vec<(PathBuf, Option<daemons::urls::RootLabels>)> = Vec::new();
         let mut matched = false;
         let mut root_entries: Vec<_> = roots
@@ -464,7 +464,7 @@ impl Daemons {
                 // listing entirely rather than showing them without URLs.
                 listed_roots.push((root.clone(), set.labels.get(&root).cloned()));
                 // Reported per root so a developer can see what a worktree costs
-                // before deleting it (or before running `mise daemons prune`).
+                // before deleting it (or before running `pakro daemons prune`).
                 let state_dir = daemons::state_dir(&root);
                 let data_size = daemons::prune::dir_size(&state_dir.join("data"));
                 let desired = set
@@ -559,7 +559,7 @@ impl Daemons {
             };
             if action == "register" {
                 matched = true;
-                miseprintln!("Registered daemons for {}", display_path(&root));
+                pakroprintln!("Registered daemons for {}", display_path(&root));
                 continue;
             }
             // `root_selectors` came from the same set the request was validated
@@ -594,7 +594,7 @@ impl Daemons {
             }
             matched = true;
             if action == "logs" && !runtime.supervisor_up(&root).await? {
-                bail!("pitchfork supervisor is not running; run mise daemons start");
+                bail!("pitchfork supervisor is not running; run pakro daemons start");
             }
             if action == "status" {
                 for id in selected {
@@ -627,10 +627,10 @@ impl Daemons {
         }
         if matches!(action, "ls" | "urls") {
             if json {
-                miseprintln!("{}", serde_json::to_string_pretty(&rows)?);
+                pakroprintln!("{}", serde_json::to_string_pretty(&rows)?);
             } else if action == "ls" {
                 let mut table =
-                    crate::ui::table::MiseTable::new(false, &["Daemon", "Status", "Source"]);
+                    crate::ui::table::PakroTable::new(false, &["Daemon", "Status", "Source"]);
                 for row in rows {
                     table.add_row(vec![
                         comfy_table::Cell::new(row["id"].as_str().unwrap_or_default()),
@@ -643,7 +643,7 @@ impl Daemons {
                 print_urls(&rows, &listed_roots, proxy)?;
             }
         } else if !matched {
-            bail!("no matching project daemons; define [daemons] in mise.toml");
+            bail!("no matching project daemons; define [daemons] in pakro.toml");
         }
         Ok(())
     }
@@ -768,17 +768,17 @@ impl Prune {
                 Ok(vec![])
             }
             Confirmation::Unavailable => bail!(
-                "mise daemons prune requires confirmation but there was nobody to ask; pass --yes to prune non-interactively"
+                "pakro daemons prune requires confirmation but there was nobody to ask; pass --yes to prune non-interactively"
             ),
         }
     }
 }
 
 /// Points at daemon state whose project directory no longer exists. The current
-/// project cannot be among them: it is the directory mise is running in. Nothing
+/// project cannot be among them: it is the directory pakro is running in. Nothing
 /// is deleted here; pruning is always explicit.
 ///
-/// Counts only what a plain `mise daemons prune` would remove. State that needs
+/// Counts only what a plain `pakro daemons prune` would remove. State that needs
 /// a person to look at it is not something to nag about on every start.
 fn hint_prunable_state() {
     let Ok(orphans) = daemons::prune::orphans(&daemons::prune::base_dir()) else {
@@ -793,7 +793,7 @@ fn hint_prunable_state() {
     }
     let plural = if count == 1 { "y" } else { "ies" };
     info!(
-        "{count} daemon state director{plural} belong to deleted projects; run `mise daemons prune` to remove them"
+        "{count} daemon state director{plural} belong to deleted projects; run `pakro daemons prune` to remove them"
     );
 }
 
@@ -808,9 +808,9 @@ fn print_urls(
 ) -> Result<()> {
     for (root, labels) in roots {
         let display = crate::file::display_path(root);
-        miseprintln!("{display}");
+        pakroprintln!("{display}");
         let mut table =
-            crate::ui::table::MiseTable::new(false, &["Daemon", "URL", "Port", "Proxy", "Status"]);
+            crate::ui::table::PakroTable::new(false, &["Daemon", "URL", "Port", "Proxy", "Status"]);
         for row in rows
             .iter()
             .filter(|row| row["root"].as_str().map(std::path::Path::new) == Some(root.as_path()))
@@ -836,10 +836,10 @@ fn print_urls(
             continue;
         };
         if let Some(stack) = proxy.stack_url(labels) {
-            miseprintln!("  stack:   {stack}");
+            pakroprintln!("  stack:   {stack}");
         }
         if let Some(project) = proxy.project_url(labels) {
-            miseprintln!("  project: {project}");
+            pakroprintln!("  project: {project}");
         }
     }
     Ok(())
@@ -990,8 +990,8 @@ fn effective_selectors(
 
 /// Consume pitchfork's `--all`/`-a` from `start`, `stop` and `restart`, where it
 /// means every daemon in this project. Pitchfork's own meaning reaches daemons of
-/// other projects, and it cannot be combined with the IDs mise passes for the
-/// project, so mise selects the project's daemons itself and drops the flag.
+/// other projects, and it cannot be combined with the IDs pakro passes for the
+/// project, so pakro selects the project's daemons itself and drops the flag.
 fn take_all_flag(
     action: &str,
     names: &[String],
@@ -1123,7 +1123,7 @@ fn split_args(action: &str, args: &[String]) -> Result<(Vec<String>, Vec<String>
 mod tests {
     use super::*;
     use crate::config::config_file::ConfigFile;
-    use crate::config::config_file::mise_toml::MiseToml;
+    use crate::config::config_file::pakro_toml::PakroToml;
     use std::sync::Arc;
 
     fn files(entries: &[(&str, &str)]) -> crate::config::ConfigMap {
@@ -1131,7 +1131,7 @@ mod tests {
             .iter()
             .map(|(path, body)| {
                 let path = PathBuf::from(path);
-                let cf: Arc<dyn ConfigFile> = Arc::new(MiseToml::from_str(body, &path).unwrap());
+                let cf: Arc<dyn ConfigFile> = Arc::new(PakroToml::from_str(body, &path).unwrap());
                 (path, cf)
             })
             .collect()
@@ -1145,11 +1145,11 @@ mod tests {
     fn a_daemon_keeps_its_own_short_name_against_any_group() {
         let set = daemons::load(&files(&[
             (
-                "/parent/child/mise.toml",
+                "/parent/child/pakro.toml",
                 "[daemons.web]\nrun = 'child web'\n",
             ),
             (
-                "/parent/mise.toml",
+                "/parent/pakro.toml",
                 "[daemons.api]\nrun = 'api'\n[daemon_groups]\nweb = ['api']\n\
                  [daemon_groups.stack]\ndaemons = ['api']\n",
             ),
@@ -1185,7 +1185,7 @@ mod tests {
         // A root whose daemons this command does not reach through the closure.
         let empty = daemons::DaemonSet::default();
         let set = daemons::load(&files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons.api]\nrun = 'server'\n[daemons.web]\nrun = 'web'\n",
         )]))
         .unwrap();
@@ -1213,7 +1213,7 @@ mod tests {
         // Naming only what the selector matched would let one collide with
         // another project in silence.
         let set = daemons::load(&files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons.api]\nrun = 'server'\nport = 3000\ndepends = ['db']\n\
              [daemons.db]\nrun = 'db'\nport = 5432\n",
         )]))
@@ -1312,7 +1312,7 @@ mod tests {
     #[test]
     fn group_names_select_every_member() {
         let set = daemons::load(&files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons.api]\nrun = 'api'\n[daemons.worker]\nrun = 'worker'\n[daemons.web]\nrun = 'web'\n[daemon_groups]\nbackend = ['api', 'worker']\n",
         )]))
         .unwrap();
@@ -1342,10 +1342,10 @@ mod tests {
         // that happens to share its name.
         let loaded = daemons::load(&files(&[
             (
-                "/parent/child/mise.toml",
+                "/parent/child/pakro.toml",
                 "[daemons.api]\nrun = 'api'\n[daemon_groups]\nops = ['api']\n",
             ),
-            ("/parent/mise.toml", "[daemons.ops]\nrun = 'ops'\n"),
+            ("/parent/pakro.toml", "[daemons.ops]\nrun = 'ops'\n"),
         ]))
         .unwrap();
         // Roots are absolutized, so derive them instead of hardcoding a path.
@@ -1366,10 +1366,10 @@ mod tests {
         // `web` is a group in the child and a daemon in the parent.
         let loaded = daemons::load(&files(&[
             (
-                "/parent/child/mise.toml",
+                "/parent/child/pakro.toml",
                 "[daemons.api]\nrun = 'api'\n[daemons.worker]\nrun = 'worker'\n[daemon_groups]\nweb = ['api']\n",
             ),
-            ("/parent/mise.toml", "[daemons.web]\nrun = 'web'\n"),
+            ("/parent/pakro.toml", "[daemons.web]\nrun = 'web'\n"),
         ]))
         .unwrap();
         let child = loaded.for_root(&loaded.daemons["api"].root.clone());
@@ -1390,10 +1390,10 @@ mod tests {
     fn a_default_group_applies_only_to_the_project_declaring_it() {
         let loaded = daemons::load(&files(&[
             (
-                "/parent/child/mise.toml",
+                "/parent/child/pakro.toml",
                 "[daemons.web]\nrun = 'web'\n[daemons.extra]\nrun = 'extra'\n[daemon_groups]\ndefault = ['web']\n",
             ),
-            ("/parent/mise.toml", "[daemons.inherited]\nrun = 'x'\n"),
+            ("/parent/pakro.toml", "[daemons.inherited]\nrun = 'x'\n"),
         ]))
         .unwrap();
         let child = loaded.for_root(&loaded.daemons["web"].root.clone());

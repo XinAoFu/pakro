@@ -1,7 +1,7 @@
 //! Native source builds for formulae without a usable bottle.
 //!
-//! Building a formula means running its Ruby `install` method. mise does
-//! this without Homebrew: it provisions a mise-managed ruby (precompiled,
+//! Building a formula means running its Ruby `install` method. pakro does
+//! this without Homebrew: it provisions a pakro-managed ruby (precompiled,
 //! via the normal tool machinery), downloads the formula's .rb from
 //! homebrew/core (sha256-verified against the API metadata), stages the
 //! sha256-verified source archive, and evaluates the formula with the
@@ -35,7 +35,7 @@ const HOMEBREW_CORE_RAW: &str = "https://raw.githubusercontent.com/Homebrew/home
 pub(super) fn has_bottle(formula: &Formula) -> bool {
     // undocumented override for testing the source-build pipeline with
     // formulae that do have bottles (comma-separated names)
-    if let Ok(force) = crate::env::var("MISE_SYSTEM_BREW_FORCE_SOURCE")
+    if let Ok(force) = crate::env::var("PAKRO_SYSTEM_BREW_FORCE_SOURCE")
         && force.split(',').any(|f| f.trim() == formula.name)
     {
         return false;
@@ -66,7 +66,7 @@ pub(super) fn check_buildable(formula: &Formula) -> Result<()> {
     };
     if let Some(using) = &src.using {
         bail!(
-            "{}: source uses the {using:?} download strategy, which mise cannot build from \
+            "{}: source uses the {using:?} download strategy, which pakro cannot build from \
              (and no bottle exists for this machine)",
             formula.name,
         );
@@ -129,7 +129,7 @@ pub(super) async fn build(
     crate::file::create_dir_all(&build_root)?;
     pr.set_message("extract source".to_string());
     let buildpath = stage_source(&archive, &build_root, &source_basename(formula))?;
-    let shim_path = build_root.join("mise-brew-shim.rb");
+    let shim_path = build_root.join("pakro-brew-shim.rb");
     crate::file::write(&shim_path, SHIM_RB)?;
 
     // Formulae bake the final keg path into binaries, so the build installs
@@ -153,7 +153,7 @@ pub(super) async fn build(
         .with_pr(pr);
     // Keep the synchronous child wait inside this future so cancellation
     // cannot drop the commit lock while the child is still mutating Cellar.
-    // run_blocking hands the Tokio worker core off on mise's multithreaded
+    // run_blocking hands the Tokio worker core off on pakro's multithreaded
     // runtime while the build runs.
     let built = crate::file::run_blocking(|| cmd.execute());
     if let Err(err) = built {
@@ -182,7 +182,7 @@ pub(super) async fn build(
         if let Err(rm_err) = crate::file::remove_all(&keg) {
             warn!(
                 "failed to remove {} after link failure: {rm_err}\n\
-                 remove it manually, then re-run `mise bootstrap packages apply`",
+                 remove it manually, then re-run `pakro bootstrap packages apply`",
                 keg.display(),
             );
         }
@@ -192,7 +192,7 @@ pub(super) async fn build(
     Ok(())
 }
 
-/// Ensure a mise-managed ruby is installed (precompiled by default) and
+/// Ensure a pakro-managed ruby is installed (precompiled by default) and
 /// return the path to its `ruby` executable.
 pub(crate) async fn ruby_bin() -> Result<PathBuf> {
     let mut config = Config::get().await?;
@@ -213,7 +213,7 @@ pub(crate) async fn ruby_bin() -> Result<PathBuf> {
     )
     .await?;
     find_ruby_bin(&config, &ts).await?.ok_or_else(|| {
-        eyre!("failed to provision ruby for building from source (try `mise install ruby`)")
+        eyre!("failed to provision ruby for building from source (try `pakro install ruby`)")
     })
 }
 
@@ -412,22 +412,22 @@ fn build_env(
     let stable_version = rf.formula.versions.stable.clone().unwrap_or_default();
     let mut env = HashMap::from(
         [
-            ("MISE_BREW_PREFIX", prefix.display().to_string()),
-            ("MISE_BREW_CELLAR", prefix::cellar().display().to_string()),
-            ("MISE_BREW_FORMULA_FILE", formula_rb.display().to_string()),
-            ("MISE_BREW_NAME", rf.formula.name.clone()),
-            ("MISE_BREW_VERSION", stable_version),
-            ("MISE_BREW_PKG_VERSION", pkg_version.to_string()),
-            ("MISE_BREW_BUILDPATH", buildpath.display().to_string()),
+            ("PAKRO_BREW_PREFIX", prefix.display().to_string()),
+            ("PAKRO_BREW_CELLAR", prefix::cellar().display().to_string()),
+            ("PAKRO_BREW_FORMULA_FILE", formula_rb.display().to_string()),
+            ("PAKRO_BREW_NAME", rf.formula.name.clone()),
+            ("PAKRO_BREW_VERSION", stable_version),
+            ("PAKRO_BREW_PKG_VERSION", pkg_version.to_string()),
+            ("PAKRO_BREW_BUILDPATH", buildpath.display().to_string()),
             (
-                "MISE_BREW_CACHE",
+                "PAKRO_BREW_CACHE",
                 crate::dirs::CACHE
                     .join("system-brew")
                     .join("downloads")
                     .display()
                     .to_string(),
             ),
-            ("MISE_BREW_MAKE_JOBS", jobs.to_string()),
+            ("PAKRO_BREW_MAKE_JOBS", jobs.to_string()),
             ("PATH", path.join(":")),
             ("MAKEFLAGS", format!("-j{jobs}")),
             ("HOMEBREW_PREFIX", prefix.display().to_string()),
@@ -578,14 +578,14 @@ end
         let output = std::process::Command::new(ruby)
             .arg(&shim)
             .current_dir(&buildpath)
-            .env("MISE_BREW_PREFIX", tmp.path())
-            .env("MISE_BREW_CELLAR", &cellar)
-            .env("MISE_BREW_FORMULA_FILE", &formula_rb)
-            .env("MISE_BREW_NAME", "example")
-            .env("MISE_BREW_VERSION", "1.0.0")
-            .env("MISE_BREW_PKG_VERSION", "1.0.0")
-            .env("MISE_BREW_BUILDPATH", &buildpath)
-            .env("MISE_BREW_CACHE", tmp.path().join("cache"))
+            .env("PAKRO_BREW_PREFIX", tmp.path())
+            .env("PAKRO_BREW_CELLAR", &cellar)
+            .env("PAKRO_BREW_FORMULA_FILE", &formula_rb)
+            .env("PAKRO_BREW_NAME", "example")
+            .env("PAKRO_BREW_VERSION", "1.0.0")
+            .env("PAKRO_BREW_PKG_VERSION", "1.0.0")
+            .env("PAKRO_BREW_BUILDPATH", &buildpath)
+            .env("PAKRO_BREW_CACHE", tmp.path().join("cache"))
             .output()?;
         assert!(
             output.status.success(),
@@ -695,14 +695,14 @@ end
 
         let output = std::process::Command::new(ruby)
             .arg(&shim)
-            .env("MISE_BREW_PREFIX", tmp.path().join("prefix"))
-            .env("MISE_BREW_CELLAR", tmp.path().join("Cellar"))
-            .env("MISE_BREW_FORMULA_FILE", &formula)
-            .env("MISE_BREW_NAME", "example")
-            .env("MISE_BREW_VERSION", "1.0.0")
-            .env("MISE_BREW_PKG_VERSION", "1.0.0")
-            .env("MISE_BREW_BUILDPATH", &buildpath)
-            .env("MISE_BREW_CACHE", &cache)
+            .env("PAKRO_BREW_PREFIX", tmp.path().join("prefix"))
+            .env("PAKRO_BREW_CELLAR", tmp.path().join("Cellar"))
+            .env("PAKRO_BREW_FORMULA_FILE", &formula)
+            .env("PAKRO_BREW_NAME", "example")
+            .env("PAKRO_BREW_VERSION", "1.0.0")
+            .env("PAKRO_BREW_PKG_VERSION", "1.0.0")
+            .env("PAKRO_BREW_BUILDPATH", &buildpath)
+            .env("PAKRO_BREW_CACHE", &cache)
             .output()
             .unwrap();
         assert!(

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [tools]
 dummy = "1.0.0"
 EOF
@@ -19,31 +19,31 @@ assert_uncolored() {
   fi
 }
 
-forced_pipe="$TMPDIR/mise-ls-forced-pipe"
-forced_file="$TMPDIR/mise-ls-forced-file"
-plain_pipe="$TMPDIR/mise-ls-plain-pipe"
-force_zero="$TMPDIR/mise-ls-force-zero"
-mise_color_zero="$TMPDIR/mise-ls-mise-color-zero"
-no_color="$TMPDIR/mise-ls-no-color"
-clicolor_zero="$TMPDIR/mise-ls-clicolor-zero"
-force_overrides_clicolor="$TMPDIR/mise-ls-force-overrides-clicolor"
+forced_pipe="$TMPDIR/pakro-ls-forced-pipe"
+forced_file="$TMPDIR/pakro-ls-forced-file"
+plain_pipe="$TMPDIR/pakro-ls-plain-pipe"
+force_zero="$TMPDIR/pakro-ls-force-zero"
+pakro_color_zero="$TMPDIR/pakro-ls-pakro-color-zero"
+no_color="$TMPDIR/pakro-ls-no-color"
+clicolor_zero="$TMPDIR/pakro-ls-clicolor-zero"
+force_overrides_clicolor="$TMPDIR/pakro-ls-force-overrides-clicolor"
 
 # These independent invocations run concurrently to keep the regression test fast.
-CLICOLOR_FORCE=1 mise ls dummy | cat >"$forced_pipe" &
+CLICOLOR_FORCE=1 pakro ls dummy | cat >"$forced_pipe" &
 pids=("$!")
-CLICOLOR_FORCE=1 mise ls dummy >"$forced_file" &
+CLICOLOR_FORCE=1 pakro ls dummy >"$forced_file" &
 pids+=("$!")
-mise ls dummy | cat >"$plain_pipe" &
+pakro ls dummy | cat >"$plain_pipe" &
 pids+=("$!")
-CLICOLOR_FORCE=0 mise ls dummy | cat >"$force_zero" &
+CLICOLOR_FORCE=0 pakro ls dummy | cat >"$force_zero" &
 pids+=("$!")
-MISE_COLOR=0 mise ls dummy | cat >"$mise_color_zero" &
+PAKRO_COLOR=0 pakro ls dummy | cat >"$pakro_color_zero" &
 pids+=("$!")
-NO_COLOR=1 mise ls dummy | cat >"$no_color" &
+NO_COLOR=1 pakro ls dummy | cat >"$no_color" &
 pids+=("$!")
-CLICOLOR=0 mise ls dummy | cat >"$clicolor_zero" &
+CLICOLOR=0 pakro ls dummy | cat >"$clicolor_zero" &
 pids+=("$!")
-CLICOLOR=0 CLICOLOR_FORCE=1 mise ls dummy | cat >"$force_overrides_clicolor" &
+CLICOLOR=0 CLICOLOR_FORCE=1 pakro ls dummy | cat >"$force_overrides_clicolor" &
 pids+=("$!")
 
 for pid in "${pids[@]}"; do
@@ -54,7 +54,7 @@ assert_colored "$(cat "$forced_pipe")"
 assert_colored "$(cat "$forced_file")"
 assert_uncolored "$(cat "$plain_pipe")"
 assert_uncolored "$(cat "$force_zero")"
-assert_uncolored "$(cat "$mise_color_zero")"
+assert_uncolored "$(cat "$pakro_color_zero")"
 assert_uncolored "$(cat "$no_color")"
 assert_uncolored "$(cat "$clicolor_zero")"
 

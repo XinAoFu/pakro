@@ -8,19 +8,19 @@ echo "running mytask"
 EOF
 chmod +x mytask
 
-assert "mise run ./mytask" "running mytask"
+assert "pakro run ./mytask" "running mytask"
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.mytask]
 file = "./mytask"
 EOF
 
 mkdir -p subdir
 cd subdir || exit 1
-assert "mise run mytask" "running mytask"
+assert "pakro run mytask" "running mytask"
 cd .. || exit 1
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 tasks.mytask.file = "http://localhost:${HTTP_PORT}/test/mytask"
 EOF
-assert "mise run mytask" "running mytask"
+assert "pakro run mytask" "running mytask"

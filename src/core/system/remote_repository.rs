@@ -125,7 +125,7 @@ impl Source {
 }
 
 pub fn global_directory() -> PathBuf {
-    crate::env::MISE_GLOBAL_CONFIG_FILE
+    crate::env::PAKRO_GLOBAL_CONFIG_FILE
         .as_deref()
         .and_then(Path::parent)
         .unwrap_or(*crate::dirs::CONFIG)
@@ -133,7 +133,7 @@ pub fn global_directory() -> PathBuf {
 }
 
 /// The branch of a transferred bundle whose tree carries the setup
-/// repository marker (`.mise-history/format.toml`); `None` for an ordinary
+/// repository marker (`.pakro-history/format.toml`); `None` for an ordinary
 /// repository.
 pub fn history_branch(bundle: &Path, revision: &str) -> Result<Option<String>> {
     let temporary = tempfile::tempdir()?;
@@ -148,7 +148,7 @@ pub fn history_branch(bundle: &Path, revision: &str) -> Result<Option<String>> {
     if !output.status.success() {
         bail!("invalid transferred repository bundle");
     }
-    let marker = format!("{revision}:.mise-history/format.toml");
+    let marker = format!("{revision}:.pakro-history/format.toml");
     if git(&checkout, &["cat-file", "-e", &marker]).is_err() {
         return Ok(None);
     }
@@ -266,12 +266,12 @@ fn install_at(
                 // the destination
                 let head = git(destination, &["rev-parse", "HEAD"])?;
                 if head == revision {
-                    miseprintln!(
+                    pakroprintln!(
                         "Would keep {shown} at {revision}, already the transferred revision"
                     );
                 } else if git(&checkout, &["merge-base", "--is-ancestor", &head, revision]).is_ok()
                 {
-                    miseprintln!("Would fast-forward {shown} from {head} to {revision}");
+                    pakroprintln!("Would fast-forward {shown} from {head} to {revision}");
                 } else {
                     bail!(
                         "global configuration at {shown} cannot be fast-forwarded to the transferred revision"
@@ -313,7 +313,7 @@ fn install_at(
                 ],
             )?;
         } else if dry_run {
-            miseprintln!(
+            pakroprintln!(
                 "Would keep the existing checkout of {origin} at {shown}; --update fast-forwards it"
             );
         }
@@ -344,7 +344,7 @@ fn install_at(
                 .filter(|s| !s.is_empty())
                 .filter(|entry| !destination.join(entry).exists())
                 .count();
-            miseprintln!(
+            pakroprintln!(
                 "Would adopt {shown} as the global configuration repository ({new_files} new file(s); existing files and local overrides preserved)"
             );
             return Ok(destination.to_path_buf());
@@ -372,7 +372,7 @@ fn install_at(
         }
         std::fs::rename(checkout.join(".git"), destination.join(".git"))?;
     } else if dry_run {
-        miseprintln!("Would clone {origin} at {revision} into {shown}");
+        pakroprintln!("Would clone {origin} at {revision} into {shown}");
     } else {
         if destination.exists() {
             std::fs::remove_dir(destination)?;
@@ -438,12 +438,12 @@ mod tests {
             .unwrap();
         let target = tempfile::tempdir().unwrap();
         // a fresh destination, its parent missing too: neither is created
-        let dest = target.path().join("missing").join("mise");
+        let dest = target.path().join("missing").join("pakro");
         preview_source(&source, &dest, false).unwrap();
         assert!(!dest.exists());
         assert!(!target.path().join("missing").exists());
         // an existing checkout is inspected, not moved
-        let dest = target.path().join("mise");
+        let dest = target.path().join("pakro");
         install_source(&source, &dest, false).unwrap();
         commit(
             repo.path(),
@@ -482,7 +482,7 @@ mod tests {
             .await
             .unwrap();
         let target = tempfile::tempdir().unwrap();
-        let dest = target.path().join("mise");
+        let dest = target.path().join("pakro");
         install_source(&source, &dest, false).unwrap();
         assert_eq!(git(&dest, &["rev-parse", "HEAD"]).unwrap(), source.revision);
         assert_eq!(
@@ -552,7 +552,7 @@ mod tests {
             .await
             .unwrap();
         let target = tempfile::tempdir().unwrap();
-        assert!(install_source(&source, &target.path().join("mise"), false).is_err());
+        assert!(install_source(&source, &target.path().join("pakro"), false).is_err());
         assert!(validate_origin("https://user:secret@github.com/jdx/mise").is_err());
         assert!(validate_origin("https://github.com/jdx/mise?token=secret").is_err());
         assert!(validate_origin("git@github.com:jdx/mise.git").is_ok());
@@ -602,7 +602,7 @@ mod tests {
         commit(repo.path(), "conf.d/config.local.toml", "secret");
         let source = Source::fetch(source.origin.clone()).await.unwrap();
         let fresh = tempfile::tempdir().unwrap();
-        assert!(install_source(&source, &fresh.path().join("mise"), false).is_err());
-        assert!(!fresh.path().join("mise").exists());
+        assert!(install_source(&source, &fresh.path().join("pakro"), false).is_err());
+        assert!(!fresh.path().join("pakro").exists());
     }
 }

@@ -1,30 +1,30 @@
 #!/usr/bin/env bash
 
 # Test that core:java resolves lockfile URLs without installing first.
-export MISE_LOCKFILE=1
+export PAKRO_LOCKFILE=1
 
 detect_platform
-CURRENT_PLATFORM="$MISE_PLATFORM"
-if [[ $MISE_PLATFORM_OS == "linux" ]] && type -P ldd >/dev/null && ldd --version 2>&1 | grep -qi musl; then
+CURRENT_PLATFORM="$PAKRO_PLATFORM"
+if [[ $PAKRO_PLATFORM_OS == "linux" ]] && type -P ldd >/dev/null && ldd --version 2>&1 | grep -qi musl; then
   CURRENT_PLATFORM="$CURRENT_PLATFORM-musl"
 fi
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tools]
 java = "corretto-17.0.2.8.1"
 EOF
 
-rm -f mise.lock
-mise uninstall java@corretto-17.0.2.8.1 2>/dev/null || true
+rm -f pakro.lock
+pakro uninstall java@corretto-17.0.2.8.1 2>/dev/null || true
 
-mise lock --platform "$CURRENT_PLATFORM,windows-x64"
+pakro lock --platform "$CURRENT_PLATFORM,windows-x64"
 
-assert_contains "cat mise.lock" '[[tools.java]]'
-assert_contains "cat mise.lock" 'version = "corretto-17.0.2.8.1"'
-assert_contains "cat mise.lock" "\"platforms.$CURRENT_PLATFORM\""
-assert_contains "cat mise.lock" 'checksum = "'
-assert_contains "cat mise.lock" 'url = "https://'
-assert_contains "cat mise.lock" '"platforms.windows-x64"'
-assert_contains "cat mise.lock" 'amazon-corretto-17.0.2.8.1-windows-x64-jdk.zip'
+assert_contains "cat pakro.lock" '[[tools.java]]'
+assert_contains "cat pakro.lock" 'version = "corretto-17.0.2.8.1"'
+assert_contains "cat pakro.lock" "\"platforms.$CURRENT_PLATFORM\""
+assert_contains "cat pakro.lock" 'checksum = "'
+assert_contains "cat pakro.lock" 'url = "https://'
+assert_contains "cat pakro.lock" '"platforms.windows-x64"'
+assert_contains "cat pakro.lock" 'amazon-corretto-17.0.2.8.1-windows-x64-jdk.zip'
 
-assert "mise install --locked --dry-run"
+assert "pakro install --locked --dry-run"

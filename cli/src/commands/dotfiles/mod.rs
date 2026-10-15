@@ -110,7 +110,7 @@ impl Dotfiles {
             crate::system::history::notices::drain();
         }
         let outcome = self.dispatch().await;
-        // **And again afterwards.** A command that captures — `mise dot
+        // **And again afterwards.** A command that captures — `pakro dot
         // sync` applying incoming changes, say — can write a notice
         // while it runs, and making the user wait for their next command
         // to hear about their own is not delivering it.
@@ -150,7 +150,7 @@ impl Dotfiles {
     }
 }
 
-/// Config files mise skipped because they're untrusted (declining the trust
+/// Config files pakro skipped because they're untrusted (declining the trust
 /// prompt adds them to the ignore list) but that do declare `[dotfiles]`.
 /// Their entries never reach these commands, so "nothing configured" reads as
 /// a config mistake when the real answer is that the file wasn't loaded.
@@ -179,7 +179,7 @@ pub(crate) fn warn_if_dotfiles_ignored() {
         return;
     }
     warn!(
-        "[dotfiles] in these config files was skipped because they are not trusted:\n{}\nRun `mise trust` in that directory to use them.",
+        "[dotfiles] in these config files was skipped because they are not trusted:\n{}\nRun `pakro trust` in that directory to use them.",
         ignored
             .iter()
             .map(|p| format!("  {}", crate::file::display_path(p)))

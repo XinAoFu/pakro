@@ -12,8 +12,8 @@ use std::path::MAIN_SEPARATOR_STR;
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise tasks edit build
-mise tasks edit test"###
+        r###"pakro tasks edit build
+pakro tasks edit test"###
     )
 )]
 pub(super) struct TasksEdit {
@@ -48,7 +48,7 @@ impl TasksEdit {
             file::make_executable(file)?;
         }
         if self.path {
-            miseprintln!("{}", file.display());
+            pakroprintln!("{}", file.display());
         } else {
             crate::cli::editor::open_in_editor(file.as_path())?;
         }

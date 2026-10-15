@@ -14,7 +14,7 @@ const LOGO: &[u8] = include_bytes!("../../../assets/notifications/apple-touch-ic
 
 #[cfg(target_os = "linux")]
 fn logo() -> Option<std::path::PathBuf> {
-    let path = crate::dirs::CACHE.join("notifications/mise.png");
+    let path = crate::dirs::CACHE.join("notifications/pakro.png");
     match cache_logo(&path) {
         Ok(()) => Some(path),
         Err(err) => {
@@ -50,7 +50,7 @@ pub(crate) fn send(title: &str, body: &str) {
 pub(crate) fn warn_if_release_signing_unavailable() {
     if crate::config::Settings::get().history.notify && !macos::release_signed() {
         warn!(
-            "macOS desktop notifications are unavailable in unofficial builds such as Homebrew; `mise dot status` and `mise doctor` still report setup conflicts"
+            "macOS desktop notifications are unavailable in unofficial builds such as Homebrew; `pakro dot status` and `pakro doctor` still report setup conflicts"
         );
     }
 }
@@ -67,9 +67,9 @@ fn dispatch(
         .stderr(Stdio::null());
     let (started_tx, started_rx) = std::sync::mpsc::sync_channel(0);
     let worker = std::thread::Builder::new()
-        .name("mise-notification".into())
+        .name("pakro-notification".into())
         .spawn(move || {
-            // A short-lived `mise dot sync` may exit as soon as
+            // A short-lived `pakro dot sync` may exit as soon as
             // dispatch returns. Confirm that the helper process exists first;
             // it can finish independently if this worker then goes away.
             let mut child = match command.spawn() {
@@ -120,7 +120,7 @@ fn linux_notification(
     icon: Option<&std::path::Path>,
 ) -> Command {
     let mut command = Command::new(bin);
-    command.args(["--app-name", "mise", "--urgency", "normal"]);
+    command.args(["--app-name", "pakro", "--urgency", "normal"]);
     if let Some(icon) = icon {
         command.arg("--icon").arg(icon);
     }
@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn notification_logo_is_cached_and_repaired() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("notifications/mise.png");
+        let path = dir.path().join("notifications/pakro.png");
         cache_logo(&path).unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), LOGO);
         let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
@@ -176,23 +176,23 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let parent = dir.path().join("not-a-directory");
         std::fs::write(&parent, b"").unwrap();
-        assert!(cache_logo(&parent.join("mise.png")).is_err());
+        assert!(cache_logo(&parent.join("pakro.png")).is_err());
     }
 
     #[test]
     fn linux_notification_logo_is_optional_and_paths_are_literal() {
         let bin = std::path::Path::new("notify-send");
-        let icon = std::path::Path::new("/cache with spaces/mise.png");
+        let icon = std::path::Path::new("/cache with spaces/pakro.png");
         let with_logo = linux_notification(bin, "--title", "body", Some(icon));
         assert_eq!(
             with_logo.get_args().collect::<Vec<_>>(),
             [
                 "--app-name",
-                "mise",
+                "pakro",
                 "--urgency",
                 "normal",
                 "--icon",
-                "/cache with spaces/mise.png",
+                "/cache with spaces/pakro.png",
                 "--",
                 "--title",
                 "body"
@@ -203,7 +203,7 @@ mod tests {
             without_logo.get_args().collect::<Vec<_>>(),
             [
                 "--app-name",
-                "mise",
+                "pakro",
                 "--urgency",
                 "normal",
                 "--",

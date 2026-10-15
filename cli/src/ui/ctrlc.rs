@@ -20,7 +20,7 @@ pub async fn exit_signal() -> i32 {
         }
         // Record the first task-mode interrupt before signalling children so
         // their exit handlers can distinguish cancellation from task failure.
-        let should_exit = EXIT.load(Ordering::Relaxed) || mise_util::cancel::mark();
+        let should_exit = EXIT.load(Ordering::Relaxed) || pakro_util::cancel::mark();
         CmdLineRunner::kill_all(nix::sys::signal::SIGINT);
         if should_exit {
             debug!("Ctrl-C pressed, exiting...");
@@ -31,12 +31,12 @@ pub async fn exit_signal() -> i32 {
 
 pub fn exit_on_ctrl_c(do_exit: bool) {
     EXIT.store(do_exit, Ordering::Relaxed);
-    mise_util::cancel::reset();
+    pakro_util::cancel::reset();
 }
 
 /// Returns true if ctrl-c has been received
 pub fn is_cancelled() -> bool {
-    mise_util::cancel::is_cancelled()
+    pakro_util::cancel::is_cancelled()
 }
 
 /// ensures cursor is displayed on ctrl-c

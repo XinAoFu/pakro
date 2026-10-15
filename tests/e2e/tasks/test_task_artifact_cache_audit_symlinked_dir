@@ -53,7 +53,7 @@ ln -s real/inner link
 printf 'declared\n' >real/inner/input.txt
 printf 'undeclared\n' >real/inner/secret.txt
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [settings]
 experimental = true
 
@@ -65,7 +65,7 @@ outputs = []
 cache = { enabled = true, audit = true }
 EOF
 
-output=$(PATH="$PWD/bin:$PATH" mise run --force build 2>&1)
+output=$(PATH="$PWD/bin:$PATH" pakro run --force build 2>&1)
 
 # The declared source must be recognised even though it was traced under the
 # link's target rather than the configured dir.

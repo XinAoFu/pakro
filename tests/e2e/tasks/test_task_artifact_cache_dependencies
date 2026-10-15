@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [settings]
 experimental = true
 
@@ -73,7 +73,7 @@ printf 'consume\n' >consume.txt
 printf 'parent-one\n' >parent.txt
 printf 'after\n' >after.txt
 
-mise run app
+pakro run app
 assert "wc -l < lib-runs.txt | tr -d ' '" "1"
 assert "wc -l < app-runs.txt | tr -d ' '" "1"
 assert "cat app-dist/result.txt" $'lib-one\napp'
@@ -81,14 +81,14 @@ assert "cat app-dist/result.txt" $'lib-one\napp'
 # A fresh dependency still publishes its identity when it skips, allowing a
 # missing downstream output to restore.
 rm -rf app-dist
-assert_contains "mise run app 2>&1" "restored outputs from cache"
+assert_contains "pakro run app 2>&1" "restored outputs from cache"
 assert "wc -l < lib-runs.txt | tr -d ' '" "1"
 assert "wc -l < app-runs.txt | tr -d ' '" "1"
 
 # A restored dependency contributes the same identity to the downstream key,
 # so both tasks can restore without executing.
 rm -rf lib-dist app-dist
-assert_contains "mise run app 2>&1" "restored outputs from cache"
+assert_contains "pakro run app 2>&1" "restored outputs from cache"
 assert "wc -l < lib-runs.txt | tr -d ' '" "1"
 assert "wc -l < app-runs.txt | tr -d ' '" "1"
 assert "cat app-dist/result.txt" $'lib-one\napp'
@@ -96,7 +96,7 @@ assert "cat app-dist/result.txt" $'lib-one\napp'
 # Changing the dependency changes its artifact identity and invalidates the
 # downstream artifact even though the downstream task's own sources are unchanged.
 printf 'lib-two\n' >lib.txt
-mise run app
+pakro run app
 assert "wc -l < lib-runs.txt | tr -d ' '" "2"
 assert "wc -l < app-runs.txt | tr -d ' '" "2"
 assert "cat app-dist/result.txt" $'lib-two\napp'
@@ -105,33 +105,33 @@ assert "cat app-dist/result.txt" $'lib-two\napp'
 # dependency and the matching downstream artifact.
 printf 'lib-one\n' >lib.txt
 rm -rf lib-dist app-dist
-assert_contains "mise run app 2>&1" "restored outputs from cache"
+assert_contains "pakro run app 2>&1" "restored outputs from cache"
 assert "wc -l < lib-runs.txt | tr -d ' '" "2"
 assert "wc -l < app-runs.txt | tr -d ' '" "2"
 assert "cat app-dist/result.txt" $'lib-one\napp'
 
 # A dependency that executes without a stable cache identity still forces
 # conservative downstream execution.
-assert_contains "mise run consume 2>&1" "cache miss: dependency completed without a cache key"
+assert_contains "pakro run consume 2>&1" "cache miss: dependency completed without a cache key"
 assert "wc -l < prepare-runs.txt | tr -d ' '" "1"
 assert "wc -l < consume-runs.txt | tr -d ' '" "1"
 printf 'prepare-two\n' >prepare.txt
-mise run consume
+pakro run consume
 assert "wc -l < prepare-runs.txt | tr -d ' '" "2"
 assert "wc -l < consume-runs.txt | tr -d ' '" "2"
 assert "cat consume-dist/result.txt" $'prepare-two\nconsume'
 
 # A post-dependency includes the parent artifact identity just like a regular
 # dependency, so it restores only for the matching parent outputs.
-mise run parent
+pakro run parent
 assert "wc -l < parent-runs.txt | tr -d ' '" "1"
 assert "wc -l < after-runs.txt | tr -d ' '" "1"
 rm -rf parent-dist after-dist
-assert_contains "mise run parent 2>&1" "restored outputs from cache"
+assert_contains "pakro run parent 2>&1" "restored outputs from cache"
 assert "wc -l < parent-runs.txt | tr -d ' '" "1"
 assert "wc -l < after-runs.txt | tr -d ' '" "1"
 printf 'parent-two\n' >parent.txt
-mise run parent
+pakro run parent
 assert "wc -l < parent-runs.txt | tr -d ' '" "2"
 assert "wc -l < after-runs.txt | tr -d ' '" "2"
 assert "cat after-dist/result.txt" $'parent-two\nafter'

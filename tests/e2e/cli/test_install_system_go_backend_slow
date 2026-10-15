@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regression test for https://github.com/jdx/mise/discussions/9526
 #
-# When `mise install --system` installs both `go` and a `go:` backend tool
+# When `pakro install --system` installs both `go` and a `go:` backend tool
 # in the same invocation, the go-backend install must use the freshly
 # installed go (in the system installs dir), not a stale path that was
 # computed before go installed.
@@ -12,7 +12,7 @@
 # path, and `go install ...` failed with "cannot find GOROOT directory".
 
 # Block any system-wide go so we can prove the install used the
-# mise-installed go.
+# pakro-installed go.
 cat >"$HOME/bin/fail" <<'EOF'
 #!/usr/bin/env bash
 echo "CALL TO SYSTEM $(basename $0)! args: $*" >&2
@@ -23,10 +23,10 @@ ln -s fail "$HOME/bin/go"
 export PATH="$HOME/bin:$PATH"
 assert_fail go
 
-export MISE_SYSTEM_DATA_DIR="$HOME/.local/share/mise-system"
-SYSTEM_INSTALLS="$MISE_SYSTEM_DATA_DIR/installs"
+export PAKRO_SYSTEM_DATA_DIR="$HOME/.local/share/pakro-system"
+SYSTEM_INSTALLS="$PAKRO_SYSTEM_DATA_DIR/installs"
 
-cat >>.mise.toml <<EOF
+cat >>.pakro.toml <<EOF
 [tools]
 go = "prefix:1.24"
 "go:github.com/jdx/go-example" = "e16a340"
@@ -35,7 +35,7 @@ experimental = true
 EOF
 
 # Both go and the go-backend tool must install in a single invocation.
-mise install --system --jobs 1
+pakro install --system --jobs 1
 
 # Verify both ended up in the system installs dir, not the user dir.
 assert_directory_exists "$SYSTEM_INSTALLS/go"

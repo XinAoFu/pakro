@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Apply profile-guided LLVM BOLT optimizations to a linked mise ELF binary.
+# Apply profile-guided LLVM BOLT optimizations to a linked pakro ELF binary.
 set -euo pipefail
 
 if [ "$#" -ne 1 ]; then
-	echo "usage: $0 <mise-binary>" >&2
+	echo "usage: $0 <pakro-binary>" >&2
 	exit 1
 fi
 
@@ -46,9 +46,9 @@ if ! readelf -S "$binary" | grep -q '\.rela\.text'; then
 	exit 1
 fi
 
-bolt_dir="$(mktemp -d "${TMPDIR:-/tmp}/mise-bolt.XXXXXX")"
-instrumented="$bolt_dir/mise.instrumented"
-profile_prefix="$bolt_dir/mise.fdata"
+bolt_dir="$(mktemp -d "${TMPDIR:-/tmp}/pakro-bolt.XXXXXX")"
+instrumented="$bolt_dir/pakro.instrumented"
+profile_prefix="$bolt_dir/pakro.fdata"
 merged_profile="$bolt_dir/merged.fdata"
 optimized="$binary.bolt"
 cleanup() {
@@ -68,7 +68,7 @@ echo ">>> [1/3] Instrumenting PGO-optimized binary with BOLT"
 echo ">>> [2/3] Training BOLT against hermetic offline workload"
 bash "$(dirname "$0")/train-startup.bash" "$instrumented"
 
-profile_count=$(find "$bolt_dir" -maxdepth 1 -name 'mise.fdata.*' -type f | wc -l | tr -d ' ')
+profile_count=$(find "$bolt_dir" -maxdepth 1 -name 'pakro.fdata.*' -type f | wc -l | tr -d ' ')
 if [ "$profile_count" -eq 0 ]; then
 	echo "ERROR: BOLT training produced no profiles in $bolt_dir" >&2
 	exit 1

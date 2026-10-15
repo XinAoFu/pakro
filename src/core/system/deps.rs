@@ -7,7 +7,7 @@
 //! checks* (see [`SystemDepCheck`]) plus per-package-manager remediation hints.
 //!
 //! Detection is the source of truth: a check that passes is satisfied,
-//! full stop — mise never asks *how* the capability got there, so nix,
+//! full stop — pakro never asks *how* the capability got there, so nix,
 //! MacPorts, and from-source installs all pass without ceremony. The package
 //! hints are consulted only to *offer* installing the missing subset via the
 //! existing [`crate::system::packages`] engine.
@@ -101,7 +101,7 @@ impl VersionOp {
 ///
 /// Note: this compares versions of *system binaries/libraries* declared by a
 /// plugin author against what is installed on the machine. It is NOT used to
-/// resolve or order mise tool versions, which must be resolved by their backend;
+/// resolve or order pakro tool versions, which must be resolved by their backend;
 /// it is the same class of comparison as [`crate::config::config_file::min_version`].
 #[derive(Debug, Clone)]
 pub struct VersionConstraint {
@@ -479,7 +479,7 @@ pub(crate) async fn pick_manager(dep: &SystemDep) -> Option<Arc<dyn SystemPackag
 /// take the first; managers that cannot answer (the default `available`
 /// implementation) fall back to the first candidate, which is the behavior
 /// before candidate lists existed. Reached only for deps that already failed
-/// detection, i.e. when mise is about to install packages anyway.
+/// detection, i.e. when pakro is about to install packages anyway.
 async fn resolve_package(m: &Arc<dyn SystemPackageManager>, dep: &SystemDep) -> Option<String> {
     let candidates = dep.packages.get(m.name())?;
     match candidates.split_first()? {

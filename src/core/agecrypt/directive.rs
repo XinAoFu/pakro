@@ -1,11 +1,11 @@
-//! The experimental `[env]` age directives: `mise set --age-encrypt` writes
+//! The experimental `[env]` age directives: `pakro set --age-encrypt` writes
 //! them and environment resolution decrypts them. Everything here stays
 //! behind `settings.experimental` (the gate is in `decrypt_age_directive`
-//! and in `mise set`); the encryption of tracked files in the parent
+//! and in `pakro set`); the encryption of tracked files in the parent
 //! module does not go through this layer.
 //!
 //! The envelope is age, then zstd above a size threshold, then unpadded
-//! base64, and must stay that way: values already written to mise.toml
+//! base64, and must stay that way: values already written to pakro.toml
 //! files are read back with it.
 
 use std::io::{Read, Write};
@@ -217,7 +217,7 @@ mod tests {
 
             use age::secrecy::ExposeSecret;
             let mut environment = crate::test::EnvVarGuard::new();
-            environment.set("MISE_AGE_KEY", key.to_string().expose_secret());
+            environment.set("PAKRO_AGE_KEY", key.to_string().expose_secret());
             let decrypted = decrypt_age_directive(&EnvDirective::Age {
                 key: "TEST_VAR".to_string(),
                 value,
@@ -250,7 +250,7 @@ mod tests {
 
             use age::secrecy::ExposeSecret;
             let mut environment = crate::test::EnvVarGuard::new();
-            environment.set("MISE_AGE_KEY", key.to_string().expose_secret());
+            environment.set("PAKRO_AGE_KEY", key.to_string().expose_secret());
             let decrypted = decrypt_age_directive(&EnvDirective::Age {
                 key: "TEST_VAR".to_string(),
                 value,

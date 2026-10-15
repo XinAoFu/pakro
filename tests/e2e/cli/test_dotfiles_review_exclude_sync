@@ -4,36 +4,36 @@
 # is not a deletion for the other machines to replay. A file deleted
 # while it is still selected still is.
 require_cmd git
-export MISE_HISTORY_NOTIFY=false
+export PAKRO_HISTORY_NOTIFY=false
 origin="$PWD/exclude-sync-origin.git"
 git init -q --bare -b main "$origin"
 mkdir -p ~/.sample
 echo keep >~/.sample/keep
 echo leave >~/.sample/leave
-cat >"$MISE_CONFIG_DIR/config.toml" <<'TOML'
+cat >"$PAKRO_CONFIG_DIR/config.toml" <<'TOML'
 [dotfiles]
 "~/.sample" = { mode = "track" }
 TOML
-assert_succeed 'mise dot save'
-assert_succeed "mise dot origin set file://$origin --sync manual --yes"
-assert_succeed 'mise dot sync'
+assert_succeed 'pakro dot save'
+assert_succeed "pakro dot origin set file://$origin --sync manual --yes"
+assert_succeed 'pakro dot sync'
 
 second="$(dirname "$HOME")/second"
-mkdir -p "$second/.config/mise" "$second/.local/state/mise/history" "$second/.sample"
-git clone -q --bare "$origin" "$second/.local/state/mise/history/repo.git"
+mkdir -p "$second/.config/pakro" "$second/.local/state/pakro/history" "$second/.sample"
+git clone -q --bare "$origin" "$second/.local/state/pakro/history/repo.git"
 echo keep >"$second/.sample/keep"
 echo leave >"$second/.sample/leave"
-cat >"$second/.config/mise/config.toml" <<'TOML'
+cat >"$second/.config/pakro/config.toml" <<'TOML'
 [dotfiles]
 "~/.sample" = { mode = "track" }
 TOML
 b() {
   (
     cd "$second" || exit
-    env HOME="$second" XDG_CONFIG_HOME="$second/.config" MISE_CONFIG_DIR="$second/.config/mise" \
-      MISE_STATE_DIR="$second/.local/state/mise" MISE_DATA_DIR="$second/.local/share/mise" \
-      MISE_CACHE_DIR="$second/.cache/mise" MISE_TRUSTED_CONFIG_PATHS="$second" \
-      MISE_HISTORY_NOTIFY=false mise "$@"
+    env HOME="$second" XDG_CONFIG_HOME="$second/.config" PAKRO_CONFIG_DIR="$second/.config/pakro" \
+      PAKRO_STATE_DIR="$second/.local/state/pakro" PAKRO_DATA_DIR="$second/.local/share/pakro" \
+      PAKRO_CACHE_DIR="$second/.cache/pakro" PAKRO_TRUSTED_CONFIG_PATHS="$second" \
+      PAKRO_HISTORY_NOTIFY=false pakro "$@"
   )
 }
 export second
@@ -43,13 +43,13 @@ assert_succeed 'b dot sync --fetch-only'
 assert_succeed 'b dot pull --yes'
 
 # machine one stops managing ~/.sample/leave
-cat >"$MISE_CONFIG_DIR/config.toml" <<'TOML'
+cat >"$PAKRO_CONFIG_DIR/config.toml" <<'TOML'
 [dotfiles]
 "~/.sample" = { mode = "track", exclude = ["leave"] }
 TOML
-assert_succeed 'mise dot save'
+assert_succeed 'pakro dot save'
 assert "cat ~/.sample/leave" 'leave'
-assert_succeed 'mise dot sync'
+assert_succeed 'pakro dot sync'
 
 # machine two keeps its copy: narrowing selection is not a deletion
 assert_succeed 'b dot sync --fetch-only'
@@ -59,8 +59,8 @@ assert "cat $second/.sample/leave" 'leave'
 
 # a file deleted while it is still selected is still propagated
 rm ~/.sample/keep
-assert_succeed 'mise dot save'
-assert_succeed 'mise dot sync'
+assert_succeed 'pakro dot save'
+assert_succeed 'pakro dot sync'
 assert_succeed 'b dot sync --fetch-only'
 assert_succeed 'b dot pull --yes'
 assert_fail "test -e $second/.sample/keep"

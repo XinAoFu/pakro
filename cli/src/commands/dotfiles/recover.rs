@@ -55,10 +55,10 @@ impl DotfilesRecover {
             })
             .collect::<Vec<_>>();
         if selected.is_empty() {
-            bail!("no matching interrupted operation; `mise dot history --pending` lists them");
+            bail!("no matching interrupted operation; `pakro dot history --pending` lists them");
         }
         for (_, record) in &selected {
-            miseprintln!("Interrupted operation {}", record.checkpoint.uuid);
+            pakroprintln!("Interrupted operation {}", record.checkpoint.uuid);
             if let Some(operation) = &record.checkpoint.operation {
                 let paths = operation
                     .journal
@@ -69,7 +69,7 @@ impl DotfilesRecover {
                     })
                     .collect::<BTreeSet<_>>();
                 for path in paths {
-                    miseprintln!("  {}", crate::file::display_path(path));
+                    pakroprintln!("  {}", crate::file::display_path(path));
                 }
             }
         }

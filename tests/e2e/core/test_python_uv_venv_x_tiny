@@ -3,10 +3,10 @@
 
 set -euo pipefail
 
-export MISE_EXPERIMENTAL=1
-export MISE_PYTHON_GITHUB_ATTESTATIONS=0
+export PAKRO_EXPERIMENTAL=1
+export PAKRO_PYTHON_GITHUB_ATTESTATIONS=0
 
-cat >.mise.toml <<EOF
+cat >.pakro.toml <<EOF
 [tools]
 python = "3.12.3"
 uv = "0.5.4"
@@ -17,12 +17,12 @@ python.uv_venv_auto = "create|source"
 EOF
 
 # Ensure tiny plugin is available
-mise plugin install tiny >/dev/null 2>&1 || true
+pakro plugin install tiny >/dev/null 2>&1 || true
 
 # Simulate uv project to trigger uv_venv_auto
 touch uv.lock
 
-mise i
+pakro i
 
 # Installation evaluates the environment before uv is available, so it must
 # leave venv creation for the subsequent exec.
@@ -30,5 +30,5 @@ assert_directory_not_exists "$PWD/.venv"
 
 # Validate that a fresh environment computation creates and selects the uv
 # venv while executing through another tool override.
-assert "mise x --fresh-env tiny@3 -- which python" "$PWD/.venv/bin/python"
+assert "pakro x --fresh-env tiny@3 -- which python" "$PWD/.venv/bin/python"
 assert_directory_exists "$PWD/.venv"

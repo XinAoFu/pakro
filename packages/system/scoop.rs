@@ -27,7 +27,7 @@ impl ScoopManager {
     }
 }
 
-/// `scoop export` as mise reads it. Unlisted fields are ignored.
+/// `scoop export` as pakro reads it. Unlisted fields are ignored.
 #[derive(Debug, Deserialize)]
 struct ScoopExport {
     #[serde(default)]
@@ -97,10 +97,10 @@ fn app_name(name: &str) -> &str {
     split_bucket(name).1
 }
 
-/// A request Scoop can install but mise cannot reconcile afterwards.
+/// A request Scoop can install but pakro cannot reconcile afterwards.
 ///
 /// `scoop install` also takes a manifest URL or local path, but it records the
-/// app under the name the manifest declares. mise has no way to learn that
+/// app under the name the manifest declares. pakro has no way to learn that
 /// name, so status would report the entry missing forever and every apply
 /// would reinstall it. Rejecting the declaration is better than that loop.
 fn unsupported_name(name: &str) -> bool {
@@ -108,7 +108,7 @@ fn unsupported_name(name: &str) -> bool {
     app.contains('/') || app.contains('\\') || app.to_ascii_lowercase().ends_with(".json")
 }
 
-/// Rejects declarations mise cannot converge, naming every offending entry.
+/// Rejects declarations pakro cannot converge, naming every offending entry.
 fn check_supported(pkgs: &[PackageRequest]) -> Result<()> {
     let unsupported = pkgs
         .iter()
@@ -135,7 +135,7 @@ fn install_spec(request: &PackageRequest) -> String {
 }
 
 /// `--no-update-scoop` keeps an install from syncing Scoop and every bucket
-/// as a side effect; mise refreshes only when asked to with `--update`.
+/// as a side effect; pakro refreshes only when asked to with `--update`.
 fn install_args(specs: &[String]) -> Vec<String> {
     let mut args = vec!["install".to_string(), "--no-update-scoop".to_string()];
     args.extend(specs.iter().cloned());
@@ -188,10 +188,10 @@ fn missing_buckets(pkgs: &[PackageRequest], export: &ScoopExport) -> Vec<String>
 /// Apps that must be uninstalled before their pin can be installed.
 ///
 /// `scoop install <app>@<version>` skips an app that is already installed at
-/// a different version, so mise removes it first — the same uninstall the
+/// a different version, so pakro removes it first — the same uninstall the
 /// `scoop update` path performs internally when it moves an app's version.
 ///
-/// A global-only install is left out: mise installs into the user scope, so
+/// A global-only install is left out: pakro installs into the user scope, so
 /// there is nothing local to remove, and `scoop uninstall` without `--global`
 /// would exit successfully without touching it. The pinned install that
 /// follows creates the user-scope copy the declaration asks for.
@@ -252,7 +252,7 @@ fn selected_apps(pkgs: &[PackageRequest], keep: impl Fn(&str) -> bool) -> Vec<St
 /// `scoop uninstall` and `scoop update` without `--global` report that the app
 /// is not installed locally and still exit zero, so acting on one of these
 /// would look like it succeeded while changing nothing. An app that also has a
-/// user-scope copy is absent here, because that copy is mise's to act on.
+/// user-scope copy is absent here, because that copy is pakro's to act on.
 fn global_only(pkgs: &[PackageRequest], export: &ScoopExport) -> Vec<String> {
     selected_apps(pkgs, |app| {
         has_global(export, app) && !has_local(export, app)
@@ -391,7 +391,7 @@ async fn apply(
     accepted_exit_codes: &[i32],
 ) -> Result<()> {
     if dry_run {
-        miseprintln!("scoop {}", args.join(" "));
+        pakroprintln!("scoop {}", args.join(" "));
         return Ok(());
     }
     run_scoop(args, action, accepted_exit_codes).await
@@ -485,10 +485,10 @@ impl SystemPackageManager for ScoopManager {
             return Ok(());
         }
         let unpinned = unpinned.into_iter().cloned().collect::<Vec<_>>();
-        // A global-only install is outside the user scope mise manages.
+        // A global-only install is outside the user scope pakro manages.
         // `scoop update` without `--global` only prints that the app is not
         // installed locally and still exits zero, so filtering these out
-        // keeps the run quiet about apps mise deliberately leaves alone.
+        // keeps the run quiet about apps pakro deliberately leaves alone.
         let global = global_only(&unpinned, &export().await?);
         for app in &global {
             warn!("scoop: '{app}' is installed globally, skipping upgrade");
@@ -515,7 +515,7 @@ impl SystemPackageManager for ScoopManager {
             return Ok(());
         }
         let export = export().await?;
-        // Remove everything mise can reach before reporting the rest. Failing
+        // Remove everything pakro can reach before reporting the rest. Failing
         // first would strand every other removable app in the batch, and the
         // driver aborts the whole run on this error, so it would also skip the
         // managers queued behind scoop.
@@ -528,10 +528,10 @@ impl SystemPackageManager for ScoopManager {
         let global = global_copies(pkgs, &export);
         if !global.is_empty() {
             // Not a warning: the driver reports the batch it handed over as
-            // removed, so anything mise did not remove has to fail the run
+            // removed, so anything pakro did not remove has to fail the run
             // rather than let that report stand.
             bail!(
-                "scoop: {} installed globally; mise manages the user scope only. \
+                "scoop: {} installed globally; pakro manages the user scope only. \
                  Remove it with `scoop uninstall --global {}` from an elevated shell.",
                 global
                     .iter()
@@ -691,7 +691,7 @@ mod tests {
         );
         let pkgs = [req("git", None), req("ripgrep", None), req("gh", None)];
 
-        // Only `gh` has nothing for mise to uninstall, so `git`'s user-scope
+        // Only `gh` has nothing for pakro to uninstall, so `git`'s user-scope
         // copy is still removed...
         assert_eq!(global_only(&pkgs, &export), vec!["gh"]);
         assert_eq!(

@@ -79,7 +79,7 @@ impl OutdatedInfo {
             }
             // When minimum_release_age causes "latest" to resolve to a version not yet
             // installed on disk, fall back to finding the highest installed version.
-            // Otherwise to_remove in `mise up` won't know which old version to uninstall.
+            // Otherwise to_remove in `pakro up` won't know which old version to uninstall.
             let Some(current) = backend.latest_installed_version(None)? else {
                 return Ok(None);
             };
@@ -305,7 +305,7 @@ pub fn prefixed_latest_query(prefix: &str, prefix_version: &str) -> Option<Strin
 
 /// check if the new version is a bump from the old version and return the new version
 /// at the same specificity level as the old version
-/// used with `mise outdated --bump` to determine what new semver range to use
+/// used with `pakro outdated --bump` to determine what new semver range to use
 /// given old: "20" and new: "21.2.3", return Some("21")
 pub(crate) fn check_semver_bump(old: &str, new: &str) -> Option<String> {
     // Preserve known channel names as-is

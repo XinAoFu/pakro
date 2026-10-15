@@ -35,12 +35,12 @@ use tokio::sync::Mutex;
 
 /// Run tasks and their dependencies
 ///
-/// Use `mise run TASK [ARGS...]` for one task, or separate task invocations with `:::`
-/// to schedule several. Put mise flags before the task name; following arguments are
-/// passed to that task. With no task, mise runs `default` when defined or opens the
+/// Use `pakro run TASK [ARGS...]` for one task, or separate task invocations with `:::`
+/// to schedule several. Put pakro flags before the task name; following arguments are
+/// passed to that task. With no task, pakro runs `default` when defined or opens the
 /// task selector in an interactive terminal.
 ///
-/// Tasks are defined in `mise.toml` or task directories. A task with `sources` and
+/// Tasks are defined in `pakro.toml` or task directories. A task with `sources` and
 /// `outputs` can skip execution when its outputs are fresh. `--force` bypasses
 /// freshness checks; task output caching has separate `--task-cache` controls.
 ///
@@ -53,8 +53,8 @@ use tokio::sync::Mutex;
 /// outputs = ["dist/**/*.js"]
 /// ```
 ///
-/// To create a standalone script task, use `mise tasks add --file hello -- echo hello`.
-/// Then run `mise run hello`. See https://mise.jdx.dev/tasks/ for task directories,
+/// To create a standalone script task, use `pakro tasks add --file hello -- echo hello`.
+/// Then run `pakro run hello`. See https://mise.jdx.dev/tasks/ for task directories,
 /// arguments, caching, and dependency configuration.
 #[derive(usage_rs::Args)]
 #[usage(
@@ -62,23 +62,23 @@ use tokio::sync::Mutex;
     verbatim_doc_comment,
     disable_help_flag = true,
     example(
-        r###"mise run lint"###,
-        help = r###"Run the "lint" task, defined either in mise.toml or as a standalone script."###
+        r###"pakro run lint"###,
+        help = r###"Run the "lint" task, defined either in pakro.toml or as a standalone script."###
     ),
     example(
-        r###"mise run --force build"###,
+        r###"pakro run --force build"###,
         help = r###"Force the "build" task to run even if its sources are up to date."###
     ),
     example(
-        r###"mise run --raw test"###,
+        r###"pakro run --raw test"###,
         help = r###"Run "test" with stdin/stdout/stderr all connected to the current terminal. This forces `--jobs=1` to prevent interleaving of output."###
     ),
     example(
-        r###"mise run lint ::: test ::: check"###,
+        r###"pakro run lint ::: test ::: check"###,
         help = r###"Run the "lint", "test", and "check" tasks in parallel."###
     ),
     example(
-        r###"mise run cmd1 arg1 arg2 ::: cmd2 arg1 arg2"###,
+        r###"pakro run cmd1 arg1 arg2 ::: cmd2 arg1 arg2"###,
         help = r###"Run multiple tasks, each with its own arguments."###
     ),
     unknown_flags = "value"
@@ -86,7 +86,7 @@ use tokio::sync::Mutex;
 pub(crate) struct Run {
     /// Tasks to run
     /// Can specify multiple tasks by separating with `:::`
-    /// e.g.: mise run task1 arg1 arg2 ::: task2 arg1 arg2
+    /// e.g.: pakro run task1 arg1 arg2 ::: task2 arg1 arg2
     /// Defaults to `default` when omitted
     #[usage(double_dash = "automatic", verbatim_doc_comment)]
     pub task: Option<String>,
@@ -104,7 +104,7 @@ pub(crate) struct Run {
     pub affected: bool,
 
     /// Git base revision for --affected
-    /// Defaults to MISE_AFFECTED_BASE, CI metadata, or HEAD~1
+    /// Defaults to PAKRO_AFFECTED_BASE, CI metadata, or HEAD~1
     #[usage(long, requires = "affected", value_name = "REV", verbatim_doc_comment)]
     pub affected_base: Option<String>,
 
@@ -118,7 +118,7 @@ pub(crate) struct Run {
     pub affected_explain: bool,
 
     /// Git head revision for --affected
-    /// Defaults to MISE_AFFECTED_HEAD, CI metadata, or HEAD
+    /// Defaults to PAKRO_AFFECTED_HEAD, CI metadata, or HEAD
     #[usage(long, requires = "affected", value_name = "REV", verbatim_doc_comment)]
     pub affected_head: Option<String>,
 
@@ -149,8 +149,8 @@ pub(crate) struct Run {
 
     /// Number of tasks to run in parallel
     /// Values below 1 are treated as 1
-    /// Defaults to the `jobs` setting or the `MISE_JOBS` env var
-    #[usage(long, short, env = "MISE_JOBS", verbatim_doc_comment)]
+    /// Defaults to the `jobs` setting or the `PAKRO_JOBS` env var
+    #[usage(long, short, env = "PAKRO_JOBS", verbatim_doc_comment)]
     pub jobs: Option<usize>,
 
     /// Don't actually run the task(s), just print them in order of execution
@@ -166,32 +166,32 @@ pub(crate) struct Run {
     /// - `keep-order` - Print stdout/stderr by line, prefixed with the task's label, but keep the order of the output
     /// - `quiet` - Don't show extra output
     /// - `silent` - Don't show any output including stdout and stderr from the task except for errors
-    #[usage(short, long, verbatim_doc_comment, env = "MISE_TASK_OUTPUT")]
+    #[usage(short, long, verbatim_doc_comment, env = "PAKRO_TASK_OUTPUT")]
     pub output: Option<TaskOutput>,
 
     /// Don't show extra output
-    #[usage(long, short, verbatim_doc_comment, env = "MISE_QUIET")]
+    #[usage(long, short, verbatim_doc_comment, env = "PAKRO_QUIET")]
     pub quiet: bool,
 
     /// Read/write directly to stdin/stdout/stderr instead of by line
     /// Redactions are not applied with this option
-    /// Configure with `raw` config or `MISE_RAW` env var
+    /// Configure with `raw` config or `PAKRO_RAW` env var
     #[usage(long, short, verbatim_doc_comment)]
     pub raw: bool,
 
     /// Shell to use to run toml tasks
     ///
     /// Defaults to `sh -o errexit -c` on unix, and `cmd /c` on Windows
-    /// Can also be set with the setting `MISE_UNIX_DEFAULT_INLINE_SHELL_ARGS` or `MISE_WINDOWS_DEFAULT_INLINE_SHELL_ARGS`
+    /// Can also be set with the setting `PAKRO_UNIX_DEFAULT_INLINE_SHELL_ARGS` or `PAKRO_WINDOWS_DEFAULT_INLINE_SHELL_ARGS`
     /// Or it can be overridden with the `shell` property on a task.
     #[usage(long, short, verbatim_doc_comment)]
     pub shell: Option<String>,
 
     /// Don't show any output except for errors
-    #[usage(long, short = 'S', verbatim_doc_comment, env = "MISE_SILENT")]
+    #[usage(long, short = 'S', verbatim_doc_comment, env = "PAKRO_SILENT")]
     pub silent: bool,
 
-    /// Tool(s) to run in addition to what is in mise.toml files
+    /// Tool(s) to run in addition to what is in pakro.toml files
     /// e.g.: node@20 python@3.10
     #[usage(short, long, value_name = "TOOL@VERSION")]
     pub tool: Vec<ToolArg>,
@@ -207,7 +207,7 @@ pub(crate) struct Run {
     /// Allow network to specific host (implies --deny-net for everything else)
     /// Per-host filtering is unsupported on Linux and returns an error.
     /// See the sandboxing guide for current macOS host-filter limitations.
-    /// On Windows, sandboxing is unavailable: mise warns and runs without host filtering.
+    /// On Windows, sandboxing is unavailable: pakro warns and runs without host filtering.
     #[usage(long, value_name = "HOST", verbatim_doc_comment)]
     pub allow_net: Vec<String>,
 
@@ -247,7 +247,7 @@ pub(crate) struct Run {
     #[usage(
         long,
         verbatim_doc_comment,
-        env = "MISE_TASK_REMOTE_NO_CACHE",
+        env = "PAKRO_TASK_REMOTE_NO_CACHE",
         setting = "task.remote_no_cache"
     )]
     pub no_cache: bool,
@@ -258,18 +258,18 @@ pub(crate) struct Run {
 
     /// Hide the elapsed time printed after each task completes
     ///
-    /// Set `MISE_TASK_TIMINGS=0` to hide it by default
+    /// Set `PAKRO_TASK_TIMINGS=0` to hide it by default
     #[usage(long, alias = "no-timing", verbatim_doc_comment)]
     pub no_timings: bool,
 
     /// Run only the specified tasks skipping all dependencies
-    #[usage(long, verbatim_doc_comment, env = "MISE_TASK_SKIP_DEPENDS")]
+    #[usage(long, verbatim_doc_comment, env = "PAKRO_TASK_SKIP_DEPENDS")]
     pub skip_deps: bool,
 
     /// Skip installing tools before running tasks
     ///
     /// Can also be set persistently with the `task.run_auto_install` setting
-    /// or `MISE_TASK_RUN_AUTO_INSTALL=false` env var
+    /// or `PAKRO_TASK_RUN_AUTO_INSTALL=false` env var
     #[usage(long, verbatim_doc_comment)]
     pub skip_tools: bool,
 
@@ -284,7 +284,7 @@ pub(crate) struct Run {
         long,
         value_enum,
         default = "read-write",
-        env = "MISE_TASK_CACHE",
+        env = "PAKRO_TASK_CACHE",
         verbatim_doc_comment
     )]
     pub task_cache: TaskCacheMode,
@@ -313,7 +313,7 @@ pub(crate) struct Run {
 
     /// Show the elapsed time after each task completes
     ///
-    /// Set `MISE_TASK_TIMINGS=1` to show it by default
+    /// Set `PAKRO_TASK_TIMINGS=1` to show it by default
     #[usage(long, alias = "timing", verbatim_doc_comment, hide = true)]
     pub timings: bool,
 
@@ -514,7 +514,7 @@ fn display_affected_json(
         projects,
         tasks,
     };
-    miseprintln!("{}", serde_json::to_string_pretty(&output)?);
+    pakroprintln!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
 }
 
@@ -527,7 +527,7 @@ fn display_affected_explanation(
 ) -> Result<()> {
     use crate::task::workspace::AffectedProjectReason;
 
-    miseprintln!(
+    pakroprintln!(
         "Affected projects ({}...{}):{}",
         revisions.base,
         revisions.head,
@@ -536,20 +536,20 @@ fn display_affected_explanation(
     let mut projects_by_root = BTreeMap::<PathBuf, Vec<_>>::new();
     for (id, reasons) in affected.projects() {
         let project = graph.get(id).expect("affected project exists in graph");
-        miseprintln!("  {} ({})", id, display_affected_path(&project.root));
+        pakroprintln!("  {} ({})", id, display_affected_path(&project.root));
         for reason in reasons {
             match reason {
                 AffectedProjectReason::ChangedPath { path } => {
-                    miseprintln!("    changed path: {}", display_affected_path(path));
+                    pakroprintln!("    changed path: {}", display_affected_path(path));
                 }
                 AffectedProjectReason::GlobalPath { path } => {
-                    miseprintln!("    workspace-global path: {}", display_affected_path(path));
+                    pakroprintln!("    workspace-global path: {}", display_affected_path(path));
                 }
                 AffectedProjectReason::Lockfile { path } => {
-                    miseprintln!("    lockfile change: {}", display_affected_path(path));
+                    pakroprintln!("    lockfile change: {}", display_affected_path(path));
                 }
                 AffectedProjectReason::Dependent { dependency } => {
-                    miseprintln!("    depends on affected project: {dependency}");
+                    pakroprintln!("    depends on affected project: {dependency}");
                 }
             }
         }
@@ -561,12 +561,12 @@ fn display_affected_explanation(
             .push(id);
     }
 
-    miseprintln!(
+    pakroprintln!(
         "Affected tasks:{}",
         if tasks.is_empty() { " none" } else { "" }
     );
     for task in tasks {
-        miseprintln!("  {}", display_affected_text(&task.display_name));
+        pakroprintln!("  {}", display_affected_text(&task.display_name));
         if let Some(ids) = task
             .config_root
             .as_deref()
@@ -574,7 +574,7 @@ fn display_affected_explanation(
             .and_then(|root| projects_by_root.get(&root))
         {
             for id in ids {
-                miseprintln!("    affected project: {id}");
+                pakroprintln!("    affected project: {id}");
             }
         }
     }
@@ -593,11 +593,11 @@ impl Run {
     pub(crate) async fn run(mut self) -> Result<()> {
         // Check help flags before doing any work
         if self.task.as_deref() == Some("-h") {
-            miseprint!("{}", render_subcommand_help("run", false))?;
+            pakroprint!("{}", render_subcommand_help("run", false))?;
             return Ok(());
         }
         if self.task.as_deref() == Some("--help") {
-            miseprint!("{}", render_subcommand_help("run", true))?;
+            pakroprint!("{}", render_subcommand_help("run", true))?;
             return Ok(());
         }
 
@@ -639,14 +639,14 @@ impl Run {
             if let Some(task) = task_list.first() {
                 // raw_args tasks act as proxies for tools that handle their
                 // own --help — fall through to normal execution so the flag
-                // reaches the underlying command instead of mise.
+                // reaches the underlying command instead of pakro.
                 if !task.raw_args {
                     // Get usage spec to check if task has defined args/flags
                     let spec = task.parse_usage_spec_for_display(&config).await?;
 
                     if has_any_usage_spec(&spec) {
                         // Task has usage spec defined, render help using usage library
-                        miseprintln!("{}", render_usage_help(&spec, &self.args));
+                        pakroprintln!("{}", render_usage_help(&spec, &self.args));
                     } else {
                         // Task has no usage defined, show basic task info
                         display_task_help(task)?;
@@ -655,7 +655,7 @@ impl Run {
                 }
             } else {
                 // No task found, show run command help
-                miseprint!("{}", render_subcommand_help("run", true))?;
+                pakroprint!("{}", render_subcommand_help("run", true))?;
                 return Ok(());
             }
         }
@@ -759,7 +759,7 @@ impl Run {
         .await?;
 
         // Collect subdirectory config files from all resolved tasks. In
-        // monorepos these come from sub mise.toml files referenced via the
+        // monorepos these come from sub pakro.toml files referenced via the
         // `//sub:taskname` syntax — they aren't in `config.config_files`.
         let subdir_configs: Vec<_> = resolved_tasks
             .iter()
@@ -935,11 +935,11 @@ impl Run {
                 Ok(result) => result,
                 Err(_) => {
                     // Dropping the run does not stop the task jobs it spawned,
-                    // and their children would outlive mise. It is dropped only
+                    // and their children would outlive pakro. It is dropped only
                     // afterwards: that aborts the jobs, whose commands would
                     // leave the running list before they could be stopped.
                     crate::cmd::CmdLineRunner::terminate_all().await;
-                    Err(eyre!("mise run timed out after {:?}", timeout))
+                    Err(eyre!("pakro run timed out after {:?}", timeout))
                 }
             }
         } else {
@@ -1014,7 +1014,7 @@ impl Run {
                 RunLoopHooks {
                     should_stop: || this.is_stopping(),
                     // What overrides `continue_on_error` is the *user* interrupting
-                    // mise, not any task being interrupted. A child that took SIGINT
+                    // pakro, not any task being interrupted. A child that took SIGINT
                     // on its own stops that task; it is not a reason to drop work the
                     // user asked to keep going.
                     was_interrupted: ctrlc::is_cancelled,
@@ -1236,14 +1236,14 @@ impl Run {
                 // A child killed by SIGINT is the kernel reporting an
                 // interruption, so it stands on its own: the terminal delivers
                 // Ctrl-C to the foreground group, and a task that put itself in
-                // another group means mise's own handler never runs. Requiring
+                // another group means pakro's own handler never runs. Requiring
                 // `is_cancelled()` here made the same keypress a failure
                 // depending on which process happened to receive the signal
                 // (discussion #9482).
                 //
-                // `TaskInterrupted` still needs it: that variant means mise
+                // `TaskInterrupted` still needs it: that variant means pakro
                 // abandoned the task before starting it, which only happens
-                // when mise itself was cancelled.
+                // when pakro itself was cancelled.
                 Error::is_sigint(err)
                     || (ctrlc::is_cancelled() && Error::is_task_interrupted_before_start(err))
             });
@@ -1270,7 +1270,7 @@ impl Run {
                     let was_stopping =
                         this.add_failed_task(task.clone(), status) || this.is_interrupted();
                     // A task that exited on its own, or panicked, failed even
-                    // if another failure came first; only one mise killed is
+                    // if another failure came first; only one pakro killed is
                     // cancelled.
                     cancelled |= was_stopping
                         && !this.continue_on_error
@@ -1614,7 +1614,7 @@ impl Run {
                 "2026.8.14",
                 "2027.8.14",
                 "task.rust_cache",
-                "`rust_cache` no longer enables Rust action caching in mise; remove it and run Cargo through mbx instead: https://mr-boxington.jdx.dev/getting-started"
+                "`rust_cache` no longer enables Rust action caching in pakro; remove it and run Cargo through mbx instead: https://mr-boxington.jdx.dev/getting-started"
             );
         }
         if !task.pass_through_env.is_empty() {
@@ -1714,15 +1714,15 @@ fn display_task_help(task: &Task) -> Result<()> {
     if !run.is_empty() {
         info::section("Run", run.iter().map(|e| e.to_string()).join("\n"))?;
     }
-    miseprintln!();
-    miseprintln!("This task does not accept any arguments.");
+    pakroprintln!();
+    pakroprintln!("This task does not accept any arguments.");
     let hint = if task.file.is_some() {
         "To define arguments, add #USAGE comments to the script file."
     } else {
         "To define arguments, add a `usage` field to the task definition in the config file."
     };
-    miseprintln!("{hint}");
-    miseprintln!("See https://mise.jdx.dev/tasks/task-configuration.html for more information.");
+    pakroprintln!("{hint}");
+    pakroprintln!("See https://mise.jdx.dev/tasks/task-configuration.html for more information.");
     Ok(())
 }
 

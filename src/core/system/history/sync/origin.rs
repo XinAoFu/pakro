@@ -110,25 +110,25 @@ async fn set_inner(
     let connected_before = status_before.origin_url.is_some();
     let same_origin = status_before.origin_url.as_deref() == Some(opts.url.as_str())
         && status_before.origin_branch.as_deref() == Some(branch.as_str());
-    miseprintln!("Every committed tracked-file version is eligible for origin synchronization.");
+    pakroprintln!("Every committed tracked-file version is eligible for origin synchronization.");
     // disclosure
-    miseprintln!("Setup repository: {} (branch {})", opts.url, branch);
-    miseprintln!("Sync mode {}", opts.mode.disclosure());
+    pakroprintln!("Setup repository: {} (branch {})", opts.url, branch);
+    pakroprintln!("Sync mode {}", opts.mode.disclosure());
     crate::system::history::notify::warn_if_release_signing_unavailable();
     match &repo_state {
-        RepoState::Empty => miseprintln!(
-            "The repository is empty: the first publication creates `{branch}` with the mise marker."
+        RepoState::Empty => pakroprintln!(
+            "The repository is empty: the first publication creates `{branch}` with the pakro marker."
         ),
         RepoState::Marked(_) => {
-            miseprintln!("The repository is a mise setup repository; continuing.")
+            pakroprintln!("The repository is a pakro setup repository; continuing.")
         }
         RepoState::Unmarked => {
-            miseprintln!(
-                "This repository has content but no mise enrollment metadata. Connecting does not import its files.\n\
+            pakroprintln!(
+                "This repository has content but no pakro enrollment metadata. Connecting does not import its files.\n\
                  A machine with no checkpoints adopts branch `{branch}` as its history. Existing checkpoints can synchronize only if they share Git ancestry with that branch.\n\
-                 To keep unrelated local checkpoints, connect an empty repository with `mise dot origin set <url>`. \
-                 Alternatively, use Git to push the local history to a new remote branch, then connect it with `mise dot origin set <url> --branch <name>`.\n\
-                 To use the repository as bootstrap configuration without enabling history sharing, use `mise bootstrap --from <url>` or `mise bootstrap --adopt <url>`."
+                 To keep unrelated local checkpoints, connect an empty repository with `pakro dot origin set <url>`. \
+                 Alternatively, use Git to push the local history to a new remote branch, then connect it with `pakro dot origin set <url> --branch <name>`.\n\
+                 To use the repository as bootstrap configuration without enabling history sharing, use `pakro bootstrap --from <url>` or `pakro bootstrap --adopt <url>`."
             );
         }
     }
@@ -144,12 +144,12 @@ async fn set_inner(
         };
         *streams.entry(stream).or_default() += 1;
     }
-    miseprintln!("Tracked files in the current commit:");
+    pakroprintln!("Tracked files in the current commit:");
     if streams.is_empty() {
-        miseprintln!("  (no tracked files yet)");
+        pakroprintln!("  (no tracked files yet)");
     }
     for (stream, count) in &streams {
-        miseprintln!("  {stream}: {count} file(s)");
+        pakroprintln!("  {stream}: {count} file(s)");
     }
     setup_requirements(tracked).await?;
     if let Some(upstream) = &upstream {
@@ -174,20 +174,20 @@ async fn set_inner(
                 incoming += 1;
             }
         }
-        miseprintln!(
-            "Against the repository: {present} identical, {} differing (decided with `mise dot pull --take-remote` or `--keep-local`), {incoming} incoming to apply.",
+        pakroprintln!(
+            "Against the repository: {present} identical, {} differing (decided with `pakro dot pull --take-remote` or `--keep-local`), {incoming} incoming to apply.",
             differing.len()
         );
         for path in differing.iter().take(10) {
-            miseprintln!("  differs: {path}");
+            pakroprintln!("  differs: {path}");
         }
     }
-    miseprintln!(
+    pakroprintln!(
         "All committed versions of explicitly tracked files are eligible for synchronization. Untracking does not erase earlier versions."
     );
     let config_dir = crate::system::history::tracked::global_config_dir();
     if config_dir.join(".git").exists() {
-        miseprintln!(
+        pakroprintln!(
             "{} is a git checkout: enabling history does not convert or migrate it; applied files appear there as ordinary working-tree changes.",
             display_path(&config_dir)
         );
@@ -199,7 +199,7 @@ async fn set_inner(
     *accepted = true;
 
     // the mode is recorded only when it differs from what the settings
-    // say, so `mise settings set history.sync …` keeps working afterwards
+    // say, so `pakro settings set history.sync …` keeps working afterwards
     let mode =
         (opts.mode.as_str() != crate::config::Settings::get().history.sync).then_some(opts.mode);
     write_config(&opts.url, &branch, mode)?;
@@ -298,19 +298,19 @@ pub fn report(outcome: &run::SyncOutcome) {
     }
     if outcome.pending > 0 {
         info!(
-            "history: {} incoming change(s) pending; `mise dot pull` applies them",
+            "history: {} incoming change(s) pending; `pakro dot pull` applies them",
             outcome.pending
         );
     }
     if outcome.conflicts > 0 {
         warn!(
-            "history: {} conflict(s) need a decision; `mise dot status` lists them",
+            "history: {} conflict(s) need a decision; `pakro dot status` lists them",
             outcome.conflicts
         );
     }
 }
 
-/// `--yes`, `MISE_YES`, or an interactive confirmation; unattended without
+/// `--yes`, `PAKRO_YES`, or an interactive confirmation; unattended without
 /// either is a refusal.
 pub(crate) fn confirmed(yes: bool, question: &str) -> Result<bool> {
     if yes || crate::config::Settings::get().yes {
@@ -408,13 +408,13 @@ async fn setup_requirements(tracked: &TrackedSet) -> Result<()> {
         if !tracked.would_capture(&path)? {
             let display = display_path(&path);
             if roots.branch_path(&path, None).is_some() {
-                miseprintln!(
-                    "Not enrolled for recreating this setup: {display}. To include it explicitly: mise dot track {}",
+                pakroprintln!(
+                    "Not enrolled for recreating this setup: {display}. To include it explicitly: pakro dot track {}",
                     shell_escape::escape(display.as_str().into())
                 );
             } else {
-                miseprintln!(
-                    "Not portable for setup sharing: {display}. Place this prerequisite under your home or mise config directory before enrolling it."
+                pakroprintln!(
+                    "Not portable for setup sharing: {display}. Place this prerequisite under your home or pakro config directory before enrolling it."
                 );
             }
         }
@@ -441,7 +441,7 @@ pub fn remove() -> Result<()> {
 fn remove_locked(state_dir: &std::path::Path, status: &mut run::SyncStatus) -> Result<()> {
     let mut removed = vec![];
     // the machine-local file, and the shared one for a declaration written
-    // there by hand or by an earlier mise
+    // there by hand or by an earlier pakro
     for file in [origin_file()?, crate::config::global_shared_config_path()] {
         if !file.exists() {
             continue;

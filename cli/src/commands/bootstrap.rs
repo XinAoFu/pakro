@@ -32,7 +32,7 @@ use crate::system::resources::{ResourceAction, ResourceId};
 use crate::system::systemd::SystemdState;
 use crate::toolset::ResolveOptions;
 use crate::ui::prompt::Confirmation;
-use crate::ui::table::MiseTable;
+use crate::ui::table::PakroTable;
 
 /// Set up a machine from the current configuration
 ///
@@ -58,23 +58,23 @@ use crate::ui::table::MiseTable;
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
-    example(r###"mise bootstrap                    # packages + repos + dotfiles + tools + bootstrap task
-mise -E work bootstrap --from git@github.com:example/dotfiles.git --yes
-mise bootstrap --adopt git@github.com:example/mise-config.git --yes
-mise bootstrap --adopt git@github.com:example/mise-config.git --replace-history --yes
-mise bootstrap --force-dotfiles   # replace conflicting dotfile targets
-mise bootstrap --skip tools,task  # skip tool installation and the bootstrap task
-mise bootstrap --only tools       # run just tool installation
-mise bootstrap status --missing
-mise bootstrap packages apply --yes
-mise bootstrap repos status
-mise bootstrap repos apply --dry-run
-mise dot status
-mise bootstrap mise-shell-activate apply --dry-run
-mise bootstrap macos defaults status
-mise bootstrap macos launchd-agents apply --dry-run
-mise bootstrap linux systemd-units apply --dry-run
-mise bootstrap user apply --dry-run"###)
+    example(r###"pakro bootstrap                    # packages + repos + dotfiles + tools + bootstrap task
+pakro -E work bootstrap --from git@github.com:example/dotfiles.git --yes
+pakro bootstrap --adopt git@github.com:example/pakro-config.git --yes
+pakro bootstrap --adopt git@github.com:example/pakro-config.git --replace-history --yes
+pakro bootstrap --force-dotfiles   # replace conflicting dotfile targets
+pakro bootstrap --skip tools,task  # skip tool installation and the bootstrap task
+pakro bootstrap --only tools       # run just tool installation
+pakro bootstrap status --missing
+pakro bootstrap packages apply --yes
+pakro bootstrap repos status
+pakro bootstrap repos apply --dry-run
+pakro dot status
+pakro bootstrap pakro-shell-activate apply --dry-run
+pakro bootstrap macos defaults status
+pakro bootstrap macos launchd-agents apply --dry-run
+pakro bootstrap linux systemd-units apply --dry-run
+pakro bootstrap user apply --dry-run"###)
 )]
 pub(crate) struct Bootstrap {
     #[usage(subcommand)]
@@ -148,7 +148,7 @@ enum BootstrapPart {
     Compose,
     Repos,
     Dotfiles,
-    #[usage(name = "mise-shell-activate", visible_alias = "shell")]
+    #[usage(name = "pakro-shell-activate", visible_alias = "shell")]
     Shell,
     #[usage(name = "macos-defaults", visible_alias = "defaults")]
     Defaults,
@@ -260,7 +260,7 @@ fn bootstrap_prediction_has_skipped_change(
 }
 
 impl Bootstrap {
-    /// `mise bootstrap dotfiles watch`, the watcher under its other name.
+    /// `pakro bootstrap dotfiles watch`, the watcher under its other name.
     ///
     /// A setup source alongside a subcommand is rejected by `run`, so an
     /// invocation carrying one is not a watcher starting, whatever it names.
@@ -309,8 +309,8 @@ enum Commands {
     Macos(BootstrapMacos),
     #[usage(hide = true)]
     MacosDefaults(BootstrapMacosDefaults),
-    #[usage(name = "mise-shell-activate", alias = "shell")]
-    MiseShellActivate(BootstrapShell),
+    #[usage(name = "pakro-shell-activate", alias = "shell")]
+    PakroShellActivate(BootstrapShell),
     Packages(BootstrapPackages),
     Plan(BootstrapPlan),
     Remote(Box<BootstrapRemote>),
@@ -379,7 +379,7 @@ struct BootstrapPlan {
 /// source files and configuration entries are preserved.
 ///
 /// Use `--dry-run` to preview the plan. Removal requires confirmation unless
-/// `--yes` or mise's `yes` setting is enabled, including in CI.
+/// `--yes` or pakro's `yes` setting is enabled, including in CI.
 ///
 /// Packages, repositories, and Compose projects require separate cleanup;
 /// the output provides guidance for those declarations. Other bootstrap
@@ -388,9 +388,9 @@ struct BootstrapPlan {
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise bootstrap unapply ssh --dry-run
-mise bootstrap unapply ssh
-mise bootstrap unapply ssh gpg --yes"###
+        r###"pakro bootstrap unapply ssh --dry-run
+pakro bootstrap unapply ssh
+pakro bootstrap unapply ssh gpg --yes"###
     )
 )]
 struct BootstrapUnapply {
@@ -600,7 +600,7 @@ struct BootstrapFilesStatus {
 /// Manage services from `[bootstrap.services]`
 ///
 /// System-scope entries (the default) converge existing Linux systemd system
-/// units. `scope = "user"` entries are services mise defines for the current
+/// units. `scope = "user"` entries are services pakro defines for the current
 /// user on every platform: a systemd user unit on Linux, a LaunchAgent on
 /// macOS, a Scheduled Task on Windows.
 #[derive(Debug, usage_rs::Args)]
@@ -632,7 +632,7 @@ struct BootstrapServicesApply {
 /// Remove an installed user-scope service, declared or not
 ///
 /// Deleting a `scope = "user"` declaration leaves its installed unit, agent,
-/// or task in place; this removes it once. The next `mise bootstrap`
+/// or task in place; this removes it once. The next `pakro bootstrap`
 /// recreates it if it is still declared.
 #[derive(Debug, usage_rs::Args)]
 #[usage(verbatim_doc_comment)]
@@ -779,11 +779,11 @@ struct BootstrapRemote {
     #[usage(long)]
     all: bool,
 
-    /// Explicit remote shell command that installs mise and places it on PATH
+    /// Explicit remote shell command that installs pakro and places it on PATH
     #[usage(
         long,
         value_name = "COMMAND",
-        conflicts = ["mise_bin", "remote_mise", "install_mise"]
+        conflicts = ["pakro_bin", "remote_pakro", "install_pakro"]
     )]
     bootstrap_command: Option<String>,
 
@@ -823,35 +823,35 @@ struct BootstrapRemote {
     #[usage(long, short = 'n')]
     dry_run: bool,
 
-    /// Install the provisioned mise on each host instead of only staging it
+    /// Install the provisioned pakro on each host instead of only staging it
     ///
-    /// Defaults to `~/.local/bin/mise`; pass `--install-mise=<PATH>` for another
+    /// Defaults to `~/.local/bin/pakro`; pass `--install-pakro=<PATH>` for another
     /// path.
     #[usage(
         long,
         value_name = "PATH",
         num_args = 0..=1,
         require_equals = true,
-        default_missing = "~/.local/bin/mise",
-        conflicts = ["remote_mise", "bootstrap_command", "no_install_mise"]
+        default_missing = "~/.local/bin/pakro",
+        conflicts = ["remote_pakro", "bootstrap_command", "no_install_pakro"]
     )]
-    install_mise: Option<String>,
+    install_pakro: Option<String>,
 
     /// Keep the remote staging directory for debugging
     #[usage(long)]
     keep_staging: bool,
 
-    /// Local mise binary to upload (escape hatch for custom architectures)
+    /// Local pakro binary to upload (escape hatch for custom architectures)
     #[usage(
         long,
         value_hint = usage_rs::ValueHint::FilePath,
-        conflicts = ["remote_mise", "bootstrap_command"]
+        conflicts = ["remote_pakro", "bootstrap_command"]
     )]
-    mise_bin: Option<std::path::PathBuf>,
+    pakro_bin: Option<std::path::PathBuf>,
 
-    /// Do not install mise on the host, even when the selected hosts configure it
+    /// Do not install pakro on the host, even when the selected hosts configure it
     #[usage(long)]
-    no_install_mise: bool,
+    no_install_pakro: bool,
 
     /// Run only one or more remote bootstrap parts
     #[usage(long, value_enum, delimiter = ',', conflicts = "skip")]
@@ -869,13 +869,13 @@ struct BootstrapRemote {
     #[usage(long, value_name = "ENV", delimiter = ',')]
     remote_env: Option<Vec<String>>,
 
-    /// Existing mise executable name or path; relative paths use the staged project
+    /// Existing pakro executable name or path; relative paths use the staged project
     #[usage(
         long,
         value_name = "COMMAND",
-        conflicts = ["mise_bin", "bootstrap_command", "install_mise"]
+        conflicts = ["pakro_bin", "bootstrap_command", "install_pakro"]
     )]
-    remote_mise: Option<String>,
+    remote_pakro: Option<String>,
 
     /// Skip one or more remote bootstrap parts
     #[usage(long, value_enum, delimiter = ',')]
@@ -1009,7 +1009,7 @@ struct BootstrapReposUpdate {
 /// Run a command in each configured git repo
 ///
 /// Place the executable and its arguments after `--`, for example
-/// `mise bootstrap repos exec -- git status --short`. Arguments before `--` select
+/// `pakro bootstrap repos exec -- git status --short`. Arguments before `--` select
 /// repository paths; use `--continue-on-error` to visit remaining repos after a failure.
 #[derive(Debug, usage_rs::Args)]
 struct BootstrapReposExec {
@@ -1194,7 +1194,7 @@ struct BootstrapSystemdStatus {
     missing: bool,
 }
 
-/// Manage mise shell activation from `[bootstrap.mise_shell_activate]`
+/// Manage pakro shell activation from `[bootstrap.pakro_shell_activate]`
 ///
 /// Writes managed activation blocks into the declared shell startup files. The
 /// current shell is not reactivated by this command; open a new shell afterward.
@@ -1211,7 +1211,7 @@ enum BootstrapShellCommands {
     Status(BootstrapShellStatus),
 }
 
-/// Configure shell activation from `[bootstrap.mise_shell_activate]`
+/// Configure shell activation from `[bootstrap.pakro_shell_activate]`
 #[derive(Debug, usage_rs::Args)]
 struct BootstrapShellApply {
     /// Print the actions that would run without writing anything
@@ -1223,7 +1223,7 @@ struct BootstrapShellApply {
     yes: bool,
 }
 
-/// Show whether shell activation matches `[bootstrap.mise_shell_activate]`
+/// Show whether shell activation matches `[bootstrap.pakro_shell_activate]`
 #[derive(Debug, usage_rs::Args)]
 struct BootstrapShellStatus {
     /// Output in JSON format
@@ -1652,7 +1652,7 @@ impl Bootstrap {
             if edits.is_empty() {
                 debug!("bootstrap: no edit [dotfiles] entries configured, skipping");
             }
-            // the same [history.reload] commands `mise dot apply` runs, for
+            // the same [history.reload] commands `pakro dot apply` runs, for
             // the targets this phase writes
             if (!files.is_empty() || !edits.is_empty())
                 && !write_and_reload(self.dry_run, |written| {
@@ -1682,7 +1682,7 @@ impl Bootstrap {
                 .map(system::shell_activation_from_config_files)
                 .unwrap_or_else(|| system::shell_activation_from_config(&config));
             if activations.is_empty() {
-                debug!("bootstrap: no [bootstrap.mise_shell_activate] configured, skipping");
+                debug!("bootstrap: no [bootstrap.pakro_shell_activate] configured, skipping");
             } else {
                 info!("bootstrap: shell activation");
                 install::apply_shell_activation(&config, activations, self.dry_run, self.yes)?;
@@ -1799,7 +1799,7 @@ impl Bootstrap {
                 .await?;
         }
 
-        // resolved again: the run may have installed a durable mise since
+        // resolved again: the run may have installed a durable pakro since
         // the requests were first built (a remote-staged bootstrap)
         let late = if services_enabled {
             system::user_services::requests_from_config(&config)?
@@ -1853,7 +1853,7 @@ impl Bootstrap {
             }
         }
         // a history-managed setup repository is not cloned into the
-        // configuration directory: its branch goes into mise's own store and
+        // configuration directory: its branch goes into pakro's own store and
         // its files are written by the same recoverable pull as any other
         // incoming change; the ordinary bootstrap then runs from them
         if let Some(url) = expanded.as_deref()
@@ -1877,7 +1877,7 @@ impl Bootstrap {
             // installations are not what was asked for
             if outcome.setup_held {
                 bail!(
-                    "the setup from {url} is paused; nothing was bootstrapped. `mise dot status` lists the paths that need attention. Existing files that differ are kept until you decide: `mise dot pull --take-remote-all` chooses the repository's version for every conflict, or `mise dot pull --take-remote <path>` and `mise dot pull --keep-local <path>` decide one at a time. A path held for another reason, such as a directory where the repository has a file, says so in `mise dot status` and needs that fix instead. Then run `mise bootstrap`"
+                    "the setup from {url} is paused; nothing was bootstrapped. `pakro dot status` lists the paths that need attention. Existing files that differ are kept until you decide: `pakro dot pull --take-remote-all` chooses the repository's version for every conflict, or `pakro dot pull --take-remote <path>` and `pakro dot pull --keep-local <path>` decide one at a time. A path held for another reason, such as a directory where the repository has a file, says so in `pakro dot status` and needs that fix instead. Then run `pakro bootstrap`"
                 );
             }
             let config_dir = system::history::tracked::global_config_dir();
@@ -1888,7 +1888,7 @@ impl Bootstrap {
             return Ok(());
         }
         let (url, git_ref, checkout) = if let Some(url) = expanded.as_deref() {
-            let checkout = crate::env::MISE_GLOBAL_CONFIG_FILE
+            let checkout = crate::env::PAKRO_GLOBAL_CONFIG_FILE
                 .as_deref()
                 .map(|path| {
                     path.parent()
@@ -1899,7 +1899,7 @@ impl Bootstrap {
                 .to_path_buf();
             (url.to_string(), None, checkout)
         } else {
-            let (url, git_ref) = mise_util::remote_source::RemoteSource::parse_git_repo(
+            let (url, git_ref) = pakro_util::remote_source::RemoteSource::parse_git_repo(
                 self.from.as_deref().expect("--from was provided"),
             )?;
             (
@@ -1963,36 +1963,36 @@ impl Bootstrap {
         ));
         if self.adopt.is_some() {
             if self.dry_run {
-                command.env("MISE_CONFIG_DIR", &checkout);
-                let name = crate::env::MISE_GLOBAL_CONFIG_FILE
+                command.env("PAKRO_CONFIG_DIR", &checkout);
+                let name = crate::env::PAKRO_GLOBAL_CONFIG_FILE
                     .as_deref()
                     .and_then(Path::file_name)
                     .unwrap_or(std::ffi::OsStr::new("config.toml"));
-                command.env("MISE_GLOBAL_CONFIG_FILE", checkout.join(name));
+                command.env("PAKRO_GLOBAL_CONFIG_FILE", checkout.join(name));
             } else {
-                let config_dir = crate::env::MISE_CONFIG_DIR.as_path();
+                let config_dir = crate::env::PAKRO_CONFIG_DIR.as_path();
                 let config_dir = if config_dir.is_absolute() {
                     config_dir.to_path_buf()
                 } else {
                     std::env::current_dir()?.join(config_dir)
                 };
-                command.env("MISE_CONFIG_DIR", config_dir);
+                command.env("PAKRO_CONFIG_DIR", config_dir);
 
-                if let Some(file_name) = crate::env::MISE_GLOBAL_CONFIG_FILE
+                if let Some(file_name) = crate::env::PAKRO_GLOBAL_CONFIG_FILE
                     .as_deref()
                     .and_then(Path::file_name)
                 {
-                    command.env("MISE_GLOBAL_CONFIG_FILE", checkout.join(file_name));
+                    command.env("PAKRO_GLOBAL_CONFIG_FILE", checkout.join(file_name));
                 }
             }
         }
 
         let mut trusted = std::env::split_paths(
-            &std::env::var_os("MISE_TRUSTED_CONFIG_PATHS").unwrap_or_default(),
+            &std::env::var_os("PAKRO_TRUSTED_CONFIG_PATHS").unwrap_or_default(),
         )
         .collect::<Vec<_>>();
         trusted.push(checkout);
-        command.env("MISE_TRUSTED_CONFIG_PATHS", std::env::join_paths(trusted)?);
+        command.env("PAKRO_TRUSTED_CONFIG_PATHS", std::env::join_paths(trusted)?);
         let status = command.status()?;
         if !status.success() {
             bail!("bootstrap from repository failed with {status}");
@@ -2017,7 +2017,7 @@ impl Bootstrap {
                 dry_run: self.dry_run,
                 verbose: false,
                 force: self.force_dotfiles,
-                force_hint: "use --force-dotfiles or run `mise dot apply --force`",
+                force_hint: "use --force-dotfiles or run `pakro dot apply --force`",
                 yes: self.yes,
             };
             if !system::files::apply(config, files, &opts, secrets, written)? {
@@ -2274,12 +2274,12 @@ impl BootstrapFollowUp {
             return Ok(());
         }
         if self.dry_run {
-            miseprintln!("bootstrap: follow-up if applied");
+            pakroprintln!("bootstrap: follow-up if applied");
         } else {
-            miseprintln!("bootstrap: follow-up");
+            pakroprintln!("bootstrap: follow-up");
         }
         for item in &self.items {
-            miseprintln!("  - {item}");
+            pakroprintln!("  - {item}");
         }
         Ok(())
     }
@@ -2300,7 +2300,7 @@ fn config_files_after_dotfiles_dry_run(
     let mut bodies = indexmap::IndexMap::new();
     let mut unavailable_bodies = HashSet::new();
     for file in files {
-        if !is_mise_config_target(&file.target) {
+        if !is_pakro_config_target(&file.target) {
             continue;
         }
         if file.mode == FileMode::Absent {
@@ -2328,7 +2328,7 @@ fn config_files_after_dotfiles_dry_run(
             crate::file::read_to_string(&file.source)
         };
         match contents {
-            Ok(body) => match parse_mise_config_body(&file.target, &body) {
+            Ok(body) => match parse_pakro_config_body(&file.target, &body) {
                 Ok(cf) => {
                     bodies.insert(file.target.clone(), body);
                     config_files.insert(file.target.clone(), cf);
@@ -2351,7 +2351,7 @@ fn config_files_after_dotfiles_dry_run(
         }
     }
     for edit in edits {
-        if !is_mise_config_target(&edit.path) {
+        if !is_pakro_config_target(&edit.path) {
             continue;
         }
         if unavailable_bodies.contains(&edit.path) {
@@ -2378,7 +2378,7 @@ fn config_files_after_dotfiles_dry_run(
             None => String::new(),
         };
         match system::edits::apply_dry_run_to_string(config, edit, &body) {
-            Ok(Some(body)) => match parse_mise_config_body(&edit.path, &body) {
+            Ok(Some(body)) => match parse_pakro_config_body(&edit.path, &body) {
                 Ok(cf) => {
                     bodies.insert(edit.path.clone(), body);
                     config_files.insert(edit.path.clone(), cf);
@@ -2410,16 +2410,16 @@ fn config_files_after_dotfiles_dry_run(
     Ok(config_files)
 }
 
-fn parse_mise_config_body(
+fn parse_pakro_config_body(
     path: &std::path::Path,
     body: &str,
 ) -> Result<Arc<dyn config::config_file::ConfigFile>> {
     Ok(Arc::new(
-        config::config_file::mise_toml::MiseToml::from_str(body, path)?,
+        config::config_file::pakro_toml::PakroToml::from_str(body, path)?,
     ))
 }
 
-fn is_mise_config_target(path: &std::path::Path) -> bool {
+fn is_pakro_config_target(path: &std::path::Path) -> bool {
     path.starts_with(*dirs::CONFIG)
         || path.starts_with(*dirs::SYSTEM_CONFIG)
         || config::DEFAULT_CONFIG_FILENAMES.iter().any(|filename| {
@@ -2428,7 +2428,7 @@ fn is_mise_config_target(path: &std::path::Path) -> bool {
         || (path.extension().is_some_and(|ext| ext == "toml")
             && path
                 .parent()
-                .is_some_and(|parent| parent.ends_with(".config/mise/conf.d")))
+                .is_some_and(|parent| parent.ends_with(".config/pakro/conf.d")))
 }
 
 const DECLINED: &str = "dotfiles apply declined";
@@ -2465,7 +2465,7 @@ impl Commands {
             Self::Linux(cmd) => Box::pin(cmd.run()),
             Self::Macos(cmd) => Box::pin(cmd.run()),
             Self::MacosDefaults(cmd) => Box::pin(cmd.run()),
-            Self::MiseShellActivate(cmd) => Box::pin(cmd.run()),
+            Self::PakroShellActivate(cmd) => Box::pin(cmd.run()),
             Self::Packages(cmd) => Box::pin(cmd.run()),
             Self::Plan(cmd) => Box::pin(cmd.run()),
             Self::Remote(cmd) => Box::pin(cmd.run()),
@@ -2487,11 +2487,11 @@ impl BootstrapPlan {
         let plan = system::resources::plan(&config, &secrets).await?;
         let output = plan.output()?;
         if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&output)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&output)?);
         } else if output.resources.is_empty() {
             info!("nothing configured for bootstrap planning");
         } else {
-            let mut table = MiseTable::new(
+            let mut table = PakroTable::new(
                 false,
                 &[
                     "Action", "Resource", "Phase", "Current", "Desired", "Config",
@@ -2516,7 +2516,7 @@ impl BootstrapPlan {
                 ]);
             }
             table.print()?;
-            miseprintln!(
+            pakroprintln!(
                 "Plan: {} create, {} update, {} unchanged, {} remove, {} unknown",
                 output.summary.create,
                 output.summary.update,
@@ -2554,7 +2554,7 @@ impl BootstrapUnapply {
     /// and the rest of the selection has to stay in place so a resource another
     /// module still declares is visible. Returns `None` once nothing is missing.
     fn run_with_environments_selected(&self) -> Result<Option<std::process::ExitStatus>> {
-        let selected = &*crate::env::MISE_ENV;
+        let selected = &*crate::env::PAKRO_ENV;
         if self
             .environment
             .iter()
@@ -2576,7 +2576,7 @@ impl BootstrapUnapply {
         // The directory has already been entered, by `--cd` or by this variable.
         // The child inherits it, and a relative value would be applied a second
         // time, landing one level deeper or failing outright.
-        command.env_remove("MISE_CD");
+        command.env_remove("PAKRO_CD");
         Ok(Some(command.status()?))
     }
 
@@ -2602,7 +2602,7 @@ impl BootstrapUnapply {
             info!("nothing to remove for {}", self.environment.join(", "));
             return Ok(());
         }
-        let mut table = MiseTable::new(false, &["Action", "Resource"]);
+        let mut table = PakroTable::new(false, &["Action", "Resource"]);
         for removal in &unapply.removals {
             table.add_row(vec![
                 "remove".to_string(),
@@ -2610,7 +2610,7 @@ impl BootstrapUnapply {
             ]);
         }
         table.print()?;
-        // The global `--yes`, `MISE_YES`, and the `yes` setting answer this
+        // The global `--yes`, `PAKRO_YES`, and the `yes` setting answer this
         // question as much as the subcommand flag does.
         if !self.dry_run && !self.yes && !config::Settings::get().yes {
             let message = format!(
@@ -2627,7 +2627,7 @@ impl BootstrapUnapply {
                     return Ok(());
                 }
                 Confirmation::Unavailable => bail!(
-                    "mise bootstrap unapply requires confirmation but there was nobody to ask; pass --yes to remove non-interactively"
+                    "pakro bootstrap unapply requires confirmation but there was nobody to ask; pass --yes to remove non-interactively"
                 ),
             }
         }
@@ -2674,11 +2674,11 @@ impl BootstrapConfigRoots {
         let output = BootstrapConfigRootsOutput { roots };
 
         if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&output)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&output)?);
         } else if output.roots.is_empty() {
             info!("no [bootstrap].config_roots configured");
         } else {
-            let mut table = MiseTable::new(
+            let mut table = PakroTable::new(
                 false,
                 &[
                     "Config Root",
@@ -2811,11 +2811,11 @@ impl BootstrapAccountsStatus {
             .iter()
             .any(|resource| resource.action != system::resources::ResourceAction::Noop);
         if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&resources)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&resources)?);
         } else if resources.is_empty() {
             info!("no bootstrap users or groups configured");
         } else {
-            let mut table = MiseTable::new(false, &["Action", "Resource", "Current", "Desired"]);
+            let mut table = PakroTable::new(false, &["Action", "Resource", "Current", "Desired"]);
             for resource in resources {
                 table.add_row(vec![
                     resource.action.to_string(),
@@ -2922,11 +2922,11 @@ impl BootstrapFilesStatus {
             .iter()
             .any(|resource| resource.action != system::resources::ResourceAction::Noop);
         if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&resources)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&resources)?);
         } else if resources.is_empty() {
             info!("no system files or directories configured");
         } else {
-            let mut table = MiseTable::new(
+            let mut table = PakroTable::new(
                 false,
                 &["Action", "Resource", "Current", "Desired", "Config"],
             );
@@ -2999,7 +2999,7 @@ impl BootstrapServicesRemove {
         }
         if declared {
             info!(
-                "user service {} is still declared in [bootstrap.services]; the next `mise bootstrap` recreates it",
+                "user service {} is still declared in [bootstrap.services]; the next `pakro bootstrap` recreates it",
                 self.name
             );
         }
@@ -3065,11 +3065,11 @@ impl BootstrapServicesStatus {
             .iter()
             .any(|resource| resource.action != system::resources::ResourceAction::Noop);
         if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&resources)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&resources)?);
         } else if resources.is_empty() {
             info!("no bootstrap services configured");
         } else {
-            let mut table = MiseTable::new(false, &["Action", "Resource", "Current", "Desired"]);
+            let mut table = PakroTable::new(false, &["Action", "Resource", "Current", "Desired"]);
             for resource in resources {
                 table.add_row(vec![
                     resource.action.to_string(),
@@ -3123,9 +3123,9 @@ impl BootstrapFirewallStatus {
             .iter()
             .any(|resource| resource.action != system::resources::ResourceAction::Noop);
         if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&resources)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&resources)?);
         } else {
-            let mut table = MiseTable::new(false, &["Action", "Resource", "Current", "Desired"]);
+            let mut table = PakroTable::new(false, &["Action", "Resource", "Current", "Desired"]);
             for resource in resources {
                 table.add_row(vec![
                     resource.action.to_string(),
@@ -3173,11 +3173,11 @@ impl BootstrapComposeStatus {
             .iter()
             .any(|resource| resource.action != system::resources::ResourceAction::Noop);
         if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&resources)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&resources)?);
         } else if resources.is_empty() {
             info!("no bootstrap compose projects configured");
         } else {
-            let mut table = MiseTable::new(false, &["Action", "Resource", "Current", "Desired"]);
+            let mut table = PakroTable::new(false, &["Action", "Resource", "Current", "Desired"]);
             for resource in resources {
                 table.add_row(vec![
                     resource.action.to_string(),
@@ -3251,17 +3251,17 @@ impl BootstrapRemote {
         let overrides = system::remote::RemoteOverrides {
             from_git: self.adopt.is_some(),
             source: self.source,
-            mise_env: self.remote_env,
+            pakro_env: self.remote_env,
             copy_links: self.copy_links,
             copy_link: self.copy_link,
             port: self.port,
             identity_file: self.identity_file,
             exclude: self.exclude,
             ssh_options: self.ssh_option,
-            install_mise: self.install_mise,
-            no_install_mise: self.no_install_mise,
-            mise_bin: self.mise_bin,
-            remote_mise: self.remote_mise,
+            install_pakro: self.install_pakro,
+            no_install_pakro: self.no_install_pakro,
+            pakro_bin: self.pakro_bin,
+            remote_pakro: self.remote_pakro,
             bootstrap_command: self.bootstrap_command,
         };
         let options = system::remote::RemoteRunOptions {
@@ -3373,7 +3373,7 @@ fn select_remote_inventory(
 
 fn bootstrap_part_name(part: &BootstrapPart) -> String {
     match part {
-        BootstrapPart::Shell => "mise-shell-activate".to_string(),
+        BootstrapPart::Shell => "pakro-shell-activate".to_string(),
         BootstrapPart::Defaults => "macos-defaults".to_string(),
         BootstrapPart::Launchd => "macos-launchd-agents".to_string(),
         BootstrapPart::Systemd => "linux-systemd-units".to_string(),
@@ -3389,11 +3389,11 @@ impl BootstrapSecretsStatus {
             .iter()
             .any(|status| status.state != system::secrets::SecretState::Available);
         if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&statuses)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&statuses)?);
         } else if statuses.is_empty() {
             info!("no bootstrap secret inputs configured");
         } else {
-            let mut table = MiseTable::new(false, &["Secret", "Environment", "State"]);
+            let mut table = PakroTable::new(false, &["Secret", "Environment", "State"]);
             for status in statuses {
                 table.add_row(vec![status.name, status.env, status.state.to_string()]);
             }
@@ -3447,11 +3447,11 @@ impl BootstrapStatus {
         let secrets = system::secrets::resolve(&config, self.prompt_secrets)?;
         let report = self.collect(&config, &secrets).await?;
         if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&report.json)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&report.json)?);
         } else if report.rows.is_empty() {
             info!("nothing configured for bootstrap");
         } else {
-            let mut table = MiseTable::new(false, &["Part", "Item", "Current", "State"]);
+            let mut table = PakroTable::new(false, &["Part", "Item", "Current", "State"]);
             for row in report.rows {
                 table.add_row(row);
             }
@@ -4025,7 +4025,7 @@ impl BootstrapStatus {
         }
         report
             .json
-            .insert("mise_shell_activate".to_string(), json!(json_entries));
+            .insert("pakro_shell_activate".to_string(), json!(json_entries));
         Ok(())
     }
 
@@ -4491,20 +4491,20 @@ fn checkout_bootstrap_repository(
         if update {
             if dry_run {
                 if let Some(git_ref) = git_ref {
-                    miseprintln!(
+                    pakroprintln!(
                         "Would run: git -C {} fetch --force --tags --prune origin",
                         checkout.display_user()
                     );
-                    miseprintln!(
+                    pakroprintln!(
                         "Would run: git -C {} checkout {git_ref} -- (or switch {git_ref} if it is a branch on origin)",
                         checkout.display_user()
                     );
-                    miseprintln!(
+                    pakroprintln!(
                         "Would run: git -C {} merge --ff-only origin/{git_ref} (if it is a branch)",
                         checkout.display_user()
                     );
                 } else {
-                    miseprintln!(
+                    pakroprintln!(
                         "Would run: git -C {} pull --ff-only",
                         checkout.display_user()
                     );
@@ -4524,9 +4524,9 @@ fn checkout_bootstrap_repository(
         return Ok(true);
     }
     if dry_run {
-        miseprintln!("Would run: git clone {} {}", url, checkout.display_user());
+        pakroprintln!("Would run: git clone {} {}", url, checkout.display_user());
         if let Some(git_ref) = git_ref {
-            miseprintln!(
+            pakroprintln!(
                 "Would run: git -C {} checkout {git_ref} --",
                 checkout.display_user()
             );
@@ -4713,11 +4713,11 @@ impl BootstrapReposStatus {
         if self.json {
             let mut json_out = serde_json::Map::new();
             json_out.insert("repos".to_string(), json!(json_entries));
-            miseprintln!("{}", serde_json::to_string_pretty(&json_out)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&json_out)?);
         } else if rows.is_empty() {
             info!("nothing configured in [bootstrap.repos]");
         } else {
-            let mut table = MiseTable::new(false, &["Path", "URL", "Ref", "State", "Reason"]);
+            let mut table = PakroTable::new(false, &["Path", "URL", "Ref", "State", "Reason"]);
             for row in rows {
                 table.add_row(row);
             }
@@ -4851,11 +4851,11 @@ impl BootstrapLaunchdStatus {
             }
         }
         if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&json_out)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&json_out)?);
         } else if rows.is_empty() {
             info!("nothing configured in [bootstrap.macos.launchd.agents]");
         } else {
-            let mut table = MiseTable::new(false, &["Name", "Label", "Path", "State"]);
+            let mut table = PakroTable::new(false, &["Name", "Label", "Path", "State"]);
             for row in rows {
                 table.add_row(row);
             }
@@ -4966,11 +4966,11 @@ impl BootstrapSystemdStatus {
             }
         }
         if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&json_out)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&json_out)?);
         } else if rows.is_empty() {
             info!("nothing configured in [bootstrap.linux.systemd.units]");
         } else {
-            let mut table = MiseTable::new(false, &["Name", "Unit", "Path", "State"]);
+            let mut table = PakroTable::new(false, &["Name", "Unit", "Path", "State"]);
             for row in rows {
                 table.add_row(row);
             }
@@ -5094,11 +5094,11 @@ impl BootstrapMacosDefaultsStatus {
             }
         }
         if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&json_out)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&json_out)?);
         } else if rows.is_empty() {
             info!("nothing configured in [bootstrap.macos.defaults]");
         } else {
-            let mut table = MiseTable::new(false, &["Domain", "Key", "Value", "Current", "State"]);
+            let mut table = PakroTable::new(false, &["Domain", "Key", "Value", "Current", "State"]);
             for row in rows {
                 table.add_row(row);
             }
@@ -5123,7 +5123,7 @@ impl BootstrapShell {
 impl BootstrapShellApply {
     async fn run(self) -> Result<()> {
         OperationScope::wrap(
-            "bootstrap mise-shell-activate apply",
+            "bootstrap pakro-shell-activate apply",
             self.dry_run,
             self.run_inner(),
         )
@@ -5177,16 +5177,16 @@ impl BootstrapShellStatus {
             }
         }
         if self.json {
-            miseprintln!(
+            pakroprintln!(
                 "{}",
                 serde_json::to_string_pretty(&json!({
-                    "mise_shell_activate": json_entries,
+                    "pakro_shell_activate": json_entries,
                 }))?
             );
         } else if rows.is_empty() {
-            info!("nothing configured in [bootstrap.mise_shell_activate]");
+            info!("nothing configured in [bootstrap.pakro_shell_activate]");
         } else {
-            let mut table = MiseTable::new(false, &["Target", "Shell", "Path", "Mode", "State"]);
+            let mut table = PakroTable::new(false, &["Target", "Shell", "Path", "Mode", "State"]);
             for row in rows {
                 table.add_row(row);
             }
@@ -5284,11 +5284,11 @@ impl BootstrapUserStatus {
             }
         }
         if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&json_out)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&json_out)?);
         } else if rows.is_empty() {
             info!("nothing configured in [bootstrap.user]");
         } else {
-            let mut table = MiseTable::new(false, &["Shell", "Current", "State"]);
+            let mut table = PakroTable::new(false, &["Shell", "Current", "State"]);
             for row in rows {
                 table.add_row(row);
             }
@@ -5336,7 +5336,7 @@ mod tests {
         use crate::system::defaults::{DefaultsRequest, DefaultsValue, HostScope};
         let request = DefaultsRequest {
             dock_apps: false,
-            domain: "com.mise.test".into(),
+            domain: "com.pakro.test".into(),
             key: "Settings".into(),
             host: HostScope::Current,
             path: Some(vec!["nested".into(), "enabled".into()]),
@@ -5349,7 +5349,7 @@ mod tests {
                 "available": false,
                 "reason": "macOS only",
                 "entries": [{
-                    "domain": "com.mise.test",
+                    "domain": "com.pakro.test",
                     "key": "Settings",
                     "host": "current",
                     "path": ["nested", "enabled"],
@@ -5364,7 +5364,7 @@ mod tests {
     fn remote_adopt_parses_and_conflicts_with_source() {
         let flag = "--adopt";
         let argv = [
-            "mise",
+            "pakro",
             "bootstrap",
             "remote",
             "--host",
@@ -5378,7 +5378,7 @@ mod tests {
         .map(OsStr::new);
         assert!(Cli::parse_from_argv(&argv).is_ok());
         let conflict = [
-            "mise",
+            "pakro",
             "bootstrap",
             "remote",
             "--host",
@@ -5393,7 +5393,7 @@ mod tests {
         for archive_flag in ["--copy-link=link", "--copy-links", "--exclude=pattern"] {
             let repository_flag = format!("{flag}=jdx/dotfiles");
             let argv = [
-                "mise",
+                "pakro",
                 "bootstrap",
                 "remote",
                 "--host=devbox",
@@ -5409,7 +5409,7 @@ mod tests {
     fn adopt_parses_locally_and_remotely() {
         for remote in [false, true] {
             for equals in [false, true] {
-                let mut args = vec!["mise".to_string(), "bootstrap".to_string()];
+                let mut args = vec!["pakro".to_string(), "bootstrap".to_string()];
                 if remote {
                     args.extend(["remote", "--host", "devbox"].map(String::from));
                 }
@@ -5439,7 +5439,7 @@ mod tests {
     #[test]
     fn unapply_reexec_replaces_the_selection_and_keeps_other_arguments() {
         let args = [
-            "mise",
+            "pakro",
             "--log-level",
             "debug",
             "-E",
@@ -5476,7 +5476,7 @@ mod tests {
             vec!["-C", "sub"],
             vec!["-Csub"],
         ] {
-            let mut args = vec!["mise".to_string()];
+            let mut args = vec!["pakro".to_string()];
             args.extend(directory.iter().map(|arg| arg.to_string()));
             args.extend(["bootstrap", "unapply", "ssh"].map(String::from));
             assert_eq!(
@@ -5498,7 +5498,7 @@ mod tests {
             vec!["-P", "work"],
             vec!["-Pwork"],
         ] {
-            let mut args = vec!["mise".to_string()];
+            let mut args = vec!["pakro".to_string()];
             args.extend(selection.iter().map(|arg| arg.to_string()));
             args.extend(["bootstrap", "unapply", "ssh"].map(String::from));
             assert_eq!(
@@ -5512,7 +5512,7 @@ mod tests {
     fn bootstrap_reexec_removes_the_adoption_flag() {
         let flag = "--adopt";
         for equals in [false, true] {
-            let mut args = vec!["mise".to_string(), "bootstrap".to_string()];
+            let mut args = vec!["pakro".to_string(), "bootstrap".to_string()];
             if equals {
                 args.push(format!("{flag}=jdx/dotfiles"));
             } else {
@@ -5529,7 +5529,7 @@ mod tests {
 
     #[test]
     fn bootstrap_preserves_dry_run_and_yes_flags() {
-        let argv: Vec<&OsStr> = ["mise", "bootstrap", "--dry-run", "--yes", "status"]
+        let argv: Vec<&OsStr> = ["pakro", "bootstrap", "--dry-run", "--yes", "status"]
             .iter()
             .map(OsStr::new)
             .collect();
@@ -5544,7 +5544,7 @@ mod tests {
     #[test]
     fn bootstrap_from_reexec_preserves_global_flags() {
         let args = [
-            "mise",
+            "pakro",
             "--no-hooks",
             "-E",
             "work",
@@ -5580,7 +5580,7 @@ mod tests {
     #[test]
     fn bootstrap_from_reexec_preserves_flag_like_global_values() {
         let args = [
-            "mise",
+            "pakro",
             "-E",
             "--cd",
             "bootstrap",
@@ -5600,7 +5600,7 @@ mod tests {
         let flag = "--adopt";
         for args in [
             [
-                "mise",
+                "pakro",
                 "bootstrap",
                 "--from",
                 "project.git",
@@ -5609,7 +5609,7 @@ mod tests {
             ]
             .as_slice(),
             [
-                "mise",
+                "pakro",
                 "bootstrap",
                 flag,
                 "global.git",

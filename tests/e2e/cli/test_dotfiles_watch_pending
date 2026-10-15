@@ -2,14 +2,14 @@
 # A populated tree moved into a missing tracked path is captured without a
 # periodic scan or a later edit inside the tree.
 require_cmd git
-export MISE_EXPERIMENTAL=0
-export MISE_HISTORY_WATCH_RECONCILE=0
-export MISE_HISTORY_WATCH_DEBOUNCE=100ms
+export PAKRO_EXPERIMENTAL=0
+export PAKRO_HISTORY_WATCH_RECONCILE=0
+export PAKRO_HISTORY_WATCH_DEBOUNCE=100ms
 
 mkdir -p ~/parent "$PWD/staged-tree"
 printf 'already populated\n' >"$PWD/staged-tree/config"
-assert_succeed 'mise bootstrap dotfiles track ~/parent/incoming'
-mise bootstrap dotfiles watch --json >watch.log 2>&1 &
+assert_succeed 'pakro bootstrap dotfiles track ~/parent/incoming'
+pakro bootstrap dotfiles watch --json >watch.log 2>&1 &
 watcher=$!
 cleanup() {
   kill "$watcher" 2>/dev/null || true
@@ -30,5 +30,5 @@ wait_until() {
 
 wait_until 'grep -q '\''"event":"started"'\'' watch.log'
 mv "$PWD/staged-tree" ~/parent/incoming
-wait_until 'mise bootstrap dotfiles history show latest --files | grep -q parent/incoming/config'
-assert_contains 'mise bootstrap dotfiles history show latest --files' 'parent/incoming/config'
+wait_until 'pakro bootstrap dotfiles history show latest --files | grep -q parent/incoming/config'
+assert_contains 'pakro bootstrap dotfiles history show latest --files' 'parent/incoming/config'

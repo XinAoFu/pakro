@@ -1,26 +1,16 @@
 #!/usr/bin/env bash
 
-export MISE_LOCKFILE=1
+export PAKRO_LOCKFILE=1
 
-touch mise.lock
-assert "mise install tiny@1.0.0"
-assert "mise use tiny@1"
-assert "mise install tiny@1.0.1"
-assert "mise config get -f mise.toml tools.tiny" "1"
-assert "mise where tiny" "$MISE_DATA_DIR/installs/tiny/1.0.0"
-assert "mise ls tiny --json --current | jq -r '.[0].requested_version'" "1"
-assert "mise ls tiny --json --current | jq -r '.[0].version'" "1.0.0"
-assert "cat mise.lock" "$LOCKFILE_HEADER
-
-lockfile_version = 3
-
-[[tools.tiny]]
-version = \"1.0.0\"
-backend = \"asdf:tiny\"
-specifiers = [\"1\"]"
-
-assert "mise use tiny@1"
-assert "cat mise.lock" "$LOCKFILE_HEADER
+touch pakro.lock
+assert "pakro install tiny@1.0.0"
+assert "pakro use tiny@1"
+assert "pakro install tiny@1.0.1"
+assert "pakro config get -f pakro.toml tools.tiny" "1"
+assert "pakro where tiny" "$PAKRO_DATA_DIR/installs/tiny/1.0.0"
+assert "pakro ls tiny --json --current | jq -r '.[0].requested_version'" "1"
+assert "pakro ls tiny --json --current | jq -r '.[0].version'" "1.0.0"
+assert "cat pakro.lock" "$LOCKFILE_HEADER
 
 lockfile_version = 3
 
@@ -28,11 +18,21 @@ lockfile_version = 3
 version = \"1.0.0\"
 backend = \"asdf:tiny\"
 specifiers = [\"1\"]"
-assert "mise ls tiny --json --current | jq -r '.[0].requested_version'" "1"
-assert "mise ls tiny --json --current | jq -r '.[0].version'" "1.0.0"
 
-assert "mise up tiny"
-assert "cat mise.lock" "$LOCKFILE_HEADER
+assert "pakro use tiny@1"
+assert "cat pakro.lock" "$LOCKFILE_HEADER
+
+lockfile_version = 3
+
+[[tools.tiny]]
+version = \"1.0.0\"
+backend = \"asdf:tiny\"
+specifiers = [\"1\"]"
+assert "pakro ls tiny --json --current | jq -r '.[0].requested_version'" "1"
+assert "pakro ls tiny --json --current | jq -r '.[0].version'" "1.0.0"
+
+assert "pakro up tiny"
+assert "cat pakro.lock" "$LOCKFILE_HEADER
 
 lockfile_version = 3
 
@@ -40,11 +40,11 @@ lockfile_version = 3
 version = \"1.1.0\"
 backend = \"asdf:tiny\"
 specifiers = [\"1\"]"
-assert "mise ls tiny --json --current | jq -r '.[0].requested_version'" "1"
-assert "mise ls tiny --json --current | jq -r '.[0].version'" "1.1.0"
+assert "pakro ls tiny --json --current | jq -r '.[0].requested_version'" "1"
+assert "pakro ls tiny --json --current | jq -r '.[0].version'" "1.1.0"
 
-assert "mise up tiny --bump"
-assert "cat mise.lock" "$LOCKFILE_HEADER
+assert "pakro up tiny --bump"
+assert "cat pakro.lock" "$LOCKFILE_HEADER
 
 lockfile_version = 3
 
@@ -52,16 +52,16 @@ lockfile_version = 3
 version = \"3.1.0\"
 backend = \"asdf:tiny\"
 specifiers = [\"3\"]"
-assert "mise ls tiny --json --current | jq -r '.[0].requested_version'" "3"
-assert "mise ls tiny --json --current | jq -r '.[0].version'" "3.1.0"
+assert "pakro ls tiny --json --current | jq -r '.[0].requested_version'" "3"
+assert "pakro ls tiny --json --current | jq -r '.[0].version'" "3.1.0"
 
-cat <<EOF >mise.lock
+cat <<EOF >pakro.lock
 [[tools.tiny]]
 version = "1.0.0"
 backend = "asdf:tiny"
 EOF
-assert "mise use tiny@1 tiny@2"
-assert "cat mise.lock" "$LOCKFILE_HEADER
+assert "pakro use tiny@1 tiny@2"
+assert "cat pakro.lock" "$LOCKFILE_HEADER
 
 [[tools.tiny]]
 version = \"1.0.0\"
@@ -70,9 +70,9 @@ backend = \"asdf:tiny\"
 [[tools.tiny]]
 version = \"2.1.0\"
 backend = \"asdf:tiny\""
-assert "mise uninstall --all tiny"
-assert "mise install tiny"
-assert "mise ls tiny --json --current | jq -r '.[0].requested_version'" "1"
-assert "mise ls tiny --json --current | jq -r '.[0].version'" "1.0.0"
-assert "mise ls tiny --json --current | jq -r '.[1].requested_version'" "2"
-assert "mise ls tiny --json --current | jq -r '.[1].version'" "2.1.0"
+assert "pakro uninstall --all tiny"
+assert "pakro install tiny"
+assert "pakro ls tiny --json --current | jq -r '.[0].requested_version'" "1"
+assert "pakro ls tiny --json --current | jq -r '.[0].version'" "1.0.0"
+assert "pakro ls tiny --json --current | jq -r '.[1].requested_version'" "2"
+assert "pakro ls tiny --json --current | jq -r '.[1].version'" "2.1.0"

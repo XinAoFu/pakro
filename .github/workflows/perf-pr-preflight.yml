@@ -5,8 +5,8 @@ on:
     types: [opened, synchronize, reopened]
     paths-ignore:
       - ".github/**"
-      - "mise.lock"
-      - "mise.toml"
+      - "pakro.lock"
+      - "pakro.toml"
 
 permissions:
   contents: read

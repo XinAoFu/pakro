@@ -3,7 +3,7 @@ set -euo pipefail
 
 # A local plugin pauses the first installer before it populates the destination.
 # No network or real tool downloads are needed to exercise the replacement race.
-plugin_dir="$MISE_DATA_DIR/plugins/asdf-install-into-race"
+plugin_dir="$PAKRO_DATA_DIR/plugins/asdf-install-into-race"
 mkdir -p "$plugin_dir/bin"
 cat >"$plugin_dir/bin/list-all" <<'EOF'
 #!/usr/bin/env bash
@@ -30,26 +30,26 @@ chmod +x "$plugin_dir/bin/list-all" "$plugin_dir/bin/install"
 # Force-replacing the cache must not unlink the lock protecting the destination.
 # Individual lock files are just as fatal: removing one lets the next process
 # create a replacement and install beside the holder.
-mkdir -p "$MISE_CACHE_DIR/lockfiles"
-echo preserved >"$MISE_CACHE_DIR/lockfiles/keep.txt"
-ln -s "$MISE_CACHE_DIR" cache-alias
+mkdir -p "$PAKRO_CACHE_DIR/lockfiles"
+echo preserved >"$PAKRO_CACHE_DIR/lockfiles/keep.txt"
+ln -s "$PAKRO_CACHE_DIR" cache-alias
 # A lock-directory entry that is itself a symlink pointing outward: reached
 # through the alias, resolving the whole path leads out of the lock directory,
 # but replacement would still unlink the entry sitting inside it.
 mkdir -p outside
-ln -s "$PWD/outside" "$MISE_CACHE_DIR/lockfiles/outward"
+ln -s "$PWD/outside" "$PAKRO_CACHE_DIR/lockfiles/outward"
 for destination in \
-  "$MISE_CACHE_DIR" \
-  "$MISE_CACHE_DIR/lockfiles" \
-  "$MISE_CACHE_DIR/lockfiles/keep.txt" \
-  "$MISE_CACHE_DIR/lockfiles/nested/destination" \
+  "$PAKRO_CACHE_DIR" \
+  "$PAKRO_CACHE_DIR/lockfiles" \
+  "$PAKRO_CACHE_DIR/lockfiles/keep.txt" \
+  "$PAKRO_CACHE_DIR/lockfiles/nested/destination" \
   "$PWD/cache-alias/lockfiles" \
   "$PWD/cache-alias/lockfiles/keep.txt" \
   "$PWD/cache-alias/lockfiles/outward" \
   "$PWD/cache-alias/lockfiles/nested/destination"; do
-  assert_fail_contains "mise install-into asdf:install-into-race@1.0.0 '$destination' --yes" "overlaps mise's lock directory"
-  assert "cat '$MISE_CACHE_DIR/lockfiles/keep.txt'" preserved
-  assert "test -L '$MISE_CACHE_DIR/lockfiles/outward' && echo intact" intact
+  assert_fail_contains "pakro install-into asdf:install-into-race@1.0.0 '$destination' --yes" "overlaps pakro's lock directory"
+  assert "cat '$PAKRO_CACHE_DIR/lockfiles/keep.txt'" preserved
+  assert "test -L '$PAKRO_CACHE_DIR/lockfiles/outward' && echo intact" intact
 done
 
 python3 - <<'PY'
@@ -80,18 +80,18 @@ for alias in (False, True):
         competing_destination = case / "alias" / "new-parent" / "destination"
     else:
         competing_destination = destination
-    env = dict(os.environ, INSTALL_RACE_CASE=str(case), MISE_YES="0", MISE_DEBUG="1")
+    env = dict(os.environ, INSTALL_RACE_CASE=str(case), PAKRO_YES="0", PAKRO_DEBUG="1")
     processes = []
     try:
         with (case / "first.log").open("w") as first_log, (case / "second.log").open("w") as second_log:
             first = subprocess.Popen(
-                ["mise", "install-into", "asdf:install-into-race@1.0.0", str(destination)],
+                ["pakro", "install-into", "asdf:install-into-race@1.0.0", str(destination)],
                 env=env, stdin=subprocess.DEVNULL, stdout=first_log, stderr=subprocess.STDOUT,
             )
             processes.append(first)
             wait_until(lambda: (case / "entered-1.0.0").exists(), first, "first installer")
             second = subprocess.Popen(
-                ["mise", "install-into", "asdf:install-into-race@2.0.0", str(competing_destination)],
+                ["pakro", "install-into", "asdf:install-into-race@2.0.0", str(competing_destination)],
                 env=env, stdin=subprocess.DEVNULL, stdout=second_log, stderr=subprocess.STDOUT,
             )
             processes.append(second)
@@ -132,12 +132,12 @@ second_target.mkdir(parents=True)
 alias = case / "alias"
 alias.symlink_to(first_target, target_is_directory=True)
 destination = alias / "destination"
-env = dict(os.environ, INSTALL_RACE_CASE=str(case), MISE_YES="0", MISE_DEBUG="1")
+env = dict(os.environ, INSTALL_RACE_CASE=str(case), PAKRO_YES="0", PAKRO_DEBUG="1")
 processes = []
 try:
     with (case / "first.log").open("w") as first_log, (case / "second.log").open("w") as second_log:
         first = subprocess.Popen(
-            ["mise", "install-into", "asdf:install-into-race@1.0.0", str(destination)],
+            ["pakro", "install-into", "asdf:install-into-race@1.0.0", str(destination)],
             env=env, stdin=subprocess.DEVNULL, stdout=first_log, stderr=subprocess.STDOUT,
         )
         processes.append(first)
@@ -147,7 +147,7 @@ try:
         # The alias now names a different directory, so this install owns a
         # different destination and must not wait for the first one.
         second = subprocess.Popen(
-            ["mise", "install-into", "asdf:install-into-race@2.0.0", str(destination)],
+            ["pakro", "install-into", "asdf:install-into-race@2.0.0", str(destination)],
             env=env, stdin=subprocess.DEVNULL, stdout=second_log, stderr=subprocess.STDOUT,
         )
         processes.append(second)

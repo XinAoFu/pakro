@@ -131,7 +131,7 @@ struct AquaRuntime<'a> {
     libc: Option<&'a str>,
 }
 
-/// A platform-specific package override with selectors mise can evaluate at runtime.
+/// A platform-specific package override with selectors pakro can evaluate at runtime.
 #[derive(Debug, Clone)]
 pub struct AquaPackagePlatformOverride {
     pub package: AquaPackage,
@@ -145,7 +145,7 @@ pub struct AquaPackagePlatformOverride {
 #[derive(Debug, Deserialize, Archive, RkyvDeserialize, RkyvSerialize, Clone, Default)]
 pub struct AquaVar {
     pub name: String,
-    /// Aqua's schema allows arbitrary YAML defaults, but mise intentionally
+    /// Aqua's schema allows arbitrary YAML defaults, but pakro intentionally
     /// supports only string defaults to keep variable resolution simple.
     #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
     pub default: Option<String>,

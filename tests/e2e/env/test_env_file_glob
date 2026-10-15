@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat <<'EOF' >.mise.toml
+cat <<'EOF' >.pakro.toml
 [env]
 _.file = "env.d/*.env"
 EOF
@@ -10,7 +10,7 @@ mkdir -p env.d
 echo "VAR1=1" >env.d/1.env
 echo "VAR2=2" >env.d/2.env
 
-# mise trust --verbose
-mise env -s bash
-assert_contains "mise env -s bash" "VAR1=1"
-assert_contains "mise env -s bash" "VAR2=2"
+# pakro trust --verbose
+pakro env -s bash
+assert_contains "pakro env -s bash" "VAR1=1"
+assert_contains "pakro env -s bash" "VAR2=2"

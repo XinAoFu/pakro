@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# mise must not crash when stderr is unwritable, e.g. when the process that
+# pakro must not crash when stderr is unwritable, e.g. when the process that
 # spawned it (a shim, tool stub, or LSP client) closes its end of the pipe.
 # eprintln!-style macros panic on write errors, and a panic that reaches the
 # panic hook while stderr is broken used to escalate to SIGABRT.
@@ -10,6 +10,6 @@ if [[ ! -w /dev/full ]]; then
   exit 0
 fi
 
-# MISE_DEBUG=1 forces log output to stderr; the subshell keeps stderr pointed
+# PAKRO_DEBUG=1 forces log output to stderr; the subshell keeps stderr pointed
 # at /dev/full since the assert helpers append their own 2>&1
-assert "(MISE_DEBUG=1 mise version >/dev/null 2>/dev/full && echo ok)" "ok"
+assert "(PAKRO_DEBUG=1 pakro version >/dev/null 2>/dev/full && echo ok)" "ok"

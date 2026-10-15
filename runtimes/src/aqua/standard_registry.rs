@@ -9,17 +9,17 @@ pub struct AquaRegistryMetadata {
     pub tag: &'static str,
 }
 
-/// Baked canonical registry packages (compiled into the mise binary).
+/// Baked canonical registry packages (compiled into the pakro binary).
 pub static AQUA_STANDARD_REGISTRY_FILES: phf::Map<&'static str, &'static [u8]> =
     include!(concat!(env!("OUT_DIR"), "/aqua_standard_registry_files.rs"));
 
-/// Baked aqua registry snapshot metadata (compiled into the mise binary).
+/// Baked aqua registry snapshot metadata (compiled into the pakro binary).
 pub static AQUA_STANDARD_REGISTRY_METADATA: AquaRegistryMetadata = include!(concat!(
     env!("OUT_DIR"),
     "/aqua_standard_registry_metadata.rs"
 ));
 
-/// Baked alias-to-canonical package ID map (compiled into the mise binary).
+/// Baked alias-to-canonical package ID map (compiled into the pakro binary).
 static AQUA_STANDARD_REGISTRY_ALIASES: phf::Map<&'static str, &'static str> = include!(concat!(
     env!("OUT_DIR"),
     "/aqua_standard_registry_aliases.rs"
@@ -77,13 +77,13 @@ impl AquaSearchBackendOverride {
 }
 
 /// Baked exceptions to the default `aqua:<id>` search backend.
-/// An empty backend marks a package that cannot be represented by a runnable mise backend.
+/// An empty backend marks a package that cannot be represented by a runnable pakro backend.
 static AQUA_STANDARD_REGISTRY_SEARCH: phf::Map<&'static str, AquaSearchBackends> = include!(
     concat!(env!("OUT_DIR"), "/aqua_standard_registry_search.rs")
 );
 
 /// Returns searchable Aqua package IDs and any precomputed backend override.
-/// Packages without a runnable mise backend on the current platform are omitted.
+/// Packages without a runnable pakro backend on the current platform are omitted.
 pub(crate) fn search_entries() -> impl Iterator<Item = (&'static str, Option<&'static str>)> {
     let current_platform = Platform::current();
     let os = match current_platform.os.as_str() {

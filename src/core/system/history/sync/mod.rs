@@ -2,7 +2,7 @@
 //! (`origin`), the versioned marker (`format`), the portable branch layout
 //! (`layout`), network commands with the user's git configuration
 //! (`network`), what is shareable now (`share`), the per-path transition
-//! table (`reconcile`), publication from mise's bare repository
+//! table (`reconcile`), publication from pakro's bare repository
 //! (`publish`), shared-file encryption (`files`), explicit application (`apply`),
 //! operational sync state (`state`), and the orchestrating `sync`
 //! run.
@@ -98,13 +98,13 @@ impl SyncMode {
     pub(crate) fn disclosure(self) -> &'static str {
         match self {
             Self::Sync => {
-                "sync: the watcher publishes saved commits and fetches periodically. Any conflict pauses publication and incoming application for the entire setup; local commits and fetching continue. Incoming changes are preflighted together and applied with a protective checkpoint and recovery journal. Applying never runs `mise bootstrap` or renders templates. Run `mise bootstrap` when the new declarations need to be applied."
+                "sync: the watcher publishes saved commits and fetches periodically. Any conflict pauses publication and incoming application for the entire setup; local commits and fetching continue. Incoming changes are preflighted together and applied with a protective checkpoint and recovery journal. Applying never runs `pakro bootstrap` or renders templates. Run `pakro bootstrap` when the new declarations need to be applied."
             }
             Self::FetchOnly => {
-                "fetch-only: the watcher only fetches the origin branch. Nothing is ever published, and no live file changes unless you run `mise dot pull`."
+                "fetch-only: the watcher only fetches the origin branch. Nothing is ever published, and no live file changes unless you run `pakro dot pull`."
             }
             Self::Manual => {
-                "manual: no automatic network activity. `mise dot sync` publishes and fetches, and `mise dot pull` applies, when you run them."
+                "manual: no automatic network activity. `pakro dot sync` publishes and fetches, and `pakro dot pull` applies, when you run them."
             }
         }
     }

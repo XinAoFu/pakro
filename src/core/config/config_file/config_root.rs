@@ -22,9 +22,9 @@ pub(crate) fn reset() {
 /// Deliberately not desymlinked. Which of the two a caller wants depends on why
 /// the file is a symlink: a shared config linked into `conf.d` wants where the
 /// real file lives, and a config that merely sits behind a symlinked home wants
-/// the path it was reached by. Templates choose with the filters mise already
+/// the path it was reached by. Templates choose with the filters pakro already
 /// has — `{{ config_source | canonicalize | dirname }}` for the first,
-/// `{{ config_source | dirname }}` for the second — rather than mise choosing
+/// `{{ config_source | dirname }}` for the second — rather than pakro choosing
 /// for them here.
 ///
 /// Returns a `String` rather than a `PathBuf` so a path that is not valid UTF-8
@@ -40,7 +40,7 @@ pub(crate) fn config_source(path: &Path) -> String {
     //
     // If both are unavailable the path is returned as given. That is the only
     // case where the value can be relative, and it means the working directory
-    // was already gone before mise started — returning something a template can
+    // was already gone before pakro started — returning something a template can
     // render still beats failing the render, which is why this degrades rather
     // than propagating an error.
     path.absolutize()
@@ -68,7 +68,7 @@ pub fn config_root(path: &Path) -> PathBuf {
         return root;
     }
     if is_global_config(&path) {
-        let root = env::MISE_GLOBAL_CONFIG_ROOT.to_path_buf();
+        let root = env::PAKRO_GLOBAL_CONFIG_ROOT.to_path_buf();
         CONFIG_ROOT_CACHE.lock().unwrap().insert(path, root.clone());
         return root;
     }
@@ -96,19 +96,19 @@ pub fn config_root(path: &Path) -> PathBuf {
     let grandparent_path = || parent_path().parent().unwrap().to_path_buf();
     let great_grandparent_path = || grandparent_path().parent().unwrap().to_path_buf();
     let great_great_grandparent_path = || great_grandparent_path().parent().unwrap().to_path_buf();
-    let is_mise_dir = |d: &str| d == "mise" || d == ".mise";
+    let is_pakro_dir = |d: &str| d == "pakro" || d == ".pakro";
     let is_config_filename = |f: &str| {
         f == "config.toml" || f == "config.local.toml" || regex!(r"config\..+\.toml").is_match(f)
     };
-    let out = if parent == "mise-tasks" || parent == ".mise-tasks" {
+    let out = if parent == "pakro-tasks" || parent == ".pakro-tasks" {
         grandparent_path()
-    } else if (parent == "tasks" || parent == "conf.d") && is_mise_dir(grandparent) {
+    } else if (parent == "tasks" || parent == "conf.d") && is_pakro_dir(grandparent) {
         if great_grandparent == ".config" {
             great_great_grandparent_path()
         } else {
             great_grandparent_path()
         }
-    } else if is_mise_dir(parent) && is_config_filename(filename) {
+    } else if is_pakro_dir(parent) && is_config_filename(filename) {
         if grandparent == ".config" {
             great_grandparent_path()
         } else {
@@ -134,8 +134,8 @@ mod tests {
     fn config_source_is_absolute() {
         let cwd = std::env::current_dir().unwrap();
         assert_eq!(
-            config_source(Path::new("mise.toml")),
-            cwd.join("mise.toml").to_string_lossy()
+            config_source(Path::new("pakro.toml")),
+            cwd.join("pakro.toml").to_string_lossy()
         );
     }
 
@@ -145,12 +145,12 @@ mod tests {
     #[test]
     fn config_source_keeps_the_path_it_was_reached_by() {
         let temp = tempfile::tempdir().unwrap();
-        let real = temp.path().join("shared").join("mise.team.toml");
+        let real = temp.path().join("shared").join("pakro.team.toml");
         std::fs::create_dir_all(real.parent().unwrap()).unwrap();
         std::fs::write(&real, "").unwrap();
         let conf_d = temp.path().join("conf.d");
         std::fs::create_dir_all(&conf_d).unwrap();
-        let link = conf_d.join("mise.team.toml");
+        let link = conf_d.join("pakro.team.toml");
         std::os::unix::fs::symlink(&real, &link).unwrap();
 
         assert_eq!(config_source(&link), link.to_string_lossy());
@@ -165,36 +165,36 @@ mod tests {
     #[test]
     fn test_config_root() {
         for p in &[
-            "/foo/bar/.config/mise/conf.d/config.toml",
-            "/foo/bar/.config/mise/conf.d/foo.toml",
-            "/foo/bar/.config/mise/config.local.toml",
-            "/foo/bar/.config/mise/config.toml",
-            "/foo/bar/.config/mise.local.toml",
-            "/foo/bar/.config/mise.toml",
-            "/foo/bar/.mise.env.toml",
-            "/foo/bar/.mise.local.toml",
-            "/foo/bar/.mise.toml",
-            "/foo/bar/.mise/conf.d/config.toml",
-            "/foo/bar/.mise/conf.d/foo.toml",
-            "/foo/bar/.mise/config.local.toml",
-            "/foo/bar/.mise/config.toml",
-            "/foo/bar/.mise/tasks/build.toml",
+            "/foo/bar/.config/pakro/conf.d/config.toml",
+            "/foo/bar/.config/pakro/conf.d/foo.toml",
+            "/foo/bar/.config/pakro/config.local.toml",
+            "/foo/bar/.config/pakro/config.toml",
+            "/foo/bar/.config/pakro.local.toml",
+            "/foo/bar/.config/pakro.toml",
+            "/foo/bar/.pakro.env.toml",
+            "/foo/bar/.pakro.local.toml",
+            "/foo/bar/.pakro.toml",
+            "/foo/bar/.pakro/conf.d/config.toml",
+            "/foo/bar/.pakro/conf.d/foo.toml",
+            "/foo/bar/.pakro/config.local.toml",
+            "/foo/bar/.pakro/config.toml",
+            "/foo/bar/.pakro/tasks/build.toml",
             "/foo/bar/.tool-versions",
-            "/foo/bar/mise.env.toml",
-            "/foo/bar/mise.local.toml",
-            "/foo/bar/mise.toml",
-            "/foo/bar/mise/config.local.toml",
-            "/foo/bar/mise/config.toml",
-            "/foo/bar/mise/conf.d/config.toml",
-            "/foo/bar/mise/conf.d/foo.toml",
-            "/foo/bar/mise/tasks/build.toml",
-            "/foo/bar/.config/mise/config.env.toml",
-            "/foo/bar/.config/mise.env.toml",
-            "/foo/bar/.config/mise/tasks/build.toml",
-            "/foo/bar/.mise/config.env.toml",
-            "/foo/bar/.mise.env.toml",
-            "/foo/bar/.mise-tasks/build.toml",
-            "/foo/bar/mise-tasks/build.toml",
+            "/foo/bar/pakro.env.toml",
+            "/foo/bar/pakro.local.toml",
+            "/foo/bar/pakro.toml",
+            "/foo/bar/pakro/config.local.toml",
+            "/foo/bar/pakro/config.toml",
+            "/foo/bar/pakro/conf.d/config.toml",
+            "/foo/bar/pakro/conf.d/foo.toml",
+            "/foo/bar/pakro/tasks/build.toml",
+            "/foo/bar/.config/pakro/config.env.toml",
+            "/foo/bar/.config/pakro.env.toml",
+            "/foo/bar/.config/pakro/tasks/build.toml",
+            "/foo/bar/.pakro/config.env.toml",
+            "/foo/bar/.pakro.env.toml",
+            "/foo/bar/.pakro-tasks/build.toml",
+            "/foo/bar/pakro-tasks/build.toml",
         ] {
             println!("{p}");
             assert_eq!(config_root(Path::new(p)), PathBuf::from("/foo/bar"));
@@ -205,76 +205,76 @@ mod tests {
     fn test_config_root_conf_d_folder() {
         for (p, root) in [
             (
-                "/foo/bar/.mise/conf.d/git/mise.toml",
-                "/foo/bar/.mise/conf.d/git",
+                "/foo/bar/.pakro/conf.d/git/pakro.toml",
+                "/foo/bar/.pakro/conf.d/git",
             ),
             (
-                "/foo/bar/mise/conf.d/git/mise.linux.toml",
-                "/foo/bar/mise/conf.d/git",
+                "/foo/bar/pakro/conf.d/git/pakro.linux.toml",
+                "/foo/bar/pakro/conf.d/git",
             ),
             (
-                "/foo/bar/.config/mise/conf.d/git/mise.local.toml",
-                "/foo/bar/.config/mise/conf.d/git",
+                "/foo/bar/.config/pakro/conf.d/git/pakro.local.toml",
+                "/foo/bar/.config/pakro/conf.d/git",
             ),
-            // only mise.*.toml inside a visible folder is a folder fragment
+            // only pakro.*.toml inside a visible folder is a folder fragment
             (
-                "/foo/bar/.mise/conf.d/.git/mise.toml",
-                "/foo/bar/.mise/conf.d/.git",
+                "/foo/bar/.pakro/conf.d/.git/pakro.toml",
+                "/foo/bar/.pakro/conf.d/.git",
             ),
         ] {
             assert_eq!(config_root(Path::new(p)), PathBuf::from(root), "{p}");
         }
         assert!(crate::config::is_conf_d_folder_file(Path::new(
-            "/foo/bar/.mise/conf.d/git/mise.linux.toml"
+            "/foo/bar/.pakro/conf.d/git/pakro.linux.toml"
         )));
         assert!(!crate::config::is_conf_d_folder_file(Path::new(
-            "/foo/bar/.mise/conf.d/.git/mise.toml"
+            "/foo/bar/.pakro/conf.d/.git/pakro.toml"
         )));
         assert!(!crate::config::is_conf_d_folder_file(Path::new(
-            "/foo/bar/.mise/conf.d/git/config.toml"
+            "/foo/bar/.pakro/conf.d/git/config.toml"
         )));
         // a project that happens to live under some other conf.d
         assert!(!crate::config::is_conf_d_folder_file(Path::new(
-            "/etc/nginx/conf.d/site/mise.toml"
+            "/etc/nginx/conf.d/site/pakro.toml"
         )));
     }
 
     #[test]
-    fn test_config_root_mise_dir() {
+    fn test_config_root_pakro_dir() {
         for p in &[
-            "/foo/mise/.config/mise/conf.d/config.toml",
-            "/foo/mise/.config/mise/conf.d/foo.toml",
-            "/foo/mise/.config/mise/config.local.toml",
-            "/foo/mise/.config/mise/config.toml",
-            "/foo/mise/.config/mise.local.toml",
-            "/foo/mise/.config/mise.toml",
-            "/foo/mise/.mise.env.toml",
-            "/foo/mise/.mise.local.toml",
-            "/foo/mise/.mise.toml",
-            "/foo/mise/.mise/conf.d/config.toml",
-            "/foo/mise/.mise/conf.d/foo.toml",
-            "/foo/mise/.mise/config.local.toml",
-            "/foo/mise/.mise/config.toml",
-            "/foo/mise/.mise/tasks/build.toml",
-            "/foo/mise/.tool-versions",
-            "/foo/mise/mise.env.toml",
-            "/foo/mise/mise.local.toml",
-            "/foo/mise/mise.toml",
-            "/foo/mise/mise/config.local.toml",
-            "/foo/mise/mise/config.toml",
-            "/foo/mise/mise/conf.d/config.toml",
-            "/foo/mise/mise/conf.d/foo.toml",
-            "/foo/mise/mise/tasks/build.toml",
-            "/foo/mise/.config/mise/config.env.toml",
-            "/foo/mise/.config/mise.env.toml",
-            "/foo/mise/.config/mise/tasks/build.toml",
-            "/foo/mise/.mise/config.env.toml",
-            "/foo/mise/.mise.env.toml",
-            "/foo/mise/.mise-tasks/build.toml",
-            "/foo/mise/mise-tasks/build.toml",
+            "/foo/pakro/.config/pakro/conf.d/config.toml",
+            "/foo/pakro/.config/pakro/conf.d/foo.toml",
+            "/foo/pakro/.config/pakro/config.local.toml",
+            "/foo/pakro/.config/pakro/config.toml",
+            "/foo/pakro/.config/pakro.local.toml",
+            "/foo/pakro/.config/pakro.toml",
+            "/foo/pakro/.pakro.env.toml",
+            "/foo/pakro/.pakro.local.toml",
+            "/foo/pakro/.pakro.toml",
+            "/foo/pakro/.pakro/conf.d/config.toml",
+            "/foo/pakro/.pakro/conf.d/foo.toml",
+            "/foo/pakro/.pakro/config.local.toml",
+            "/foo/pakro/.pakro/config.toml",
+            "/foo/pakro/.pakro/tasks/build.toml",
+            "/foo/pakro/.tool-versions",
+            "/foo/pakro/pakro.env.toml",
+            "/foo/pakro/pakro.local.toml",
+            "/foo/pakro/pakro.toml",
+            "/foo/pakro/pakro/config.local.toml",
+            "/foo/pakro/pakro/config.toml",
+            "/foo/pakro/pakro/conf.d/config.toml",
+            "/foo/pakro/pakro/conf.d/foo.toml",
+            "/foo/pakro/pakro/tasks/build.toml",
+            "/foo/pakro/.config/pakro/config.env.toml",
+            "/foo/pakro/.config/pakro.env.toml",
+            "/foo/pakro/.config/pakro/tasks/build.toml",
+            "/foo/pakro/.pakro/config.env.toml",
+            "/foo/pakro/.pakro.env.toml",
+            "/foo/pakro/.pakro-tasks/build.toml",
+            "/foo/pakro/pakro-tasks/build.toml",
         ] {
             println!("{p}");
-            assert_eq!(config_root(Path::new(p)), PathBuf::from("/foo/mise"));
+            assert_eq!(config_root(Path::new(p)), PathBuf::from("/foo/pakro"));
         }
     }
 }

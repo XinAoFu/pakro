@@ -1,5 +1,5 @@
 //! node_modules materialization in the pnpm shape: every package physically
-//! lives at `node_modules/.mise-store/<name>@<version>/node_modules/<name>`
+//! lives at `node_modules/.pakro-store/<name>@<version>/node_modules/<name>`
 //! (per-file hardlinks into the global store, so resolution walks up to real
 //! sibling links), each dependency is linked next to its dependent, and only
 //! the project's direct dependencies appear at the top level. Scoped names
@@ -9,8 +9,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use eyre::{Context, bail};
-use mise_resolver::{ResolvedGraph, ResolvedNode};
-use mise_store::{Digest, Eco, PackageIdentity, Platform, Store};
+use pakro_resolver::{ResolvedGraph, ResolvedNode};
+use pakro_store::{Digest, Eco, PackageIdentity, Platform, Store};
 
 pub(crate) fn materialize_node_modules(
     project_root: &Path,
@@ -18,7 +18,7 @@ pub(crate) fn materialize_node_modules(
     store: &Store,
 ) -> eyre::Result<()> {
     let node_modules = project_root.join("node_modules");
-    let virtual_store = node_modules.join(".mise-store");
+    let virtual_store = node_modules.join(".pakro-store");
     for node in &graph.nodes {
         let identity = identity_of(node)?;
         let entry = store.entry_path(&identity);
@@ -36,7 +36,7 @@ pub(crate) fn materialize_node_modules(
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        mise_store::hardlink_tree(&package_dir, &target)
+        pakro_store::hardlink_tree(&package_dir, &target)
             .with_context(|| format!("materializing {}@{}", node.name, node.version))?;
         // every dependency resolves from inside the dependent's own
         // node_modules, so conflicting versions never fight for the top level
@@ -90,7 +90,7 @@ pub(crate) fn materialize_node_modules(
 /// `binding.gyp` at their root are touched.
 fn rebuild_native_modules(node_modules: &Path) -> eyre::Result<()> {
     let node_bin = find_node()?;
-    for entry in std::fs::read_dir(node_modules.join(".mise-store"))? {
+    for entry in std::fs::read_dir(node_modules.join(".pakro-store"))? {
         let entry = entry?;
         if !entry.path().is_dir() {
             continue;
@@ -223,7 +223,7 @@ fn replace_symlink(target: &Path, link: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mise_resolver::DependencyRequest;
+    use pakro_resolver::DependencyRequest;
 
     fn store_with_tgz(store_root: &Path, name: &str, version: &str) -> PackageIdentity {
         store_with_tgz_and_bins(store_root, name, version, &[])
@@ -314,21 +314,21 @@ mod tests {
         assert!(nm.join("typescript/package.json").is_file());
         assert!(!nm.join("commander").exists());
         let ts_virtual =
-            nm.join(".mise-store/typescript@5.8.2/node_modules/typescript/package.json");
+            nm.join(".pakro-store/typescript@5.8.2/node_modules/typescript/package.json");
         assert!(ts_virtual.is_file());
         // the transitive dep resolves from inside typescript's virtual dir
-        let dep_link = nm.join(".mise-store/typescript@5.8.2/node_modules/commander");
+        let dep_link = nm.join(".pakro-store/typescript@5.8.2/node_modules/commander");
         assert!(dep_link.is_symlink());
         // declared bin entries land in node_modules/.bin
         let tsc = nm.join(".bin/tsc");
         assert!(tsc.is_symlink());
         assert_eq!(
             std::fs::read_link(&tsc).unwrap(),
-            nm.join(".mise-store/typescript@5.8.2/node_modules/typescript/bin/tsc")
+            nm.join(".pakro-store/typescript@5.8.2/node_modules/typescript/bin/tsc")
         );
         assert_eq!(
             std::fs::read_link(&dep_link).unwrap(),
-            nm.join(".mise-store/commander@2.0.0/node_modules/commander")
+            nm.join(".pakro-store/commander@2.0.0/node_modules/commander")
         );
         // refs recorded for both entries
         assert_eq!(

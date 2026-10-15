@@ -1,7 +1,7 @@
 use crate::config::Settings;
 use crate::env;
 
-pub use mise_settings::TaskOutput;
+pub use pakro_settings::TaskOutput;
 
 /// How the task runner resolves a configured [`TaskOutput`] into a stream style.
 pub trait TaskOutputExt {
@@ -12,9 +12,9 @@ pub trait TaskOutputExt {
 impl TaskOutputExt for TaskOutput {
     /// Reduce a (possibly verbosity-carrying) output value to a STYLE-only value.
     ///
-    /// `Quiet` historically meant "interleaved streams + suppressed mise output".
+    /// `Quiet` historically meant "interleaved streams + suppressed pakro output".
     /// The stream-style half of that is `Interleave`; the suppression half is
-    /// applied separately via the `quiet()` predicate at mise's own metadata
+    /// applied separately via the `quiet()` predicate at pakro's own metadata
     /// print sites. `Silent` is resolved before this is ever called (see
     /// `OutputHandler::output`), so it passes through unchanged.
     fn style_only(self) -> TaskOutput {

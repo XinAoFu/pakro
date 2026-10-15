@@ -393,7 +393,7 @@ impl DepsEngine {
     /// Discover all configured deps providers for the current project.
     ///
     /// Each config file's deps providers are scoped to that config file's directory.
-    /// For example, a `[deps.pnpm]` defined in the root `mise.toml` only applies when
+    /// For example, a `[deps.pnpm]` defined in the root `pakro.toml` only applies when
     /// running from the root directory, not from subdirectories.
     fn discover_providers(config: &Config) -> Result<Vec<Box<dyn DepsProvider>>> {
         let project_root = config
@@ -1152,7 +1152,7 @@ impl DepsEngine {
             None if st.get_hashes(provider_id).is_some()
                 || st.get_seen_outputs(provider_id).is_some() =>
             {
-                // State written by mise versions before command hashing cannot prove
+                // State written by pakro versions before command hashing cannot prove
                 // that the provider definition is unchanged. Re-run it once to migrate.
                 return Ok(FreshnessResult::Stale(
                     "provider command changed".to_string(),
@@ -1255,7 +1255,7 @@ impl DepsEngine {
             let stdout_prefix = stdout_prefix.to_string();
             let stderr_prefix = stderr_prefix.to_string();
             // Suppress provider command stream output when -q/--quiet is set,
-            // matching `mise install -q` behavior. The progress indicator and
+            // matching `pakro install -q` behavior. The progress indicator and
             // logger-routed status messages still respect the quiet level.
             let quiet = Settings::get().quiet;
             runner = runner

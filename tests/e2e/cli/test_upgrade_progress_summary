@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
-export MISE_DEBUG=0 MISE_TRACE=0 MISE_LOG_LEVEL=info
+export PAKRO_DEBUG=0 PAKRO_TRACE=0 PAKRO_LOG_LEVEL=info
 
 printf 'dummy 1\ntiny 1\n' >.tool-versions
-mise install dummy@1.0.0 tiny@1.0.0 >/dev/null 2>&1 || fail "pre-install of dummy@1.0.0 failed"
+pakro install dummy@1.0.0 tiny@1.0.0 >/dev/null 2>&1 || fail "pre-install of dummy@1.0.0 failed"
 
-output="$(MISE_FORCE_PROGRESS=1 mise up 2>&1)"
+output="$(PAKRO_FORCE_PROGRESS=1 pakro up 2>&1)"
 summary_line="  dummy 1.0.0 → 1.1.0"
 
 if [[ $output != *"$summary_line"* ]]; then

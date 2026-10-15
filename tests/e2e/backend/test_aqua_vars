@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-export MISE_EXPERIMENTAL=1
-export MISE_LOCKFILE=1
-export MISE_AQUA_BAKED_REGISTRY=0
+export PAKRO_EXPERIMENTAL=1
+export PAKRO_LOCKFILE=1
+export PAKRO_AQUA_BAKED_REGISTRY=0
 
 detect_platform
 
@@ -26,68 +26,68 @@ packages:
         required: true
 EOF_REGISTRY
 
-export MISE_AQUA_REGISTRY_URL="file://$REGISTRY_DIR"
+export PAKRO_AQUA_REGISTRY_URL="file://$REGISTRY_DIR"
 
-cat <<'EOF_MISE' >mise.toml
+cat <<'EOF_PAKRO' >pakro.toml
 [tools]
 "aqua:example/vars-tool" = { version = "1.0.0", fixture_version = "1.0.0" }
-EOF_MISE
+EOF_PAKRO
 
-MISE_TIMINGS=1 mise install
-assert_contains "mise x -- hello-world" "hello world"
+PAKRO_TIMINGS=1 pakro install
+assert_contains "pakro x -- hello-world" "hello world"
 
-cat <<'EOF_MISE' >mise.toml
+cat <<'EOF_PAKRO' >pakro.toml
 [tools]
 "aqua:example/vars-tool" = { version = "1.0.0", fixture_version = "2.0.0" }
-EOF_MISE
+EOF_PAKRO
 
-MISE_TIMINGS=1 mise install --force aqua:example/vars-tool@1.0.0
-assert_contains "mise x -- hello-world" "hello world 2.0.0"
+PAKRO_TIMINGS=1 pakro install --force aqua:example/vars-tool@1.0.0
+assert_contains "pakro x -- hello-world" "hello world 2.0.0"
 
-rm -f mise.lock
-cat <<'EOF_MISE' >mise.toml
+rm -f pakro.lock
+cat <<'EOF_PAKRO' >pakro.toml
 [tools]
 "aqua:example/vars-tool" = { version = "1.0.0", vars = { fixture_version = "2.0.0" } }
-EOF_MISE
+EOF_PAKRO
 
-MISE_TIMINGS=1 mise lock --platform "$MISE_PLATFORM"
-assert_contains "cat mise.lock" '"vars.fixture_version" = "2.0.0"'
-assert_contains "cat mise.lock" 'url = "https://mise.jdx.dev/test-fixtures/hello-world-2.0.0.tar.gz"'
-cp mise.lock nested-vars.lock
+PAKRO_TIMINGS=1 pakro lock --platform "$PAKRO_PLATFORM"
+assert_contains "cat pakro.lock" '"vars.fixture_version" = "2.0.0"'
+assert_contains "cat pakro.lock" 'url = "https://mise.jdx.dev/test-fixtures/hello-world-2.0.0.tar.gz"'
+cp pakro.lock nested-vars.lock
 
-cat <<'EOF_MISE' >mise.toml
+cat <<'EOF_PAKRO' >pakro.toml
 [tools]
 "aqua:example/vars-tool" = { version = "1.0.0", fixture_version = "2.0.0" }
-EOF_MISE
+EOF_PAKRO
 
-MISE_TIMINGS=1 mise lock --platform "$MISE_PLATFORM"
-assert_succeed "cmp mise.lock nested-vars.lock"
+PAKRO_TIMINGS=1 pakro lock --platform "$PAKRO_PLATFORM"
+assert_succeed "cmp pakro.lock nested-vars.lock"
 
-rm -f mise.toml mise.lock
-mkdir -p .config/mise/conf.d
+rm -f pakro.toml pakro.lock
+mkdir -p .config/pakro/conf.d
 
-cat <<'EOF_MISE' >.config/mise/conf.d/01-base.toml
+cat <<'EOF_PAKRO' >.config/pakro/conf.d/01-base.toml
 [tools."aqua:example/vars-tool"]
 version = "1.0.0"
 vars.fixture_version = "1.0.0"
-EOF_MISE
+EOF_PAKRO
 
-cat <<'EOF_MISE' >.config/mise/conf.d/02-override.toml
+cat <<'EOF_PAKRO' >.config/pakro/conf.d/02-override.toml
 [tools."aqua:example/vars-tool"]
 version = "1.0.0"
 fixture_version = "2.0.0"
-EOF_MISE
+EOF_PAKRO
 
-MISE_TIMINGS=1 mise lock --platform "$MISE_PLATFORM"
-assert_contains "cat .config/mise/mise.lock" '"vars.fixture_version" = "2.0.0"'
-assert_contains "cat .config/mise/mise.lock" 'url = "https://mise.jdx.dev/test-fixtures/hello-world-2.0.0.tar.gz"'
-assert_not_contains "cat .config/mise/mise.lock" '"vars.fixture_version" = "1.0.0"'
-rm -rf .config/mise
+PAKRO_TIMINGS=1 pakro lock --platform "$PAKRO_PLATFORM"
+assert_contains "cat .config/pakro/pakro.lock" '"vars.fixture_version" = "2.0.0"'
+assert_contains "cat .config/pakro/pakro.lock" 'url = "https://mise.jdx.dev/test-fixtures/hello-world-2.0.0.tar.gz"'
+assert_not_contains "cat .config/pakro/pakro.lock" '"vars.fixture_version" = "1.0.0"'
+rm -rf .config/pakro
 
-cat <<'EOF_MISE' >mise.toml
+cat <<'EOF_PAKRO' >pakro.toml
 [tools]
 "aqua:example/vars-tool" = { version = "1.0.0", vars = { fixture_version = ["2.0.0"] } }
-EOF_MISE
+EOF_PAKRO
 
 # shellcheck disable=SC2016
-assert_fail "mise install --force aqua:example/vars-tool@1.0.0" 'aqua var `vars.fixture_version` must be a string, got array'
+assert_fail "pakro install --force aqua:example/vars-tool@1.0.0" 'aqua var `vars.fixture_version` must be a string, got array'

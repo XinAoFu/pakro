@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2016
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.test]
 run = "echo 'running test task'"
 description = "This is a test task"
@@ -13,7 +13,7 @@ EOF
 cat <<EOF >task_docs.md
 hello world
 
-<!-- mise-tasks -->
+<!-- pakro-tasks -->
 ## \`test\`
 
 - **Usage:** \`test\`
@@ -24,20 +24,20 @@ This is a test task.
 
 - **Usage:** \`another_task\`
 - **Aliases:** \`alias1\`, \`alias2\`
-<!-- /mise-tasks -->
+<!-- /pakro-tasks -->
 
 hello world
 EOF
 
-mise generate task-docs --inject --output task_docs.md
+pakro generate task-docs --inject --output task_docs.md
 
 # --inject writes too, so it says so. Run before the content assertion below, which re-runs the
 # command anyway; the injection is idempotent between the two.
-assert_contains "mise generate task-docs --inject --output task_docs.md" "task_docs.md"
+assert_contains "pakro generate task-docs --inject --output task_docs.md" "task_docs.md"
 
 assert "cat task_docs.md" 'hello world
 
-<!-- mise-tasks -->
+<!-- pakro-tasks -->
 ## `another_task`
 
 - **Usage:** `another_task`
@@ -48,6 +48,6 @@ assert "cat task_docs.md" 'hello world
 - **Usage:** `test`
 
 This is a test task
-<!-- /mise-tasks -->
+<!-- /pakro-tasks -->
 
 hello world'

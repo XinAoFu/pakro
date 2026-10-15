@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Test that monorepo tasks properly load [vars] from subdirectory configs
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 
 # Create monorepo root config with vars
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 monorepo_root = true
 
 [monorepo]
@@ -19,7 +19,7 @@ EOF
 
 # Create subdirectory config with its own vars and tasks
 mkdir -p infra/stacks/gcp
-cat <<EOF >infra/stacks/gcp/mise.toml
+cat <<EOF >infra/stacks/gcp/pakro.toml
 [vars]
 GCP_VAR = "gcp_value"
 SHARED_VAR = "from_gcp"
@@ -31,8 +31,8 @@ run = 'echo "GCP_VAR={{vars.GCP_VAR}} SHARED_VAR={{vars.SHARED_VAR}} ROOT_VAR={{
 run = 'echo "DEV_VAR={{vars.DEV_VAR}} SHARED_VAR={{vars.SHARED_VAR}}"'
 EOF
 
-# Create MISE_ENV-specific config for the subdirectory
-cat <<EOF >infra/stacks/gcp/mise.dev.toml
+# Create PAKRO_ENV-specific config for the subdirectory
+cat <<EOF >infra/stacks/gcp/pakro.dev.toml
 [vars]
 DEV_VAR = "dev_value"
 SHARED_VAR = "from_gcp_dev"
@@ -40,16 +40,16 @@ EOF
 
 # Test 1: Root task sees root vars
 echo "=== Test 1: Root task sees root vars ==="
-unset MISE_ENV
-output=$(mise run //:root-greet)
+unset PAKRO_ENV
+output=$(pakro run //:root-greet)
 echo "$output"
 assert_contains "echo '$output'" "ROOT_VAR=root_value"
 assert_contains "echo '$output'" "SHARED_VAR=from_root"
 
 # Test 2: Subdirectory task sees its own vars, inherits root vars, and overrides shared vars
 echo "=== Test 2: Subdirectory task var resolution ==="
-unset MISE_ENV
-output=$(mise run '//infra/stacks/gcp:greet')
+unset PAKRO_ENV
+output=$(pakro run '//infra/stacks/gcp:greet')
 echo "$output"
 # Core bug fix: subdirectory vars are loaded
 assert_contains "echo '$output'" "GCP_VAR=gcp_value"
@@ -58,17 +58,17 @@ assert_contains "echo '$output'" "SHARED_VAR=from_gcp"
 # Subdirectory task still inherits root vars it doesn't override
 assert_contains "echo '$output'" "ROOT_VAR=root_value"
 
-# Test 3: Subdirectory task with MISE_ENV sees env-specific vars
-echo "=== Test 3: MISE_ENV-specific vars in subdirectory ==="
-output=$(MISE_ENV=dev mise run '//infra/stacks/gcp:greet-dev')
+# Test 3: Subdirectory task with PAKRO_ENV sees env-specific vars
+echo "=== Test 3: PAKRO_ENV-specific vars in subdirectory ==="
+output=$(PAKRO_ENV=dev pakro run '//infra/stacks/gcp:greet-dev')
 echo "$output"
 assert_contains "echo '$output'" "DEV_VAR=dev_value"
-# MISE_ENV vars should override base vars
+# PAKRO_ENV vars should override base vars
 assert_contains "echo '$output'" "SHARED_VAR=from_gcp_dev"
 
 # Test 4: Per-task vars override subdirectory config vars
 echo "=== Test 4: Per-task vars override subdirectory config vars ==="
-cat <<EOF >infra/stacks/gcp/mise.toml
+cat <<EOF >infra/stacks/gcp/pakro.toml
 [vars]
 GCP_VAR = "gcp_value"
 SHARED_VAR = "from_gcp"
@@ -83,8 +83,8 @@ run = 'echo "DEV_VAR={{vars.DEV_VAR}} SHARED_VAR={{vars.SHARED_VAR}}"'
 run = 'echo "GCP_VAR={{vars.GCP_VAR}} SHARED_VAR={{vars.SHARED_VAR}}"'
 vars = { SHARED_VAR = "task_override" }
 EOF
-unset MISE_ENV
-output=$(mise run '//infra/stacks/gcp:greet-override')
+unset PAKRO_ENV
+output=$(pakro run '//infra/stacks/gcp:greet-override')
 echo "$output"
 # Per-task var overrides config-level var
 assert_contains "echo '$output'" "SHARED_VAR=task_override"

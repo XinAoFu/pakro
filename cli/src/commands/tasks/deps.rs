@@ -20,19 +20,19 @@ use petgraph::dot::Dot;
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise tasks deps"###,
+        r###"pakro tasks deps"###,
         help = r###"Show dependencies for all tasks"###
     ),
     example(
-        r###"mise tasks deps lint test check"###,
+        r###"pakro tasks deps lint test check"###,
         help = r###"Show dependencies for the "lint", "test" and "check" tasks"###
     ),
     example(
-        r###"mise tasks deps --dot"###,
+        r###"pakro tasks deps --dot"###,
         help = r###"Show dependencies in DOT format"###
     ),
     example(
-        r###"mise tasks deps --compact"###,
+        r###"pakro tasks deps --compact"###,
         help = r###"Collapse repeated dependencies"###
     ),
     unknown_flags = "error"
@@ -40,7 +40,7 @@ use petgraph::dot::Dot;
 pub(super) struct TasksDeps {
     /// Tasks to show dependencies for
     /// Can specify multiple tasks by separating with spaces
-    /// e.g.: mise tasks deps lint test check
+    /// e.g.: pakro tasks deps lint test check
     #[usage(verbatim_doc_comment)]
     pub tasks: Option<Vec<String>>,
 
@@ -207,7 +207,7 @@ impl TasksDeps {
     //
     async fn print_deps_dot(&self, config: &Arc<Config>, tasks: Vec<Task>) -> Result<()> {
         let deps = Deps::new(config, tasks).await?;
-        miseprintln!(
+        pakroprintln!(
             "{:?}",
             Dot::with_attr_getters(
                 &deps.graph,

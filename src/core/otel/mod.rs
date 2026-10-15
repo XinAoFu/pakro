@@ -16,15 +16,15 @@ use std::time::Duration;
 
 /// How long one export request may take when `OTEL_EXPORTER_OTLP_TIMEOUT` is
 /// unset. The final flush runs after the tasks finish, so the SDK's 10s
-/// default would hold up `mise run` that long whenever the collector stalls.
+/// default would hold up `pakro run` that long whenever the collector stalls.
 const DEFAULT_EXPORT_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Check if OpenTelemetry trace export is enabled.
 ///
-/// Requires `otel.enabled = true` (or `MISE_OTEL_ENABLED=1`) AND a traces
+/// Requires `otel.enabled = true` (or `PAKRO_OTEL_ENABLED=1`) AND a traces
 /// endpoint configured via `OTEL_EXPORTER_OTLP_ENDPOINT` or the
 /// signal-specific `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`. This prevents
-/// mise from emitting spans in environments that set those vars for
+/// pakro from emitting spans in environments that set those vars for
 /// other tools. Offline mode turns export off.
 pub(crate) fn traces_enabled() -> bool {
     let settings = Settings::get();
@@ -80,7 +80,7 @@ fn export_timeout(signal_var: &str) -> Option<Duration> {
 ///
 /// Log export is a separate opt-in from trace export because task
 /// stdout/stderr is shipped to the collector — a different trust boundary
-/// than spans. Requires `otel.logs = true` (or `MISE_OTEL_LOGS=1`) AND a
+/// than spans. Requires `otel.logs = true` (or `PAKRO_OTEL_LOGS=1`) AND a
 /// logs endpoint configured via `OTEL_EXPORTER_OTLP_ENDPOINT` or the
 /// signal-specific `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`.
 pub(crate) fn logs_enabled() -> bool {
@@ -98,7 +98,7 @@ pub(crate) fn logs_enabled() -> bool {
 /// `Resource::builder()` automatically reads `OTEL_SERVICE_NAME` and
 /// `OTEL_RESOURCE_ATTRIBUTES` via `EnvResourceDetector`.
 pub(crate) fn build_resource() -> Resource {
-    // Default the service name to `mise` only when neither env var set one;
+    // Default the service name to `pakro` only when neither env var set one;
     // `with_service_name` would override both.
     let resource = Resource::builder().build();
     let service_name = opentelemetry::Key::from_static_str("service.name");
@@ -108,7 +108,7 @@ pub(crate) fn build_resource() -> Resource {
     if has_service_name {
         resource
     } else {
-        Resource::builder().with_service_name("mise").build()
+        Resource::builder().with_service_name("pakro").build()
     }
 }
 

@@ -5,13 +5,13 @@ cd repo || exit 1
 git init -q .
 git -c user.email=e2e@example.com -c user.name=e2e commit --allow-empty -qm init
 
-mise generate git-pre-commit --write --hook main-hook --task main-task
+pakro generate git-pre-commit --write --hook main-hook --task main-task
 test -x .git/hooks/main-hook
-assert_contains "cat .git/hooks/main-hook" "exec mise run main-task"
+assert_contains "cat .git/hooks/main-hook" "exec pakro run main-task"
 
 git worktree add -q ../worktree
 cd ../worktree || exit 1
 test -f .git
-assert_contains "mise generate git-pre-commit --write --hook worktree-hook --task worktree-task" "Wrote to"
+assert_contains "pakro generate git-pre-commit --write --hook worktree-hook --task worktree-task" "Wrote to"
 test -x ../repo/.git/hooks/worktree-hook
-assert_contains "cat ../repo/.git/hooks/worktree-hook" "exec mise run worktree-task"
+assert_contains "cat ../repo/.git/hooks/worktree-hook" "exec pakro run worktree-task"

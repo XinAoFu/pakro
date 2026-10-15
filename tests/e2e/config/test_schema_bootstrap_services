@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 
-mise use -g tombi@0.9.22
-tombi_lint='mise x tombi@0.9.22 -- tombi lint --offline --no-cache --error-on-warnings --quiet'
+pakro use -g tombi@0.9.22
+tombi_lint='pakro x tombi@0.9.22 -- tombi lint --offline --no-cache --error-on-warnings --quiet'
 cat >"$HOME/tombi.toml" <<TOML
 [schema]
 enabled = true
 strict = true
 [[schemas]]
-path = "file://$ROOT/src/schema/mise.json"
+path = "file://$ROOT/src/schema/pakro.json"
 include = ["services-valid.toml", "services-invalid.toml"]
 TOML
 cat >services-valid.toml <<'TOML'
-[bootstrap.services.mise-history]
+[bootstrap.services.pakro-history]
 builtin = "history-watch"
 [bootstrap.services.worker]
 scope = "user"

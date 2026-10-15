@@ -4,25 +4,25 @@
 # This simulates tools without proper file extensions
 
 # Test 1: Explicit format with tar.gz
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools."http:hello-format"]
 version = "1.0.0"
 url = "https://mise.jdx.dev/test-fixtures/test-fixtures_hello-world-1.0.0-tarball"
 format = "tar.gz"
 bin_path = "hello-world-1.0.0/bin"
-postinstall = "chmod +x \$MISE_TOOL_INSTALL_PATH/hello-world-1.0.0/bin/hello-world"
+postinstall = "chmod +x \$PAKRO_TOOL_INSTALL_PATH/hello-world-1.0.0/bin/hello-world"
 EOF
 
-mise install -v
-mise env
-assert_contains "mise x -- hello-world" "hello world"
+pakro install -v
+pakro env
+assert_contains "pakro x -- hello-world" "hello world"
 
 # Test 2: Platform-specific format
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools."http:hello-format-platform"]
 version = "1.0.0"
 bin_path = "hello-world-1.0.0/bin"
-postinstall = "chmod +x \$MISE_TOOL_INSTALL_PATH/hello-world-1.0.0/bin/hello-world"
+postinstall = "chmod +x \$PAKRO_TOOL_INSTALL_PATH/hello-world-1.0.0/bin/hello-world"
 
 [tools."http:hello-format-platform".platforms]
 darwin-arm64 = { url = "https://mise.jdx.dev/test-fixtures/test-fixtures_hello-world-1.0.0-tarball", format = "tar.gz" }
@@ -31,5 +31,5 @@ linux-amd64 = { url = "https://mise.jdx.dev/test-fixtures/test-fixtures_hello-wo
 linux-arm64 = { url = "https://mise.jdx.dev/test-fixtures/test-fixtures_hello-world-1.0.0-tarball", format = "tar.gz" }
 EOF
 
-mise install
-assert_contains "mise x -- hello-world" "hello world"
+pakro install
+assert_contains "pakro x -- hello-world" "hello world"

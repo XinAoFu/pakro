@@ -12,7 +12,7 @@ set -euo pipefail
 # are not automatically reclaimed.
 
 FIXTURES="$TMPDIR/http-failed-extraction-fixtures"
-TARBALLS="$MISE_DATA_DIR/http-tarballs"
+TARBALLS="$PAKRO_DATA_DIR/http-tarballs"
 
 mkdir -p "$FIXTURES"
 
@@ -37,7 +37,7 @@ leftover_temps() {
   find "$1" -name "$2" 2>/dev/null | wc -l | tr -d ' '
 }
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools."http:broken"]
 version = "1.0.0"
 shared_extraction = true
@@ -45,13 +45,13 @@ url = "http://127.0.0.1:$HTTP_PORT/broken.tar.gz"
 bin_path = "bin"
 EOF
 
-assert_fail "mise install"
+assert_fail "pakro install"
 
 # Before the fix this found one directory per failed attempt, forever.
 assert "test '$(leftover_temps "$TARBALLS" '*.tmp-*')' = 0"
 
 # Failing twice must not accumulate either.
-assert_fail "mise install"
+assert_fail "pakro install"
 assert "test '$(leftover_temps "$TARBALLS" '*.tmp-*')' = 0"
 
 # The same artifact through the shared-install branch, which extracts straight
@@ -59,11 +59,11 @@ assert "test '$(leftover_temps "$TARBALLS" '*.tmp-*')' = 0"
 # itself — pinned here so it stays that way.
 SHARED_INSTALLS="$TMPDIR/http-failed-extraction-shared"
 mkdir -p "$SHARED_INSTALLS"
-assert_fail "mise install --shared '$SHARED_INSTALLS'"
-assert "test '$(leftover_temps "$SHARED_INSTALLS" '.mise-tmp-*')' = 0"
+assert_fail "pakro install --shared '$SHARED_INSTALLS'"
+assert "test '$(leftover_temps "$SHARED_INSTALLS" '.pakro-tmp-*')' = 0"
 
 # And a working install still works afterwards.
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools."http:good"]
 version = "1.0.0"
 shared_extraction = true
@@ -71,6 +71,6 @@ url = "http://127.0.0.1:$HTTP_PORT/good.tar.gz"
 bin_path = "good/bin"
 EOF
 
-mise install
-assert_contains "mise x -- good-tool" "good-tool-ok"
+pakro install
+assert_contains "pakro x -- good-tool" "good-tool-ok"
 assert "test '$(leftover_temps "$TARBALLS" '*.tmp-*')' = 0"

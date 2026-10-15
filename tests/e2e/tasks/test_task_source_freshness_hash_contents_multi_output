@@ -6,7 +6,7 @@
 # as long as at least one output existed, so a partial output set was
 # incorrectly treated as fresh.
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [settings.task]
 source_freshness_hash_contents = true
 
@@ -19,14 +19,14 @@ EOF
 echo "hello" >src.txt
 
 # First run: no stored hash, no outputs → stale → runs
-assert "mise run -q build" "built"
+assert "pakro run -q build" "built"
 
 # Both outputs present, source unchanged → fresh
-assert_empty "mise run -q build"
+assert_empty "pakro run -q build"
 
 # Delete one output — source hash still matches, but output set is incomplete
 rm out_b.txt
-assert "mise run -q build" "built"
+assert "pakro run -q build" "built"
 
 # Both outputs restored → fresh again
-assert_empty "mise run -q build"
+assert_empty "pakro run -q build"

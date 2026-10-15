@@ -15,33 +15,38 @@ concurrency:
   group: cloudflare-deploy-${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
 
 env:
+  PAKRO_ENABLE_RELEASE: ${{ vars.PAKRO_ENABLE_RELEASE || 'false' }}
+  PAKRO_RELEASE_REPOSITORY: ${{ github.repository }}
+  PAKRO_DOWNLOAD_BASE_URL: ${{ vars.PAKRO_DOWNLOAD_BASE_URL }}
+  PAKRO_R2_ENDPOINT_URL: ${{ vars.PAKRO_R2_ENDPOINT_URL }}
+  PAKRO_RELEASE_BUCKET: ${{ vars.PAKRO_RELEASE_BUCKET }}
+  PAKRO_CLOUDFLARE_ACCOUNT_ID: ${{ vars.PAKRO_CLOUDFLARE_ACCOUNT_ID }}
+  PAKRO_CLOUDFLARE_WORKER_NAME: ${{ vars.PAKRO_CLOUDFLARE_WORKER_NAME }}
+  PAKRO_CLOUDFLARE_ZONES: ${{ vars.PAKRO_CLOUDFLARE_ZONES }}
+  PAKRO_GPG_SIGNING_KEY: ${{ vars.PAKRO_GPG_SIGNING_KEY }}
+  PAKRO_RELEASE_NAME: ${{ vars.PAKRO_RELEASE_NAME }}
+  PAKRO_RELEASE_EMAIL: ${{ vars.PAKRO_RELEASE_EMAIL }}
   DRY_RUN: ${{ github.event_name == 'release' && '0' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.dry_run && '1' || '0')) || '1' }}
-  MISE_EXPERIMENTAL: 1
+  PAKRO_EXPERIMENTAL: 1
 
 jobs:
   deploy-cloudflare:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    if: |
-      (github.event_name == 'release' && 
-       startsWith(github.event.release.tag_name, 'v') && 
-       !github.event.release.prerelease) ||
-      github.event_name == 'workflow_dispatch'
+    if: ${{ vars.PAKRO_ENABLE_RELEASE == 'true' && github.repository != 'jdx/mise' && ((github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v') && !github.event.release.prerelease) || github.event_name == 'workflow_dispatch') }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Install mise
-        run: |
-          curl -fsSL https://mise.run | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          ~/.local/bin/mise --version
+      - uses: ./.github/actions/pakro-tools
+        with:
+          cache: false
 
-      - name: Install mise tools
-        run: mise install
+      - name: Install pakro tools
+        run: pakro install
 
       - name: Deploy Cloudflare Worker
-        run: mise x -- packaging/scripts/deploy-worker.sh
+        run: pakro x -- packaging/scripts/deploy-worker.sh
         env:
           CLOUDFLARE_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_ACCESS_KEY_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN }}

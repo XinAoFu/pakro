@@ -14,9 +14,9 @@ use crate::ui::table;
     visible_alias = "list",
     verbatim_doc_comment,
     example(
-        r###"mise skills ls
+        r###"pakro skills ls
 Skill  Tool                        Version  Path
-mise   packslip:github.com/jdx/mise  2026.9.1  ~/.local/share/mise/installs/.../skills/mise"###
+pakro   packslip:github.com/jdx/mise  2026.9.1  ~/.local/share/pakro/installs/.../skills/pakro"###
     )
 )]
 pub(super) struct SkillsLs {
@@ -47,14 +47,14 @@ impl SkillsLs {
             warn!("{missing}");
         }
         if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&skills.found)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&skills.found)?);
             return Ok(());
         }
         if skills.found.is_empty() {
             if skills.missing.is_empty() {
-                miseprintln!("no skills declared by the active tools");
+                pakroprintln!("no skills declared by the active tools");
             } else {
-                miseprintln!("the active tools declare skills, but none are installed");
+                pakroprintln!("the active tools declare skills, but none are installed");
             }
             return Ok(());
         }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# Source-build pipeline test: builds GNU hello from source with mise's
-# formula shim (mise-managed ruby, no Homebrew installed). Uses a throwaway
+# Source-build pipeline test: builds GNU hello from source with pakro's
+# formula shim (pakro-managed ruby, no Homebrew installed). Uses a throwaway
 # prefix, so no root is needed. Requires network and a C toolchain.
 if [[ "$(uname)" != "Linux" ]] || ! command -v cc >/dev/null 2>&1; then
   exit 0
@@ -11,29 +11,29 @@ case "$(uname -m)" in
   *) exit 0 ;;
 esac
 
-export MISE_SYSTEM_BREW_PREFIX="$HOME/brew-source-prefix"
+export PAKRO_SYSTEM_BREW_PREFIX="$HOME/brew-source-prefix"
 # hello has bottles everywhere; force it down the source-build path
-export MISE_SYSTEM_BREW_FORCE_SOURCE=hello
+export PAKRO_SYSTEM_BREW_FORCE_SOURCE=hello
 # GNU's load-balancing mirror intermittently returns 502s. Use the canonical
-# archive host so this test exercises mise's source builder instead of mirror
+# archive host so this test exercises pakro's source builder instead of mirror
 # availability; the Homebrew-provided sha256 still verifies the download.
-export MISE_URL_REPLACEMENTS='{"https://ftpmirror.gnu.org/gnu":"https://ftp.gnu.org/gnu"}'
+export PAKRO_URL_REPLACEMENTS='{"https://ftpmirror.gnu.org/gnu":"https://ftp.gnu.org/gnu"}'
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [bootstrap.packages]
 "brew:hello" = "latest"
 EOF
 
-assert_contains "mise bootstrap packages status" "missing"
-assert_contains "mise bootstrap packages apply --dry-run" "build hello/"
+assert_contains "pakro bootstrap packages status" "missing"
+assert_contains "pakro bootstrap packages apply --dry-run" "build hello/"
 
-mise bootstrap packages apply --yes
-assert_contains "mise bootstrap packages status" "installed"
+pakro bootstrap packages apply --yes
+assert_contains "pakro bootstrap packages status" "installed"
 
 # the built binary runs from the prefix and the keg carries a receipt
-assert_contains "$MISE_SYSTEM_BREW_PREFIX/bin/hello --greeting=mise" "mise"
-assert_contains "cat $MISE_SYSTEM_BREW_PREFIX/Cellar/hello/*/INSTALL_RECEIPT.json" '"poured_from_bottle":false'
-assert_succeed "test -L $MISE_SYSTEM_BREW_PREFIX/var/homebrew/linked/hello && test -e $MISE_SYSTEM_BREW_PREFIX/var/homebrew/linked/hello"
+assert_contains "$PAKRO_SYSTEM_BREW_PREFIX/bin/hello --greeting=pakro" "pakro"
+assert_contains "cat $PAKRO_SYSTEM_BREW_PREFIX/Cellar/hello/*/INSTALL_RECEIPT.json" '"poured_from_bottle":false'
+assert_succeed "test -L $PAKRO_SYSTEM_BREW_PREFIX/var/homebrew/linked/hello && test -e $PAKRO_SYSTEM_BREW_PREFIX/var/homebrew/linked/hello"
 
 # idempotent
-assert_contains "mise bootstrap packages apply --yes 2>&1" "already"
+assert_contains "pakro bootstrap packages apply --yes 2>&1" "already"

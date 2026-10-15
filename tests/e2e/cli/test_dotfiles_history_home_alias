@@ -7,12 +7,12 @@ ln -s "$canonical_home" "$TMPDIR/home-alias"
 export HOME="$TMPDIR/home-alias"
 echo one >"$HOME/history-file"
 ln -s history-file "$HOME/history-link"
-assert_succeed "mise bootstrap dotfiles track '$HOME/history-file' '$HOME/history-link'"
+assert_succeed "pakro bootstrap dotfiles track '$HOME/history-file' '$HOME/history-link'"
 for name in history-file history-link; do
-  assert "mise bootstrap dotfiles history ls --path '$HOME/$name' --json | jq length" 1
-  assert_succeed "mise bootstrap dotfiles history show latest --path '$canonical_home/$name' --json"
-  assert_succeed "mise bootstrap dotfiles history diff --path '~/$name' --exit-code"
+  assert "pakro bootstrap dotfiles history ls --path '$HOME/$name' --json | jq length" 1
+  assert_succeed "pakro bootstrap dotfiles history show latest --path '$canonical_home/$name' --json"
+  assert_succeed "pakro bootstrap dotfiles history diff --path '~/$name' --exit-code"
 done
 echo two >"$HOME/history-file"
-assert_fail "mise bootstrap dotfiles history diff --path '$HOME/history-file' --exit-code"
-assert_succeed "mise bootstrap dotfiles history diff --path '$HOME/history-link' --exit-code"
+assert_fail "pakro bootstrap dotfiles history diff --path '$HOME/history-file' --exit-code"
+assert_succeed "pakro bootstrap dotfiles history diff --path '$HOME/history-link' --exit-code"

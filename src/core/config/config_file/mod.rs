@@ -11,7 +11,7 @@ use std::{
 
 use crate::args::{BackendArg, ToolArg};
 use crate::config::config_file::min_version::MinVersionSpec;
-use crate::config::config_file::mise_toml::{MiseToml, MonorepoConfig};
+use crate::config::config_file::pakro_toml::{MonorepoConfig, PakroToml};
 use crate::config::env_directive::EnvDirective;
 use crate::config::provenance::ConfigProvenance;
 use crate::config::settings::IdiomaticVersionFileSettings;
@@ -46,13 +46,13 @@ pub mod config_root;
 pub mod diagnostic;
 pub(crate) mod idiomatic_version;
 pub(crate) mod min_version;
-pub mod mise_toml;
+pub mod pakro_toml;
 pub(crate) mod toml;
 pub(crate) mod tool_versions;
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum ConfigFileType {
-    MiseToml,
+    PakroToml,
     ToolVersions,
     IdiomaticVersion(Vec<Arc<dyn Backend>>),
 }
@@ -67,7 +67,7 @@ pub(super) enum ConfigFileDetection {
 
 fn idiomatic_version_file_write_error(path: &Path) -> eyre::Report {
     eyre!(
-        "cannot update idiomatic version file {}; use mise.toml, .tool-versions, or --path to choose a writable config file",
+        "cannot update idiomatic version file {}; use pakro.toml, .tool-versions, or --path to choose a writable config file",
         display_path(path)
     )
 }
@@ -95,8 +95,8 @@ pub trait ConfigFile: Debug + Send + Sync {
     }
     /// gets the project directory for the config
     /// if it's a global/system config, returns None
-    /// files like ~/src/foo/.mise/config.toml will return ~/src/foo
-    /// and ~/src/foo/.mise.config.toml will return None
+    /// files like ~/src/foo/.pakro/config.toml will return ~/src/foo
+    /// and ~/src/foo/.pakro.config.toml will return None
     fn project_root(&self) -> Option<PathBuf> {
         let provenance = self.provenance();
         if !provenance.scope().is_project() {
@@ -338,7 +338,7 @@ impl dyn ConfigFile {
         Ok(())
     }
 
-    /// this is for `mise local|global TOOL` which will display the version instead of setting it
+    /// this is for `pakro local|global TOOL` which will display the version instead of setting it
     /// it's only valid to use a single tool in this case
     /// returns "true" if the tool was displayed which means the CLI should exit
     pub fn display_runtime(&self, runtimes: &[ToolArg]) -> eyre::Result<bool> {
@@ -360,10 +360,10 @@ impl dyn ConfigFile {
                 .iter()
                 .map(|tvr| tvr.version())
                 .collect::<Vec<_>>();
-            miseprintln!("{}", tvl.join(" "));
+            pakroprintln!("{}", tvl.join(" "));
             return Ok(true);
         }
-        // check for something like `mise local node python@latest` which is invalid
+        // check for something like `pakro local node python@latest` which is invalid
         if runtimes.iter().any(|r| r.tvr.is_none()) {
             return Err(eyre!(
                 "invalid input, specify a version for each tool. Or just specify one tool to print the current version"
@@ -377,8 +377,8 @@ async fn init(path: &Path) -> Result<Arc<dyn ConfigFile>> {
     let settings = IdiomaticVersionFileSettings::current();
     let detection = detect_config_file_with_settings(path, &settings).await;
     match detection {
-        ConfigFileDetection::Recognized(ConfigFileType::MiseToml) => {
-            Ok(Arc::new(MiseToml::init(path)))
+        ConfigFileDetection::Recognized(ConfigFileType::PakroToml) => {
+            Ok(Arc::new(PakroToml::init(path)))
         }
         ConfigFileDetection::Recognized(ConfigFileType::ToolVersions) => {
             Ok(Arc::new(ToolVersions::init(path)))
@@ -392,7 +392,7 @@ async fn init(path: &Path) -> Result<Arc<dyn ConfigFile>> {
 
 pub async fn parse_or_init(path: &Path) -> eyre::Result<Arc<dyn ConfigFile>> {
     let path = if path.is_dir() {
-        path.join(&*env::MISE_DEFAULT_CONFIG_FILENAME)
+        path.join(&*env::PAKRO_DEFAULT_CONFIG_FILENAME)
     } else {
         path.into()
     };
@@ -403,19 +403,19 @@ pub async fn parse_or_init(path: &Path) -> eyre::Result<Arc<dyn ConfigFile>> {
     Ok(cf)
 }
 
-/// Refuse a path mise would not read back as a TOML config.
+/// Refuse a path pakro would not read back as a TOML config.
 ///
 /// [`parse_or_init`] gives this check to every caller that goes through a [`ConfigFile`]. Callers
-/// that write TOML directly — `mise set` builds a `MiseToml` itself — bypassed it and would happily
-/// create a file that config detection then refuses to recognize, or write TOML into a name mise
-/// reads as `.tool-versions`. One definition of "a path mise can write TOML to", rather than two
+/// that write TOML directly — `pakro set` builds a `PakroToml` itself — bypassed it and would happily
+/// create a file that config detection then refuses to recognize, or write TOML into a name pakro
+/// reads as `.tool-versions`. One definition of "a path pakro can write TOML to", rather than two
 /// that drift apart.
 pub async fn ensure_writable_as_toml(path: &Path) -> eyre::Result<()> {
     let settings = IdiomaticVersionFileSettings::current();
     match detect_config_file_with_settings(path, &settings).await {
-        ConfigFileDetection::Recognized(ConfigFileType::MiseToml) => Ok(()),
+        ConfigFileDetection::Recognized(ConfigFileType::PakroToml) => Ok(()),
         ConfigFileDetection::Recognized(ConfigFileType::ToolVersions) => Err(eyre!(
-            "cannot write TOML to {}: mise reads that name as a .tool-versions file",
+            "cannot write TOML to {}: pakro reads that name as a .tool-versions file",
             display_path(path)
         )),
         ConfigFileDetection::Recognized(ConfigFileType::IdiomaticVersion(_))
@@ -427,7 +427,7 @@ pub async fn ensure_writable_as_toml(path: &Path) -> eyre::Result<()> {
 /// Lock a config file for a read-modify-write operation, then read its latest contents.
 ///
 /// Callers must keep the returned lock alive until after [`ConfigFile::save`]. Acquiring the
-/// lock before re-reading is what prevents two mise processes from both modifying the same stale
+/// lock before re-reading is what prevents two pakro processes from both modifying the same stale
 /// snapshot and silently overwriting one another's changes.
 pub async fn lock_and_parse_or_init(
     path: &Path,
@@ -473,8 +473,8 @@ pub(super) async fn parse_detected(
     detection: ConfigFileDetection,
 ) -> Result<Arc<dyn ConfigFile>> {
     match detection {
-        ConfigFileDetection::Recognized(ConfigFileType::MiseToml) => {
-            Ok(Arc::new(MiseToml::from_file(path)?))
+        ConfigFileDetection::Recognized(ConfigFileType::PakroToml) => {
+            Ok(Arc::new(PakroToml::from_file(path)?))
         }
         ConfigFileDetection::Recognized(ConfigFileType::ToolVersions) => {
             Ok(Arc::new(ToolVersions::from_file(path)?))
@@ -495,8 +495,8 @@ pub(super) fn detection_requires_trust(path: &Path, detection: &ConfigFileDetect
         return true;
     }
     match detection {
-        ConfigFileDetection::Recognized(ConfigFileType::MiseToml) => {
-            !MiseToml::path_is_trust_exempt(path)
+        ConfigFileDetection::Recognized(ConfigFileType::PakroToml) => {
+            !PakroToml::path_is_trust_exempt(path)
         }
         ConfigFileDetection::Recognized(ConfigFileType::ToolVersions) => {
             ToolVersions::path_requires_trust(path)
@@ -559,7 +559,7 @@ pub fn trust_active_config() -> Result<()> {
 /// Automatic yes decisions cannot grant trust in paranoid mode.
 pub(crate) fn trust_check(path: &Path) -> eyre::Result<()> {
     // In safe mode, config is inert (no code execution, no env injection — see
-    // MISE_SAFE / the `safe` setting), so loading an untrusted config is
+    // PAKRO_SAFE / the `safe` setting), so loading an untrusted config is
     // harmless and no trust is required. `safe` is global-only, so a project
     // config cannot disable it for itself.
     if Settings::safe_mode() {
@@ -585,7 +585,7 @@ pub(crate) fn trust_check(path: &Path) -> eyre::Result<()> {
     let default_cmd = String::new();
     let args = env::ARGS.read().unwrap();
     let cmd = args.get(1).unwrap_or(&default_cmd).as_str();
-    if is_path_trusted(path) || cmd == "trust" || mise_util::testing::in_tests() {
+    if is_path_trusted(path) || cmd == "trust" || pakro_util::testing::in_tests() {
         return Ok(());
     }
     if cmd != "hook-env" && !is_ignored(&config_root) && !is_ignored(path) {
@@ -596,7 +596,7 @@ pub(crate) fn trust_check(path: &Path) -> eyre::Result<()> {
         } else {
             prompt::confirm_with_all(format!(
                 "{} config files in {} are not trusted. Trust them?",
-                style::eyellow("mise"),
+                style::eyellow("pakro"),
                 style::epath(&config_root)
             ))?
         };
@@ -637,9 +637,9 @@ pub fn is_trusted(path: &Path) -> bool {
         return true;
     }
     // `trusted_config_paths` is trusted by configuration and overrides the
-    // persisted ignore list (a dismissed trust prompt or `mise trust
+    // persisted ignore list (a dismissed trust prompt or `pakro trust
     // --ignore`), matching the "still trusted via settings" warnings emitted by
-    // `mise trust`. It is therefore checked *before* the persisted ignore list.
+    // `pakro trust`. It is therefore checked *before* the persisted ignore list.
     if trusted_config_path_matches(canonicalized_path.as_path()) {
         add_trusted(canonicalized_path.to_path_buf());
         return true;
@@ -676,7 +676,7 @@ pub fn is_trusted(path: &Path) -> bool {
         if !trusted {
             return false;
         }
-    } else if mise_util::testing::in_tests() || ci_info::is_ci() {
+    } else if pakro_util::testing::in_tests() || ci_info::is_ci() {
         // in tests/CI we trust everything
         return true;
     } else if !trust_path(path).exists() {
@@ -730,7 +730,7 @@ fn trusted_config_path_matches(canonicalized_path: &Path) -> bool {
 /// Whether `path` is trusted purely via the `trusted_config_paths` setting.
 ///
 /// This is the signal that overrides the persisted ignore list (a dismissed
-/// trust prompt or `mise trust --ignore`) in both [`is_trusted`] and config
+/// trust prompt or `pakro trust --ignore`) in both [`is_trusted`] and config
 /// discovery. It does not consider global config or per-file trust records.
 pub(crate) fn is_trusted_via_config_paths(path: &Path) -> bool {
     // Config discovery calls this, and the initial `Settings` load itself runs
@@ -808,18 +808,18 @@ impl IgnoredConfigPathMatcher {
 }
 
 static IGNORED_CONFIG_PATH_MATCHER: Lazy<IgnoredConfigPathMatcher> =
-    Lazy::new(|| IgnoredConfigPathMatcher::new(&env::MISE_IGNORED_CONFIG_PATHS));
+    Lazy::new(|| IgnoredConfigPathMatcher::new(&env::PAKRO_IGNORED_CONFIG_PATHS));
 static GLOBAL_IGNORED_CONFIG_PATH_MATCHER: Lazy<IgnoredConfigPathMatcher> =
-    Lazy::new(|| IgnoredConfigPathMatcher::new(&env::MISE_GLOBAL_IGNORED_CONFIG_PATHS));
+    Lazy::new(|| IgnoredConfigPathMatcher::new(&env::PAKRO_GLOBAL_IGNORED_CONFIG_PATHS));
 
 tokio::task_local! {
     static GLOBAL_IGNORE_SCOPE: ();
 }
 
 /// Runs `future` with `ignored_config_paths` limited to the env var and the
-/// system/global miserc files. Tracked configs belong to other projects, so an
-/// ignore from the invoking directory's `.miserc.toml` must not hide them from
-/// `mise prune` or `mise upgrade` (which would drop versions they still pin).
+/// system/global pakrorc files. Tracked configs belong to other projects, so an
+/// ignore from the invoking directory's `.pakrorc.toml` must not hide them from
+/// `pakro prune` or `pakro upgrade` (which would drop versions they still pin).
 pub(crate) async fn with_global_ignored_config_paths<T>(
     future: impl std::future::Future<Output = T>,
 ) -> T {
@@ -827,7 +827,7 @@ pub(crate) async fn with_global_ignored_config_paths<T>(
 }
 
 /// Whether `path` is under an explicitly-configured `ignored_config_paths`
-/// (`MISE_IGNORED_CONFIG_PATHS`) entry.
+/// (`PAKRO_IGNORED_CONFIG_PATHS`) entry.
 ///
 /// This is an explicit "never load this config" instruction and is a hard
 /// block: it takes precedence over `trusted_config_paths`.
@@ -841,11 +841,11 @@ pub(crate) fn is_ignored_via_setting(path: &Path) -> bool {
 
 /// The config path an ignore-list entry records.
 ///
-/// Resolve the entry; do not canonicalize it. mise writes these as symlinks on unix and, since
-/// Windows symlinks need a privilege mise does not require, as plain files holding the path there
+/// Resolve the entry; do not canonicalize it. pakro writes these as symlinks on unix and, since
+/// Windows symlinks need a privilege pakro does not require, as plain files holding the path there
 /// (`file::make_symlink_or_file`). `Path::canonicalize` follows a symlink, so unix happened to come
 /// out right — on Windows it returned the entry's own path inside `ignored-configs`, which is never
-/// a config path, so the loaded set matched nothing and `mise trust --ignore` had no effect beyond
+/// a config path, so the loaded set matched nothing and `pakro trust --ignore` had no effect beyond
 /// the process that ran it.
 ///
 /// No second `canonicalize` on the result: [`add_ignored`] canonicalizes before writing, so the
@@ -857,7 +857,7 @@ fn ignored_entry_path(entry: &Path) -> Option<PathBuf> {
 /// Whether `path` is in the persisted ignore list.
 ///
 /// Entries are recorded when the user answers "No" to a trust prompt or runs
-/// `mise trust --ignore`. Unlike [`is_ignored_via_setting`], this only records
+/// `pakro trust --ignore`. Unlike [`is_ignored_via_setting`], this only records
 /// a dismissed prompt, so it is overridden by `trusted_config_paths` (see
 /// [`is_trusted_via_config_paths`]).
 pub(crate) fn is_persisted_ignored(path: &Path) -> bool {
@@ -941,7 +941,7 @@ pub fn untrust(path: &Path) -> eyre::Result<()> {
     Ok(())
 }
 
-/// generates a path like ~/.mise/trusted-configs/dir-file-3e8b8c44c3.toml
+/// generates a path like ~/.pakro/trusted-configs/dir-file-3e8b8c44c3.toml
 fn trust_path(path: &Path) -> PathBuf {
     dirs::TRUSTED_CONFIGS.join(hashed_path_filename(path))
 }
@@ -1149,17 +1149,17 @@ async fn detect_idiomatic_backends(
 /// Detect a config type that is determined solely by its filename.
 pub(super) fn detect_config_file_type_by_filename(path: &Path) -> Option<ConfigFileType> {
     let filename = path.file_name().and_then(|f| f.to_str())?;
-    if env::MISE_OVERRIDE_TOOL_VERSIONS_FILENAMES
+    if env::PAKRO_OVERRIDE_TOOL_VERSIONS_FILENAMES
         .as_ref()
         .is_some_and(|filenames| filenames.contains(filename))
-        || env::MISE_DEFAULT_TOOL_VERSIONS_FILENAME.as_str() == filename
+        || env::PAKRO_DEFAULT_TOOL_VERSIONS_FILENAME.as_str() == filename
     {
         return Some(ConfigFileType::ToolVersions);
     }
-    if env::MISE_OVERRIDE_CONFIG_FILENAMES.contains(filename)
-        || env::MISE_DEFAULT_CONFIG_FILENAME.as_str() == filename
+    if env::PAKRO_OVERRIDE_CONFIG_FILENAMES.contains(filename)
+        || env::PAKRO_DEFAULT_CONFIG_FILENAME.as_str() == filename
     {
-        return Some(ConfigFileType::MiseToml);
+        return Some(ConfigFileType::PakroToml);
     }
     None
 }
@@ -1175,7 +1175,7 @@ pub(super) async fn detect_config_file_with_settings(
     let filename = path
         .file_name()
         .and_then(|f| f.to_str())
-        .unwrap_or("mise.toml");
+        .unwrap_or("pakro.toml");
 
     let registry_idiomatic = path_matches_registry_idiomatic(path);
     match detect_idiomatic_backends(path, settings).await {
@@ -1192,12 +1192,12 @@ pub(super) async fn detect_config_file_with_settings(
             ConfigFileDetection::Unknown
         }
         Ok(IdiomaticBackendDetection::NoMatch) if filename.ends_with(".toml") => {
-            ConfigFileDetection::Recognized(ConfigFileType::MiseToml)
+            ConfigFileDetection::Recognized(ConfigFileType::PakroToml)
         }
         Ok(IdiomaticBackendDetection::NoMatch) => ConfigFileDetection::Unknown,
         // An unrelated enabled backend failure must not prevent ordinary TOML parsing.
         Err(_) if filename.ends_with(".toml") && !registry_idiomatic => {
-            ConfigFileDetection::Recognized(ConfigFileType::MiseToml)
+            ConfigFileDetection::Recognized(ConfigFileType::PakroToml)
         }
         Err(err) => ConfigFileDetection::DiscoveryFailed(err.wrap_err(format!(
             "failed to classify config file {}",
@@ -1342,11 +1342,11 @@ mod ignored_config_path_tests {
     #[test]
     fn recursive_glob_matches_config_path_but_not_sibling_name() {
         let root = tempfile::tempdir().unwrap();
-        let pattern = root.path().join("vendor").join("**").join("mise.toml");
+        let pattern = root.path().join("vendor").join("**").join("pakro.toml");
         let matcher = IgnoredConfigPathMatcher::new(&[pattern]);
 
-        assert!(matcher.is_match(&root.path().join("vendor/jj/.config/mise.toml")));
-        assert!(!matcher.is_match(&root.path().join("vendor/jj/.config/.mise.toml")));
+        assert!(matcher.is_match(&root.path().join("vendor/jj/.config/pakro.toml")));
+        assert!(!matcher.is_match(&root.path().join("vendor/jj/.config/.pakro.toml")));
     }
 
     #[test]
@@ -1355,8 +1355,8 @@ mod ignored_config_path_tests {
         let ignored = root.path().join("vendor");
         let matcher = IgnoredConfigPathMatcher::new(&[ignored]);
 
-        assert!(matcher.is_match(&root.path().join("vendor/jj/mise.toml")));
-        assert!(!matcher.is_match(&root.path().join("vendor-other/mise.toml")));
+        assert!(matcher.is_match(&root.path().join("vendor/jj/pakro.toml")));
+        assert!(!matcher.is_match(&root.path().join("vendor-other/pakro.toml")));
     }
 }
 
@@ -1371,7 +1371,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_detect_config_file_type() {
-        env::set_var("MISE_EXPERIMENTAL", "true");
+        env::set_var("PAKRO_EXPERIMENTAL", "true");
         backend::load_tools().await.unwrap();
         let settings = IdiomaticVersionFileSettings::default();
         // Idiomatic version files are opt-in; with the default (empty)
@@ -1392,8 +1392,8 @@ mod tests {
             ConfigFileDetection::Recognized(ConfigFileType::ToolVersions)
         ));
         assert!(matches!(
-            detect_config_file_with_settings(Path::new("/foo/bar/mise.toml"), &settings).await,
-            ConfigFileDetection::Recognized(ConfigFileType::MiseToml)
+            detect_config_file_with_settings(Path::new("/foo/bar/pakro.toml"), &settings).await,
+            ConfigFileDetection::Recognized(ConfigFileType::PakroToml)
         ));
     }
 
@@ -1490,7 +1490,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_parse_nested_registry_idiomatic_file() -> Result<()> {
-        env::set_var("MISE_EXPERIMENTAL", "true");
+        env::set_var("PAKRO_EXPERIMENTAL", "true");
         backend::load_tools().await?;
         let dir = tempfile::tempdir()?;
         let config_dir = dir.path().join(".config");
@@ -1532,7 +1532,7 @@ mod tests {
         runtime.block_on(backend::load_tools())?;
 
         let dir = tempfile::tempdir()?;
-        let path = dir.path().join("mise.toml");
+        let path = dir.path().join("pakro.toml");
         file::write(&path, "[tools]\ndummy = \"1\"\n")?;
         let alias = dir.path().join("linked.toml");
         symlink(&path, &alias)?;
@@ -1606,17 +1606,17 @@ mod tests {
 
     #[test]
     fn test_with_appended_extension() {
-        let path = Path::new("/tmp/trusted/infra-mise.toml-a1b2c3d4e5f67890");
+        let path = Path::new("/tmp/trusted/infra-pakro.toml-a1b2c3d4e5f67890");
         let result = with_appended_extension(path, "hash");
         assert_eq!(
             result,
-            Path::new("/tmp/trusted/infra-mise.toml-a1b2c3d4e5f67890.hash")
+            Path::new("/tmp/trusted/infra-pakro.toml-a1b2c3d4e5f67890.hash")
         );
 
         let result2 = with_appended_extension(path, "monorepo");
         assert_eq!(
             result2,
-            Path::new("/tmp/trusted/infra-mise.toml-a1b2c3d4e5f67890.monorepo")
+            Path::new("/tmp/trusted/infra-pakro.toml-a1b2c3d4e5f67890.monorepo")
         );
     }
 }
@@ -1642,7 +1642,7 @@ mod ignore_entry_tests {
         let entry = store.join("project-abc123");
         file::make_symlink_or_file(&project, &entry).unwrap();
 
-        let resolved = ignored_entry_path(&entry).expect("an entry mise wrote has to resolve");
+        let resolved = ignored_entry_path(&entry).expect("an entry pakro wrote has to resolve");
 
         assert_eq!(
             resolved, project,
@@ -1654,7 +1654,7 @@ mod ignore_entry_tests {
     }
 
     #[test]
-    fn an_entry_mise_did_not_write_resolves_to_nothing() {
+    fn an_entry_pakro_did_not_write_resolves_to_nothing() {
         let tmp = tempfile::tempdir().unwrap();
         let store = tmp.path().join("ignored-configs");
         let stray = store.join("a-directory");

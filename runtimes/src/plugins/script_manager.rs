@@ -73,22 +73,22 @@ static INITIAL_ENV: Lazy<HashMap<OsString, OsString>> = Lazy::new(|| {
         .map(|(k, v)| (k.into(), v.into()))
         .collect();
     if settings.trace {
-        env.insert("MISE_TRACE".into(), "1".into());
+        env.insert("PAKRO_TRACE".into(), "1".into());
     }
     if settings.debug {
-        env.insert("MISE_DEBUG".into(), "1".into());
-        env.insert("MISE_VERBOSE".into(), "1".into());
+        env.insert("PAKRO_DEBUG".into(), "1".into());
+        env.insert("PAKRO_VERBOSE".into(), "1".into());
     }
     env.extend(
         (indexmap! {
             "ASDF_CONCURRENCY" => num_cpus::get().to_string(),
             &*PATH_KEY => get_path_with_fake_asdf(),
-            "MISE_CACHE_DIR" => env::MISE_CACHE_DIR.to_string_lossy().to_string(),
-            "MISE_CONCURRENCY" => num_cpus::get().to_string(),
-            "MISE_DATA_DIR" => dirs::DATA.to_string_lossy().to_string(),
-            "MISE_LOG_LEVEL" => settings.log_level.to_string(),
-            "__MISE_BIN" => env::MISE_BIN.to_string_lossy().to_string(),
-            "__MISE_SCRIPT" => "1".to_string(),
+            "PAKRO_CACHE_DIR" => env::PAKRO_CACHE_DIR.to_string_lossy().to_string(),
+            "PAKRO_CONCURRENCY" => num_cpus::get().to_string(),
+            "PAKRO_DATA_DIR" => dirs::DATA.to_string_lossy().to_string(),
+            "PAKRO_LOG_LEVEL" => settings.log_level.to_string(),
+            "__PAKRO_BIN" => env::PAKRO_BIN.to_string_lossy().to_string(),
+            "__PAKRO_SCRIPT" => "1".to_string(),
         })
         .into_iter()
         .map(|(k, v)| (k.into(), v.into())),
@@ -99,9 +99,9 @@ static INITIAL_ENV: Lazy<HashMap<OsString, OsString>> = Lazy::new(|| {
 impl ScriptManager {
     pub(crate) fn new(plugin_path: PathBuf) -> Self {
         let mut env = INITIAL_ENV.clone();
-        if let Some(failure) = env::var_os("MISE_FAILURE") {
+        if let Some(failure) = env::var_os("PAKRO_FAILURE") {
             // used for testing failure cases
-            env.insert("MISE_FAILURE".into(), failure);
+            env.insert("PAKRO_FAILURE".into(), failure);
         }
         Self { env, plugin_path }
     }

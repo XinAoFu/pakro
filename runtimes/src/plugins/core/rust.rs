@@ -337,7 +337,7 @@ impl RustPlugin {
     /// Finds the update `rustup check` reports for `tv`'s toolchain, trying the
     /// names rustup may list it under: the version itself when it is already
     /// host-qualified, otherwise the configured default host and then the host
-    /// mise was built for.
+    /// pakro was built for.
     fn rustup_check_update_for<'a>(
         &self,
         output: &'a str,
@@ -355,7 +355,7 @@ impl RustPlugin {
             return named;
         }
         // rustup may have been initialized for a host other than the configured
-        // one or the one mise was built for. A single host-qualified listing of
+        // one or the one pakro was built for. A single host-qualified listing of
         // this toolchain is unambiguous; with several, give up.
         let name = rustup_check_sole_host_toolchain(output, &tv.version)?;
         let (current, available) = rustup_check_update(output, &name)?;
@@ -474,8 +474,8 @@ impl Backend for RustPlugin {
     }
 
     /// Rust toolchains can be absent or missing requested components/targets
-    /// while mise's install symlink still exists because rustup owns that
-    /// mutable state outside mise's install directory.
+    /// while pakro's install symlink still exists because rustup owns that
+    /// mutable state outside pakro's install directory.
     async fn is_install_satisfied(
         &self,
         config: &Arc<Config>,
@@ -503,8 +503,8 @@ impl Backend for RustPlugin {
         };
 
         // Query components even when none were explicitly requested. This
-        // verifies that rustup still has the toolchain represented by mise's
-        // install symlink after restoring only mise's data directory.
+        // verifies that rustup still has the toolchain represented by pakro's
+        // install symlink after restoring only pakro's data directory.
         let Some(installed_components) = self.rustup_installed_items(tv, "component", &runtime)?
         else {
             return Ok(false);
@@ -810,7 +810,7 @@ impl Backend for RustPlugin {
                 return Ok(None);
             };
             debug!("rustup check: {toolchain} {current} -> {available}");
-            // `mise upgrade` keeps a channel installed and updates it in place only
+            // `pakro upgrade` keeps a channel installed and updates it in place only
             // when latest equals current, so latest stays the channel name.
             let oi = OutdatedInfo::new(config, tv.clone(), tv.version.clone())?;
             Ok(Some(oi))
@@ -818,9 +818,9 @@ impl Backend for RustPlugin {
     }
 
     /// A `stable` or `beta` toolchain keeps its name when rustup updates it, so
-    /// mise's install marker never goes stale. Reuse the answer `outdated_info`
-    /// got from `rustup check`, so that `mise upgrade` reinstalls the channel
-    /// instead of skipping it as installed while a plain `mise install` of an
+    /// pakro's install marker never goes stale. Reuse the answer `outdated_info`
+    /// got from `rustup check`, so that `pakro upgrade` reinstalls the channel
+    /// instead of skipping it as installed while a plain `pakro install` of an
     /// installed channel never goes to the network.
     async fn is_rolling_version_outdated(&self, _config: &Arc<Config>, tv: &ToolVersion) -> bool {
         is_moving_channel(&tv.version)
@@ -1022,18 +1022,18 @@ impl RustHomes {
         ambient_rustup: Option<PathBuf>,
     ) -> Self {
         let cargo_explicit = config_env.contains_key("CARGO_HOME")
-            || config_env.contains_key("MISE_CARGO_HOME")
+            || config_env.contains_key("PAKRO_CARGO_HOME")
             || configured_cargo.is_some()
             || ambient_cargo.is_some();
         let rustup_explicit = config_env.contains_key("RUSTUP_HOME")
-            || config_env.contains_key("MISE_RUSTUP_HOME")
+            || config_env.contains_key("PAKRO_RUSTUP_HOME")
             || configured_rustup.is_some()
             || ambient_rustup.is_some();
         Self {
             cargo: select_rust_home(
                 config_env,
                 "CARGO_HOME",
-                "MISE_CARGO_HOME",
+                "PAKRO_CARGO_HOME",
                 configured_cargo,
                 ambient_cargo,
                 dirs::HOME.join(".cargo"),
@@ -1041,7 +1041,7 @@ impl RustHomes {
             rustup: select_rust_home(
                 config_env,
                 "RUSTUP_HOME",
-                "MISE_RUSTUP_HOME",
+                "PAKRO_RUSTUP_HOME",
                 configured_rustup,
                 ambient_rustup,
                 dirs::HOME.join(".rustup"),
@@ -1176,7 +1176,7 @@ fn external_rustup_bin_dir(
 ) -> Option<PathBuf> {
     paths
         .iter()
-        .filter(|path| !file::is_mise_dispatch_dir(path))
+        .filter(|path| !file::is_pakro_dispatch_dir(path))
         .find(|path| {
             [RUSTUP_BIN, CARGO_BIN, RUSTC_BIN]
                 .iter()
@@ -1195,7 +1195,7 @@ fn rustup_proxy_dir_is_usable(bin_dir: &Path) -> bool {
         return false;
     }
 
-    const PROBE_TOOLCHAIN: &str = "mise-proxy-probe:invalid";
+    const PROBE_TOOLCHAIN: &str = "pakro-proxy-probe:invalid";
     [CARGO_BIN, RUSTC_BIN].iter().all(|bin| {
         Command::new(bin_dir.join(bin))
             .arg("--version")
@@ -1217,14 +1217,14 @@ fn rustup_is_initialized(homes: &RustHomes) -> bool {
 fn select_rust_home(
     config_env: &IndexMap<String, String>,
     direct_key: &str,
-    mise_key: &str,
+    pakro_key: &str,
     configured: Option<PathBuf>,
     ambient: Option<PathBuf>,
     default: PathBuf,
 ) -> PathBuf {
     let path = config_env
         .get(direct_key)
-        .or_else(|| config_env.get(mise_key))
+        .or_else(|| config_env.get(pakro_key))
         .map(PathBuf::from)
         .or(configured)
         .or(ambient)
@@ -1748,13 +1748,13 @@ targets = ["wasm32-wasip1", " wasm32-wasip1 "]
     fn rust_homes_follow_config_environment_precedence() {
         let config_env = indexmap::IndexMap::from([
             (
-                "MISE_CARGO_HOME".to_string(),
-                "/config/mise-cargo".to_string(),
+                "PAKRO_CARGO_HOME".to_string(),
+                "/config/pakro-cargo".to_string(),
             ),
             ("CARGO_HOME".to_string(), "/config/cargo".to_string()),
             (
-                "MISE_RUSTUP_HOME".to_string(),
-                "/config/mise-rustup".to_string(),
+                "PAKRO_RUSTUP_HOME".to_string(),
+                "/config/pakro-rustup".to_string(),
             ),
             ("RUSTUP_HOME".to_string(), "/config/rustup".to_string()),
         ]);
@@ -1779,9 +1779,9 @@ targets = ["wasm32-wasip1", " wasm32-wasip1 "]
     }
 
     #[test]
-    fn rust_homes_use_config_mise_environment_before_existing_sources() {
+    fn rust_homes_use_config_pakro_environment_before_existing_sources() {
         let config_env = indexmap::IndexMap::from([(
-            "MISE_CARGO_HOME".to_string(),
+            "PAKRO_CARGO_HOME".to_string(),
             "/config/cargo".to_string(),
         )]);
 

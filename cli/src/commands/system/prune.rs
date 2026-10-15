@@ -12,17 +12,17 @@ use crate::ui::prompt;
 
 /// Prune installed system packages no longer declared in `[bootstrap.packages]`
 ///
-/// Supports Homebrew formulae and conservatively removable mise-owned casks.
+/// Supports Homebrew formulae and conservatively removable pakro-owned casks.
 /// Pruning keeps packages needed by the current config or by trusted, loadable
 /// tracked configs.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise bootstrap packages prune --manager brew
-mise bootstrap packages prune --manager brew --dry-run
-mise bootstrap packages prune --manager brew --yes
-mise bootstrap packages prune --manager brew-cask --dry-run"###
+        r###"pakro bootstrap packages prune --manager brew
+pakro bootstrap packages prune --manager brew --dry-run
+pakro bootstrap packages prune --manager brew --yes
+pakro bootstrap packages prune --manager brew-cask --dry-run"###
     )
 )]
 pub(crate) struct SystemPrune {

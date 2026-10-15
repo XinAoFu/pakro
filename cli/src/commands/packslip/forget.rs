@@ -24,9 +24,9 @@ impl PackslipForget {
             .unwrap_or(&self.project);
         let project = project_name(name)?;
         if packslip_pins::forget(&project)? {
-            miseprintln!("forgot the pinned signer of packslip:{project}");
+            pakroprintln!("forgot the pinned signer of packslip:{project}");
         } else {
-            miseprintln!("packslip:{project} had no pinned signer");
+            pakroprintln!("packslip:{project} had no pinned signer");
         }
         Ok(())
     }

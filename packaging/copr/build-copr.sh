@@ -3,16 +3,16 @@
 set -euo pipefail
 
 # Default values
-PACKAGE_NAME="${PACKAGE_NAME:-mise}"
+PACKAGE_NAME="${PACKAGE_NAME:-pakro}"
 # TODO(epel-9): drop centos-stream+epel-next-9-* and switch back to epel-9-*
-# once RHEL 9 AppStream ships rust >= mise's MSRV (currently EL9 = 1.88).
+# once RHEL 9 AppStream ships rust >= pakro's MSRV (currently EL9 = 1.88).
 DEFAULT_CHROOTS="fedora-rawhide-aarch64 fedora-rawhide-x86_64 fedora-44-aarch64 fedora-44-x86_64 fedora-43-aarch64 fedora-43-x86_64 epel-10-aarch64 epel-10-x86_64 centos-stream+epel-next-9-aarch64 centos-stream+epel-next-9-x86_64"
 CHROOTS="${CHROOTS:-$DEFAULT_CHROOTS}"
 BUILD_PROFILE="${BUILD_PROFILE:-release}"
-MAINTAINER_NAME="${MAINTAINER_NAME:-mise Release Bot}"
-MAINTAINER_EMAIL="${MAINTAINER_EMAIL:-noreply@mise.jdx.dev}"
-COPR_OWNER="${COPR_OWNER:-jdxcode}"
-COPR_PROJECT="${COPR_PROJECT:-mise}"
+MAINTAINER_NAME="${MAINTAINER_NAME:-pakro Release Bot}"
+MAINTAINER_EMAIL="${MAINTAINER_EMAIL:-}"
+COPR_OWNER="${COPR_OWNER:-}"
+COPR_PROJECT="${COPR_PROJECT:-pakro}"
 COPR_BUILD_TIMEOUT="${COPR_BUILD_TIMEOUT:-180000}"
 DRY_RUN="${DRY_RUN:-false}"
 WAIT_FOR_BUILD="${WAIT_FOR_BUILD:-true}"
@@ -28,11 +28,11 @@ usage() {
 	echo "  -v, --version VERSION        Package version (required)"
 	echo "  -p, --profile PROFILE        Build profile (default: release)"
 	echo "  -c, --chroots CHROOTS        COPR chroots (default: $DEFAULT_CHROOTS)"
-	echo "  -o, --owner OWNER            COPR owner (default: jdxcode)"
-	echo "  -j, --project PROJECT        COPR project (default: mise)"
-	echo "  -n, --name NAME              Package name (default: mise)"
-	echo "  -m, --maintainer-name NAME   Maintainer name (default: mise Release Bot)"
-	echo "  -e, --maintainer-email EMAIL Maintainer email (default: noreply@mise.jdx.dev)"
+	echo "  -o, --owner OWNER            COPR owner (required for submission)"
+	echo "  -j, --project PROJECT        COPR project (default: pakro)"
+	echo "  -n, --name NAME              Package name (default: pakro)"
+	echo "  -m, --maintainer-name NAME   Maintainer name (default: pakro Release Bot)"
+	echo "  -e, --maintainer-email EMAIL Maintainer email (set for pakro releases)"
 	echo "      --nowait                 Return after COPR accepts the build"
 	echo "  -d, --dry-run                Build SRPM only, don't submit to COPR"
 	echo "  -h, --help                   Show this help"
@@ -119,13 +119,12 @@ echo "Wait for build: $WAIT_FOR_BUILD"
 echo "Dry Run: $DRY_RUN"
 echo ""
 
-# Configure Git (needed for git archive)
-git config --global user.name "$MAINTAINER_NAME"
-git config --global user.email "$MAINTAINER_EMAIL"
-git config --global --add safe.directory "$REPO_ROOT"
-
 # Set up COPR configuration if not in dry-run mode
 if [ "$DRY_RUN" != "true" ]; then
+  source "$REPO_ROOT/packaging/scripts/release-env.sh"
+  pakro_require_release
+  : "${COPR_OWNER:?Set COPR_OWNER}"
+  : "${MAINTAINER_EMAIL:?Set MAINTAINER_EMAIL}"
 	if [ -z "${COPR_API_LOGIN:-}" ] || [ -z "${COPR_API_TOKEN:-}" ]; then
 		echo "Error: COPR_API_LOGIN and COPR_API_TOKEN environment variables are required for submission"
 		exit 1
@@ -153,7 +152,7 @@ cd "$BUILD_DIR"
 
 echo "=== Creating Source Tarball ==="
 # Create original source tarball
-git -C "$REPO_ROOT" archive --format=tar --prefix="${PACKAGE_NAME}-${VERSION}/" HEAD >"SOURCES/${PACKAGE_NAME}-${VERSION}.tar"
+git -c safe.directory="$REPO_ROOT" -C "$REPO_ROOT" archive --format=tar --prefix="${PACKAGE_NAME}-${VERSION}/" HEAD >"SOURCES/${PACKAGE_NAME}-${VERSION}.tar"
 
 # Compress the tarball
 gzip "SOURCES/${PACKAGE_NAME}-${VERSION}.tar"
@@ -199,9 +198,8 @@ Release:        1%{?dist}
 Summary:        Dev tools, env vars, and tasks in one CLI
 
 License:        MIT
-URL:            https://mise.jdx.dev
-Source0:        https://github.com/jdx/mise/archive/v%{version}/mise-%{version}.tar.gz
-Source1:        mise-vendor-%{version}.tar.gz
+Source0:        pakro-%{version}.tar.gz
+Source1:        pakro-vendor-%{version}.tar.gz
 
 BuildRequires:  rust >= 1.93
 BuildRequires:  cargo
@@ -220,7 +218,7 @@ BuildRequires:  nasm
 %endif
 
 %description
-mise prepares your development environment before each command runs. It installs
+pakro prepares your development environment before each command runs. It installs
 and switches between project tools, loads environment variables, and runs tasks
 from the same configuration.
 
@@ -261,42 +259,42 @@ export AWS_LC_SYS_PREBUILT_NASM=1
 %endif
 %endif
 
-# CI verifies that the locked dependencies actually compile with mise's MSRV.
-cargo build --profile __BUILD_PROFILE__ --frozen --bin mise --ignore-rust-version
+# CI verifies that the locked dependencies actually compile with pakro's MSRV.
+cargo build --profile __BUILD_PROFILE__ --frozen --bin pakro --ignore-rust-version
 
 %install
 mkdir -p %{buildroot}%{_bindir}
-cp target/__BUILD_PROFILE__/mise %{buildroot}%{_bindir}/
+cp target/__BUILD_PROFILE__/pakro %{buildroot}%{_bindir}/
 
 # Install man page if available
 mkdir -p %{buildroot}%{_mandir}/man1
-cp cli/man/man1/mise.1 %{buildroot}%{_mandir}/man1/
+cp cli/man/man1/pakro.1 %{buildroot}%{_mandir}/man1/
 
 # Install shell completions
 mkdir -p %{buildroot}%{_datadir}/bash-completion/completions
-cp cli/completions/mise.bash %{buildroot}%{_datadir}/bash-completion/completions/mise
+cp cli/completions/pakro.bash %{buildroot}%{_datadir}/bash-completion/completions/pakro
 
 mkdir -p %{buildroot}%{_datadir}/zsh/site-functions
-cp cli/completions/_mise %{buildroot}%{_datadir}/zsh/site-functions/
+cp cli/completions/_pakro %{buildroot}%{_datadir}/zsh/site-functions/
 
 mkdir -p %{buildroot}%{_datadir}/fish/vendor_completions.d
-cp cli/completions/mise.fish %{buildroot}%{_datadir}/fish/vendor_completions.d/
+cp cli/completions/pakro.fish %{buildroot}%{_datadir}/fish/vendor_completions.d/
 
 # Disable self-update for package manager installations
-mkdir -p %{buildroot}%{_libdir}/mise
-cat > %{buildroot}%{_libdir}/mise/mise-self-update-instructions.toml <<'TOML'
-message = "To update mise from COPR, run:\n\n  sudo dnf upgrade mise\n"
+mkdir -p %{buildroot}%{_libdir}/pakro
+cat > %{buildroot}%{_libdir}/pakro/pakro-self-update-instructions.toml <<'TOML'
+message = "To update pakro from COPR, run:\n\n  sudo dnf upgrade pakro\n"
 TOML
 
 %files
 %license LICENSE
 %doc README.md
-%{_bindir}/mise
-%{_mandir}/man1/mise.1*
-%{_datadir}/bash-completion/completions/mise
-%{_datadir}/zsh/site-functions/_mise
-%{_datadir}/fish/vendor_completions.d/mise.fish
-%{_libdir}/mise/mise-self-update-instructions.toml
+%{_bindir}/pakro
+%{_mandir}/man1/pakro.1*
+%{_datadir}/bash-completion/completions/pakro
+%{_datadir}/zsh/site-functions/_pakro
+%{_datadir}/fish/vendor_completions.d/pakro.fish
+%{_libdir}/pakro/pakro-self-update-instructions.toml
 
 %changelog
 * __CHANGELOG_DATE__ __MAINTAINER_NAME__ <__MAINTAINER_EMAIL__> - %{version}-1

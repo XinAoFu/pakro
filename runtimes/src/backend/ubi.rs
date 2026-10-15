@@ -7,7 +7,7 @@ use crate::backend::runtime_path_for_install_path;
 use crate::backend::static_helpers::try_with_v_prefix;
 use crate::config::{Config, Settings};
 use crate::env::{
-    GITHUB_TOKEN, GITLAB_TOKEN, MISE_GITHUB_ENTERPRISE_TOKEN, MISE_GITLAB_ENTERPRISE_TOKEN,
+    GITHUB_TOKEN, GITLAB_TOKEN, PAKRO_GITHUB_ENTERPRISE_TOKEN, PAKRO_GITLAB_ENTERPRISE_TOKEN,
 };
 use crate::install_context::InstallContext;
 use crate::plugins::VERSION_REGEX;
@@ -507,13 +507,13 @@ fn set_token<'a>(mut builder: UbiBuilder<'a>, forge: &ForgeType) -> UbiBuilder<'
 fn set_enterprise_token<'a>(mut builder: UbiBuilder<'a>, forge: &ForgeType) -> UbiBuilder<'a> {
     match forge {
         ForgeType::GitHub => {
-            if let Some(token) = &*MISE_GITHUB_ENTERPRISE_TOKEN {
+            if let Some(token) = &*PAKRO_GITHUB_ENTERPRISE_TOKEN {
                 builder = builder.token(token);
             }
             builder
         }
         ForgeType::GitLab => {
-            if let Some(token) = &*MISE_GITLAB_ENTERPRISE_TOKEN {
+            if let Some(token) = &*PAKRO_GITLAB_ENTERPRISE_TOKEN {
                 builder = builder.token(token);
             }
             builder

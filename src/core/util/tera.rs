@@ -1,4 +1,4 @@
-pub use mise_util::tera::*;
+pub use pakro_util::tera::*;
 
 #[cfg(test)]
 mod tests {
@@ -39,7 +39,7 @@ mod tests {
     }
     #[tokio::test]
     async fn test_is_dir() {
-        let s = render(r#"{% set p = ".mise" %}{% if p is dir %} ok {% endif %}"#);
+        let s = render(r#"{% set p = ".pakro" %}{% if p is dir %} ok {% endif %}"#);
         assert_eq!(s.trim(), "ok");
     }
     #[tokio::test]

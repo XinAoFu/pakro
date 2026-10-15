@@ -7,12 +7,12 @@ use crate::config::Config;
 ///
 /// Reads the merged `[tool_alias.TOOL.versions]` configuration. This prints the
 /// stored request, which may itself be a prefix. Backend-provided aliases are listed
-/// by `mise tool-alias ls`; they are not entries returned by this command.
+/// by `pakro tool-alias ls`; they are not entries returned by this command.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     example(
-        r###"mise tool-alias set node project 20
-mise tool-alias get node project
+        r###"pakro tool-alias set node project 20
+pakro tool-alias get node project
 20"###
     ),
     verbatim_doc_comment
@@ -31,7 +31,7 @@ impl ToolAliasGet {
         match config.all_aliases.get(&self.tool.short) {
             Some(alias) => match alias.versions.get(&self.alias) {
                 Some(alias) => {
-                    miseprintln!("{alias}");
+                    pakroprintln!("{alias}");
                     Ok(())
                 }
                 None => Err(eyre!("Unknown alias: {}", &self.alias)),

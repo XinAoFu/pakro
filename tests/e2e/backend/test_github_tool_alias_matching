@@ -20,12 +20,12 @@
 # is the portable replacement for the per-platform `asset_pattern` workaround
 # (#9358, #9074).
 
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 # Enable the lockfile so we can assert `matching` round-trips through a real
 # install (stronger than the unit test, which inserts the option directly).
-export MISE_LOCKFILE=1
+export PAKRO_LOCKFILE=1
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tool_alias]
 oxlint = "github:oxc-project/oxc"
 oxfmt = "github:oxc-project/oxc"
@@ -55,37 +55,37 @@ matching = "buildozer"
 rename_exe = "buildozer"
 EOF
 
-touch mise.lock
+touch pakro.lock
 
-mise install
+pakro install
 
 # Each alias selected its own binary from the same release and reports its own
 # version, even though the two aliases of each repo pin a shared release tag.
-assert_contains "mise x oxlint -- oxlint --version" "1.69.0"
-assert_contains "mise x oxfmt -- oxfmt --version" "0.54.0"
-assert_contains "mise x buildifier -- buildifier --version" "buildifier version: 7.1.2"
-assert_contains "mise x buildozer -- buildozer --version" "buildozer version: 7.1.2"
+assert_contains "pakro x oxlint -- oxlint --version" "1.69.0"
+assert_contains "pakro x oxfmt -- oxfmt --version" "0.54.0"
+assert_contains "pakro x buildifier -- buildifier --version" "buildifier version: 7.1.2"
+assert_contains "pakro x buildozer -- buildozer --version" "buildozer version: 7.1.2"
 
 # Distinct aliases resolving to the same backend/version install as distinct
 # tools, rather than being deduplicated to a single install. Assert the
 # version-keyed subdir (the release tag for oxc, 7.1.2 for buildtools) so this
 # proves a real per-alias install, not just an empty top-level dir.
-assert "test -d ~/.local/share/mise/installs/oxlint/apps_v1.69.0"
-assert "test -d ~/.local/share/mise/installs/oxfmt/apps_v1.69.0"
-assert "test -d ~/.local/share/mise/installs/buildifier/7.1.2"
-assert "test -d ~/.local/share/mise/installs/buildozer/7.1.2"
+assert "test -d ~/.local/share/pakro/installs/oxlint/apps_v1.69.0"
+assert "test -d ~/.local/share/pakro/installs/oxfmt/apps_v1.69.0"
+assert "test -d ~/.local/share/pakro/installs/buildifier/7.1.2"
+assert "test -d ~/.local/share/pakro/installs/buildozer/7.1.2"
 
 # `matching` round-trips through a real install into the lockfile, so a relock on
 # another OS reproduces the same per-alias asset selection (each option is written
 # as `matching = "<value>"`, the same way `asset_pattern` is — see
 # tests/e2e/backend/test_github_url_tracking).
-assert_contains "cat mise.lock" 'matching = "oxlint"'
-assert_contains "cat mise.lock" 'matching = "oxfmt"'
-assert_contains "cat mise.lock" 'matching = "buildifier"'
-assert_contains "cat mise.lock" 'matching = "buildozer"'
+assert_contains "cat pakro.lock" 'matching = "oxlint"'
+assert_contains "cat pakro.lock" 'matching = "oxfmt"'
+assert_contains "cat pakro.lock" 'matching = "buildifier"'
+assert_contains "cat pakro.lock" 'matching = "buildozer"'
 
 # Reinstalling from the lockfile reproduces each binary (re-resolution path).
-mise uninstall oxlint oxfmt buildifier buildozer
-mise install
-assert_contains "mise x oxlint -- oxlint --version" "1.69.0"
-assert_contains "mise x buildifier -- buildifier --version" "buildifier version: 7.1.2"
+pakro uninstall oxlint oxfmt buildifier buildozer
+pakro install
+assert_contains "pakro x oxlint -- oxlint --version" "1.69.0"
+assert_contains "pakro x buildifier -- buildifier --version" "buildifier version: 7.1.2"

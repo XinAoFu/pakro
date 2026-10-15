@@ -2,8 +2,8 @@
 set -euo pipefail
 
 FIXTURES="$TMPDIR/http-install-storage"
-INSTALLS="$MISE_DATA_DIR/installs"
-TARBALLS="$MISE_DATA_DIR/http-tarballs"
+INSTALLS="$PAKRO_DATA_DIR/installs"
+TARBALLS="$PAKRO_DATA_DIR/http-tarballs"
 
 mkdir -p "$FIXTURES/archive/bin"
 cat >"$FIXTURES/archive/bin/storage-tool" <<'EOF'
@@ -22,12 +22,12 @@ start_http_server --dir "$FIXTURES"
 
 # Default installs own their files, including raw binaries with a nested bin_path.
 # A postinstall hook must not modify another installation of the same artifact.
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools."http:direct-a"]
 version = "1.0.0"
 url = "http://127.0.0.1:$HTTP_PORT/archive.tar.gz"
 bin_path = "archive/bin"
-postinstall = 'echo local > "\$MISE_TOOL_INSTALL_PATH/archive/marker"'
+postinstall = 'echo local > "\$PAKRO_TOOL_INSTALL_PATH/archive/marker"'
 
 [tools."http:direct-b"]
 version = "1.0.0"
@@ -40,7 +40,7 @@ url = "http://127.0.0.1:$HTTP_PORT/raw-tool"
 bin_path = "nested/bin"
 EOF
 
-mise install
+pakro install
 DIRECT_A="$INSTALLS/http-direct-a/1.0.0"
 DIRECT_B="$INSTALLS/http-direct-b/1.0.0"
 RAW="$INSTALLS/http-raw/1.0.0/nested/bin/raw-tool"
@@ -50,31 +50,31 @@ assert "test -f '$RAW' && test ! -L '$RAW'"
 assert "test -f '$DIRECT_A/archive/marker'"
 assert "test ! -e '$DIRECT_B/archive/marker'"
 assert "test ! -e '$TARBALLS'"
-assert_contains "mise x -- storage-tool" storage-tool-ok
-assert_contains "mise x -- raw-tool" raw-tool-ok
+assert_contains "pakro x -- storage-tool" storage-tool-ok
+assert_contains "pakro x -- raw-tool" raw-tool-ok
 
 # Uninstall removes the payload and leaves the other copy executable.
-mise uninstall http:direct-a@1.0.0
+pakro uninstall http:direct-a@1.0.0
 assert "test ! -e '$DIRECT_A'"
 assert_contains "'$DIRECT_B/archive/bin/storage-tool'" storage-tool-ok
 
 # Prune likewise reclaims the actual raw binary, honoring dry-run first.
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools."http:direct-b"]
 version = "1.0.0"
 url = "http://127.0.0.1:$HTTP_PORT/archive.tar.gz"
 bin_path = "archive/bin"
 EOF
-mise prune --dry-run http:raw
+pakro prune --dry-run http:raw
 assert_contains "'$RAW'" raw-tool-ok
-MISE_YES=1 mise prune http:raw
+PAKRO_YES=1 pakro prune http:raw
 assert "test ! -e '$INSTALLS/http-raw/1.0.0'"
 assert "test ! -e '$TARBALLS'"
-assert_contains "mise x -- storage-tool" storage-tool-ok
+assert_contains "pakro x -- storage-tool" storage-tool-ok
 
 # Opted-in installs retain the old shared layouts. Both archive installs point
 # into the same cache entry; raw installs link the binary under bin_path.
-cat >>mise.toml <<EOF
+cat >>pakro.toml <<EOF
 
 [tools."http:shared-a"]
 version = "1.0.0"
@@ -94,7 +94,7 @@ url = "http://127.0.0.1:$HTTP_PORT/raw-tool"
 bin_path = "nested/bin"
 shared_extraction = true
 EOF
-mise install
+pakro install
 SHARED_A="$INSTALLS/http-shared-a/1.0.0"
 SHARED_B="$INSTALLS/http-shared-b/1.0.0"
 assert "test -L '$SHARED_A' && test -L '$SHARED_B'"
@@ -107,17 +107,17 @@ CACHED_RAW=$(readlink "$RAW")
 # This also models legacy installations whose configs never opted into sharing.
 python3 - <<'PY'
 from pathlib import Path
-config = Path('mise.toml')
+config = Path('pakro.toml')
 config.write_text(config.read_text().replace('shared_extraction = true\n', ''))
 PY
-mise install
+pakro install
 assert "test -L '$SHARED_A' && test -L '$RAW'"
 assert_contains "'$SHARED_A/archive/bin/storage-tool'" storage-tool-ok
-assert_contains "mise x -- raw-tool" raw-tool-ok
+assert_contains "pakro x -- raw-tool" raw-tool-ok
 
 # Force-reinstall migrates only the requested installs. The shared content must
 # remain untouched: another installed tool still depends on it.
-mise install --force http:shared-a@1.0.0 http:raw@1.0.0
+pakro install --force http:shared-a@1.0.0 http:raw@1.0.0
 assert "test -d '$SHARED_A' && test ! -L '$SHARED_A'"
 assert "test -f '$RAW' && test ! -L '$RAW'"
 assert "test -L '$SHARED_B'"
@@ -126,10 +126,10 @@ assert_contains "'$SHARED_B/archive/bin/storage-tool'" storage-tool-ok
 assert_contains "'$CACHED_ARCHIVE/archive/bin/storage-tool'" storage-tool-ok
 
 assert_contains "'$CACHED_RAW'" raw-tool-ok
-assert_contains "mise x -- raw-tool" raw-tool-ok
+assert_contains "pakro x -- raw-tool" raw-tool-ok
 
 # An explicit false CLI option also selects an independent installation.
-mise install --force 'http:shared-b[shared_extraction=false]@1.0.0'
+pakro install --force 'http:shared-b[shared_extraction=false]@1.0.0'
 assert "test -d '$SHARED_B' && test ! -L '$SHARED_B'"
 assert_contains "'$SHARED_B/archive/bin/storage-tool'" storage-tool-ok
 assert_contains "'$CACHED_ARCHIVE/archive/bin/storage-tool'" storage-tool-ok
@@ -142,7 +142,7 @@ for kind in raw compressed; do
   if [[ $kind == compressed ]]; then
     artifact=raw-tool.gz
   fi
-  cat >mise.toml <<EOF
+  cat >pakro.toml <<EOF
 [tools."http:named-a-$kind"]
 version = "1.0.0"
 url = "http://127.0.0.1:$HTTP_PORT/$artifact"
@@ -163,7 +163,7 @@ bin = "first-name"
 bin_path = "another/bin"
 shared_extraction = true
 EOF
-  mise install
+  pakro install
   FIRST="$INSTALLS/http-named-a-$kind/1.0.0"
   SECOND="$INSTALLS/http-named-b-$kind/1.0.0/nested/bin/second-name"
   COPY="$INSTALLS/http-named-copy-$kind/1.0.0/another/bin/first-name"
@@ -178,7 +178,7 @@ for kind in raw compressed; do
   if [[ $kind == compressed ]]; then
     artifact=raw-tool.gz
   fi
-  cat >mise.toml <<EOF
+  cat >pakro.toml <<EOF
 [tools."http:nested-$kind"]
 version = "1.0.0"
 url = "http://127.0.0.1:$HTTP_PORT/$artifact"
@@ -188,7 +188,7 @@ shared_extraction = true
 EOF
   for attempt in first cached; do
     echo "Checking $kind nested binary: $attempt install"
-    mise install --force
+    pakro install --force
     EXECUTABLE="$INSTALLS/http-nested-$kind/1.0.0/custom/bin/nested/alpha"
     assert "test -L '$EXECUTABLE'"
     assert_contains "'$EXECUTABLE'" raw-tool-ok

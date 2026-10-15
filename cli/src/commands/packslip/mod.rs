@@ -3,10 +3,10 @@ use eyre::Result;
 mod forget;
 mod pins;
 
-/// The signers mise accepts packslips from
+/// The signers pakro accepts packslips from
 ///
 /// A tool installed with the `packslip:` backend is verified against the
-/// identity its project name implies, and mise then remembers which signer
+/// identity its project name implies, and pakro then remembers which signer
 /// it accepted, the way SSH remembers hosts. A later release from another
 /// signer, a weaker scheme, a repackager where the vendor signed before, or
 /// one that drops build provenance is refused until a person says so.

@@ -17,7 +17,7 @@ pub struct WorkspaceGitRevisions {
 }
 
 impl WorkspaceGitRevisions {
-    /// Resolves explicit revisions, mise environment overrides, CI metadata,
+    /// Resolves explicit revisions, pakro environment overrides, CI metadata,
     /// and finally the local `HEAD~1...HEAD` default, in that order.
     pub fn resolve(base: Option<&str>, head: Option<&str>) -> Self {
         Self::resolve_with(base, head, |name| env::var(name).ok())
@@ -30,12 +30,12 @@ impl WorkspaceGitRevisions {
     ) -> Self {
         let base = nonempty(base)
             .map(str::to_string)
-            .or_else(|| env_value(&get_env, "MISE_AFFECTED_BASE"))
+            .or_else(|| env_value(&get_env, "PAKRO_AFFECTED_BASE"))
             .or_else(|| ci_base(&get_env))
             .unwrap_or_else(|| DEFAULT_BASE.to_string());
         let head = nonempty(head)
             .map(str::to_string)
-            .or_else(|| env_value(&get_env, "MISE_AFFECTED_HEAD"))
+            .or_else(|| env_value(&get_env, "PAKRO_AFFECTED_HEAD"))
             .or_else(|| ci_head(&get_env))
             .unwrap_or_else(|| DEFAULT_HEAD.to_string());
         Self { base, head }
@@ -118,8 +118,8 @@ mod tests {
             Some("release-base"),
             Some("release-head"),
             &[
-                ("MISE_AFFECTED_BASE", "env-base"),
-                ("MISE_AFFECTED_HEAD", "env-head"),
+                ("PAKRO_AFFECTED_BASE", "env-base"),
+                ("PAKRO_AFFECTED_HEAD", "env-head"),
                 ("GITHUB_ACTIONS", "true"),
                 ("GITHUB_BASE_REF", "main"),
                 ("GITHUB_SHA", "github-head"),
@@ -136,13 +136,13 @@ mod tests {
     }
 
     #[test]
-    fn mise_environment_overrides_ci_defaults() {
+    fn pakro_environment_overrides_ci_defaults() {
         let revisions = resolve_with_env(
             None,
             None,
             &[
-                ("MISE_AFFECTED_BASE", "env-base"),
-                ("MISE_AFFECTED_HEAD", "env-head"),
+                ("PAKRO_AFFECTED_BASE", "env-base"),
+                ("PAKRO_AFFECTED_HEAD", "env-head"),
                 ("GITLAB_CI", "true"),
                 ("CI_MERGE_REQUEST_DIFF_BASE_SHA", "gitlab-base"),
                 ("CI_COMMIT_SHA", "gitlab-head"),

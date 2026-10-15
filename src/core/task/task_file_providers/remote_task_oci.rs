@@ -140,7 +140,7 @@ impl TaskFileProvider for RemoteTaskOci {
         // never leaves a half-populated directory behind.
         let moved = std::fs::rename(&unpacked, &destination);
         let _ = file::remove_all(&staging);
-        // A concurrent mise process may have populated the cache first.
+        // A concurrent pakro process may have populated the cache first.
         if let Err(err) = moved
             && !destination.is_dir()
         {

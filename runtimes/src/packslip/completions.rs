@@ -52,13 +52,13 @@ pub fn decode_spec_path(encoded: &str) -> eyre::Result<std::path::PathBuf> {
 pub(crate) fn clear(shell: &str) -> &'static str {
     match shell {
         "bash" | "zsh" => {
-            "if typeset -f __mise_clear_completions >/dev/null; then __mise_clear_completions; unset -f __mise_clear_completions; fi\n"
+            "if typeset -f __pakro_clear_completions >/dev/null; then __pakro_clear_completions; unset -f __pakro_clear_completions; fi\n"
         }
         "fish" => {
-            "if functions -q __mise_clear_completions; __mise_clear_completions; functions -e __mise_clear_completions; end\n"
+            "if functions -q __pakro_clear_completions; __pakro_clear_completions; functions -e __pakro_clear_completions; end\n"
         }
         "pwsh" => {
-            "if (Test-Path Function:__mise_clear_completions) { __mise_clear_completions; Remove-Item Function:__mise_clear_completions }\n"
+            "if (Test-Path Function:__pakro_clear_completions) { __pakro_clear_completions; Remove-Item Function:__pakro_clear_completions }\n"
         }
         _ => "",
     }
@@ -144,20 +144,20 @@ fn registration(shell_name: &str, shell: Shell, commands: &BTreeSet<String>) -> 
         // PowerShell exposes registration but no public lookup. Preserve the
         // existing entry when its completion table is available; if a host
         // hides it, leave its registrations alone.
-        output.push_str(r#"$__mise_completion_table_ready = $false
+        output.push_str(r#"$__pakro_completion_table_ready = $false
 try {
-    $__mise_context = $ExecutionContext.GetType().GetField('_context', [System.Reflection.BindingFlags]'Instance,NonPublic').GetValue($ExecutionContext)
-    $__mise_completion_table = $__mise_context.GetType().GetProperty('NativeArgumentCompleters', [System.Reflection.BindingFlags]'Instance,NonPublic').GetValue($__mise_context)
-    $__mise_completion_table_ready = $true
+    $__pakro_context = $ExecutionContext.GetType().GetField('_context', [System.Reflection.BindingFlags]'Instance,NonPublic').GetValue($ExecutionContext)
+    $__pakro_completion_table = $__pakro_context.GetType().GetProperty('NativeArgumentCompleters', [System.Reflection.BindingFlags]'Instance,NonPublic').GetValue($__pakro_context)
+    $__pakro_completion_table_ready = $true
 } catch {}
-if ($__mise_completion_table_ready) {
+if ($__pakro_completion_table_ready) {
 "#);
     }
     for command in commands {
         let Ok(stub) = super::stub(command, shell) else {
             continue;
         };
-        let saved = format!("__mise_completion_{}", crate::hash::hash_to_str(command));
+        let saved = format!("__pakro_completion_{}", crate::hash::hash_to_str(command));
         match shell {
             Shell::Bash => {
                 output.push_str(&format!(
@@ -165,7 +165,7 @@ if ($__mise_completion_table_ready) {
                 ));
                 let ident = super::completion_ident(command);
                 cleanup.push_str(&format!(
-                    "if typeset -f __mise_complete_{ident}_restub >/dev/null; then __mise_complete_{ident}_restub; unset -f __mise_complete_{ident}_restub; fi\ncomplete -r '{command}' 2>/dev/null || :\nif [[ -n ${{{saved}:-}} ]]; then eval \"${{{saved}}}\"; fi\nunset {saved}\n"
+                    "if typeset -f __pakro_complete_{ident}_restub >/dev/null; then __pakro_complete_{ident}_restub; unset -f __pakro_complete_{ident}_restub; fi\ncomplete -r '{command}' 2>/dev/null || :\nif [[ -n ${{{saved}:-}} ]]; then eval \"${{{saved}}}\"; fi\nunset {saved}\n"
                 ));
             }
             Shell::Zsh => {
@@ -183,7 +183,7 @@ if ($__mise_completion_table_ready) {
                 cleanup.push_str(&format!("complete -e -c '{command}'\nfor rule in ${saved}; eval $rule; end\nset -e {saved}\n"));
             }
             Shell::PowerShell => {
-                output.push_str(&format!("$global:{saved} = if ($null -ne $__mise_completion_table) {{ $__mise_completion_table['{command}'] }} else {{ $null }}\n{stub}"));
+                output.push_str(&format!("$global:{saved} = if ($null -ne $__pakro_completion_table) {{ $__pakro_completion_table['{command}'] }} else {{ $null }}\n{stub}"));
                 cleanup.push_str(&format!("Register-ArgumentCompleter -Native -CommandName '{command}' -ScriptBlock $global:{saved}\nRemove-Variable -Scope Global -Name '{saved}' -ErrorAction Ignore\n"));
             }
             _ => {}
@@ -191,15 +191,15 @@ if ($__mise_completion_table_ready) {
     }
     match shell {
         Shell::Fish => output.push_str(&format!(
-            "function __mise_clear_completions\n{cleanup}end\n"
+            "function __pakro_clear_completions\n{cleanup}end\n"
         )),
         Shell::PowerShell => output.push_str(&format!(
-            "function global:__mise_clear_completions {{\n{cleanup}}}\n"
+            "function global:__pakro_clear_completions {{\n{cleanup}}}\n"
         )),
-        _ => output.push_str(&format!("__mise_clear_completions() {{\n{cleanup}}}\n")),
+        _ => output.push_str(&format!("__pakro_clear_completions() {{\n{cleanup}}}\n")),
     }
     if shell == Shell::PowerShell {
-        output.push_str("}\nRemove-Variable __mise_context, __mise_completion_table, __mise_completion_table_ready -ErrorAction Ignore\n");
+        output.push_str("}\nRemove-Variable __pakro_context, __pakro_completion_table, __pakro_completion_table_ready -ErrorAction Ignore\n");
     }
     output
 }

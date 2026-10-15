@@ -23,7 +23,7 @@ pub(crate) struct Asdf {
 impl Asdf {
     pub(crate) async fn run(mut self) -> Result<()> {
         let config = Config::get().await?;
-        let mut args = vec![String::from("mise")];
+        let mut args = vec![String::from("pakro")];
         args.append(&mut self.args);
 
         match args.get(1).map(|s| s.as_str()) {
@@ -89,13 +89,13 @@ async fn list_versions(config: &Arc<Config>, args: &[String]) -> Result<()> {
     if let Some(plugin) = plugin {
         versions.retain(|(_, v)| &v.ba().to_string() == plugin);
         for (_, version) in versions {
-            miseprintln!("{}", version.version);
+            pakroprintln!("{}", version.version);
         }
     } else {
         for (plugin, versions) in &versions.into_iter().chunk_by(|(_, v)| v.ba().clone()) {
-            miseprintln!("{}", plugin);
+            pakroprintln!("{}", plugin);
             for (_, tv) in versions {
-                miseprintln!("  {}", tv.version);
+                pakroprintln!("  {}", tv.version);
             }
         }
     }

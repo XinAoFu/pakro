@@ -1,5 +1,5 @@
-//! `[bootstrap.mise_shell_activate]` — declarative mise shell activation
-//! snippets, applied by `mise bootstrap mise-shell-activate apply` or `mise bootstrap`.
+//! `[bootstrap.pakro_shell_activate]` — declarative pakro shell activation
+//! snippets, applied by `pakro bootstrap pakro-shell-activate apply` or `pakro bootstrap`.
 
 use std::path::PathBuf;
 
@@ -33,9 +33,9 @@ impl ShellActivationRequest {
                     comment: "#".to_string(),
                 },
                 base: PathBuf::from("."),
-                config_path: PathBuf::from("[bootstrap.mise_shell_activate]"),
+                config_path: PathBuf::from("[bootstrap.pakro_shell_activate]"),
                 origin: ResourceOrigin {
-                    config: PathBuf::from("[bootstrap.mise_shell_activate]"),
+                    config: PathBuf::from("[bootstrap.pakro_shell_activate]"),
                     config_root: PathBuf::from("."),
                     environment: vec![],
                     source: None,
@@ -175,22 +175,22 @@ impl ShellActivationTarget {
     fn block(self, mode: ShellActivationMode) -> &'static str {
         match (self.shell(), mode) {
             (ShellActivationShell::Bash, ShellActivationMode::Activate) => {
-                r#"eval "$(mise activate bash)""#
+                r#"eval "$(pakro activate bash)""#
             }
             (ShellActivationShell::Bash, ShellActivationMode::Shims) => {
-                r#"eval "$(mise activate bash --shims)""#
+                r#"eval "$(pakro activate bash --shims)""#
             }
             (ShellActivationShell::Zsh, ShellActivationMode::Activate) => {
-                r#"eval "$(mise activate zsh)""#
+                r#"eval "$(pakro activate zsh)""#
             }
             (ShellActivationShell::Zsh, ShellActivationMode::Shims) => {
-                r#"eval "$(mise activate zsh --shims)""#
+                r#"eval "$(pakro activate zsh --shims)""#
             }
             (ShellActivationShell::Fish, ShellActivationMode::Activate) => {
-                "mise activate fish | source"
+                "pakro activate fish | source"
             }
             (ShellActivationShell::Fish, ShellActivationMode::Shims) => {
-                "mise activate fish --shims | source"
+                "pakro activate fish --shims | source"
             }
         }
     }
@@ -217,7 +217,7 @@ mod tests {
                 template,
                 comment,
             } => {
-                assert_eq!(block, r#"eval "$(mise activate bash)""#);
+                assert_eq!(block, r#"eval "$(pakro activate bash)""#);
                 assert!(!template);
                 assert_eq!(comment, "#");
             }
@@ -236,7 +236,7 @@ mod tests {
             EditOp::Block {
                 source: BlockSource::Inline(block),
                 ..
-            } => assert_eq!(block, r#"eval "$(mise activate zsh --shims)""#),
+            } => assert_eq!(block, r#"eval "$(pakro activate zsh --shims)""#),
             _ => panic!("expected block edit"),
         }
     }
@@ -252,7 +252,7 @@ mod tests {
             EditOp::Block {
                 source: BlockSource::Inline(block),
                 ..
-            } => assert_eq!(block, r#"eval "$(mise activate zsh)""#),
+            } => assert_eq!(block, r#"eval "$(pakro activate zsh)""#),
             _ => panic!("expected block edit"),
         }
     }
@@ -266,7 +266,7 @@ mod tests {
             EditOp::Block {
                 source: BlockSource::Inline(block),
                 ..
-            } => assert_eq!(block, "mise activate fish | source"),
+            } => assert_eq!(block, "pakro activate fish | source"),
             _ => panic!("expected block edit"),
         }
     }
@@ -279,7 +279,7 @@ mod tests {
             EditOp::Block {
                 source: BlockSource::Inline(block),
                 ..
-            } => assert_eq!(block, "mise activate fish --shims | source"),
+            } => assert_eq!(block, "pakro activate fish --shims | source"),
             _ => panic!("expected block edit"),
         }
     }

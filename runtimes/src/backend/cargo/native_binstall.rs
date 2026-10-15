@@ -101,7 +101,7 @@ pub(super) async fn install(
         }
         file::create_dir_all(&bin_root)?;
         let download_dir = tempfile::Builder::new()
-            .prefix("mise-cargo-binstall-bin-")
+            .prefix("pakro-cargo-binstall-bin-")
             .tempdir()?;
         let mut pending = vec![];
         for bin in &bins {
@@ -156,7 +156,7 @@ pub(super) async fn install(
 
     if template_contains_var(pkg_url, "bin") {
         let download_dir = tempfile::Builder::new()
-            .prefix("mise-cargo-binstall-archives-")
+            .prefix("pakro-cargo-binstall-archives-")
             .tempdir()?;
         let mut pending = vec![];
         for bin in &bins {
@@ -237,7 +237,7 @@ pub(super) async fn install(
     download_native_binstall_file(&archive_url, &archive_path, Some(ctx.pr.as_ref())).await?;
 
     let extract_dir = tempfile::Builder::new()
-        .prefix("mise-cargo-binstall-")
+        .prefix("pakro-cargo-binstall-")
         .tempdir()?;
     ctx.pr.next_operation();
     file::extract_archive(
@@ -656,7 +656,7 @@ async fn download_crate_manifest(
         .await?;
 
     let temp_dir = tempfile::Builder::new()
-        .prefix("mise-cargo-crate-")
+        .prefix("pakro-cargo-crate-")
         .tempdir()?;
     file::extract_archive(
         &crate_path,
@@ -934,9 +934,9 @@ fn rollout_warning_active_for(current: &versions::Versioning) -> bool {
 
 fn warn_native_binstall_rollout() {
     warn_once!(
-        "mise will install cargo packages from native precompiled binary artifacts by default in {DEFAULT_AT} when cargo-binstall is unavailable.\n\
-         To use native cargo binaries now: mise settings cargo.binstall_native=true\n\
-         To keep using cargo install: mise settings cargo.binstall_native=false"
+        "pakro will install cargo packages from native precompiled binary artifacts by default in {DEFAULT_AT} when cargo-binstall is unavailable.\n\
+         To use native cargo binaries now: pakro settings cargo.binstall_native=true\n\
+         To keep using cargo install: pakro settings cargo.binstall_native=false"
     );
 }
 

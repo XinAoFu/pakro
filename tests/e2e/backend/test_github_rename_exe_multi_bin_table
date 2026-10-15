@@ -10,19 +10,19 @@ if [[ "$(uname -s)" != "Linux" ]]; then
   exit 0
 fi
 
-export MISE_EXPERIMENTAL=1
-export MISE_GPG_VERIFY=false
+export PAKRO_EXPERIMENTAL=1
+export PAKRO_GPG_VERIFY=false
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools."github:DanielGavin/ols"]
 version = "dev-2026-05"
 asset_pattern = "ols-x86_64-unknown-linux-gnu.zip"
 rename_exe = { "ols-*" = "ols", "odinfmt-*" = "odinfmt" }
 EOF
 
-mise install
+pakro install
 
-install_path="$(mise where github:DanielGavin/ols)"
+install_path="$(pakro where github:DanielGavin/ols)"
 
 # Both binaries should be renamed to their clean names...
 assert_directory_exists "$install_path"
@@ -34,5 +34,5 @@ assert "test ! -e '$install_path/ols-x86_64-unknown-linux-gnu' && echo ok" "ok"
 assert "test ! -e '$install_path/odinfmt-x86_64-unknown-linux-gnu' && echo ok" "ok"
 
 # Both should be exposed on PATH.
-assert_contains "mise which ols" "/ols"
-assert_contains "mise which odinfmt" "/odinfmt"
+assert_contains "pakro which ols" "/ols"
+assert_contains "pakro which odinfmt" "/odinfmt"

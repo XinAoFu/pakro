@@ -1,23 +1,23 @@
 use crate::gitlab;
 use crate::tokens;
 
-/// Display the GitLab token mise will use for a given host
+/// Display the GitLab token pakro will use for a given host
 ///
-/// Shows which token source mise would use, useful for debugging
+/// Shows which token source pakro would use, useful for debugging
 /// authentication issues. The token is masked by default.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise token gitlab
+        r###"pakro token gitlab
 gitlab.com: glpa…xxxx (source: GITLAB_TOKEN)"###
     ),
     example(
-        r###"mise token gitlab --unmask
+        r###"pakro token gitlab --unmask
 gitlab.com: glpat-xxxxxxxxxxxx (source: GITLAB_TOKEN)"###
     ),
     example(
-        r###"mise token gitlab gitlab.mycompany.com
+        r###"pakro token gitlab gitlab.mycompany.com
 gitlab.mycompany.com: (none)"###
     )
 )]
@@ -40,10 +40,10 @@ impl Gitlab {
                 } else {
                     tokens::mask_token(&token)
                 };
-                miseprintln!("{}: {} (source: {})", self.host, display_token, source);
+                pakroprintln!("{}: {} (source: {})", self.host, display_token, source);
             }
             None => {
-                miseprintln!("{}: (none)", self.host);
+                pakroprintln!("{}: (none)", self.host);
             }
         }
         Ok(())

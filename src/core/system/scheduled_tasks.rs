@@ -1,13 +1,13 @@
 //! Windows Scheduled Tasks for user-scope `[bootstrap.services]` entries.
 //!
-//! A task named `mise\<name>` is registered from a rendered task definition
+//! A task named `pakro\<name>` is registered from a rendered task definition
 //! with `schtasks /create /xml`. The rendered definition is kept under
-//! `$MISE_STATE_DIR/user-services/<name>.xml` so drift is detected against
-//! what mise wrote, independent of the exporter's formatting.
+//! `$PAKRO_STATE_DIR/user-services/<name>.xml` so drift is detected against
+//! what pakro wrote, independent of the exporter's formatting.
 //!
 //! A task that sets `environment` keeps a second file, `<name>.launch.json`:
 //! Task Scheduler's XML has no environment block, so such a task runs
-//! through mise, which reads the environment back from there. The action
+//! through pakro, which reads the environment back from there. The action
 //! names that file by digest, so a changed environment changes the
 //! definition and drift is still one comparison (see `exec_action`).
 
@@ -28,9 +28,9 @@ pub(crate) struct ScheduledTaskRequest {
     pub command: String,
     pub restart_on_failure: bool,
     pub environment: IndexMap<String, String>,
-    /// The durable mise executable a task that sets `environment` runs
-    /// through. Task Scheduler's XML has no environment block, so mise
-    /// carries it (see `exec_action`); `None` when there is no mise to
+    /// The durable pakro executable a task that sets `environment` runs
+    /// through. Task Scheduler's XML has no environment block, so pakro
+    /// carries it (see `exec_action`); `None` when there is no pakro to
     /// carry it with.
     pub launcher: Option<String>,
     pub working_directory: Option<String>,
@@ -106,10 +106,10 @@ pub(crate) fn unavailable_reason() -> String {
 }
 
 pub(crate) fn task_name(name: &str) -> String {
-    format!("mise\\{name}")
+    format!("pakro\\{name}")
 }
 
-/// Where the rendered definition mise registered is kept.
+/// Where the rendered definition pakro registered is kept.
 pub(crate) fn definition_path(name: &str) -> PathBuf {
     crate::dirs::STATE
         .join("user-services")
@@ -150,7 +150,7 @@ pub(crate) fn render_xml(request: &ScheduledTaskRequest, user_id: &str) -> Resul
             request
                 .description
                 .as_deref()
-                .unwrap_or("managed by mise bootstrap")
+                .unwrap_or("managed by pakro bootstrap")
         )
     ));
     out.push_str("  </RegistrationInfo>\n");
@@ -214,7 +214,7 @@ pub(crate) fn render_xml(request: &ScheduledTaskRequest, user_id: &str) -> Resul
 pub(crate) struct ServiceLaunch {
     pub program: String,
     /// The rest of the command line, kept as one string and passed to the
-    /// program unchanged. Splitting it would hand the program mise's idea
+    /// program unchanged. Splitting it would hand the program pakro's idea
     /// of where its arguments end instead of its own.
     pub args: String,
     pub environment: IndexMap<String, String>,
@@ -282,7 +282,7 @@ pub(crate) fn launch_dir(name: &str) -> PathBuf {
 /// interleaving can otherwise leave a registered task whose `--launch` is
 /// gone, which never starts and says nothing until someone applies again.
 ///
-/// Beside the state it guards rather than hashed into the cache, so two mise
+/// Beside the state it guards rather than hashed into the cache, so two pakro
 /// installations sharing a state directory still serialize. Declining is
 /// better than waiting: the other command is about to change the very thing
 /// this one just read.
@@ -313,7 +313,7 @@ pub(crate) fn launch_path(name: &str, digest: &str) -> PathBuf {
 //
 // Nothing that could delete one can know whether it is still needed. The
 // path is baked into the registered command line, and `__service-exec`
-// reads it only after mise has started up, so an instance that Task
+// reads it only after pakro has started up, so an instance that Task
 // Scheduler launched moments earlier — at logon, or from the `/run` of an
 // earlier apply — is still holding a path it has not opened yet. Deleting
 // out from under it gives `no stored launch`, and if `query` had not seen
@@ -334,7 +334,7 @@ pub(crate) fn launch_path(name: &str, digest: &str) -> PathBuf {
 ///
 /// With no environment to carry, that is the declared command itself. Task
 /// Scheduler's XML has no environment block, so a task that sets one starts
-/// mise instead: it applies the environment and runs the service as its
+/// pakro instead: it applies the environment and runs the service as its
 /// child (`bootstrap __service-exec`, see `crate::system::service_exec`).
 /// Nothing the declaration contains reaches a command line on the way —
 /// the environment and the command line travel as JSON — so no key, value,
@@ -342,18 +342,18 @@ pub(crate) fn launch_path(name: &str, digest: &str) -> PathBuf {
 ///
 /// The digest pins the action to the launch it was rendered from, so the
 /// registered definition changes whenever the environment does, and a
-/// launch edited behind mise's back does not run. The launch is named by
+/// launch edited behind pakro's back does not run. The launch is named by
 /// absolute path: Task Scheduler starts the service from the user's logon
 /// environment, which need not be the one `apply` ran under, so a
-/// `MISE_STATE_DIR` set only for the apply would otherwise leave the
+/// `PAKRO_STATE_DIR` set only for the apply would otherwise leave the
 /// service looking for its launch somewhere it was never written.
 fn exec_action(request: &ScheduledTaskRequest) -> Result<(String, String)> {
     let Some((_, digest)) = render_launch(request)? else {
         return Ok(split_command(&request.command));
     };
-    let Some(mise) = request.launcher.as_deref() else {
+    let Some(pakro) = request.launcher.as_deref() else {
         bail!(
-            "user service '{}' sets `environment`, which mise carries for it; install mise on this host first",
+            "user service '{}' sets `environment`, which pakro carries for it; install pakro on this host first",
             request.name
         );
     };
@@ -363,7 +363,7 @@ fn exec_action(request: &ScheduledTaskRequest) -> Result<(String, String)> {
     // launcher. Names are letters, digits, `.`, `_` and `-`, so nothing here
     // needs quoting.
     Ok((
-        mise.to_string(),
+        pakro.to_string(),
         format!(
             "bootstrap __service-exec --launch {path} --digest {digest} -- {}",
             request.name
@@ -529,18 +529,18 @@ pub(crate) async fn apply(requests: &[ScheduledTaskRequest], dry_run: bool) -> R
         let (end_first, start) = transition(running, changed, req.start, req.restart);
         if dry_run {
             if let Some((_, digest)) = &launch {
-                miseprintln!(
+                pakroprintln!(
                     "write {}",
                     shell_words::join([launch_path(&req.name, digest).display().to_string()])
                 );
             }
-            miseprintln!("write {}", shell_words::join([path.display().to_string()]));
-            miseprintln!("schtasks {}", shell_words::join(&create));
+            pakroprintln!("write {}", shell_words::join([path.display().to_string()]));
+            pakroprintln!("schtasks {}", shell_words::join(&create));
             if end_first {
-                miseprintln!("schtasks {}", shell_words::join(&end));
+                pakroprintln!("schtasks {}", shell_words::join(&end));
             }
             if start {
-                miseprintln!("schtasks {}", shell_words::join(&run));
+                pakroprintln!("schtasks {}", shell_words::join(&run));
             }
             continue;
         }
@@ -587,7 +587,7 @@ pub(crate) async fn apply(requests: &[ScheduledTaskRequest], dry_run: bool) -> R
     Ok(())
 }
 
-/// Delete the task mise registered for `name`. Returns whether one existed.
+/// Delete the task pakro registered for `name`. Returns whether one existed.
 pub(crate) async fn remove_task(name: &str, dry_run: bool) -> Result<bool> {
     let task = task_name(name);
     let path = definition_path(name);
@@ -615,10 +615,10 @@ pub(crate) async fn remove_task(name: &str, dry_run: bool) -> Result<bool> {
         "/f".to_string(),
     ];
     if dry_run {
-        miseprintln!("schtasks {}", shell_words::join(&args));
+        pakroprintln!("schtasks {}", shell_words::join(&args));
         for stale in [&path, &launches] {
             if stale.exists() {
-                miseprintln!(
+                pakroprintln!(
                     "{}",
                     shell_words::join(["rm".to_string(), stale.display().to_string()])
                 );
@@ -647,12 +647,12 @@ struct Query {
 /// and `-` before they get here.
 fn query_script(name: &str) -> String {
     format!(
-        "$t = Get-ScheduledTask -TaskPath '\\mise\\' -TaskName '{name}' -ErrorAction SilentlyContinue; if ($null -eq $t) {{ 'MISSING' }} else {{ $t.State.ToString() }}"
+        "$t = Get-ScheduledTask -TaskPath '\\pakro\\' -TaskName '{name}' -ErrorAction SilentlyContinue; if ($null -eq $t) {{ 'MISSING' }} else {{ $t.State.ToString() }}"
     )
 }
 
 async fn query(task: &str) -> Result<Option<Query>> {
-    let name = task.strip_prefix("mise\\").unwrap_or(task);
+    let name = task.strip_prefix("pakro\\").unwrap_or(task);
     if !name
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
@@ -806,26 +806,26 @@ mod tests {
         assert!(!xml.contains("<WorkingDirectory>"));
     }
 
-    /// An environment turns the action into mise, which carries it: the
+    /// An environment turns the action into pakro, which carries it: the
     /// declared command moves into the launch stored beside the definition,
     /// and the action names that launch by digest.
     #[test]
-    fn an_environment_makes_mise_the_action() {
+    fn an_environment_makes_pakro_the_action() {
         let mut request = sample();
         request.environment.insert("RUST_LOG".into(), "info".into());
-        request.launcher = Some("C:\\mise\\mise.exe".to_string());
+        request.launcher = Some("C:\\pakro\\pakro.exe".to_string());
         request.at_logon = false;
         request.restart_on_failure = false;
 
         let xml = render_xml(&request, "me").unwrap();
         assert!(
-            xml.contains("<Command>C:\\mise\\mise.exe</Command>"),
+            xml.contains("<Command>C:\\pakro\\pakro.exe</Command>"),
             "{xml}"
         );
         let (launch, digest) = render_launch(&request).unwrap().unwrap();
         // the launch is named by absolute path: the service is started from
         // the user's logon environment, which need not have the
-        // `MISE_STATE_DIR` the apply ran under
+        // `PAKRO_STATE_DIR` the apply ran under
         let path = launch_path("agent", &digest);
         assert!(path.is_absolute(), "{}", path.display());
         let expected = format!(
@@ -867,12 +867,12 @@ mod tests {
 
     /// The characters `cmd.exe` used to force a bail on. None of them reach
     /// a command line now: the environment and the command travel as JSON
-    /// and are applied by mise, so they are carried as written.
+    /// and are applied by pakro, so they are carried as written.
     #[test]
     fn what_cmd_would_have_reinterpreted_is_carried_as_written() {
         let mut request = sample();
         request.command = "C:\\Tools\\agent.exe --filter a&b|c<d>e^f".to_string();
-        request.launcher = Some("mise.exe".to_string());
+        request.launcher = Some("pakro.exe".to_string());
         request
             .environment
             .insert("P".into(), "%PATH%;C:\\x".into());
@@ -881,7 +881,7 @@ mod tests {
             .insert("Q".into(), "a \"quoted\" & piped | value".into());
 
         let xml = render_xml(&request, "me").unwrap();
-        assert!(xml.contains("<Command>mise.exe</Command>"), "{xml}");
+        assert!(xml.contains("<Command>pakro.exe</Command>"), "{xml}");
         let launch: ServiceLaunch =
             serde_json::from_str(&render_launch(&request).unwrap().unwrap().0).unwrap();
         assert_eq!(launch.args, "--filter a&b|c<d>e^f");
@@ -898,7 +898,7 @@ mod tests {
     fn names_windows_cannot_hold_are_still_refused() {
         for (key, value) in [("A=B", "1"), ("", "1"), ("A\0B", "1")] {
             let mut request = sample();
-            request.launcher = Some("mise.exe".to_string());
+            request.launcher = Some("pakro.exe".to_string());
             request.environment.insert(key.into(), value.into());
             let err = render_xml(&request, "me").unwrap_err().to_string();
             assert!(
@@ -908,7 +908,7 @@ mod tests {
         }
 
         let mut request = sample();
-        request.launcher = Some("mise.exe".to_string());
+        request.launcher = Some("pakro.exe".to_string());
         request.environment.insert("A".into(), "one\0two".into());
         let err = render_xml(&request, "me").unwrap_err().to_string();
         assert!(err.contains("contains a NUL"), "{err}");
@@ -920,7 +920,7 @@ mod tests {
     fn a_name_that_looks_like_options_still_reaches_the_launcher() {
         let mut request = ScheduledTaskRequest::new("-agent");
         request.command = "C:\\Tools\\agent.exe --serve".to_string();
-        request.launcher = Some("mise.exe".to_string());
+        request.launcher = Some("pakro.exe".to_string());
         request.environment.insert("A".into(), "1".into());
         let xml = render_xml(&request, "me").unwrap();
         assert!(xml.contains(" -- -agent</Arguments>"), "{xml}");
@@ -936,15 +936,15 @@ mod tests {
         );
     }
 
-    /// Carrying an environment takes a mise that will still be there when
+    /// Carrying an environment takes a pakro that will still be there when
     /// the task runs; without one the definition does not render at all,
     /// rather than registering a task that cannot start.
     #[test]
-    fn carrying_an_environment_needs_mise() {
+    fn carrying_an_environment_needs_pakro() {
         let mut request = sample();
         request.environment.insert("A".into(), "1".into());
         let err = render_xml(&request, "me").unwrap_err().to_string();
-        assert!(err.contains("install mise on this host first"), "{err}");
+        assert!(err.contains("install pakro on this host first"), "{err}");
     }
 
     /// Without an environment there is nothing to carry, so the action is

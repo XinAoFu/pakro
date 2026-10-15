@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use super::select::Variant;
 use super::shadow::{HistoryRepo, Overlay};
 
-pub(crate) const PATH: &str = ".mise-history/manifest.json";
+pub(crate) const PATH: &str = ".pakro-history/manifest.json";
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -329,7 +329,7 @@ impl Manifest {
         Ok(merged)
     }
 
-    /// Restore enrollment from Git without needing a captured mise config.
+    /// Restore enrollment from Git without needing a captured pakro config.
     /// Deployment inputs are validated separately; none are inferred here.
     pub fn tracking(&self) -> Result<super::tracked::TrackedSet> {
         self.tracking_view(true)
@@ -423,7 +423,7 @@ impl Manifest {
         let environments = super::select::active_environments();
         let mut overlays = vec![];
         for file in repo.ls_tree(&parent)? {
-            if file.path.starts_with(".mise-history/") {
+            if file.path.starts_with(".pakro-history/") {
                 continue;
             }
             let (stem, relative) = file.path.split_once('/').unwrap_or((&file.path, ""));
@@ -580,11 +580,11 @@ impl Manifest {
 /// and a `.`. Counting a portable path with `split('/')` did not: a
 /// trailing or a doubled slash inflated it, and a manifest written
 /// elsewhere or edited by hand could then rank `home/.config/` above
-/// `home/.config/mise` and name the wrong enrollment's stream — the
+/// `home/.config/pakro` and name the wrong enrollment's stream — the
 /// defect that ranking by byte length was, arriving from the other side.
 /// Rather than a second implementation that agrees today, this is the
 /// same call: a portable path is `/`-separated, and `/` is a separator
-/// on every host mise runs on.
+/// on every host pakro runs on.
 fn portable_components(path: &str) -> usize {
     std::path::Path::new(path).components().count()
 }
@@ -612,7 +612,7 @@ mod tests {
     use super::*;
 
     /// **A reader that cannot see an entry's lists must refuse the
-    /// manifest, not ignore them.** An older mise that skipped an
+    /// manifest, not ignore them.** An older pakro that skipped an
     /// unknown `include` would read the entry as covering its whole
     /// tree, and a rollback would then delete the files the list never
     /// selected — the checkpoint "did not hold" them because they were
@@ -621,7 +621,7 @@ mod tests {
     /// asserted here rather than assumed.
     #[test]
     fn a_reader_without_the_lists_refuses_the_manifest() {
-        /// `Enrollment` exactly as a released mise declares it.
+        /// `Enrollment` exactly as a released pakro declares it.
         #[derive(Debug, serde::Deserialize)]
         #[serde(deny_unknown_fields)]
         struct ReleasedEnrollment {
@@ -667,7 +667,7 @@ mod tests {
         ] {
             let json = serde_json::to_string(&entry).unwrap();
             let error = serde_json::from_str::<ReleasedEnrollment>(&json)
-                .expect_err("a released mise must refuse an entry it cannot fully read");
+                .expect_err("a released pakro must refuse an entry it cannot fully read");
             assert!(
                 error.to_string().contains("unknown field"),
                 "unexpected refusal: {error}"
@@ -678,7 +678,7 @@ mod tests {
     /// A portable path is counted the way a live one is, so the
     /// most-specific-owner rule cannot mean two things. A trailing or a
     /// doubled slash is not a component; counting it as one would rank
-    /// `home/.config/` above `home/.config/mise`.
+    /// `home/.config/` above `home/.config/pakro`.
     #[test]
     fn a_portable_path_is_counted_the_way_a_live_path_is() {
         for path in [
@@ -686,7 +686,7 @@ mod tests {
             "home//.config",
             "home/./.config",
             "home/.config",
-            "home/.config/mise",
+            "home/.config/pakro",
             "config/settings.toml",
             "home@linux/.zshrc",
         ] {
@@ -699,7 +699,7 @@ mod tests {
         assert_eq!(portable_components("home/.config/"), 2);
         assert_eq!(portable_components("home//.config"), 2);
         assert_eq!(portable_components("home/./.config"), 2);
-        assert_eq!(portable_components("home/.config/mise"), 3);
+        assert_eq!(portable_components("home/.config/pakro"), 3);
 
         // and the deeper enrollment owns the path, whichever way the
         // shallower one is spelled
@@ -709,14 +709,14 @@ mod tests {
             ..Default::default()
         };
         let manifest = Manifest {
-            enrollment: vec![enroll("home/.config"), enroll("home/.config/mise")],
+            enrollment: vec![enroll("home/.config"), enroll("home/.config/pakro")],
             ..Default::default()
         };
         assert_eq!(
             manifest
-                .owner("home/.config/mise/config.toml")
+                .owner("home/.config/pakro/config.toml")
                 .map(|entry| entry.path.as_str()),
-            Some("home/.config/mise")
+            Some("home/.config/pakro")
         );
     }
 

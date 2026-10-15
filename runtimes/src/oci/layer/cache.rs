@@ -66,9 +66,9 @@ fn fingerprint(
     relocation: &ToolRelocation,
 ) -> Result<String> {
     let mut hash = Sha256::new();
-    // Bump the format whenever layer construction changes. Unrelated mise
+    // Bump the format whenever layer construction changes. Unrelated pakro
     // releases must not invalidate byte-identical tool layers.
-    field(&mut hash, b"mise-oci-tool-layer-v1");
+    field(&mut hash, b"pakro-oci-tool-layer-v1");
     field(&mut hash, std::env::consts::OS.as_bytes());
     field(&mut hash, std::env::consts::ARCH.as_bytes());
     field(&mut hash, prefix.as_bytes());
@@ -183,7 +183,7 @@ mod tests {
         let owner = LayerOwner::default();
         let relocation = ToolRelocation::default();
         let build =
-            || build_cached_tool_layer(&src, "mise/tool", owner, &relocation, &cache).unwrap();
+            || build_cached_tool_layer(&src, "pakro/tool", owner, &relocation, &cache).unwrap();
         let (first, hit) = build();
         assert!(!hit);
         assert!(std::fs::read_dir(&cache).unwrap().all(|entry| {
@@ -223,14 +223,14 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(src.join("launcher"), std::fs::Permissions::from_mode(0o755))
             .unwrap();
-        let original = ToolRelocation::new(vec![(src.clone(), "/mise/python".into())]);
+        let original = ToolRelocation::new(vec![(src.clone(), "/pakro/python".into())]);
         let changed = ToolRelocation::new(vec![(src.clone(), "/other/python".into())]);
         let mut digests = std::collections::HashSet::new();
         for (prefix, owner, relocation) in [
-            ("mise/tool", LayerOwner::default(), &original),
+            ("pakro/tool", LayerOwner::default(), &original),
             ("other/tool", LayerOwner::default(), &original),
-            ("mise/tool", LayerOwner::new(1000, 1000), &original),
-            ("mise/tool", LayerOwner::default(), &changed),
+            ("pakro/tool", LayerOwner::new(1000, 1000), &original),
+            ("pakro/tool", LayerOwner::default(), &changed),
         ] {
             let (blob, hit) =
                 build_cached_tool_layer(&src, prefix, owner, relocation, &cache).unwrap();
@@ -255,7 +255,7 @@ mod tests {
         let build = || {
             build_cached_tool_layer(
                 &src,
-                "mise/tool",
+                "pakro/tool",
                 LayerOwner::default(),
                 &relocation,
                 &cache,
@@ -283,7 +283,7 @@ mod tests {
         let build = || {
             build_cached_tool_layer(
                 &src,
-                "mise/tool",
+                "pakro/tool",
                 LayerOwner::default(),
                 &ToolRelocation::default(),
                 &cache,
@@ -322,7 +322,7 @@ mod tests {
                         barrier.wait();
                         build_cached_tool_layer(
                             &src,
-                            "mise/tool",
+                            "pakro/tool",
                             LayerOwner::default(),
                             &ToolRelocation::default(),
                             &cache,
@@ -359,7 +359,7 @@ mod tests {
         let build = || {
             build_cached_tool_layer(
                 &src,
-                "mise/tool",
+                "pakro/tool",
                 LayerOwner::default(),
                 &relocation,
                 &cache,

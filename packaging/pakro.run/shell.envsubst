@@ -1,0 +1,83 @@
+#!/bin/sh
+set -eu
+
+#region logging setup
+if [ "${PAKRO_DEBUG-}" = "true" ] || [ "${PAKRO_DEBUG-}" = "1" ]; then
+  debug() {
+    echo "$@" >&2
+  }
+else
+  debug() {
+    :
+  }
+fi
+
+if [ "${PAKRO_QUIET-}" = "1" ] || [ "${PAKRO_QUIET-}" = "true" ]; then
+  info() {
+    :
+  }
+else
+  info() {
+    echo "$@" >&2
+  }
+fi
+
+error() {
+  echo "$@" >&2
+  exit 1
+}
+#endregion
+
+install_pakro() {
+  # Download and install pakro using the configured install script
+  install_script_url="${PAKRO_INSTALL_SCRIPT_URL:?Set PAKRO_INSTALL_SCRIPT_URL to the pakro installer}"
+  info "pakro: downloading and installing pakro..."
+
+  if [ -x "$(command -v curl)" ]; then
+    curl -fsSL "$install_script_url" | sh
+  elif [ -x "$(command -v wget)" ]; then
+    wget -qO- "$install_script_url" | sh
+  else
+    error "pakro install requires curl or wget but neither is installed. Aborting."
+  fi
+
+  install_path="${PAKRO_INSTALL_PATH:-$HOME/.local/bin/pakro}"
+
+  if [ ! -f "$install_path" ]; then
+    error "pakro installation failed"
+  fi
+
+  info "pakro: installed successfully to $install_path"
+}
+
+setup_${SHELL_NAME}_activation() {
+  install_path="${PAKRO_INSTALL_PATH:-$HOME/.local/bin/pakro}"
+  ${CONFIG_VAR_NAME}
+
+  # Check if activation is already set up
+  if [ -f "$${CONFIG_FILE_VAR}" ] && grep -qF "# added by pakro/${SHELL_NAME}" "$${CONFIG_FILE_VAR}"; then
+    info "pakro: ${SHELL_NAME} activation already configured in $${CONFIG_FILE_VAR}"
+    return
+  fi
+
+  # Add activation to ${SHELL_NAME} config
+  info "pakro: adding activation to $${CONFIG_FILE_VAR}"
+
+  ${CONFIG_SETUP_COMMANDS}
+
+  # Add activation line
+  echo "" >> "$${CONFIG_FILE_VAR}"
+  ${ACTIVATION_COMMAND}
+
+  info "pakro: activation added to $${CONFIG_FILE_VAR}"
+  info "pakro: restart your shell or run '${SOURCE_COMMAND}' to activate pakro"
+  info "pakro: run 'pakro doctor' to verify setup"
+}
+
+# Main execution
+install_pakro
+setup_${SHELL_NAME}_activation
+
+info ""
+info "pakro: setup complete! 🎉"
+info "pakro: ${FINAL_MESSAGE}"

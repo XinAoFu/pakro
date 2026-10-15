@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # This test verifies that symlinked paths are correctly identified as duplicates
-# when filtering PATH entries. Without canonicalization, mise would treat
+# when filtering PATH entries. Without canonicalization, pakro would treat
 # symlinked paths as different from their targets, leading to PATH duplication.
 
 # Create the real cargo bin directory
@@ -14,7 +14,7 @@ ln -s "$HOME/.cargo-real" "$HOME/.cargo"
 cat >"$HOME/.cargo-real/bin/rustc" <<'EOF'
 #!/usr/bin/env bash
 if [ -n "$RUSTUP_TOOLCHAIN" ]; then
-	echo "rustc 1.81.0 (mise version via symlink)"
+	echo "rustc 1.81.0 (pakro version via symlink)"
 else
 	echo "rustc 1.82.0 (system rustup via symlink)"
 fi
@@ -27,30 +27,30 @@ export PATH="$HOME/.cargo/bin:$PATH"
 # Verify system rustc is available via symlink
 assert_contains "rustc --version" "rustc 1.82.0 (system rustup via symlink)"
 
-# Activate mise
-eval "$(mise activate bash)"
+# Activate pakro
+eval "$(pakro activate bash)"
 
-# Create a project with mise rust
+# Create a project with pakro rust
 mkdir -p project
-cat >project/.mise.toml <<EOF
+cat >project/.pakro.toml <<EOF
 [tools]
 rust = "1.81.0"
 EOF
 
 cd project || exit 1
-mise install
-eval "$(mise hook-env)"
+pakro install
+eval "$(pakro hook-env)"
 
-# Verify mise rust is active
+# Verify pakro rust is active
 assert_contains "rustc --version" "1.81.0"
 
 # Leave the project
 # shellcheck disable=SC2103
 cd ..
-eval "$(mise hook-env)"
+eval "$(pakro hook-env)"
 
 # CRITICAL: System rustc should still be accessible via the symlink
-# Without proper canonicalization, mise would:
+# Without proper canonicalization, pakro would:
 # 1. See ~/.cargo/bin in PATH (symlink)
 # 2. Install rust to ~/.cargo/bin (resolves to ~/.cargo-real/bin)
 # 3. Think these are different paths

@@ -1,6 +1,6 @@
-//! What each mise command does to the world.
+//! What each pakro command does to the world.
 //!
-//! mise's usage spec is derived from clap, and clap has no way to express this,
+//! pakro's usage spec is derived from clap, and clap has no way to express this,
 //! so the classification lives here and is applied in [`crate::cli::usage`].
 //! Keeping it in one table is deliberate: a safety classification is much easier
 //! to review as a single list than as annotations scattered over sixty files.
@@ -16,8 +16,8 @@
 //!
 //! **Installing a declared tool version is not an effect.** Almost anything
 //! that resolves a toolset — `env`, `activate`, `exec`, `hook-env` — may
-//! install a version the config already asks for. That is mise doing its job:
-//! it is idempotent, mise recreates it on demand, and it changes nothing the
+//! install a version the config already asks for. That is pakro doing its job:
+//! it is idempotent, pakro recreates it on demand, and it changes nothing the
 //! user authored. Counting it would make nearly every command `write` and
 //! leave the field with no signal at all. What counts is a change to something
 //! the user manages — their config, their files, their installed toolset as a
@@ -25,7 +25,7 @@
 //! point, not a precondition.
 //!
 //! The same reasoning covers the cache: `cache clear` is `write` rather than
-//! `destructive` because mise refills it without the user doing anything.
+//! `destructive` because pakro refills it without the user doing anything.
 //!
 //! **An unlisted command means "unknown", not "safe".** Consumers treat the
 //! absence of a value as "ask", so leaving a command out is the conservative
@@ -37,9 +37,9 @@ use std::collections::HashMap;
 
 use usage::SpecCommandEffect::{self, Destructive, Read, Write};
 
-/// Commands whose effect is fixed, keyed by their full path under `mise`.
+/// Commands whose effect is fixed, keyed by their full path under `pakro`.
 pub(super) const EFFECTS: &[(&str, SpecCommandEffect)] = &[
-    // Root-only helper: `mise install --system` streams a prepared tool
+    // Root-only helper: `pakro install --system` streams a prepared tool
     // archive into it through sudo and it replaces files under the system
     // installs directory.
     ("__publish-system-install", Destructive),
@@ -122,9 +122,9 @@ pub(super) const EFFECTS: &[(&str, SpecCommandEffect)] = &[
     ("bootstrap macos launchd-agents", Read),
     ("bootstrap macos launchd-agents apply", Write),
     ("bootstrap macos launchd-agents status", Read),
-    ("bootstrap mise-shell-activate", Read),
-    ("bootstrap mise-shell-activate apply", Write),
-    ("bootstrap mise-shell-activate status", Read),
+    ("bootstrap pakro-shell-activate", Read),
+    ("bootstrap pakro-shell-activate apply", Write),
+    ("bootstrap pakro-shell-activate status", Read),
     ("bootstrap packages", Read),
     ("bootstrap packages apply", Destructive),
     ("bootstrap packages export", Read),
@@ -136,9 +136,6 @@ pub(super) const EFFECTS: &[(&str, SpecCommandEffect)] = &[
     ("bootstrap packages use", Write),
     ("bootstrap packages where", Read),
     ("bootstrap plan", Read),
-    ("bootstrap plugins", Read),
-    ("bootstrap plugins apply", Write),
-    ("bootstrap plugins status", Read),
     // Runs the configured bootstrap, including destructive resource states and
     // arbitrary project hooks/tasks, on another machine.
     ("bootstrap remote", Destructive),
@@ -177,14 +174,14 @@ pub(super) const EFFECTS: &[(&str, SpecCommandEffect)] = &[
     ("daemons prune", Destructive),
     ("daemons status", Read),
     ("daemons urls", Read),
-    // Bare `mise deps` defaults to `deps install` and runs install steps.
+    // Bare `pakro deps` defaults to `deps install` and runs install steps.
     ("deps", Write),
     ("deps add", Write),
     ("deps install", Write),
     ("deps remove", Destructive),
     ("direnv", Read),
     ("direnv activate", Read),
-    // Writing the file *is* the command — `File::create` under MISE_TMP_DIR.
+    // Writing the file *is* the command — `File::create` under PAKRO_TMP_DIR.
     // The temp location does not make it a read: unlike `env`, where an
     // install is incidental to printing, producing a file is the whole job.
     ("direnv envrc", Write),
@@ -217,7 +214,6 @@ pub(super) const EFFECTS: &[(&str, SpecCommandEffect)] = &[
     ("dotfiles undo", Destructive),
     ("dotfiles untrack", Write),
     ("dotfiles watch", Write),
-    ("edit", Write),
     ("env", Read),
     ("fmt", Write),
     ("generate", Read),
@@ -231,7 +227,7 @@ pub(super) const EFFECTS: &[(&str, SpecCommandEffect)] = &[
     ("generate task-docs", Write),
     ("generate task-stubs", Write),
     ("generate tool-stub", Write),
-    // Removes the mise CLI and every tool, plugin and cache it owns.
+    // Removes the pakro CLI and every tool, plugin and cache it owns.
     ("github", Read),
     ("github token", Read),
     // Writes the global config after setting the version.
@@ -242,7 +238,7 @@ pub(super) const EFFECTS: &[(&str, SpecCommandEffect)] = &[
     // against the registry and installs it. That is a new tool on disk from a
     // typo, not a declared version being realized.
     ("hook-not-found", Write),
-    // Removes the mise CLI and every tool, plugin and cache it owns.
+    // Removes the pakro CLI and every tool, plugin and cache it owns.
     ("implode", Destructive),
     ("install", Write),
     ("install-into", Write),
@@ -271,21 +267,26 @@ pub(super) const EFFECTS: &[(&str, SpecCommandEffect)] = &[
     ("plugins ls-remote", Read),
     ("plugins uninstall", Destructive),
     ("plugins update", Write),
+    ("project", Read),
+    ("project init", Write),
+    ("project attach", Write),
+    ("project ls", Read),
+    ("project status", Read),
     ("prune", Destructive),
     ("registry", Read),
     ("reshim", Write),
     ("search", Read),
     ("self-update", Write),
     ("set", Write),
-    // Bare `mise settings` lists, but `mise settings foo bar` and
-    // `mise settings foo=bar` both route to `settings set` and write config.
+    // Bare `pakro settings` lists, but `pakro settings foo bar` and
+    // `pakro settings foo=bar` both route to `settings set` and write config.
     //
     // usage 4 can raise an effect from an argument being *present*, which
     // covers the two-argument form — but not `foo=bar`, where the trigger is
     // the value of `[SETTING]` rather than whether `[VALUE]` was given. Since
     // one of the two writing forms cannot be expressed, the command keeps
     // `write` as its floor: labelling it `read` would report `read` for
-    // `mise settings foo=bar`, which is the dangerous direction.
+    // `pakro settings foo=bar`, which is the dangerous direction.
     ("settings", Write),
     ("settings add", Write),
     ("settings get", Read),
@@ -442,7 +443,7 @@ mod tests {
     fn all_commands() -> Vec<String> {
         let spec: usage::Spec = crate::cli::Cli::to_kdl()
             .parse()
-            .expect("generated mise usage spec");
+            .expect("generated pakro usage spec");
         let mut out = vec![];
         collect(&spec.cmd, &mut vec![], &mut out);
         out
@@ -464,14 +465,14 @@ mod tests {
     fn apply_annotates_the_spec() {
         let mut spec: usage::Spec = crate::cli::Cli::to_kdl()
             .parse()
-            .expect("generated mise usage spec");
+            .expect("generated pakro usage spec");
         apply(&mut spec);
 
         let cmd = |name: &str| {
             spec.cmd
                 .subcommands
                 .get(name)
-                .unwrap_or_else(|| panic!("no `mise {name}`"))
+                .unwrap_or_else(|| panic!("no `pakro {name}`"))
         };
         assert_eq!(cmd("uninstall").effect, Some(Destructive));
         assert_eq!(cmd("ls").effect, Some(Read));
@@ -491,7 +492,7 @@ mod tests {
     }
 
     /// A flag can raise what its command does, and these tables cannot say so: `annotate` walks
-    /// commands. `mise completion` only reads, and `--install` writes a file — so the flag carries
+    /// commands. `pakro completion` only reads, and `--install` writes a file — so the flag carries
     /// the effect itself, declared on the field. Asserted here so a later edit cannot quietly
     /// leave `--install` reading as safe.
     #[test]
@@ -507,7 +508,7 @@ mod tests {
                 .flags
                 .iter()
                 .find(|f| f.flag.name == name)
-                .unwrap_or_else(|| panic!("`mise completion` has no --{name}"))
+                .unwrap_or_else(|| panic!("`pakro completion` has no --{name}"))
         };
         assert_eq!(
             flag("install").extra.effect,

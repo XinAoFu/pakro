@@ -4,7 +4,7 @@
 # that version from the symlink set, but the directory is still on disk so the
 # link is not dangling and nothing removed it.
 
-PLUGIN_DIR="$MISE_DATA_DIR/plugins/stalelink"
+PLUGIN_DIR="$PAKRO_DATA_DIR/plugins/stalelink"
 mkdir -p "$PLUGIN_DIR/bin"
 
 cat <<'LISTALL' >"$PLUGIN_DIR/bin/list-all"
@@ -22,18 +22,18 @@ chmod +x "$ASDF_INSTALL_PATH/bin/stalelink"
 INSTALL
 chmod +x "$PLUGIN_DIR/bin/install"
 
-INSTALLS="$MISE_DATA_DIR/installs/stalelink"
+INSTALLS="$PAKRO_DATA_DIR/installs/stalelink"
 
-mise install stalelink@1.1.0
+pakro install stalelink@1.1.0
 assert "readlink $INSTALLS/1.1" "./1.1.0"
 
 # an install interrupted partway through
-mkdir -p "$MISE_CACHE_DIR/stalelink/1.1.0"
-touch "$MISE_CACHE_DIR/stalelink/1.1.0/incomplete"
+mkdir -p "$PAKRO_CACHE_DIR/stalelink/1.1.0"
+touch "$PAKRO_CACHE_DIR/stalelink/1.1.0/incomplete"
 
-mise install stalelink@1.0.0
+pakro install stalelink@1.0.0
 
-# nothing mise generated still points into the half-installed directory
+# nothing pakro generated still points into the half-installed directory
 assert_fail "test -L $INSTALLS/1.1"
 # the directory itself is left alone for the installer to finish
 assert "test -d $INSTALLS/1.1.0"

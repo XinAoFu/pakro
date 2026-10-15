@@ -210,7 +210,7 @@ impl Backend for DotnetPlugin {
             .execute()?;
 
         if !isolated {
-            // Symlink install_path -> DOTNET_ROOT so mise can track the installation
+            // Symlink install_path -> DOTNET_ROOT so pakro can track the installation
             file::remove_all(tv.install_path())?;
             file::make_symlink(&install_dir, &tv.install_path())?;
         }
@@ -227,7 +227,7 @@ impl Backend for DotnetPlugin {
         tv: &ToolVersion,
     ) -> Result<()> {
         if Self::is_isolated() {
-            // Isolated: mise handles removal of install_path by default
+            // Isolated: pakro handles removal of install_path by default
         } else {
             let raw_opts = tv.request.options();
             let opts = DotnetOptions::new(&raw_opts);
@@ -531,7 +531,7 @@ mod tests {
     #[test]
     fn sdk_list_contains_exact_installed_version() {
         let lines = vec![
-            "8.0.128 [/Users/test/.local/share/mise/dotnet-root/sdk]".to_string(),
+            "8.0.128 [/Users/test/.local/share/pakro/dotnet-root/sdk]".to_string(),
             "10.0.301 [/opt/homebrew/Cellar/dotnet/10.0.301/libexec/sdk]".to_string(),
         ];
 
@@ -541,7 +541,7 @@ mod tests {
     #[test]
     fn sdk_list_does_not_match_prefix_or_path_only() {
         let lines = vec![
-            "8.0.1280 [/Users/test/.local/share/mise/dotnet-root/sdk]".to_string(),
+            "8.0.1280 [/Users/test/.local/share/pakro/dotnet-root/sdk]".to_string(),
             "10.0.301 [/tmp/8.0.128/sdk]".to_string(),
         ];
 

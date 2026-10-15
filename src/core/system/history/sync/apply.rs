@@ -1,4 +1,4 @@
-//! All-or-nothing application of incoming changes: `mise dot pull`.
+//! All-or-nothing application of incoming changes: `pakro dot pull`.
 //! The complete setup is preflighted; an incoming configuration file is validated
 //! before it is written; a path with unsaved local edits, staged git
 //! changes, or a genuine local edit is held for a decision. Application
@@ -23,7 +23,7 @@ use crate::system::history::replay;
 use crate::system::history::scope::OperationScope;
 use crate::system::history::store::{OperationKind, Summary};
 use crate::system::history::tracked::{TrackedSet, normalize_target};
-use crate::ui::table::MiseTable;
+use crate::ui::table::PakroTable;
 
 #[derive(Clone, Debug)]
 pub struct ApplyRequest {
@@ -249,14 +249,14 @@ pub(crate) async fn apply_locked_with_scope(
                 // still fails the pass.
                 if blanket_chosen.contains(&local) {
                     blanket_held.push(format!(
-                        "{path} {reason}, so run `mise dot save {path}` first",
+                        "{path} {reason}, so run `pakro dot save {path}` first",
                         path = display_path(&local)
                     ));
                     keep_local.remove(&local);
                     continue;
                 }
                 bail!(
-                    "run `mise dot save {path}` first: --keep-local publishes this machine's saved version of {path}, and it {reason}",
+                    "run `pakro dot save {path}` first: --keep-local publishes this machine's saved version of {path}, and it {reason}",
                     path = display_path(&local)
                 );
             }
@@ -270,7 +270,7 @@ pub(crate) async fn apply_locked_with_scope(
                             && super::reconcile::is_gitlink(Some(&object))
                         {
                             bail!(
-                                "cannot take the repository's version of {path}: it is a nested repository pointer, whose files history does not hold. Keep this machine's files with `mise dot pull --keep-local {path}`, or replace them with a clone of that repository yourself",
+                                "cannot take the repository's version of {path}: it is a nested repository pointer, whose files history does not hold. Keep this machine's files with `pakro dot pull --keep-local {path}`, or replace them with a clone of that repository yourself",
                                 path = display_path(&local)
                             );
                         }
@@ -323,7 +323,7 @@ pub(crate) async fn apply_locked_with_scope(
         if req.dry_run {
             // Preview the whole paused setup even when reconciliation
             // cannot yet produce an applicable write set.
-            let mut table = MiseTable::new(false, &["Path", "Action", "Group"]);
+            let mut table = PakroTable::new(false, &["Path", "Action", "Group"]);
             for conflict in &status.conflicts {
                 if let Some(path) = roots.locate(&conflict.branch_path).path() {
                     table.add_row(vec![
@@ -364,7 +364,7 @@ pub(crate) async fn apply_locked_with_scope(
         }
         if take_remote.is_empty() && keep_local.is_empty() && !req.dry_run && !req.automatic {
             bail!(
-                "sync paused: resolve all {} conflict(s) before sharing resumes; `mise dot pull --take-remote-all` chooses the repository's version for every conflict at once, and `mise dot status` says whether any path still needs a different fix",
+                "sync paused: resolve all {} conflict(s) before sharing resumes; `pakro dot pull --take-remote-all` chooses the repository's version for every conflict at once, and `pakro dot status` says whether any path still needs a different fix",
                 status.conflicts.len()
             );
         }
@@ -521,7 +521,7 @@ pub(crate) async fn apply_locked_with_scope(
     }
 
     // the plan
-    let mut table = MiseTable::new(false, &["Path", "Action", "Group"]);
+    let mut table = PakroTable::new(false, &["Path", "Action", "Group"]);
     for step in &ready {
         let action = match (&step.pending.object, step.exists) {
             (Some(_), true) => "write",
@@ -565,7 +565,7 @@ pub(crate) async fn apply_locked_with_scope(
     }
     if req.dry_run {
         if !req.plan_only {
-            miseprintln!("history: dry run; nothing was changed");
+            pakroprintln!("history: dry run; nothing was changed");
         }
         return Ok(ApplyOutcome::default());
     }
@@ -668,7 +668,7 @@ pub(crate) async fn apply_locked_with_scope(
                 || live_permissions(&step.path)? != step.before_mode
             {
                 bail!(
-                    "{} changed while the changes were being applied; nothing more was written. Run `mise dot pull` again",
+                    "{} changed while the changes were being applied; nothing more was written. Run `pakro dot pull` again",
                     display_path(&step.path)
                 );
             }
@@ -739,7 +739,7 @@ pub(crate) async fn apply_locked_with_scope(
             }
         }
         status.application_failure = Some(format!(
-            "application failed ({:#}); {}. Sharing is paused. Inspect `mise dot history` and retry `mise dot pull`",
+            "application failed ({:#}); {}. Sharing is paused. Inspect `pakro dot history` and retry `pakro dot pull`",
             error,
             if recovery_errors.is_empty() {
                 "previous files restored".into()
@@ -776,7 +776,7 @@ pub(crate) async fn apply_locked_with_scope(
     status.application_failure = None;
     status.pending_repository = false;
     status.conflict_pause_observed = false;
-    // the live declarations changed now: said until `mise bootstrap` ran
+    // the live declarations changed now: said until `pakro bootstrap` ran
     let configuration_written = ready
         .iter()
         .any(|step| step.pending.configuration && touched.contains(&step.path));
@@ -795,7 +795,7 @@ pub(crate) async fn apply_locked_with_scope(
     let configuration = ready.iter().any(|step| step.pending.configuration);
     if configuration && !req.automatic {
         info!(
-            "history: configuration changed; declarations may differ from the applied setup: run `mise bootstrap --dry-run`"
+            "history: configuration changed; declarations may differ from the applied setup: run `pakro bootstrap --dry-run`"
         );
     }
     if !req.automatic {
@@ -1088,7 +1088,7 @@ pub(super) fn has_staged_changes(staged: &BTreeSet<PathBuf>, path: &Path) -> boo
         .is_some_and(|entry| entry.starts_with(path))
 }
 
-/// The conflicts as rows for `mise dot status`.
+/// The conflicts as rows for `pakro dot status`.
 pub fn describe_conflicts(conflicts: &[Conflict]) -> Vec<(String, String)> {
     let roots = Roots::current();
     conflicts
@@ -1106,17 +1106,17 @@ pub fn describe_conflicts(conflicts: &[Conflict]) -> Vec<(String, String)> {
 
 pub fn resolution_advice(path: &str, reason: &str) -> String {
     if reason == super::reconcile::ConflictKind::Repository.describe() {
-        "inspect the validation error, reconcile the repository with Git, then run `mise dot sync`"
+        "inspect the validation error, reconcile the repository with Git, then run `pakro dot sync`"
             .into()
     } else if reason == super::reconcile::ConflictKind::UnusableLive.describe() {
         // Neither side of the repository is in question, so neither
         // resolution can be applied: the path itself is what has to change.
         format!(
-            "move {path} away or make it a readable file, then run `mise dot pull`; --take-remote and --keep-local cannot decide it"
+            "move {path} away or make it a readable file, then run `pakro dot pull`; --take-remote and --keep-local cannot decide it"
         )
     } else {
         format!(
-            "inspect with `mise dot conflicts {path}`; resolve with `mise dot pull --take-remote {path}` or `mise dot pull --keep-local {path}`"
+            "inspect with `pakro dot conflicts {path}`; resolve with `pakro dot pull --take-remote {path}` or `pakro dot pull --keep-local {path}`"
         )
     }
 }

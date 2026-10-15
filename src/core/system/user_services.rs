@@ -1,10 +1,10 @@
 //! User-scope services from `[bootstrap.services]` (`scope = "user"`).
 //!
 //! One declaration is rendered for the platform's user service manager: a
-//! systemd user unit on Linux (`dev.mise.<name>.service`), a LaunchAgent on
-//! macOS (`dev.mise.<name>`), a Scheduled Task on Windows (`mise\<name>`).
-//! `builtin = "<name>"` selects a definition mise supplies, run through a
-//! durable mise executable.
+//! systemd user unit on Linux (`dev.pakro.<name>.service`), a LaunchAgent on
+//! macOS (`dev.pakro.<name>`), a Scheduled Task on Windows (`pakro\<name>`).
+//! `builtin = "<name>"` selects a definition pakro supplies, run through a
+//! durable pakro executable.
 
 use std::path::{Path, PathBuf};
 
@@ -21,7 +21,7 @@ use crate::system::services_common::{
 };
 use crate::system::systemd::{self, SystemdRequest, SystemdState, SystemdTomlConfig};
 
-/// A service definition mise supplies.
+/// A service definition pakro supplies.
 struct Builtin {
     args: &'static [&'static str],
     description: &'static str,
@@ -35,7 +35,7 @@ fn builtin(name: &str) -> Option<Builtin> {
     match name {
         "history-watch" => Some(Builtin {
             args: &["dot", "watch"],
-            description: "mise dot history: save tracked files as they change",
+            description: "pakro dot history: save tracked files as they change",
             restart: ServiceRestart::OnFailure,
             nice: Some(10),
         }),
@@ -51,7 +51,7 @@ pub struct UserServiceRequest {
     /// executable to run through (see `unresolved`).
     pub command: Option<String>,
     pub unresolved: Option<String>,
-    /// The durable mise executable a Windows task that sets `environment`
+    /// The durable pakro executable a Windows task that sets `environment`
     /// runs through; `None` when none was found, which `unresolved` reports.
     pub launcher: Option<String>,
     pub builtin: Option<String>,
@@ -71,7 +71,7 @@ impl UserServiceRequest {
         config: ServiceTomlConfig,
         origin: Option<ResourceOrigin>,
     ) -> Result<Self> {
-        Self::from_toml_with_executable(name, config, origin, durable_mise_executable())
+        Self::from_toml_with_executable(name, config, origin, durable_pakro_executable())
     }
 
     fn from_toml_with_executable(
@@ -121,7 +121,7 @@ impl UserServiceRequest {
                     ),
                     None => {
                         unresolved = Some(
-                            "no durable mise executable; install mise on this host first"
+                            "no durable pakro executable; install pakro on this host first"
                                 .to_string(),
                         );
                         None
@@ -136,9 +136,9 @@ impl UserServiceRequest {
                 Some(command.to_string())
             }
         };
-        // On Windows a service that sets `environment` runs through mise,
+        // On Windows a service that sets `environment` runs through pakro,
         // which applies it (Task Scheduler's XML has no environment block).
-        // Without a durable mise there is nothing to carry it with. Reported
+        // Without a durable pakro there is nothing to carry it with. Reported
         // per service, the way the builtin case is: a staged binary is a
         // whole-host condition, and failing the render would take every
         // other bootstrap resource down with this one.
@@ -149,7 +149,7 @@ impl UserServiceRequest {
             && unresolved.is_none()
         {
             unresolved = Some(
-                "no durable mise executable to carry `environment`; install mise on this host first"
+                "no durable pakro executable to carry `environment`; install pakro on this host first"
                     .to_string(),
             );
         }
@@ -315,21 +315,21 @@ pub fn requests_from_config(config: &Config) -> Result<Vec<UserServiceRequest>> 
     Ok(requests)
 }
 
-/// The mise executable a service definition may reference: the running
+/// The pakro executable a service definition may reference: the running
 /// binary unless it lives in a temporary or remote-bootstrap staging
-/// directory, else a `mise` on `PATH` outside those. Durability is judged
+/// directory, else a `pakro` on `PATH` outside those. Durability is judged
 /// by where the binary really is, but the path kept is the one found: a
 /// Homebrew or package-manager symlink survives an upgrade, the versioned
 /// file behind it does not.
-pub(crate) fn durable_mise_executable() -> Option<PathBuf> {
-    let current = crate::env::MISE_BIN.clone();
+pub(crate) fn durable_pakro_executable() -> Option<PathBuf> {
+    let current = crate::env::PAKRO_BIN.clone();
     if durable_behind(&current) {
         return Some(current);
     }
-    // every `mise` on PATH, not only the first: a staged binary earlier on
+    // every `pakro` on PATH, not only the first: a staged binary earlier on
     // PATH (a remote bootstrap) must not hide a durable one behind it; on
-    // Windows that is `mise.exe`
-    let names = crate::file::executable_names("mise");
+    // Windows that is `pakro.exe`
+    let names = crate::file::executable_names("pakro");
     crate::env::PATH
         .iter()
         .flat_map(|dir| names.iter().map(move |name| dir.join(name)))
@@ -353,7 +353,7 @@ fn is_durable(path: &Path) -> bool {
         return false;
     }
     let text = path.to_string_lossy();
-    !(text.contains("/mise-bootstrap.") || text.contains("\\mise-bootstrap."))
+    !(text.contains("/pakro-bootstrap.") || text.contains("\\pakro-bootstrap."))
 }
 
 pub(crate) fn is_available() -> bool {
@@ -413,7 +413,7 @@ pub struct UserServiceStatus {
     pub command: Option<String>,
     pub requires_tools: bool,
     pub restart: &'static str,
-    /// The definition mise renders for this platform, for inspection.
+    /// The definition pakro renders for this platform, for inspection.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub definition: Option<String>,
     #[serde(skip)]
@@ -509,7 +509,7 @@ pub async fn status(requests: &[UserServiceRequest]) -> Result<Vec<UserServiceSt
     Ok(out)
 }
 
-/// The definition mise would install for this platform, for inspection.
+/// The definition pakro would install for this platform, for inspection.
 fn render_definition(request: &UserServiceRequest) -> Result<String> {
     if cfg!(target_os = "linux") {
         Ok(systemd::render_unit(&request.systemd_request()?))
@@ -662,7 +662,7 @@ fn converge_action(desired: bool, missing: bool) -> ResourceAction {
 ///
 /// A `history-watch` service declared running can be stale when its process
 /// does not hold this store's watch lock (its locks predate 2026.9.5 or it
-/// uses a different `MISE_STATE_DIR`). It can also hold the lock while being
+/// uses a different `PAKRO_STATE_DIR`). It can also hold the lock while being
 /// too old to read the current enrollment schema. An apply restarts either
 /// case, so diagnostics only recommend it when it will act.
 pub fn stale_history_watcher(request: &UserServiceRequest) -> bool {
@@ -826,7 +826,7 @@ mod tests {
             "agent".to_string(),
             config,
             None,
-            Some(PathBuf::from("/usr/bin/mise")),
+            Some(PathBuf::from("/usr/bin/pakro")),
         )
         .unwrap()
     }
@@ -848,7 +848,7 @@ mod tests {
         // installed definition is not known to be the declared one.
         assert!(!status(DIFFERS).matches_declaration());
         assert!(!status("unavailable: systemd user manager not available").matches_declaration());
-        assert!(!status("unknown: no durable mise executable").matches_declaration());
+        assert!(!status("unknown: no durable pakro executable").matches_declaration());
     }
 
     #[test]
@@ -894,7 +894,7 @@ mod tests {
             "agent".to_string(),
             config,
             None,
-            Some(PathBuf::from("/usr/bin/mise")),
+            Some(PathBuf::from("/usr/bin/pakro")),
         )
     }
 
@@ -960,7 +960,7 @@ mod tests {
             builtin: Some("history-watch".into()),
             ..Default::default()
         });
-        assert_eq!(request.command.as_deref(), Some("/usr/bin/mise dot watch"));
+        assert_eq!(request.command.as_deref(), Some("/usr/bin/pakro dot watch"));
         assert_eq!(request.restart, ServiceRestart::OnFailure);
         assert_eq!(request.nice, Some(10));
         assert!(request.description.is_some());
@@ -986,7 +986,7 @@ mod tests {
                 .unresolved
                 .as_deref()
                 .unwrap()
-                .contains("no durable mise executable")
+                .contains("no durable pakro executable")
         );
     }
 
@@ -995,11 +995,11 @@ mod tests {
         let temp = std::env::temp_dir();
         let temp = std::fs::canonicalize(&temp).unwrap_or(temp);
         assert!(!is_durable(
-            &temp.join("mise-bootstrap.abc123").join("mise")
+            &temp.join("pakro-bootstrap.abc123").join("pakro")
         ));
-        assert!(!is_durable(Path::new("/tmp/mise-bootstrap.abc123/mise")));
-        assert!(is_durable(Path::new("/usr/bin/mise")));
-        assert!(is_durable(Path::new("/home/me/.local/bin/mise")));
+        assert!(!is_durable(Path::new("/tmp/pakro-bootstrap.abc123/pakro")));
+        assert!(is_durable(Path::new("/usr/bin/pakro")));
+        assert!(is_durable(Path::new("/home/me/.local/bin/pakro")));
     }
 
     #[test]
@@ -1071,7 +1071,7 @@ mod tests {
         config.enabled = false;
         config.restart = Some(ServiceRestart::Never);
         let task = request(config).scheduled_task_request();
-        assert_eq!(task.task, "mise\\agent");
+        assert_eq!(task.task, "pakro\\agent");
         assert!(!task.at_logon);
         assert!(!task.restart_on_failure);
         assert!(task.start);

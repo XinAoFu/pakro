@@ -1,29 +1,29 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2016
 require_cmd git
-export MISE_AGE_KEY="AGE-SECRET-KEY-142E7VJ8GUWR94MXDCYQJ7ZTQZRXKQSP9PUJU8HUQJ206QN7QPV4SM5QRL8"
+export PAKRO_AGE_KEY="AGE-SECRET-KEY-142E7VJ8GUWR94MXDCYQJ7ZTQZRXKQSP9PUJU8HUQJ206QN7QPV4SM5QRL8"
 origin="$PWD/plaintext-origin.git"
 git init -q --bare -b main "$origin"
 echo public >~/.public
-assert_succeed "mise dot track ~/.public"
-assert_succeed "mise dot origin set file://$origin --sync manual --yes"
-repo="$MISE_STATE_DIR/history/repo.git"
+assert_succeed "pakro dot track ~/.public"
+assert_succeed "pakro dot origin set file://$origin --sync manual --yes"
+repo="$PAKRO_STATE_DIR/history/repo.git"
 initial=$(git --git-dir="$origin" rev-parse main)
 
 second="$(dirname "$HOME")/plaintext-history-second"
-mkdir -p "$second/.config/mise" "$second/.local/state/mise/history"
-git clone -q --bare "$origin" "$second/.local/state/mise/history/repo.git"
+mkdir -p "$second/.config/pakro" "$second/.local/state/pakro/history"
+git clone -q --bare "$origin" "$second/.local/state/pakro/history/repo.git"
 echo public >"$second/.public"
-cat >"$second/.config/mise/config.toml" <<'TOML'
+cat >"$second/.config/pakro/config.toml" <<'TOML'
 [dotfiles]
 "~/.public" = { mode = "track" }
 TOML
 b() {
   (
     cd "$second" || exit
-    env HOME="$second" XDG_CONFIG_HOME="$second/.config" MISE_CONFIG_DIR="$second/.config/mise" \
-      MISE_STATE_DIR="$second/.local/state/mise" MISE_DATA_DIR="$second/.local/share/mise" \
-      MISE_CACHE_DIR="$second/.cache/mise" MISE_TRUSTED_CONFIG_PATHS="$second" mise "$@"
+    env HOME="$second" XDG_CONFIG_HOME="$second/.config" PAKRO_CONFIG_DIR="$second/.config/pakro" \
+      PAKRO_STATE_DIR="$second/.local/state/pakro" PAKRO_DATA_DIR="$second/.local/share/pakro" \
+      PAKRO_CACHE_DIR="$second/.cache/pakro" PAKRO_TRUSTED_CONFIG_PATHS="$second" pakro "$@"
   )
 }
 export second
@@ -31,11 +31,11 @@ export -f b
 assert_succeed "b dot origin set file://$origin --sync manual --yes"
 
 echo old-secret >~/.private-value
-assert_succeed "mise dot track ~/.private-value"
-assert_succeed "mise dot save"
+assert_succeed "pakro dot track ~/.private-value"
+assert_succeed "pakro dot save"
 plaintext=$(git --git-dir="$repo" rev-parse HEAD)
 assert "git --git-dir=$repo show $plaintext:home/.private-value" 'old-secret'
-cat >"$MISE_CONFIG_DIR/config.toml" <<'TOML'
+cat >"$PAKRO_CONFIG_DIR/config.toml" <<'TOML'
 [history.encryption]
 recipients = ["age1fuvsfq02qr5ju0nhh3rulrwracymjljlr5j49kres24ltd3fjq0s9z9d8l"]
 [dotfiles]
@@ -44,16 +44,16 @@ recipients = ["age1fuvsfq02qr5ju0nhh3rulrwracymjljlr5j49kres24ltd3fjq0s9z9d8l"]
 TOML
 
 # The default blocks old plaintext even after a new encrypted save.
-assert_succeed 'mise dot save'
-assert_fail 'mise dot sync 2>&1' 'unencrypted or invalid version'
+assert_succeed 'pakro dot save'
+assert_fail 'pakro dot sync 2>&1' 'unencrypted or invalid version'
 assert "git --git-dir=$origin rev-parse main" "$initial"
-assert_succeed 'mise dot sync --fetch-only'
-assert_succeed 'mise dot sync --allow-plaintext-history'
+assert_succeed 'pakro dot sync --fetch-only'
+assert_succeed 'pakro dot sync --allow-plaintext-history'
 assert "git --git-dir=$origin show $plaintext:home/.private-value" 'old-secret'
-assert_contains "git --git-dir=$origin show main:home/.private-value | head -1" 'mise-encrypted-file-v1'
+assert_contains "git --git-dir=$origin show main:home/.private-value | head -1" 'pakro-encrypted-file-v1'
 
 # Incoming plaintext history is also opt-in before another machine adopts it.
-cat >"$second/.config/mise/config.toml" <<'TOML'
+cat >"$second/.config/pakro/config.toml" <<'TOML'
 [history.encryption]
 recipients = ["age1fuvsfq02qr5ju0nhh3rulrwracymjljlr5j49kres24ltd3fjq0s9z9d8l"]
 [dotfiles]
@@ -62,7 +62,7 @@ recipients = ["age1fuvsfq02qr5ju0nhh3rulrwracymjljlr5j49kres24ltd3fjq0s9z9d8l"]
 TOML
 assert_succeed 'b dot sync --fetch-only'
 assert_fail 'b dot pull --yes 2>&1' 'unencrypted or invalid version'
-cat >>"$second/.config/mise/config.toml" <<'TOML'
+cat >>"$second/.config/pakro/config.toml" <<'TOML'
 [settings.history]
 allow_plaintext_history = true
 TOML
@@ -70,29 +70,29 @@ assert_succeed 'b dot pull --yes'
 assert "cat $second/.private-value" 'old-secret'
 
 # The CLI flag does not persist into the next invocation.
-assert_fail 'mise dot sync 2>&1' 'unencrypted or invalid version'
+assert_fail 'pakro dot sync 2>&1' 'unencrypted or invalid version'
 
 # Project configuration cannot enable the bypass.
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [settings.history]
 allow_plaintext_history = true
 TOML
-assert_fail 'mise dot sync 2>&1' 'unencrypted or invalid version'
+assert_fail 'pakro dot sync 2>&1' 'unencrypted or invalid version'
 
 # Global settings apply to sync requests without the CLI flag.
-cat >>"$MISE_CONFIG_DIR/config.toml" <<'TOML'
+cat >>"$PAKRO_CONFIG_DIR/config.toml" <<'TOML'
 [settings.history]
 allow_plaintext_history = true
 TOML
 echo new-secret >~/.private-value
-assert_succeed 'mise dot sync'
-assert_contains "git --git-dir=$origin show main:home/.private-value | head -1" 'mise-encrypted-file-v1'
+assert_succeed 'pakro dot sync'
+assert_contains "git --git-dir=$origin show main:home/.private-value | head -1" 'pakro-encrypted-file-v1'
 assert_not_contains "git --git-dir=$origin show main:home/.private-value" 'new-secret'
-assert_fail 'MISE_HISTORY_ALLOW_PLAINTEXT_HISTORY=false mise dot sync 2>&1' 'unencrypted or invalid version'
-assert_succeed 'MISE_HISTORY_ALLOW_PLAINTEXT_HISTORY=false mise dot sync --allow-plaintext-history'
+assert_fail 'PAKRO_HISTORY_ALLOW_PLAINTEXT_HISTORY=false pakro dot sync 2>&1' 'unencrypted or invalid version'
+assert_succeed 'PAKRO_HISTORY_ALLOW_PLAINTEXT_HISTORY=false pakro dot sync --allow-plaintext-history'
 
 # Bypassing the history audit does not accept an empty recipient list.
-cat >"$MISE_CONFIG_DIR/config.toml" <<'TOML'
+cat >"$PAKRO_CONFIG_DIR/config.toml" <<'TOML'
 [history.encryption]
 recipients = []
 [settings.history]
@@ -101,4 +101,4 @@ allow_plaintext_history = true
 "~/.private-value" = { mode = "track", encrypt = true }
 TOML
 echo another-secret >~/.private-value
-assert_fail 'mise dot sync --allow-plaintext-history 2>&1' '[history.encryption].recipients'
+assert_fail 'pakro dot sync --allow-plaintext-history 2>&1' '[history.encryption].recipients'

@@ -61,7 +61,7 @@ os=$(get_os)
 arch=$(get_arch)
 suffix=$(get_suffix)
 version=$(./packaging/scripts/get-version.sh)
-basename=mise-$version-$os-$arch$suffix
+basename=pakro-$version-$os-$arch$suffix
 
 case "$os-$arch" in
 linux-arm*)
@@ -90,8 +90,8 @@ if [[ $os == "macos" ]]; then
 	export MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET:-12.0}
 	# The notification helper is embedded as a complete signed app. Local builds
 	# use an ad-hoc identity; release builds use the same Developer ID certificate
-	# as the outer mise binary so macOS can validate it after extraction.
-	export MISE_NOTIFICATION_SIGN_IDENTITY="Developer ID Application: Jeffrey Dickey (4993Y37DX6)"
+	# as the outer pakro binary so macOS can validate it after extraction.
+	export PAKRO_NOTIFICATION_SIGN_IDENTITY="${PAKRO_NOTIFICATION_SIGN_IDENTITY:--}"
 fi
 
 case "$RUST_TRIPLE" in
@@ -99,15 +99,15 @@ case "$RUST_TRIPLE" in
 	# Link the executable at a fixed address instead of as a PIE, so the
 	# dynamic loader has no pointers to patch at startup (see link_without_pie
 	# in build.rs). About halves the run time of short commands like hook-env.
-	export MISE_NO_PIE=1
+	export PAKRO_NO_PIE=1
 	;;
 esac
 
-if [[ -n ${MISE_BOLT:-} ]] && [[ -z ${MISE_PGO:-} ]]; then
-	error "MISE_BOLT requires MISE_PGO so BOLT optimizes the PGO release binary"
+if [[ -n ${PAKRO_BOLT:-} ]] && [[ -z ${PAKRO_PGO:-} ]]; then
+	error "PAKRO_BOLT requires PAKRO_PGO so BOLT optimizes the PGO release binary"
 fi
 
-if [[ -n ${MISE_PGO:-} ]]; then
+if [[ -n ${PAKRO_PGO:-} ]]; then
 	# Profile-guided optimization: instrument, train against the hermetic
 	# offline workload in packaging/scripts/pgo.bash, rebuild with the profile.
 	# Only valid for targets whose binaries can execute on this machine.
@@ -115,7 +115,7 @@ if [[ -n ${MISE_PGO:-} ]]; then
 	if [[ $os == "linux" ]]; then
 		build_tool=cross
 	fi
-	MISE_PGO_BUILD_TOOL="$build_tool" MISE_PGO_TARGET="$RUST_TRIPLE" \
+	PAKRO_PGO_BUILD_TOOL="$build_tool" PAKRO_PGO_TARGET="$RUST_TRIPLE" \
 		bash packaging/scripts/pgo.bash --ignore-rust-version --no-default-features --features "$features"
 elif [[ $os == "linux" ]]; then
 	cross build --profile=serious --target "$RUST_TRIPLE" --ignore-rust-version --no-default-features --features "$features"
@@ -125,9 +125,9 @@ fi
 
 # Use CARGO_TARGET_DIR if set, otherwise default to target
 target_dir="${CARGO_TARGET_DIR:-target}"
-binary_path="$target_dir/$RUST_TRIPLE/serious/mise"
+binary_path="$target_dir/$RUST_TRIPLE/serious/pakro"
 
-if [[ -n ${MISE_BOLT:-} ]]; then
+if [[ -n ${PAKRO_BOLT:-} ]]; then
 	case "$RUST_TRIPLE" in
 	x86_64-unknown-linux-gnu)
 		bash packaging/scripts/bolt.bash "$binary_path"
@@ -149,20 +149,20 @@ case "$RUST_TRIPLE" in
 	echo "Checking glibc compatibility (floor: $GLIBC_FLOOR)..."
 	packaging/scripts/check-glibc.sh "$binary_path" "$GLIBC_FLOOR" "$RUST_TRIPLE"
 	if ! readelf -h "$binary_path" | grep -q 'Type:.*EXEC'; then
-		error "$binary_path is not linked non-PIE; MISE_NO_PIE did not reach build.rs"
+		error "$binary_path is not linked non-PIE; PAKRO_NO_PIE did not reach build.rs"
 	fi
 	;;
 esac
-mkdir -p dist/mise/bin
-mkdir -p dist/mise/man/man1
-mkdir -p dist/mise/share/fish/vendor_conf.d
-cp "$target_dir/$RUST_TRIPLE/serious/mise"* dist/mise/bin
-cp README.md dist/mise/README.md
-cp LICENSE dist/mise/LICENSE
+mkdir -p dist/pakro/bin
+mkdir -p dist/pakro/man/man1
+mkdir -p dist/pakro/share/fish/vendor_conf.d
+cp "$target_dir/$RUST_TRIPLE/serious/pakro"* dist/pakro/bin
+cp README.md dist/pakro/README.md
+cp LICENSE dist/pakro/LICENSE
 
 if [[ $os != "windows" ]]; then
-	cp cli/man/man1/mise.1 dist/mise/man/man1/mise.1
-	cp cli/share/fish/vendor_conf.d/mise-activate.fish dist/mise/share/fish/vendor_conf.d/mise-activate.fish
+	cp cli/man/man1/pakro.1 dist/pakro/man/man1/pakro.1
+	cp cli/share/fish/vendor_conf.d/pakro-activate.fish dist/pakro/share/fish/vendor_conf.d/pakro-activate.fish
 fi
 
 cd dist
@@ -170,12 +170,12 @@ cd dist
 if [[ $os == "macos" ]]; then
 	# --options runtime and --timestamp are what the notary service requires;
 	# without them a submission comes back Invalid.
-	codesign -f --options runtime --timestamp --prefix dev.jdx. \
-		-s "$MISE_NOTIFICATION_SIGN_IDENTITY" mise/bin/mise
+	codesign -f --options runtime --timestamp --identifier pakro \
+		-s "$PAKRO_NOTIFICATION_SIGN_IDENTITY" pakro/bin/pakro
 fi
 
 if [[ $os == "windows" ]]; then
-	zip -r "$basename.zip" mise
+	zip -r "$basename.zip" pakro
 	ls -oh "$basename.zip"
 else
 	tar_owner_args=(--owner=0 --group=0)
@@ -183,8 +183,8 @@ else
 		# macOS ships BSD tar, whose ownership flags differ from GNU tar's.
 		tar_owner_args=(--uid 0 --gid 0 --uname root --gname root)
 	fi
-	XZ_OPT=-9 tar "${tar_owner_args[@]}" -acf "$basename.tar.xz" mise
-	tar "${tar_owner_args[@]}" -cf - mise | gzip -9 >"$basename.tar.gz"
-	ZSTD_NBTHREADS=0 ZSTD_CLEVEL=19 tar "${tar_owner_args[@]}" -acf "$basename.tar.zst" mise
+	XZ_OPT=-9 tar "${tar_owner_args[@]}" -acf "$basename.tar.xz" pakro
+	tar "${tar_owner_args[@]}" -cf - pakro | gzip -9 >"$basename.tar.gz"
+	ZSTD_NBTHREADS=0 ZSTD_CLEVEL=19 tar "${tar_owner_args[@]}" -acf "$basename.tar.zst" pakro
 	ls -oh "$basename.tar."*
 fi

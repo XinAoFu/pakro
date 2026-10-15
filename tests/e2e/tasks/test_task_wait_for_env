@@ -6,7 +6,7 @@
 # Without the name-based matching fix, wait_for would fail to find "setup"
 # because it's running as "VERBOSE=1 setup".
 # Use a file to verify ordering: setup sleeps then writes, test writes after.
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.setup]
 run = 'sleep 0.3 && echo setup >> order.txt'
 
@@ -20,12 +20,12 @@ run = 'echo test >> order.txt'
 EOF
 
 rm -f order.txt
-mise run test ::: build
+pakro run test ::: build
 assert "cat order.txt" "setup
 test"
 
 # Test 2: wait_for with name-only matching against args overrides
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.setup]
 run = 'sleep 0.3 && echo setup >> order.txt # args: $@'
 
@@ -39,12 +39,12 @@ run = 'echo test >> order.txt'
 EOF
 
 rm -f order.txt
-mise run test ::: build
+pakro run test ::: build
 assert "cat order.txt" "setup
 test"
 
 # Test 3: wait_for with env specified should do identity matching
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.setup]
 run = 'sleep 0.3 && echo setup >> order.txt'
 
@@ -58,12 +58,12 @@ run = 'echo test >> order.txt'
 EOF
 
 rm -f order.txt
-mise run test ::: build
+pakro run test ::: build
 assert "cat order.txt" "setup
 test"
 
 # Test 4: wait_for with args specified should do identity matching
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.setup]
 run = 'sleep 0.3 && echo setup >> order.txt # args: $@'
 
@@ -77,6 +77,6 @@ run = 'echo test >> order.txt'
 EOF
 
 rm -f order.txt
-mise run test ::: build
+pakro run test ::: build
 assert "cat order.txt" "setup
 test"

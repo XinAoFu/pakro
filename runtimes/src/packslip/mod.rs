@@ -2,7 +2,7 @@
 //!
 //! The backend keeps the verified statement beside each install. This
 //! module reads it back and turns the `resources` it lists into things
-//! mise can hand a shell: a completion script for whichever version of the
+//! pakro can hand a shell: a completion script for whichever version of the
 //! tool is active, from the most verifiable source the vendor offered.
 
 pub mod completions;
@@ -19,7 +19,7 @@ use reqwest::header::{HeaderMap, HeaderValue};
 use crate::backend::packslip::{
     STATEMENT_FILE, is_safe_relative, locate_dir_in_install, locate_in_install, selected_artifact,
 };
-use crate::backend::{Backend, MISE_BINS_DIR};
+use crate::backend::{Backend, PAKRO_BINS_DIR};
 use crate::cmd::CmdLineRunner;
 use crate::config::{Config, Settings};
 use crate::file;
@@ -29,10 +29,10 @@ use crate::toolset::{ToolVersion, Toolset};
 use crate::ui::progress_report::SingleReport;
 
 /// Resources fetched from outside the artifact live here in the install.
-pub(crate) const RESOURCES_DIR: &str = ".mise-packslip";
+pub(crate) const RESOURCES_DIR: &str = ".pakro-packslip";
 pub(crate) const MANPAGES_DIR: &str = "man";
 /// A Packslip install whose executable completed but declared skills did not.
-/// This is distinct from mise's generic incomplete marker, which can represent
+/// This is distinct from pakro's generic incomplete marker, which can represent
 /// any interrupted install and must never be repaired as if it were skills-only.
 pub(crate) const SKILLS_INCOMPLETE_FILE: &str = "skills-incomplete";
 
@@ -119,12 +119,12 @@ fn github_repo(statement: &Statement) -> Option<String> {
 }
 
 /// Where to fetch a repository file at the release's commit, and with what
-/// headers, for the forges mise knows how to read. GitHub goes through its
+/// headers, for the forges pakro knows how to read. GitHub goes through its
 /// raw-content CDN rather than the contents API, whose rate limit is the
 /// first thing to fail for users without a token: a token still applies to a
 /// private repository there, and a missing file is a 404 rather than a login
 /// page. GitLab's raw URL serves public repositories.
-/// `Ok(None)` means the forge is one mise cannot read repository files from.
+/// `Ok(None)` means the forge is one pakro cannot read repository files from.
 /// An `Err` is a real failure — a malformed token, say — and must not be
 /// reported as an unsupported forge.
 pub(crate) fn repo_file_request(
@@ -189,7 +189,7 @@ impl Unreachable {
         match self {
             Self::Failed(err) => err,
             Self::SignIn => eyre!(
-                "GitHub answered {url} with its sign-in page instead of the file, so the token mise is using cannot read that repository"
+                "GitHub answered {url} with its sign-in page instead of the file, so the token pakro is using cannot read that repository"
             ),
         }
     }
@@ -241,7 +241,7 @@ fn is_sign_in_page(url: &str, body: &[u8]) -> bool {
     head.starts_with("<!doctype html") || head.starts_with("<html")
 }
 
-/// The same check against a file that has just been downloaded. A file mise
+/// The same check against a file that has just been downloaded. A file pakro
 /// cannot read back is left to the digest check that follows.
 fn downloaded_sign_in_page(url: &str, dest: &Path) -> bool {
     use std::io::Read;
@@ -424,7 +424,7 @@ pub(crate) async fn fetch_files(
                 }
                 let Some(repo) = github_repo(statement) else {
                     warn!(
-                        "{}: skill {rel} lives in the source repository, which mise can only read on github.com",
+                        "{}: skill {rel} lives in the source repository, which pakro can only read on github.com",
                         tv.style()
                     );
                     continue;
@@ -506,7 +506,7 @@ pub(crate) async fn fetch_files(
                 }
                 let Some((url, headers)) = repo_file_request(statement, rel)? else {
                     warn!(
-                        "{}: {rel} comes from the source repository, which mise cannot read files from",
+                        "{}: {rel} comes from the source repository, which pakro cannot read files from",
                         tv.style()
                     );
                     continue;
@@ -603,7 +603,7 @@ fn installed_bin(install_path: &Path, program: &str) -> Option<PathBuf> {
     if !is_safe_relative(program) {
         return None;
     }
-    let linked = install_path.join(MISE_BINS_DIR).join(program);
+    let linked = install_path.join(PAKRO_BINS_DIR).join(program);
     if linked.exists() {
         return Some(linked);
     }
@@ -616,7 +616,7 @@ fn unpack_skill(archive: &Path, dir: &Path, pr: &dyn SingleReport) -> Result<()>
     let name = archive.file_name().unwrap_or_default().to_string_lossy();
     let format = file::ExtractionFormat::from_file_name(&name);
     if !format.is_archive() {
-        bail!("skill asset {name} is not an archive mise can unpack");
+        bail!("skill asset {name} is not an archive pakro can unpack");
     }
     let strip_components = usize::from(file::should_strip_components(archive, format)?);
     let staging = staging_dir(dir)?;
@@ -745,7 +745,7 @@ pub struct Skill {
 
 /// A skill a packslip declares that the install does not hold. Without
 /// this, a skill that never arrived is indistinguishable from a tool that
-/// declares none, and both look like an empty `mise skills ls`.
+/// declares none, and both look like an empty `pakro skills ls`.
 #[derive(Debug, PartialEq, Eq)]
 pub struct MissingSkill {
     pub name: String,
@@ -775,20 +775,20 @@ pub struct DeclaredSkills {
 
 /// Where `sync_skills` records which links in a directory it made, so
 /// only those are ever replaced or pruned. A link's target alone would not
-/// tell a link mise made from one a person pointed into mise's installs.
-pub(crate) const SYNC_STATE: &str = ".mise-skills.json";
+/// tell a link pakro made from one a person pointed into pakro's installs.
+pub(crate) const SYNC_STATE: &str = ".pakro-skills.json";
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 struct SyncState {
-    /// Each link mise made, by name, with the target it was made with. A
+    /// Each link pakro made, by name, with the target it was made with. A
     /// link at that name pointing anywhere else is somebody else's, even
-    /// if it points into mise's installs.
+    /// if it points into pakro's installs.
     #[serde(default)]
     links: BTreeMap<String, String>,
 }
 
 /// A missing state file means nothing was linked yet. A malformed one is
-/// an error, not an empty set: forgetting which links are mise's would
+/// an error, not an empty set: forgetting which links are pakro's would
 /// leave them as foreign, unreplaced and unpruned, for good.
 fn read_sync_state(dir: &Path) -> Result<SyncState> {
     let path = dir.join(SYNC_STATE);
@@ -798,7 +798,7 @@ fn read_sync_state(dir: &Path) -> Result<SyncState> {
     let text = file::read_to_string(&path)?;
     serde_json::from_str(&text).wrap_err_with(|| {
         format!(
-            "{} is not valid; it records which links in {} mise made. Fix or remove it, then run sync again",
+            "{} is not valid; it records which links in {} pakro made. Fix or remove it, then run sync again",
             path.display(),
             dir.display()
         )
@@ -820,7 +820,7 @@ fn write_sync_state(dir: &Path, state: &SyncState) -> Result<()> {
 /// expected it to be. Two settings are off by default or commonly turned
 /// off, and each keeps a declared skill off disk.
 ///
-/// These are settings as they are now, not a record of the install: mise
+/// These are settings as they are now, not a record of the install: pakro
 /// keeps no history of why a skill did not arrive. So each reason states
 /// what is true today and what to do about it, and never asserts what
 /// happened at install time — the setting may have changed since.
@@ -839,7 +839,7 @@ fn why_missing(group: &[&Resource]) -> String {
     }
 }
 
-/// Declared skills that mise is expected to fetch for this install, but which
+/// Declared skills that pakro is expected to fetch for this install, but which
 /// are still absent after every applicable source has been tried. A disabled
 /// skill fetch or an exec-only skill with packslip execution disabled is an
 /// intentional opt-out, not an incomplete install.
@@ -917,7 +917,7 @@ fn required_missing_skills_with_settings(
         .collect()
 }
 
-/// Fail an install only when a declared skill that mise was allowed to fetch
+/// Fail an install only when a declared skill that pakro was allowed to fetch
 /// remains absent. Call this after all alternative sources have had a chance
 /// to provide each skill.
 pub(crate) fn verify_required_skills(
@@ -937,7 +937,7 @@ pub(crate) fn verify_required_skills(
     }
     let names = missing.iter().map(|skill| skill.name.as_str()).join(", ");
     bail!(
-        "{}: declared skill(s) {names} are not installed; run `mise install {}` to retry",
+        "{}: declared skill(s) {names} are not installed; run `pakro install {}` to retry",
         tv.style(),
         tv.request
     );
@@ -1098,7 +1098,7 @@ pub async fn auto_sync_skills(config: &Arc<Config>) {
     let result = async {
         let skills = active_skills(config).await?;
         // Reported, not warned: this runs after every install, and a skill
-        // that is missing on purpose must not nag on each one. `mise skills
+        // that is missing on purpose must not nag on each one. `pakro skills
         // ls` is where someone asks the question, and it warns.
         for missing in &skills.missing {
             debug!("{missing}");
@@ -1137,7 +1137,7 @@ pub async fn auto_sync_skills(config: &Arc<Config>) {
 }
 
 /// A tool may ship an agent skill that nothing links anywhere until
-/// `mise skills sync` runs, and with `skills.auto_sync` off nothing ever
+/// `pakro skills sync` runs, and with `skills.auto_sync` off nothing ever
 /// says so. Mention it once, and only when there is a skill to link.
 async fn hint_skills(config: &Arc<Config>) {
     if !crate::hint::hint_would_display("skills") {
@@ -1152,7 +1152,7 @@ async fn hint_skills(config: &Arc<Config>) {
     hint!(
         "skills",
         "the active tools ship agent skills; link them into this project with",
-        "mise skills sync"
+        "pakro skills sync"
     );
 }
 
@@ -1166,7 +1166,7 @@ pub struct SyncReport {
     pub skipped: Vec<(String, String)>,
 }
 
-/// Link each skill into `dir` under its name. Only links mise made, which
+/// Link each skill into `dir` under its name. Only links pakro made, which
 /// it records in [`SYNC_STATE`] beside them and which point into one of
 /// `installs` (the installs directory and the install store), are ever
 /// replaced or, with `prune`, removed; anything else at a skill's name is
@@ -1194,8 +1194,8 @@ pub fn sync_skills(
             }
         }
     }
-    // Mise's own link: recorded under this name, still a link, still
-    // pointing exactly where mise pointed it, and that is inside installs.
+    // Pakro's own link: recorded under this name, still a link, still
+    // pointing exactly where pakro pointed it, and that is inside installs.
     // Where a link points, as recorded. Windows reports a junction's target
     // with a verbatim prefix, so both sides are simplified; a target that
     // still exists is also matched by identity.
@@ -1215,7 +1215,7 @@ pub fn sync_skills(
         })
     };
     // The record is written before a link is made and after one is
-    // removed, so a sync cut short never leaves a link mise made that it
+    // removed, so a sync cut short never leaves a link pakro made that it
     // would not recognise as its own next time.
     let mut current = before.clone();
     let persist = |links: &BTreeMap<String, String>| {
@@ -1231,7 +1231,7 @@ pub fn sync_skills(
     }
     for (name, skill) in &wanted {
         let link = dir.join(name);
-        // Already right, and mise's: a link a person made to the same place
+        // Already right, and pakro's: a link a person made to the same place
         // is still theirs and is not adopted.
         if ours(name, &link) && file::is_symlink_to(&link, &skill.path) {
             report.unchanged.push(name.to_string());
@@ -1241,7 +1241,7 @@ pub fn sync_skills(
             if !ours(name, &link) {
                 report.skipped.push((
                     name.to_string(),
-                    format!("{} exists and is not a link mise made", link.display()),
+                    format!("{} exists and is not a link pakro made", link.display()),
                 ));
                 continue;
             }
@@ -1275,8 +1275,8 @@ pub fn sync_skills(
             }
         }
     } else {
-        // Without pruning, links made earlier stay mise's as long as they
-        // still are what mise made.
+        // Without pruning, links made earlier stay pakro's as long as they
+        // still are what pakro made.
         made.extend(
             before
                 .iter()
@@ -1527,7 +1527,7 @@ async fn run_resource_command(
     let output = CmdLineRunner::new(path)
         .args(args)
         .envs(env)
-        .prepend_path(vec![install_path.join(MISE_BINS_DIR)])?
+        .prepend_path(vec![install_path.join(PAKRO_BINS_DIR)])?
         .current_dir(work.path())
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -1544,7 +1544,7 @@ async fn run_resource_command(
 /// tooling. Only the `usage` format is known.
 fn derive_from_spec(format: &str, bin: &str, spec: &Path, shell: &str) -> Result<String> {
     if format != "usage" {
-        bail!("mise cannot derive completions from a {format} spec");
+        bail!("pakro cannot derive completions from a {format} spec");
     }
     // Validate before returning a loader, so an invalid preferred spec still
     // falls through to another resource source.
@@ -1554,7 +1554,7 @@ fn derive_from_spec(format: &str, bin: &str, spec: &Path, shell: &str) -> Result
     let shell = usage_rs::complete::Shell::from_name(shell)
         .ok_or_else(|| eyre!("unsupported completion shell: {shell}"))?;
     let path = completions::encode_spec_path(spec);
-    let script = usage_rs::script::script_for("mise", bin, shell);
+    let script = usage_rs::script::script_for("pakro", bin, shell);
     Ok(script.replace(
         " __complete_word__ ",
         &format!(" __usage_complete_word {path} "),
@@ -1594,7 +1594,7 @@ pub async fn completion_script(config: &Arc<Config>, tool: &str, shell: &str) ->
     let install_path = tv.install_path();
     let Some(statement) = statement(&install_path)? else {
         bail!(
-            "{} was not installed from a packslip, so mise does not know its completions",
+            "{} was not installed from a packslip, so pakro does not know its completions",
             tv.style()
         );
     };
@@ -1760,88 +1760,88 @@ pub(crate) fn completion_ident(tool: &str) -> String {
         .collect()
 }
 
-/// A stub the shell loads by name, which asks mise for the real script at
+/// A stub the shell loads by name, which asks pakro for the real script at
 /// completion time, so it follows whichever version of the tool is active.
 /// It carries the marker usage's installer looks for, so re-installing
 /// replaces it rather than refusing a foreign file.
 ///
 /// In zsh and bash the vendor's script replaces the stub while it completes
-/// and the stub is put back afterwards, so the next completion asks mise
+/// and the stub is put back afterwards, so the next completion asks pakro
 /// again and a version switch in another directory is followed on the next
 /// tab. fish reads the script in a child shell of its own, and PowerShell
 /// puts this completer back after delegating, for the same reason: neither
 /// keeps the registrations of a version that is no longer the active one.
 pub fn stub(tool: &str, shell: usage_rs::complete::Shell) -> Result<String> {
     use usage_rs::complete::Shell;
-    let note = format!("mise completes {tool} from the packslip of whichever version is active");
+    let note = format!("pakro completes {tool} from the packslip of whichever version is active");
     let by = format!(
-        "@generated by usage's installer for `mise completion {} --tool {tool} --install`",
+        "@generated by usage's installer for `pakro completion {} --tool {tool} --install`",
         shell.as_str()
     );
     let ident = completion_ident(tool);
-    let loader = format!("__mise_load_{ident}");
+    let loader = format!("__pakro_load_{ident}");
     let stub = match shell {
         Shell::Zsh => format!(
             r#"#compdef {tool}
 # {note}.
 # {by}
 # The vendor's script takes over this function while it completes; the stub
-# is put back afterwards, so the next completion asks mise again.
-local __mise_stub="${{functions[_{tool}]}}"
-local __mise_matches="${{compstate[nmatches]:-0}}"
+# is put back afterwards, so the next completion asks pakro again.
+local __pakro_stub="${{functions[_{tool}]}}"
+local __pakro_matches="${{compstate[nmatches]:-0}}"
 # Loaded in a function of its own: a `return` in the vendor's script ends
 # that function, not this one, so the stub is always put back below.
 {loader}() {{
-  eval "$(command mise completion zsh --tool '{tool}' 2>/dev/null)"
+  eval "$(command pakro completion zsh --tool '{tool}' 2>/dev/null)"
 }}
 {loader} "$@"
-local __mise_fn="${{_comps[{tool}]:-_{tool}}}"
-local __mise_ret=0
-if [[ "${{compstate[nmatches]:-0}}" != "$__mise_matches" ]]; then
+local __pakro_fn="${{_comps[{tool}]:-_{tool}}}"
+local __pakro_ret=0
+if [[ "${{compstate[nmatches]:-0}}" != "$__pakro_matches" ]]; then
   # The script completed on its own, as one that checks funcstack does
   # when it finds itself inside _{tool}; calling it again would double
   # every candidate.
   :
-elif [[ "$__mise_fn" != _{tool} || "${{functions[_{tool}]}}" != "$__mise_stub" ]]; then
-  "$__mise_fn" "$@"
-  __mise_ret=$?
+elif [[ "$__pakro_fn" != _{tool} || "${{functions[_{tool}]}}" != "$__pakro_stub" ]]; then
+  "$__pakro_fn" "$@"
+  __pakro_ret=$?
 fi
-functions[_{tool}]="$__mise_stub"
+functions[_{tool}]="$__pakro_stub"
 compdef _{tool} '{tool}'
-return $__mise_ret
+return $__pakro_ret
 "#
         ),
         Shell::Bash => {
-            let func = format!("__mise_complete_{ident}");
+            let func = format!("__pakro_complete_{ident}");
             format!(
                 r#"# {note}.
 # {by}
 # The vendor's script registers its own completer, which handles this
-# completion; the stub is put back at the next prompt, so the next asks mise
+# completion; the stub is put back at the next prompt, so the next asks pakro
 # again.
 {func}() {{
-  eval "$(command mise completion bash --tool '{tool}' 2>/dev/null)"
-  local __mise_spec
-  __mise_spec=$(complete -p '{tool}' 2>/dev/null)
-  if [[ -n $__mise_spec && $__mise_spec != *{func}* ]]; then
+  eval "$(command pakro completion bash --tool '{tool}' 2>/dev/null)"
+  local __pakro_spec
+  __pakro_spec=$(complete -p '{tool}' 2>/dev/null)
+  if [[ -n $__pakro_spec && $__pakro_spec != *{func}* ]]; then
     # The vendor's registration is in place now, options and all. Hand this
     # completion to it: 124 makes bash retry with the current registration.
-    # The stub comes back at the next prompt, so later completions ask mise
+    # The stub comes back at the next prompt, so later completions ask pakro
     # again and a version switch is followed.
     {func}_restub() {{
       # Runs first at the prompt, so this is the last command's status,
       # which a prompt that shows it must get back unchanged.
-      local __mise_status=$?
+      local __pakro_status=$?
       complete -F {func} '{tool}'
       if declare -p PROMPT_COMMAND 2>/dev/null | grep -q '^declare -a'; then
-        local __mise_i
-        for __mise_i in "${{!PROMPT_COMMAND[@]}}"; do
-          [[ ${{PROMPT_COMMAND[__mise_i]}} == "{func}_restub" ]] && unset 'PROMPT_COMMAND[__mise_i]'
+        local __pakro_i
+        for __pakro_i in "${{!PROMPT_COMMAND[@]}}"; do
+          [[ ${{PROMPT_COMMAND[__pakro_i]}} == "{func}_restub" ]] && unset 'PROMPT_COMMAND[__pakro_i]'
         done
       else
         PROMPT_COMMAND=${{PROMPT_COMMAND//{func}_restub;/}}
       fi
-      return $__mise_status
+      return $__pakro_status
     }}
     if declare -p PROMPT_COMMAND 2>/dev/null | grep -q '^declare -a'; then
       PROMPT_COMMAND=("{func}_restub" "${{PROMPT_COMMAND[@]}}")
@@ -1865,14 +1865,14 @@ complete -F {func} '{tool}'
 # registrations and helper functions never outlive the version they came
 # from and a version switch in another directory is followed at the next tab.
 function {loader}
-    set -l __mise_fish (status fish-path)
-    set -l __mise_line (commandline --current-process --cut-at-cursor | string collect --allow-empty)
+    set -l __pakro_fish (status fish-path)
+    set -l __pakro_line (commandline --current-process --cut-at-cursor | string collect --allow-empty)
     # An empty completion path keeps the child from autoloading this stub.
-    $__mise_fish --no-config -c '
+    $__pakro_fish --no-config -c '
         set fish_complete_path
-        command mise completion fish --tool $argv[1] 2>/dev/null | source
+        command pakro completion fish --tool $argv[1] 2>/dev/null | source
         complete --do-complete "$argv[2]"
-    ' -- '{tool}' $__mise_line
+    ' -- '{tool}' $__pakro_line
 end
 complete -c '{tool}' -f -a '({loader})'
 "#
@@ -1882,7 +1882,7 @@ complete -c '{tool}' -f -a '({loader})'
 # {by}
 # The vendor's script registers its own completer, which handles this
 # completion; this one is put back afterwards, so the next completion asks
-# mise again and a version switch in another directory is followed.
+# pakro again and a version switch in another directory is followed.
 function global:{loader} {{
     param($wordToComplete, $commandAst, $cursorPosition)
     # A script that registers nothing for this command would otherwise reach
@@ -1890,12 +1890,12 @@ function global:{loader} {{
     if ($global:{loader}_busy) {{ return }}
     $global:{loader}_busy = $true
     try {{
-        $__mise_script = @(& mise completion powershell --tool '{tool}' 2>$null) -join "`n"
-        if ($__mise_script) {{
-            Invoke-Expression $__mise_script
-            $__mise_cursor = $cursorPosition - $commandAst.Extent.StartOffset
-            $__mise_line = $commandAst.Extent.Text.PadRight([Math]::Max($commandAst.Extent.Text.Length, $__mise_cursor))
-            (TabExpansion2 -inputScript $__mise_line -cursorColumn $__mise_cursor).CompletionMatches
+        $__pakro_script = @(& pakro completion powershell --tool '{tool}' 2>$null) -join "`n"
+        if ($__pakro_script) {{
+            Invoke-Expression $__pakro_script
+            $__pakro_cursor = $cursorPosition - $commandAst.Extent.StartOffset
+            $__pakro_line = $commandAst.Extent.Text.PadRight([Math]::Max($commandAst.Extent.Text.Length, $__pakro_cursor))
+            (TabExpansion2 -inputScript $__pakro_line -cursorColumn $__pakro_cursor).CompletionMatches
         }}
     }} finally {{
         Register-ArgumentCompleter -Native -CommandName '{tool}' -ScriptBlock $function:{loader}
@@ -1906,7 +1906,7 @@ Register-ArgumentCompleter -Native -CommandName '{tool}' -ScriptBlock $function:
 "#
         ),
         _ => bail!(
-            "{} loads completions eagerly, so mise cannot leave it a stub; redirect `mise completion {} --tool {tool}` yourself",
+            "{} loads completions eagerly, so pakro cannot leave it a stub; redirect `pakro completion {} --tool {tool}` yourself",
             shell.as_str(),
             shell.as_str()
         ),
@@ -2820,7 +2820,7 @@ mod tests {
     }
 
     #[test]
-    fn sync_links_only_what_mise_made() {
+    fn sync_links_only_what_pakro_made() {
         let dir = tempfile::tempdir().unwrap();
         let installs = dir.path().join("installs");
         let v1 = installs.join("tool/1/skills/t");
@@ -2866,7 +2866,7 @@ mod tests {
         assert_eq!(report.linked, ["t"]);
         assert!(file::is_symlink_to(&target.join("t"), &v2));
 
-        // A real directory, or a link mise did not make, is left alone.
+        // A real directory, or a link pakro did not make, is left alone.
         std::fs::create_dir_all(target.join("mine")).unwrap();
         let elsewhere = dir.path().join("elsewhere");
         std::fs::create_dir_all(&elsewhere).unwrap();
@@ -2890,7 +2890,7 @@ mod tests {
         assert_eq!(
             report.pruned,
             ["t"],
-            "no longer active, and a link mise made"
+            "no longer active, and a link pakro made"
         );
         assert!(!target.join("t").is_symlink());
         let state: serde_json::Value =
@@ -2900,9 +2900,9 @@ mod tests {
             serde_json::json!({ "o": other.display().to_string() })
         );
 
-        // A person who removes mise's link and makes their own at the same
+        // A person who removes pakro's link and makes their own at the same
         // name, even into the installs directory, keeps it: the target is
-        // not the one mise recorded.
+        // not the one pakro recorded.
         file::remove_all(target.join("o")).unwrap();
         file::make_symlink(&v1, &target.join("o")).unwrap();
         let report = sync_skills(
@@ -2921,7 +2921,7 @@ mod tests {
         .unwrap();
         assert!(
             state["links"].get("o").is_none(),
-            "no longer mise's: {state}"
+            "no longer pakro's: {state}"
         );
         file::remove_all(target.join("o")).unwrap();
         let report = sync_skills(
@@ -2933,7 +2933,7 @@ mod tests {
         .unwrap();
         assert_eq!(report.linked, ["o"]);
 
-        // A link a person pointed into mise's installs is not mise's to touch,
+        // A link a person pointed into pakro's installs is not pakro's to touch,
         // even though its target says otherwise.
         file::make_symlink(&v1, &target.join("handmade")).unwrap();
         let report = sync_skills(
@@ -2954,7 +2954,7 @@ mod tests {
         assert_eq!(report.skipped.len(), 1, "{:?}", report.skipped);
 
         // Even a person's link that already points at the wanted skill is
-        // not adopted: it is skipped, not recorded as mise's.
+        // not adopted: it is skipped, not recorded as pakro's.
         file::make_symlink(&other, &target.join("same")).unwrap();
         let report = sync_skills(
             &target,
@@ -2988,13 +2988,13 @@ mod tests {
     }
 
     #[test]
-    fn stubs_carry_the_installer_marker_and_defer_to_mise() {
+    fn stubs_carry_the_installer_marker_and_defer_to_pakro() {
         use usage_rs::complete::Shell;
         for shell in [Shell::Zsh, Shell::Bash, Shell::Fish, Shell::PowerShell] {
             let stub = stub("rg", shell).unwrap();
             assert!(stub.contains("@generated by usage"), "{stub}");
             assert!(
-                stub.contains(&format!("mise completion {} --tool", shell.as_str())),
+                stub.contains(&format!("pakro completion {} --tool", shell.as_str())),
                 "{stub}"
             );
             assert!(stub.contains("'rg'"), "the stub names the tool: {stub}");
@@ -3002,13 +3002,13 @@ mod tests {
         let zsh = stub("rg", Shell::Zsh).unwrap();
         assert!(zsh.starts_with("#compdef rg\n"), "{zsh}");
         assert!(
-            zsh.contains("__mise_load_rg() {"),
+            zsh.contains("__pakro_load_rg() {"),
             "the vendor's script runs in a function of its own: {zsh}"
         );
         let pwsh = stub("rg", Shell::PowerShell).unwrap();
-        assert!(pwsh.contains("if ($__mise_script)"), "{pwsh}");
+        assert!(pwsh.contains("if ($__pakro_script)"), "{pwsh}");
         assert!(
-            pwsh.contains("if ($global:__mise_load_rg_busy) { return }"),
+            pwsh.contains("if ($global:__pakro_load_rg_busy) { return }"),
             "a script registering nothing must not recurse: {pwsh}"
         );
         assert!(
@@ -3019,7 +3019,7 @@ mod tests {
         );
         let fish = stub("rg", Shell::Fish).unwrap();
         assert!(
-            fish.contains("complete -c 'rg' -f -a '(__mise_load_rg)'"),
+            fish.contains("complete -c 'rg' -f -a '(__pakro_load_rg)'"),
             "asked for at completion time, not sourced at load: {fish}"
         );
         assert!(
@@ -3036,7 +3036,7 @@ mod tests {
         );
         let bash = stub("cargo-nextest", Shell::Bash).unwrap();
         assert!(
-            bash.contains("complete -F __mise_complete_cargo_2dnextest 'cargo-nextest'"),
+            bash.contains("complete -F __pakro_complete_cargo_2dnextest 'cargo-nextest'"),
             "{bash}"
         );
         assert!(
@@ -3044,7 +3044,7 @@ mod tests {
             "non-function registrations: {bash}"
         );
         assert!(
-            bash.contains("__mise_complete_cargo_2dnextest_restub"),
+            bash.contains("__pakro_complete_cargo_2dnextest_restub"),
             "the stub comes back at the next prompt: {bash}"
         );
         assert!(stub("rg", Shell::Nu).is_err());

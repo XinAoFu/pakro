@@ -265,7 +265,7 @@ impl SystemPackageManager for MasManager {
         let mut args = vec!["install".to_string()];
         args.extend(pkgs.iter().map(|p| p.name.clone()));
         if opts.dry_run {
-            miseprintln!("mas {}", args.join(" "));
+            pakroprintln!("mas {}", args.join(" "));
             return Ok(());
         }
         debug!("$ mas {}", args.join(" "));
@@ -288,7 +288,7 @@ impl SystemPackageManager for MasManager {
         let mut args = vec!["upgrade".to_string()];
         args.extend(pkgs.iter().map(|p| p.name.clone()));
         if opts.dry_run {
-            miseprintln!("mas {}", args.join(" "));
+            pakroprintln!("mas {}", args.join(" "));
             return Ok(());
         }
         debug!("$ mas {}", args.join(" "));

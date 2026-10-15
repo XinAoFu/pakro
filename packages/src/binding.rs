@@ -251,8 +251,8 @@ mod tests {
 
     #[test]
     fn winning_package_declaration_keeps_its_owner() {
-        let global = ToolSource::MiseToml("/global/config.toml".into());
-        let project = ToolSource::MiseToml("/project/mise.toml".into());
+        let global = ToolSource::PakroToml("/global/config.toml".into());
+        let project = ToolSource::PakroToml("/project/pakro.toml".into());
         let owned = merge_owned_requests(
             [
                 (global, vec![request("1.0")]),
@@ -273,7 +273,7 @@ mod tests {
     fn already_installed_cli_only_runtime_keeps_actual_layout_and_owner() {
         let root = tempfile::tempdir().unwrap();
         let mut tv = runtime(root.path(), ToolSource::Argument);
-        let owner = ToolSource::MiseToml("/owner/mise.toml".into());
+        let owner = ToolSource::PakroToml("/owner/pakro.toml".into());
         tv.request
             .set_lockfile_scope(LockfileScope::Source(owner.clone()));
         let inputs = prepare_inputs(
@@ -294,8 +294,8 @@ mod tests {
     #[test]
     fn package_owner_and_runtime_lockfile_owner_are_both_enforced() {
         let root = tempfile::tempdir().unwrap();
-        let package_owner = ToolSource::MiseToml("/package/mise.toml".into());
-        let runtime_owner = ToolSource::MiseToml("/runtime/mise.toml".into());
+        let package_owner = ToolSource::PakroToml("/package/pakro.toml".into());
+        let runtime_owner = ToolSource::PakroToml("/runtime/pakro.toml".into());
         let mut tv = runtime(root.path(), ToolSource::Argument);
         tv.request
             .set_lockfile_scope(LockfileScope::Source(runtime_owner.clone()));
@@ -323,10 +323,10 @@ mod tests {
     #[test]
     fn invocation_scope_decision_is_supplied_by_the_application_boundary() {
         let root = tempfile::tempdir().unwrap();
-        let package_owner = ToolSource::MiseToml("/project/mise.toml".into());
+        let package_owner = ToolSource::PakroToml("/project/pakro.toml".into());
         let tv = runtime(
             root.path(),
-            ToolSource::MiseToml("/project/runtime.toml".into()),
+            ToolSource::PakroToml("/project/runtime.toml".into()),
         );
         let owned = merge_owned_requests([(package_owner, vec![request("1.0")])], &[], &[]);
         let excluded =
@@ -389,7 +389,7 @@ mod tests {
                 index_cache: root.path().join("index"),
             };
             let index = Arc::new(
-                mise_index::Index::new(&locations.index_cache).with_base_url(server.url()),
+                pakro_index::Index::new(&locations.index_cache).with_base_url(server.url()),
             );
             let error = super::super::install::install_packages(&inputs, &locations, index)
                 .await

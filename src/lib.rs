@@ -1,12 +1,12 @@
-//! mise's core: config, toolsets, backends, tasks and everything else the
-//! command line is built on. The `mise` binary (`src/main.rs` and `cli/src/commands/`)
+//! pakro's core: config, toolsets, backends, tasks and everything else the
+//! command line is built on. The `pakro` binary (`src/main.rs` and `cli/src/commands/`)
 //! is the only intended consumer; this is not a stable public API.
 //!
 //! The module tree below is the single table of contents: root keeps only the
 //! entry points (`main.rs`, `lib.rs`, `frontend.rs`); implementations live in
 //! thematic directories. Files whose declarations carry `#[path]` moved there
 //! without changing their `crate::…` paths, and one-line re-export shims of
-//! `mise-util` are absorbed as `use` items.
+//! `pakro-util` are absorbed as `use` items.
 
 #![allow(unknown_lints)]
 #![deny(unreachable_pub)]
@@ -43,14 +43,14 @@ pub mod timings;
 #[path = "core/util/cmd.rs"]
 pub mod cmd;
 
-// Modules that are thin re-exports of `mise-util`: importing the module keeps
+// Modules that are thin re-exports of `pakro-util`: importing the module keeps
 // every `crate::x::…` path working without one file per alias.
 
-pub(crate) use mise_util::{
+pub(crate) use pakro_util::{
     deps_graph, gpg, inline_command, packslip_requirements, rand, redactions, remote_source,
     sysconfig, timeout,
 };
-pub use mise_util::{
+pub use pakro_util::{
     dirs, duration, exit, forgejo, fuzzy, github, github_relay, gitlab, http, jobs, lock_file,
     packslip_pins, parallel, path, platform, sandbox, semver, tokens, wildcard, windows_console,
     windows_posix,
@@ -61,7 +61,7 @@ pub mod result {
 }
 
 pub use crate::result::Result;
-pub use mise_util::exit::request as request_exit;
+pub use pakro_util::exit::request as request_exit;
 
 // Environment and shell-hook machinery (`environment/`): env var helpers, the
 // hook-env protocol, env diffing, watch files, direnv, uv venv integration.
@@ -103,7 +103,7 @@ pub mod tool_purgatory;
 pub mod tool_stub;
 
 // Shims (`shims/`): the shim layer itself plus the fake-asdf compatibility
-// shims (platform-swapped like the rest of mise's Windows modules).
+// shims (platform-swapped like the rest of pakro's Windows modules).
 
 #[cfg_attr(not(windows), path = "../runtimes/src/shims/fake_asdf.rs")]
 #[cfg_attr(windows, path = "../runtimes/src/shims/fake_asdf_windows.rs")]
@@ -212,22 +212,22 @@ pub mod toolset;
 #[path = "../cli/src/ui/mod.rs"]
 pub mod ui;
 
-/// Register what mise's lower crates need from mise itself (its settings loader,
+/// Register what pakro's lower crates need from pakro itself (its settings loader,
 /// build identity, version and config-layer lookups) before anything uses them.
 /// Runs first in `main` and in the test harness constructor. The binary also
 /// registers its [`frontend`] there.
 pub fn register_util_hooks() {
     config::settings::register_loader();
     cache::register_base_cache_keys();
-    let shell = env::MISE_SHELL.map(|s| s.to_string()).unwrap_or_default();
-    mise_util::user_agent::set(
-        format!("mise/{} {shell}", *version::VERSION)
+    let shell = env::PAKRO_SHELL.map(|s| s.to_string()).unwrap_or_default();
+    pakro_util::user_agent::set(
+        format!("pakro/{} {shell}", *version::VERSION)
             .trim()
             .to_string(),
     );
-    mise_util::deprecation::set_version(env!("CARGO_PKG_VERSION"));
-    mise_util::env::set_mise_env(|| env::MISE_ENV.as_slice());
-    mise_util::shells::set_implicit_inline_shell(|| {
+    pakro_util::deprecation::set_version(env!("CARGO_PKG_VERSION"));
+    pakro_util::env::set_pakro_env(|| env::PAKRO_ENV.as_slice());
+    pakro_util::shells::set_implicit_inline_shell(|| {
         config::Settings::get().implicit_inline_shell()
     });
 }

@@ -50,7 +50,7 @@ struct Layout {
 
 impl Layout {
     fn fit(columns: usize, prefix_width: usize, version_width: usize) -> Self {
-        // `mise`, the gaps, and a status as long as "5/7 · 12.3 MB/s · 2 queued · 3.0s".
+        // `pakro`, the gaps, and a status as long as "5/7 · 12.3 MB/s · 2 queued · 3.0s".
         const HEADER_FIXED: usize = 4 + 2 + 2 + 36;
         const BYLINE_WIDTH: usize = " by @jdx".len();
         // The byline is the last thing the header gives up: it goes only when
@@ -101,7 +101,7 @@ pub(crate) struct TtyInstallProgress {
 impl TtyInstallProgress {
     pub(super) fn new(state: State) -> Self {
         let count = state.tools.len();
-        let mise_text = format!("{}", style::emagenta("mise").bold());
+        let pakro_text = format!("{}", style::emagenta("pakro").bold());
         // The first frame is drawn before the first refresh; it fits too.
         let layout = Layout::fit(
             columns(),
@@ -109,8 +109,8 @@ impl TtyInstallProgress {
             console::measure_text_width(&VERSION_PLAIN),
         );
         let header = ProgressJobBuilder::new()
-            .body("{{ mise }}{{ version }}{{ byline }}  {{ bar }}  {{ status }}")
-            .prop("mise", &mise_text)
+            .body("{{ pakro }}{{ version }}{{ byline }}  {{ bar }}  {{ status }}")
+            .prop("pakro", &pakro_text)
             .prop("version", &version_text(layout.version))
             .prop("byline", &byline_text(layout.byline))
             .prop("bar", &state.bar_only(layout.header_bar))
@@ -192,7 +192,7 @@ fn version_text(shown: bool) -> String {
     }
 }
 
-/// `mise VERSION by @jdx`, as the header always read.
+/// `pakro VERSION by @jdx`, as the header always read.
 fn byline_text(shown: bool) -> String {
     if shown {
         format!(" {}", style::edim("by @jdx"))

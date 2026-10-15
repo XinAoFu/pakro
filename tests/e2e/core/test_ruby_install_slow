@@ -2,11 +2,11 @@
 # Install and build ruby using ruby-install
 # this test is super slow and we're already testing ruby-build, so skipping for now
 
-#export MISE_RUBY_COMPILE=true
-#export MISE_RUBY_INSTALL=1
-#latest=$(mise latest ruby)
-#assert_contains "mise x ruby@$latest -- ruby --version" "ruby $latest"
-#mise uninstall ruby
-#export MISE_RUBY_INSTALL_REPO="https://github.com/postmodern/ruby-install/archive/refs/heads/master.zip"
-#latest=$(mise latest ruby)
-#assert_contains "mise x ruby@$latest -- ruby --version" "ruby $latest"
+#export PAKRO_RUBY_COMPILE=true
+#export PAKRO_RUBY_INSTALL=1
+#latest=$(pakro latest ruby)
+#assert_contains "pakro x ruby@$latest -- ruby --version" "ruby $latest"
+#pakro uninstall ruby
+#export PAKRO_RUBY_INSTALL_REPO="https://github.com/postmodern/ruby-install/archive/refs/heads/master.zip"
+#latest=$(pakro latest ruby)
+#assert_contains "pakro x ruby@$latest -- ruby --version" "ruby $latest"

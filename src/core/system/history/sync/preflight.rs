@@ -10,7 +10,7 @@ use eyre::{Result, bail};
 use super::layout::{Roots, is_configuration};
 use super::reconcile::{Object, PathPlan};
 use crate::config::ConfigMap;
-use crate::config::config_file::mise_toml::MiseToml;
+use crate::config::config_file::pakro_toml::PakroToml;
 use crate::system::history::shadow::HistoryRepo;
 use crate::system::history::tracked::TrackedSet;
 
@@ -37,11 +37,11 @@ pub(super) fn prospective(
     let paths: BTreeSet<PathBuf> = incoming.keys().cloned().collect();
     let candidates = crate::config::config_files_with_incoming(&roots.config_dir, &paths);
     // Validate every body we will write, even a conf.d file not selected
-    // by this machine's explicit MISE_GLOBAL_CONFIG_FILE override.
+    // by this machine's explicit PAKRO_GLOBAL_CONFIG_FILE override.
     let mut incoming_files = ConfigMap::new();
     for (path, object) in &incoming {
         // The config directory also carries template and other sources.
-        if !candidates.contains(path) && crate::env::MISE_GLOBAL_CONFIG_FILE.as_ref() != Some(path)
+        if !candidates.contains(path) && crate::env::PAKRO_GLOBAL_CONFIG_FILE.as_ref() != Some(path)
         {
             continue;
         }
@@ -55,13 +55,13 @@ pub(super) fn prospective(
             );
         }
         let body = String::from_utf8(repo.cat_object(oid)?)?;
-        let parsed = MiseToml::for_history_preflight(&body, path)?;
+        let parsed = PakroToml::for_history_preflight(&body, path)?;
         if parsed
             .history_config()
             .is_some_and(|history| history.origin.is_some())
         {
             bail!(
-                "incoming history.origin is machine-local configuration; remove it from the shared setup and use `mise dot origin set` on this machine ({})",
+                "incoming history.origin is machine-local configuration; remove it from the shared setup and use `pakro dot origin set` on this machine ({})",
                 path.display()
             );
         }
@@ -71,7 +71,7 @@ pub(super) fn prospective(
         );
     }
     crate::system::files::validate_incoming_files(&incoming_files)?;
-    let global = match &*crate::env::MISE_GLOBAL_CONFIG_FILE {
+    let global = match &*crate::env::PAKRO_GLOBAL_CONFIG_FILE {
         Some(path) => vec![path.clone()].into_iter().collect(),
         None => candidates,
     };
@@ -99,7 +99,7 @@ pub(super) fn prospective(
                 Err(err) => return Err(err.into()),
             },
         };
-        let parsed = MiseToml::for_history_preflight(&body, &path)?;
+        let parsed = PakroToml::for_history_preflight(&body, &path)?;
         if let Some(history) = parsed.history_config() {
             excludes.extend(history.exclude);
         }

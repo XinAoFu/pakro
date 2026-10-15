@@ -4,7 +4,7 @@ use eyre::Result;
 use indexmap::IndexMap;
 
 use crate::config::config_file::ConfigFile;
-use crate::config::config_file::mise_toml::MiseToml;
+use crate::config::config_file::pakro_toml::PakroToml;
 use crate::config::{ConfigPathOptions, resolve_target_config_path};
 use crate::file::display_path;
 use crate::system;
@@ -14,23 +14,23 @@ use crate::system::packages::PackageRequest;
 
 /// Add bootstrap packages to [bootstrap.packages] and install them
 ///
-/// Like `mise use` for tools: writes `"manager:package" = "version"` entries
-/// to mise.toml (the local config by default, the global one with `-g`) and
+/// Like `pakro use` for tools: writes `"manager:package" = "version"` entries
+/// to pakro.toml (the local config by default, the global one with `-g`) and
 /// then installs whatever is missing.
 ///
-/// Versions are pinned with `@`: `mise bootstrap packages use apt:curl@8.5.0-2`. Without
+/// Versions are pinned with `@`: `pakro bootstrap packages use apt:curl@8.5.0-2`. Without
 /// `@` (or with `@latest`) no pin is written. brew formulae and casks
 /// version through their names instead (for example `brew:postgresql@17`,
 /// `brew-cask:temurin@17`), where `@` is part of the Homebrew name rather than
-/// a mise version selector. mas uses numeric ADAM IDs and does not support pins.
+/// a pakro version selector. mas uses numeric ADAM IDs and does not support pins.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     visible_alias = "u",
     verbatim_doc_comment,
     example(
-        r###"mise bootstrap packages use brew:jq brew-cask:firefox winget:BurntSushi.ripgrep.MSVC
-mise bootstrap packages use -g brew:postgresql@17
-mise bootstrap packages use apt:curl@8.5.0-2"###
+        r###"pakro bootstrap packages use brew:jq brew-cask:firefox winget:BurntSushi.ripgrep.MSVC
+pakro bootstrap packages use -g brew:postgresql@17
+pakro bootstrap packages use apt:curl@8.5.0-2"###
     )
 )]
 pub(crate) struct SystemUse {
@@ -38,11 +38,11 @@ pub(crate) struct SystemUse {
     #[usage(value_name = "PACKAGE", required = true)]
     packages: Vec<String>,
 
-    /// Write to the config file for this environment (mise.<ENV>.toml)
+    /// Write to the config file for this environment (pakro.<ENV>.toml)
     #[usage(long, short, value_name = "ENV", conflicts = ["global", "path"])]
     env: Option<String>,
 
-    /// Write to the global config (~/.config/mise/config.toml) instead of the
+    /// Write to the global config (~/.config/pakro/config.toml) instead of the
     /// local one
     #[usage(long, short)]
     global: bool,
@@ -105,18 +105,18 @@ impl SystemUse {
             path: self.path.clone(),
             env: self.env.clone(),
             cwd: None,
-            prefer_toml: true,        // [bootstrap] only exists in mise.toml
+            prefer_toml: true,        // [bootstrap] only exists in pakro.toml
             prevent_home_local: true, // in $HOME, write the global config
         })?;
         if self.dry_run {
             for (key, version) in &entries {
-                miseprintln!("{}: \"{key}\" = \"{version}\"", display_path(&path));
+                pakroprintln!("{}: \"{key}\" = \"{version}\"", display_path(&path));
             }
         } else {
             let mut cf = if path.exists() {
-                MiseToml::from_file(&path)?
+                PakroToml::from_file(&path)?
             } else {
-                MiseToml::init(&path)
+                PakroToml::init(&path)
             };
             for (key, version) in &entries {
                 cf.update_bootstrap_package(key, version)?;
@@ -137,7 +137,7 @@ impl SystemUse {
             return Ok(());
         }
 
-        // unlike `mise bootstrap packages apply apt:x`, an unavailable manager is not
+        // unlike `pakro bootstrap packages apply apt:x`, an unavailable manager is not
         // an error here: writing apt: entries from a mac into a shared repo
         // config is the point of a declarative file. Say so (except in
         // dry-run, where nothing was written), then install best-effort for

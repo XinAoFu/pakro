@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2209
+
+# Test that .pakrorc.toml can set PAKRO_ENV
+
+echo "tools.dummy = '1'" >pakro.toml
+echo "tools.dummy = '2'" >pakro.test.toml
+echo 'env = ["test"]' >.pakrorc.toml
+
+# .pakrorc.toml should set PAKRO_ENV=test, loading pakro.test.toml
+assert "pakro ls dummy" "dummy  2.0.0 (missing)  ~/workdir/pakro.test.toml  2"
+
+# Env var should override .pakrorc.toml
+PAKRO_ENV=ci assert "pakro ls dummy" "dummy  1.1.0 (missing)  ~/workdir/pakro.toml  1"
+
+# Test ceiling_paths in .pakrorc.toml - subdirectory should pick up parent pakrorc
+rm -f .pakrorc.toml
+
+# Invalid global pakrorc TOML should be reported instead of silently ignored.
+cat >"$PAKRO_CONFIG_DIR/pakrorc.toml" <<'EOF'
+ceiling_paths = ["{{ env.HOME }}"]
+fdsfads
+EOF
+# The message no longer repeats the path: miette prints it above the snippet, and the two copies
+# used different forms of the same path -- raw in the message, `~`-shortened in the header. Counted
+# exactly, because a substring check cannot tell one naming from two.
+assert_fail "pakro config ls" "Invalid TOML in config file"
+assert_fail "pakro config ls" "~/.config/pakro/pakrorc.toml:2:8"
+assert_fail "pakro config ls" "key with no value, expected"
+assert "pakro config ls 2>&1 | grep -oF 'pakrorc.toml' | wc -l | tr -d ' '" "1"
+rm -f "$PAKRO_CONFIG_DIR/pakrorc.toml"
+echo 'env = ["test"]' >.pakrorc.toml
+mkdir -p subdir
+cd subdir || exit 1
+
+# Should still pick up parent .pakrorc.toml and pakro.test.toml
+assert "pakro ls dummy" "dummy  2.0.0 (missing)  ~/workdir/pakro.test.toml  2"
+
+cd .. || exit 1
+
+# PAKRO_CEILING_PATHS should also limit early .pakrorc.toml discovery.
+rm -f .pakrorc.toml
+mkdir -p ceiling-parent/child/grandchild
+echo 'env = ["test"]' >ceiling-parent/.pakrorc.toml
+echo "tools.dummy = '1'" >ceiling-parent/child/grandchild/pakro.toml
+echo "tools.dummy = '2'" >ceiling-parent/child/grandchild/pakro.test.toml
+cd ceiling-parent/child/grandchild || exit 1
+export PAKRO_CEILING_PATHS="$HOME/workdir/ceiling-parent/child"
+assert "pakro ls dummy" "dummy  1.1.0 (missing)  ~/workdir/ceiling-parent/child/grandchild/pakro.toml  1"
+unset PAKRO_CEILING_PATHS
+
+cd ../../.. || exit 1
+
+# Test Tera template support in .pakrorc.toml
+# ceiling_paths with {{ env.HOME }} should expand and stop config traversal
+rm -f .pakrorc.toml
+echo 'ceiling_paths = ["{{ env.HOME }}"]' >.pakrorc.toml
+
+# pakro.toml exists here; from a subdir, it should still be found (we're within HOME)
+mkdir -p subdir2
+cd subdir2 || exit 1
+assert "pakro ls dummy" "dummy  1.1.0 (missing)  ~/workdir/pakro.toml  1"
+cd .. || exit 1
+
+# Test os() function in .pakrorc.toml - template should render (no raw {{ }} in result)
+rm -f .pakrorc.toml
+echo 'ceiling_paths = ["{{ env.HOME }}/{{ os() }}-work"]' >.pakrorc.toml
+# Rendered path won't match HOME exactly, so ceiling won't block — config still found
+assert "pakro ls dummy" "dummy  1.1.0 (missing)  ~/workdir/pakro.toml  1"
+
+rm -f .pakrorc.toml

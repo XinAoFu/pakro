@@ -30,7 +30,7 @@ env:
   MBX_DISABLE: "1"
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
-  TAK_RUNNER: jdx-perf-v1-ubuntu24.04-x64-mise-rust1.97.1-img5263c143
+  TAK_RUNNER: jdx-perf-v1-ubuntu24.04-x64-pakro-rust1.97.1-img5263c143
 
 jobs:
   authorize:
@@ -107,11 +107,11 @@ jobs:
 
       # Compile inside the pinned job container. Restoring target/ could relabel
       # a binary built on another runner class as a jdx-perf-v1 measurement.
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - uses: ./.github/actions/pakro-tools
         with:
           cache: false
         env:
-          MISE_LOCKED: "1"
+          PAKRO_LOCKED: "1"
 
       - name: Runner metadata
         run: |
@@ -122,7 +122,7 @@ jobs:
             echo 'image: ghcr.io/jdx/perf-runner@sha256:5263c143b12ce2234e7b0b21d3d6501c2ed05837b42937d0eaeaa191cd5c8e68'
             uname -a
             lscpu
-            mise --version
+            pakro --version
             rustc --version
             cargo --version
             valgrind --version
@@ -139,7 +139,7 @@ jobs:
       # `tak push` in this workflow and there should never be one.
       - name: Measure this pull request
         run: |
-          taskset -c 0-3 mise run perf:record
+          taskset -c 0-3 pakro run perf:record
 
       - name: Find the base commit
         id: base
@@ -219,10 +219,10 @@ jobs:
       - name: Comment on the pull request
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_mise: ${{ github.repository }}
+          GH_pakro: ${{ github.repository }}
           PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
         run: |
-          marker='<!-- mise-perf-pr -->'
+          marker='<!-- pakro-perf-pr -->'
           read -r head_sha base_sha < /tmp/tak-out/shas
           # The backticks below are markdown, not command substitution, and
           # single quotes are what keeps them literal.
@@ -237,13 +237,13 @@ jobs:
 
           # One comment per pull request, edited in place. A new comment on
           # every push buries the conversation under numbers.
-          existing="$(gh api "repos/$GH_mise/issues/$PR_NUMBER/comments" --paginate \
+          existing="$(gh api "repos/$GH_pakro/issues/$PR_NUMBER/comments" --paginate \
             --jq ".[] | select(.body | contains(\"$marker\")) | .id" | tail -n1)"
           if [ -n "$existing" ]; then
-            gh api --method PATCH "repos/$GH_mise/issues/comments/$existing" \
+            gh api --method PATCH "repos/$GH_pakro/issues/comments/$existing" \
               --field body="$(cat /tmp/tak-comment.md)"
           else
-            gh api --method POST "repos/$GH_mise/issues/$PR_NUMBER/comments" \
+            gh api --method POST "repos/$GH_pakro/issues/$PR_NUMBER/comments" \
               --field body="$(cat /tmp/tak-comment.md)"
           fi
 

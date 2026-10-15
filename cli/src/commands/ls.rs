@@ -19,46 +19,46 @@ use crate::env;
 use crate::file;
 use crate::runtime_symlinks::is_runtime_symlink;
 use crate::toolset::{ToolRequestSet, ToolSource, ToolVersion, Toolset};
-use crate::ui::table::MiseTable;
+use crate::ui::table::PakroTable;
 
 /// List installed and active tool versions
 ///
-/// Lists the tools mise knows about: versions that are installed, and versions requested
+/// Lists the tools pakro knows about: versions that are installed, and versions requested
 /// by a config file (active) whether or not they are installed.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     visible_alias = "list",
     verbatim_doc_comment,
     example(
-        r###"mise ls"###,
+        r###"pakro ls"###,
         help = r###"Show installed versions and requests from active configuration"###
     ),
     example(
-        r###"mise ls --current"###,
+        r###"pakro ls --current"###,
         help = r###"Show only versions requested by the current configuration"###
     ),
     example(
-        r###"mise ls --missing"###,
+        r###"pakro ls --missing"###,
         help = r###"Find configured versions that need installation"###
     ),
     example(
-        r###"mise ls --json"###,
+        r###"pakro ls --json"###,
         help = r###"Machine-readable output: an object keyed by tool name"###
     ),
     example(
-        r###"mise ls node --json"###,
+        r###"pakro ls node --json"###,
         help = r###"With a tool argument, JSON output is an array of its version records"###
     ),
     example(
-        r###"mise ls --all-sources"###,
+        r###"pakro ls --all-sources"###,
         help = r###"Include references from every tracked configuration file"###
     ),
     example(
-        r###"mise ls --backend go --backend cargo"###,
+        r###"pakro ls --backend go --backend cargo"###,
         help = r###"Show only tools from the go or cargo backends"###
     ),
     example(
-        r###"mise ls --grouped"###,
+        r###"pakro ls --grouped"###,
         help = r###"List tools in a separate section for each backend"###
     )
 )]
@@ -77,16 +77,16 @@ pub(crate) struct Ls {
     #[usage(long, short, value_name = "BACKEND", verbatim_doc_comment)]
     backend: Vec<BackendType>,
 
-    /// Only show tool versions currently specified in a mise.toml
+    /// Only show tool versions currently specified in a pakro.toml
     #[usage(long, short)]
     current: bool,
 
-    /// Only show tool versions currently specified in the global mise.toml
+    /// Only show tool versions currently specified in the global pakro.toml
     #[usage(long, short, conflicts = "local")]
     global: bool,
 
     /// Only show tool versions that are installed
-    /// (Hides tools defined in mise.toml but not installed)
+    /// (Hides tools defined in pakro.toml but not installed)
     #[usage(long, short)]
     installed: bool,
 
@@ -100,7 +100,7 @@ pub(crate) struct Ls {
     #[usage(long, short = 'J')]
     json: bool,
 
-    /// Only show tool versions currently specified in the local mise.toml
+    /// Only show tool versions currently specified in the local pakro.toml
     #[usage(long, short, conflicts = "global")]
     local: bool,
 
@@ -121,11 +121,11 @@ pub(crate) struct Ls {
 
     /// List tools from every [monorepo].config_roots config root
     ///
-    /// Uses the active MISE_ENV and requires monorepo_root = true plus explicit
+    /// Uses the active PAKRO_ENV and requires monorepo_root = true plus explicit
     /// [monorepo].config_roots in the monorepo root config.
     #[usage(
         long,
-        env = "MISE_MONOREPO",
+        env = "PAKRO_MONOREPO",
         verbatim_doc_comment,
         conflicts = &["all_sources", "prunable"]
     )]
@@ -143,7 +143,7 @@ pub(crate) struct Ls {
     #[usage(long, requires = "installed_tool")]
     prefix: Option<String>,
 
-    /// List only tools that can be pruned with `mise prune`
+    /// List only tools that can be pruned with `pakro prune`
     #[usage(long)]
     prunable: bool,
 }
@@ -246,7 +246,7 @@ impl Ls {
                     .await,
                 );
             }
-            miseprintln!("{}", serde_json::to_string_pretty(&r)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&r)?);
             return Ok(());
         }
 
@@ -270,7 +270,7 @@ impl Ls {
             }
             plugins.insert(plugin_name.clone(), r);
         }
-        miseprintln!("{}", serde_json::to_string_pretty(&plugins)?);
+        pakroprintln!("{}", serde_json::to_string_pretty(&plugins)?);
         Ok(())
     }
 
@@ -330,16 +330,17 @@ impl Ls {
             .sorted_by(|(a, _), (b, _)| a.cmp(b));
         for (idx, (backend, rows)) in groups.enumerate() {
             if idx > 0 {
-                miseprintln!();
+                pakroprintln!();
             }
-            miseprintln!("{}", console::style(backend).bold());
+            pakroprintln!("{}", console::style(backend).bold());
             self.print_table(rows)?;
         }
         Ok(())
     }
 
     fn print_table(&self, rows: Vec<Row>) -> Result<()> {
-        let mut table = MiseTable::new(self.no_header, &["Tool", "Version", "Source", "Requested"]);
+        let mut table =
+            PakroTable::new(self.no_header, &["Tool", "Version", "Source", "Requested"]);
         table.truncate(self.truncate.truncate);
         for r in rows {
             if self.all_sources && !r.sources.is_empty() {
@@ -375,9 +376,9 @@ impl Ls {
 
     /// Deliberately does *not* widen the tool filter the way the other listings do.
     ///
-    /// `--prunable` previews `mise prune`, and both share `toolset::prunable_tools`, which
+    /// `--prunable` previews `pakro prune`, and both share `toolset::prunable_tools`, which
     /// matches on `BackendArg` equality. Accepting a name from another backend here would
-    /// either disagree with what `mise prune <name>` then deletes, or — if the widening
+    /// either disagree with what `pakro prune <name>` then deletes, or — if the widening
     /// were pushed down into `prunable_tools` — make a destructive command act on an
     /// install the user did not name. Agreeing with `prune` is the more useful of the two
     /// consistencies.
@@ -401,7 +402,7 @@ impl Ls {
             trs = trs
                 .iter()
                 .filter(|(.., ts)| match ts {
-                    ToolSource::MiseToml(p) | ToolSource::MiseTomlDaemon(p) => {
+                    ToolSource::PakroToml(p) | ToolSource::PakroTomlDaemon(p) => {
                         config::is_global_config(p)
                     }
                     _ => false,
@@ -414,7 +415,7 @@ impl Ls {
                 .filter(|(.., ts)| {
                     matches!(
                         ts,
-                        ToolSource::MiseToml(p) | ToolSource::MiseTomlDaemon(p)
+                        ToolSource::PakroToml(p) | ToolSource::PakroTomlDaemon(p)
                         | ToolSource::IdiomaticVersionFile(p)
                         | ToolSource::ToolVersions(p)
                         if !config::is_global_config(p)
@@ -445,7 +446,7 @@ impl Ls {
             })
             .map(|(k, tv)| (self, k.0, tv.clone(), tv.request.source().clone()))
             // if it isn't installed and it's not specified, don't show it -- unless there is
-            // something at its install path that simply does not resolve. A `mise link` whose
+            // something at its install path that simply does not resolve. A `pakro link` whose
             // target went away is that case, and hiding it is how it became impossible to find:
             // no config names it, and `is_version_installed` resolves the link before answering.
             .filter(|(_ls, p, tv, source)| {
@@ -498,7 +499,7 @@ impl Ls {
             .unique_by(|(_, tv)| tv.tv_pathname())
             .map(|(k, tv)| (self, k.0, tv.clone(), tv.request.source().clone()))
             // if it isn't installed and it's not specified, don't show it -- unless there is
-            // something at its install path that simply does not resolve. A `mise link` whose
+            // something at its install path that simply does not resolve. A `pakro link` whose
             // target went away is that case, and hiding it is how it became impossible to find:
             // no config names it, and `is_version_installed` resolves the link before answering.
             .filter(|(_ls, p, tv, source)| {
@@ -519,10 +520,10 @@ impl Ls {
 /// Whether `ba` is one of the tools named on the command line.
 ///
 /// A bare name also matches an entry from another backend that installs the same binary,
-/// so `mise ls navi` shows `cargo:.../navi` next to the registry one rather than hiding
-/// it — `mise ls` with no filter already lists both (discussion #4491).
+/// so `pakro ls navi` shows `cargo:.../navi` next to the registry one rather than hiding
+/// it — `pakro ls` with no filter already lists both (discussion #4491).
 ///
-/// Spelling a backend out keeps matching only itself: `mise ls ubi:jqlang/jq` passes the
+/// Spelling a backend out keeps matching only itself: `pakro ls ubi:jqlang/jq` passes the
 /// whole string as the bin name, which cannot match a trailing segment.
 fn matches_requested_tool(requested: &[BackendArg], ba: &BackendArg) -> bool {
     requested
@@ -745,7 +746,7 @@ async fn json_tool_version_from(
         broken: matches!(vs, VersionStatus::BrokenSymlink(_)),
         scheduled_for_pruning: prune_after.is_some(),
         prune_after,
-        // A link that leads nowhere is not an install, the same call `mise link` already makes by
+        // A link that leads nowhere is not an install, the same call `pakro link` already makes by
         // keeping the `incomplete` marker for one.
         installed: !matches!(
             vs,
@@ -795,7 +796,7 @@ enum VersionStatus {
     Inactive(String),
     Missing(String),
     Symlink(String, bool),
-    /// A link that is still on disk but no longer resolves — a `mise link` whose target moved or
+    /// A link that is still on disk but no longer resolves — a `pakro link` whose target moved or
     /// was deleted. Distinct from `Missing`, which is a version that was never there: this one
     /// occupies its name and has to be removed before that name is free again.
     BrokenSymlink(String),

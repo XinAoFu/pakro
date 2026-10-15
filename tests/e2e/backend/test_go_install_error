@@ -10,12 +10,12 @@ GO
 chmod +x "$HOME/bin/go"
 export PATH="$HOME/bin:$PATH"
 
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [settings]
 experimental = true
 TOML
 
-if mise install 'go:example.com/tool@v1.2.3' >"$HOME/prefixed-error" 2>&1; then
+if pakro install 'go:example.com/tool@v1.2.3' >"$HOME/prefixed-error" 2>&1; then
   echo 'expected prefixed Go install to fail' >&2
   exit 1
 fi
@@ -24,7 +24,7 @@ assert_contains "cat '$HOME/go-invocations'" 'example.com/tool@v1.2.3'
 assert_contains "cat '$HOME/prefixed-error'" 'go install failed for example.com/tool@v1.2.3'
 assert_not_contains "cat '$HOME/prefixed-error'" "Retry without the 'v' prefix"
 
-if mise install 'go:example.com/other@1.2.3' >"$HOME/unprefixed-error" 2>&1; then
+if pakro install 'go:example.com/other@1.2.3' >"$HOME/unprefixed-error" 2>&1; then
   echo 'expected unprefixed Go install to fail' >&2
   exit 1
 fi

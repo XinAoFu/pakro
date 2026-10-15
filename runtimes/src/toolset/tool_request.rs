@@ -856,7 +856,7 @@ fn is_forbidden_cmd_char(_c: char) -> bool {
 /// - a leading `./` is stripped
 /// - remaining relative paths are joined with `config_root(source)` when the
 ///   source is a file-based config; otherwise they fall back to the current
-///   working directory so CLI usage (e.g. `mise use tool@path:./x`) behaves
+///   working directory so CLI usage (e.g. `pakro use tool@path:./x`) behaves
 ///   the way users expect.
 fn resolve_path(p: &str, source: &ToolSource) -> PathBuf {
     let p = Path::new(p);
@@ -964,8 +964,8 @@ mod tests {
 
     #[test]
     fn lockfile_scope_survives_conversion_until_source_changes() {
-        let owner = ToolSource::MiseToml("/project/mise.toml".into());
-        let destination = ToolSource::MiseToml("/project/mise.local.toml".into());
+        let owner = ToolSource::PakroToml("/project/pakro.toml".into());
+        let destination = ToolSource::PakroToml("/project/pakro.local.toml".into());
         for selector in [
             "latest",
             "prefix:1",
@@ -1007,7 +1007,7 @@ mod tests {
             .resolved_options_mut()
             .apply_overrides(&old_defaults, ToolOptionSource::Registry);
         let explicit = crate::toolset::parse_tool_options("variant=custom");
-        let owner = ToolSource::MiseToml("/project/mise.toml".into());
+        let owner = ToolSource::PakroToml("/project/pakro.toml".into());
         request.set_lockfile_scope(LockfileScope::Source(owner.clone()));
         request
             .resolved_options_mut()
@@ -1305,7 +1305,7 @@ mod tests {
     fn test_version_sub_rejects_non_numeric_base() {
         // An unresolved alias must not reach here, but if it does it has to be an
         // error rather than a panic: this used to abort the process from
-        // `mise ls-remote <tool>@sub-2:lts`.
+        // `pakro ls-remote <tool>@sub-2:lts`.
         let err = version_sub("lts", "2").unwrap_err().to_string();
         assert!(err.contains("lts"), "unexpected error: {err}");
 

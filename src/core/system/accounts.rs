@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::Config;
 use crate::system::resources::{ResourceAction, ResourceId, ResourcePlan};
 
-pub use mise_bootstrap::AccountState;
+pub use pakro_bootstrap::AccountState;
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct GroupTomlConfig {
@@ -301,7 +301,7 @@ impl GroupRequest {
         match self.plan().action {
             ResourceAction::Noop => Ok(None),
             ResourceAction::Unknown => bail!(
-                "refusing unsafe change to bootstrap group '{}'; inspect `mise bootstrap plan`",
+                "refusing unsafe change to bootstrap group '{}'; inspect `pakro bootstrap plan`",
                 self.name
             ),
             ResourceAction::Create => Ok(Some(AccountAction::CreateGroup {
@@ -538,7 +538,7 @@ impl UserRequest {
         match self.plan().action {
             ResourceAction::Noop => Ok(None),
             ResourceAction::Unknown => bail!(
-                "refusing unsafe change to bootstrap user '{}'; inspect `mise bootstrap plan`",
+                "refusing unsafe change to bootstrap user '{}'; inspect `pakro bootstrap plan`",
                 self.name
             ),
             ResourceAction::Create => Ok(Some(AccountAction::CreateUser {
@@ -797,7 +797,7 @@ pub fn apply(requests: &AccountRequests, dry_run: bool, yes: bool) -> Result<boo
     if dry_run {
         let has_unknown = !unknown.is_empty();
         for action in &actions {
-            miseprintln!("would {}", action.description());
+            pakroprintln!("would {}", action.description());
         }
         for resource in unknown {
             warn!(
@@ -1015,7 +1015,7 @@ mod tests {
 
     #[test]
     fn validates_account_names() {
-        assert!(validate_name("user", "mise-cache_1").is_ok());
+        assert!(validate_name("user", "pakro-cache_1").is_ok());
         assert!(validate_name("user", "1invalid").is_err());
         assert!(validate_name("user", "-invalid").is_err());
         assert!(validate_name("group", "invalid/name").is_err());
@@ -1041,20 +1041,20 @@ mod tests {
             exclusive_groups: false,
             home: None,
             shell: None,
-            comment: Some("managed by mise".to_string()),
+            comment: Some("managed by pakro".to_string()),
             system: true,
             create_home: false,
             move_home: false,
             remove_home: false,
             inspection: UserInspection::Missing,
         };
-        assert!(request.desired().contains("comment managed by mise"));
+        assert!(request.desired().contains("comment managed by pakro"));
     }
 
     #[test]
     fn primary_group_is_not_treated_as_supplementary() {
         let request = UserRequest::from_toml(
-            "mise-primary-group-test".to_string(),
+            "pakro-primary-group-test".to_string(),
             UserTomlConfig {
                 group: Some("developers".to_string()),
                 groups: Some(vec!["sudo".to_string(), "developers".to_string()]),

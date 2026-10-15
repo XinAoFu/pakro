@@ -49,7 +49,7 @@ fi
 # dependency is real. Test the dependency itself; keep the versions as
 # diagnostics for whoever has to act on the failure.
 #
-# mise links no C++ today: the released binaries list no libstdc++ in NEEDED and
+# pakro links no C++ today: the released binaries list no libstdc++ in NEEDED and
 # carry no GLIBCXX_/CXXABI_ versions. Treat any appearance as a regression
 # rather than guessing a threshold for it. libgcc_s's GCC_* versions are
 # expected on a Rust binary and are deliberately not matched.

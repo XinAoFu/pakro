@@ -6,9 +6,9 @@ on:
         required: true
         type: boolean
     secrets:
-      MISE_GH_TOKEN:
+      PAKRO_GH_TOKEN:
         required: false
-      MISE_VERSIONS_API_SECRET:
+      PAKRO_VERSIONS_API_SECRET:
         required: false
 
 concurrency:
@@ -18,12 +18,12 @@ concurrency:
 env:
   MBX_DISABLE: "1"
   CARGO_TERM_COLOR: always
-  MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
-  MISE_EXPERIMENTAL: 1
-  MISE_LOCKFILE: 1
-  MISE_USE_VERSIONS_HOST_TRACK: 0
+  PAKRO_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+  PAKRO_EXPERIMENTAL: 1
+  PAKRO_LOCKFILE: 1
+  PAKRO_USE_VERSIONS_HOST_TRACK: 0
   RUST_BACKTRACE: 1
-  MISE_GITHUB_TOKEN: ${{ secrets.MISE_GH_TOKEN || secrets.GITHUB_TOKEN }}
+  PAKRO_GITHUB_TOKEN: ${{ secrets.PAKRO_GH_TOKEN || secrets.GITHUB_TOKEN }}
 
 jobs:
   check-changes:
@@ -62,7 +62,7 @@ jobs:
     needs: check-changes
     if: needs.check-changes.outputs.registry-changed == 'true'
     env:
-      GITHUB_TOKEN: ${{ secrets.MISE_GH_TOKEN || secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.PAKRO_GH_TOKEN || secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: namespacelabs/nscloud-cache-action@1124a6f3ce44e5cf84cc22111530961f4d2a15f9 # v1
@@ -79,8 +79,8 @@ jobs:
       - run: cargo build --all-features --ignore-rust-version
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: mise
-          path: target/debug/mise
+          name: pakro
+          path: target/debug/pakro
 
   list-changed-tools:
     permissions:
@@ -196,22 +196,22 @@ jobs:
         id: token
         uses: ./.github/actions/fetch-token
         with:
-          api-secret: ${{ secrets.MISE_VERSIONS_API_SECRET }}
+          api-secret: ${{ secrets.PAKRO_VERSIONS_API_SECRET }}
       - name: Set pooled token
         if: steps.token.outputs.token
         run: |
           {
             echo "POOL_TOKEN=${{ steps.token.outputs.token }}"
-            echo "MISE_GITHUB_TOKEN=${{ steps.token.outputs.token }}"
+            echo "PAKRO_GITHUB_TOKEN=${{ steps.token.outputs.token }}"
             echo "GITHUB_TOKEN=${{ steps.token.outputs.token }}"
           } >> "$GITHUB_ENV"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: mise
+          name: pakro
           path: target/debug
-      - run: chmod +x target/debug/mise
+      - run: chmod +x target/debug/pakro
       - run: echo target/debug >> "$GITHUB_PATH"
-      - uses: ./.github/actions/mise-tools
+      - uses: ./.github/actions/pakro-tools
       - name: Pull e2e Docker image
         run: docker pull ghcr.io/jdx/mise:e2e
       - name: Set test-tool jobs
@@ -245,31 +245,31 @@ jobs:
             -v "$container_tmp_dir:/tmp" \
             -v "$container_var_tmp_dir:/var/tmp" \
             -v "$container_home_dir:/root" \
-            -v "$PWD:/mise-src:ro" \
-            -v "$PWD/target/debug/mise:/usr/local/bin/mise:ro" \
+            -v "$PWD:/pakro-src:ro" \
+            -v "$PWD/target/debug/pakro:/usr/local/bin/pakro:ro" \
             -v "$summary_dir:/tmp/github-summary" \
-            -e MISE_GITHUB_TOKEN="${POOL_TOKEN:-${MISE_GITHUB_TOKEN:-}}" \
+            -e PAKRO_GITHUB_TOKEN="${POOL_TOKEN:-${PAKRO_GITHUB_TOKEN:-}}" \
             -e GITHUB_TOKEN="${POOL_TOKEN:-${GITHUB_TOKEN:-}}" \
             -e GITHUB_STEP_SUMMARY=/tmp/github-summary/summary.md \
             -e TEST_TOOL_JOBS="$TEST_TOOL_JOBS" \
             -e TEST_TRANCHE="$TEST_TRANCHE" \
             -e TEST_TRANCHE_COUNT="$TEST_TRANCHE_COUNT" \
-            -e MISE_EXPERIMENTAL=1 \
-            -e MISE_LOCKFILE=1 \
-            -e MISE_USE_VERSIONS_HOST_TRACK=0 \
+            -e PAKRO_EXPERIMENTAL=1 \
+            -e PAKRO_LOCKFILE=1 \
+            -e PAKRO_USE_VERSIONS_HOST_TRACK=0 \
             -e RUST_BACKTRACE=1 \
             ghcr.io/jdx/mise:e2e \
             sh -lc '
               set -e
               export HOME=/root
-              export MISE_CACHE_DIR=/tmp/mise-cache
-              export MISE_CONFIG_DIR=/tmp/mise-config
-              export MISE_DATA_DIR=/tmp/mise-data
-              export MISE_STATE_DIR=/tmp/mise-state
-              export MISE_TMP_DIR=/tmp/mise-tmp
-              mkdir -p "$HOME" "$MISE_CACHE_DIR" "$MISE_CONFIG_DIR" "$MISE_DATA_DIR" "$MISE_STATE_DIR" "$MISE_TMP_DIR"
+              export PAKRO_CACHE_DIR=/tmp/pakro-cache
+              export PAKRO_CONFIG_DIR=/tmp/pakro-config
+              export PAKRO_DATA_DIR=/tmp/pakro-data
+              export PAKRO_STATE_DIR=/tmp/pakro-state
+              export PAKRO_TMP_DIR=/tmp/pakro-tmp
+              mkdir -p "$HOME" "$PAKRO_CACHE_DIR" "$PAKRO_CONFIG_DIR" "$PAKRO_DATA_DIR" "$PAKRO_STATE_DIR" "$PAKRO_TMP_DIR"
 
-              mise test-tool --jobs "$TEST_TOOL_JOBS" ${{ needs.list-changed-tools.outputs.tools == '' && '--all' || needs.list-changed-tools.outputs.tools }}
+              pakro test-tool --jobs "$TEST_TOOL_JOBS" ${{ needs.list-changed-tools.outputs.tools == '' && '--all' || needs.list-changed-tools.outputs.tools }}
             '
           test_tool_status=$?
           set -e
@@ -282,7 +282,7 @@ jobs:
           fi
           echo "failed_tools=$failed_tools" >> "$GITHUB_OUTPUT"
           if [ "$test_tool_status" -ne 0 ] && [ -z "$failed_tools" ]; then
-            echo "::error::mise test-tool exited with status $test_tool_status without reporting failed tools"
+            echo "::error::pakro test-tool exited with status $test_tool_status without reporting failed tools"
             exit "$test_tool_status"
           fi
       - name: Retry failed tools
@@ -308,29 +308,29 @@ jobs:
             -v "$container_tmp_dir:/tmp" \
             -v "$container_var_tmp_dir:/var/tmp" \
             -v "$container_home_dir:/root" \
-            -v "$PWD:/mise-src:ro" \
-            -v "$PWD/target/debug/mise:/usr/local/bin/mise:ro" \
+            -v "$PWD:/pakro-src:ro" \
+            -v "$PWD/target/debug/pakro:/usr/local/bin/pakro:ro" \
             -v "$summary_dir:/tmp/github-summary" \
-            -e MISE_GITHUB_TOKEN="${POOL_TOKEN:-${MISE_GITHUB_TOKEN:-}}" \
+            -e PAKRO_GITHUB_TOKEN="${POOL_TOKEN:-${PAKRO_GITHUB_TOKEN:-}}" \
             -e GITHUB_TOKEN="${POOL_TOKEN:-${GITHUB_TOKEN:-}}" \
             -e GITHUB_STEP_SUMMARY=/tmp/github-summary/summary.md \
             -e TEST_TOOL_JOBS="$TEST_TOOL_JOBS" \
-            -e MISE_EXPERIMENTAL=1 \
-            -e MISE_LOCKFILE=1 \
-            -e MISE_USE_VERSIONS_HOST_TRACK=0 \
+            -e PAKRO_EXPERIMENTAL=1 \
+            -e PAKRO_LOCKFILE=1 \
+            -e PAKRO_USE_VERSIONS_HOST_TRACK=0 \
             -e RUST_BACKTRACE=1 \
             ghcr.io/jdx/mise:e2e \
             sh -lc '
               set -e
               export HOME=/root
-              export MISE_CACHE_DIR=/tmp/mise-cache
-              export MISE_CONFIG_DIR=/tmp/mise-config
-              export MISE_DATA_DIR=/tmp/mise-data
-              export MISE_STATE_DIR=/tmp/mise-state
-              export MISE_TMP_DIR=/tmp/mise-tmp
-              mkdir -p "$HOME" "$MISE_CACHE_DIR" "$MISE_CONFIG_DIR" "$MISE_DATA_DIR" "$MISE_STATE_DIR" "$MISE_TMP_DIR"
+              export PAKRO_CACHE_DIR=/tmp/pakro-cache
+              export PAKRO_CONFIG_DIR=/tmp/pakro-config
+              export PAKRO_DATA_DIR=/tmp/pakro-data
+              export PAKRO_STATE_DIR=/tmp/pakro-state
+              export PAKRO_TMP_DIR=/tmp/pakro-tmp
+              mkdir -p "$HOME" "$PAKRO_CACHE_DIR" "$PAKRO_CONFIG_DIR" "$PAKRO_DATA_DIR" "$PAKRO_STATE_DIR" "$PAKRO_TMP_DIR"
 
-              mise test-tool --jobs "$TEST_TOOL_JOBS" ${{ steps.test-tools.outputs.failed_tools }}
+              pakro test-tool --jobs "$TEST_TOOL_JOBS" ${{ steps.test-tools.outputs.failed_tools }}
             '
           test_tool_status=$?
           set -e
@@ -343,7 +343,7 @@ jobs:
           fi
           echo "failed_tools=$failed_tools" >> "$GITHUB_OUTPUT"
           if [ "$test_tool_status" -ne 0 ] && [ -z "$failed_tools" ]; then
-            echo "::error::mise test-tool retry exited with status $test_tool_status without reporting failed tools"
+            echo "::error::pakro test-tool retry exited with status $test_tool_status without reporting failed tools"
             exit "$test_tool_status"
           fi
       - name: Handle retry failures
@@ -354,8 +354,8 @@ jobs:
       - name: Check grace period for release branch failures
         if: steps.retry.outputs.failed_tools != '' && (github.head_ref == 'release' || github.ref == 'refs/heads/release')
         env:
-          GITHUB_TOKEN: ${{ secrets.MISE_GH_TOKEN || secrets.GITHUB_TOKEN }}
-        run: mise run test-tool-retry --check-only --grace-period ${{ steps.retry.outputs.failed_tools }}
+          GITHUB_TOKEN: ${{ secrets.PAKRO_GH_TOKEN || secrets.GITHUB_TOKEN }}
+        run: pakro run test-tool-retry --check-only --grace-period ${{ steps.retry.outputs.failed_tools }}
 
   registry-ci:
     permissions: {}

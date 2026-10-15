@@ -32,13 +32,13 @@ pub struct InstallOptions {
     /// dependencies, and those can come from different scopes.
     pub scoped_install_dirs: bool,
     /// skip confirmation prompts (e.g. installing missing plugin system deps).
-    /// Defaults to the global `yes` setting; `mise bootstrap --yes` also sets it.
+    /// Defaults to the global `yes` setting; `pakro bootstrap --yes` also sets it.
     pub yes: bool,
     /// The user explicitly passed `--yes` for this invocation or install operation.
     /// Unlike `yes`, this is not enabled implicitly by CI mode.
     pub explicit_yes: bool,
     /// Install without the lockfile policy a configuration sets for its tools
-    /// (`tool_config.locked`): for `mise installs migrate`, which moves a version
+    /// (`tool_config.locked`): for `pakro installs migrate`, which moves a version
     /// already installed rather than one the lockfile chose.
     pub ignore_tool_config_locked: bool,
     /// Reload global configuration after installation.

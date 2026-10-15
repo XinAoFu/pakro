@@ -3,7 +3,7 @@
 # Test that raw tasks get interleave output even when task.output=prefix is set
 # This ensures raw=true takes priority over task.output setting
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [settings]
 task.output = "prefix"
 
@@ -20,14 +20,14 @@ run = 'echo interactive task output'
 EOF
 
 # Normal task should use prefix output (from settings)
-assert_contains "mise run normal" "[normal] normal task"
+assert_contains "pakro run normal" "[normal] normal task"
 
 # Raw task should get interleave output mode, meaning stdout goes directly
 # without the [task_name] prefix being applied to the actual output
-assert "mise run raw_task" "raw task output"
+assert "pakro run raw_task" "raw task output"
 
 # Verify stdout doesn't have the prefix (only check stdout, not stderr)
-stdout_output=$(mise run raw_task 2>/dev/null)
+stdout_output=$(pakro run raw_task 2>/dev/null)
 if [[ $stdout_output == *"[raw_task]"* ]]; then
   echo "FAIL: raw task stdout should not have prefix"
   exit 1
@@ -38,10 +38,10 @@ echo "SUCCESS: raw task stdout has no prefix"
 # required by raw and interactive tasks. They should resolve the same way as
 # the equivalent task.output setting, including during a dry run.
 for task in raw_task interactive_task; do
-  assert_contains "mise run --output keep-order $task 2>&1" '$ echo'
-  assert_not_contains "mise run --output keep-order $task 2>&1" "Finished in"
-  assert_contains "MISE_TASK_OUTPUT=keep-order mise run $task 2>&1" '$ echo'
-  assert_not_contains "MISE_TASK_OUTPUT=keep-order mise run $task 2>&1" "Finished in"
-  assert_contains "mise run --output keep-order --dry-run $task 2>&1" '$ echo'
-  assert_not_contains "mise run --output keep-order --dry-run $task 2>&1" "Finished in"
+  assert_contains "pakro run --output keep-order $task 2>&1" '$ echo'
+  assert_not_contains "pakro run --output keep-order $task 2>&1" "Finished in"
+  assert_contains "PAKRO_TASK_OUTPUT=keep-order pakro run $task 2>&1" '$ echo'
+  assert_not_contains "PAKRO_TASK_OUTPUT=keep-order pakro run $task 2>&1" "Finished in"
+  assert_contains "pakro run --output keep-order --dry-run $task 2>&1" '$ echo'
+  assert_not_contains "pakro run --output keep-order --dry-run $task 2>&1" "Finished in"
 done

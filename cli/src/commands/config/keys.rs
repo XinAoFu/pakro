@@ -1,6 +1,6 @@
 //! Completion for the dotted keys `config get` and `config set` take.
 //!
-//! The known keys come from `schema/mise.json`, walked through `$ref`, `allOf`, `oneOf` and
+//! The known keys come from `schema/pakro.json`, walked through `$ref`, `allOf`, `oneOf` and
 //! `anyOf` so that `tools.node.` reaches a tool's options and `settings.python.` reaches the
 //! python settings. Tables whose keys are user-chosen — tools, tasks, env vars — have no names
 //! in the schema, so those come from the file the command would read or write.
@@ -12,8 +12,8 @@ use std::sync::LazyLock;
 use usage_rs::complete::{Candidate, CompleteCtx};
 
 static SCHEMA: LazyLock<Value> = LazyLock::new(|| {
-    serde_json::from_str(include_str!("../../../../src/schema/mise.json"))
-        .expect("schema/mise.json should parse")
+    serde_json::from_str(include_str!("../../../../src/schema/pakro.json"))
+        .expect("schema/pakro.json should parse")
 });
 
 /// Deep enough for every chain in the schema; a bound so a cyclic `$ref` cannot recurse forever.
@@ -233,7 +233,7 @@ mod tests {
     #[test]
     fn user_named_keys_come_from_the_file() {
         let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("mise.toml");
+        let file = dir.path().join("pakro.toml");
         std::fs::write(
             &file,
             "[tools]\nnode = \"22\"\n[tasks.build]\nrun = \"make\"\n[env]\nFOO = \"1\"\n",

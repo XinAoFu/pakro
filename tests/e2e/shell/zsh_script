@@ -3,13 +3,13 @@
 set -euo pipefail
 orig_path="$PATH"
 
-cat <<EOF >.mise.toml
+cat <<EOF >.pakro.toml
 [tools]
 node = "20.0.0"
 EOF
 
 mkdir 18
-cat <<EOF >18/.mise.toml
+cat <<EOF >18/.pakro.toml
 [tools]
 node = "18.0.0"
 EOF
@@ -26,24 +26,24 @@ assert_path() {
   fi
 }
 
-mise install node@20.0.0 node@18.0.0
+pakro install node@20.0.0 node@18.0.0
 # shellcheck disable=SC1090
-eval "$(mise activate zsh --status)" && _mise_hook
+eval "$(pakro activate zsh --status)" && _pakro_hook
 
-#mise install
-assert_path "$HOME/.local/share/mise/installs/node/20.0.0/bin:$HOME/.local/share/mise/shims"
-test "$(mise exec -- sh -c 'command -v node')" = "$HOME/.local/share/mise/installs/node/20.0.0/bin/node"
+#pakro install
+assert_path "$HOME/.local/share/pakro/installs/node/20.0.0/bin:$HOME/.local/share/pakro/shims"
+test "$(pakro exec -- sh -c 'command -v node')" = "$HOME/.local/share/pakro/installs/node/20.0.0/bin/node"
 test "$(node -v)" = "v20.0.0"
 
-cd 18 && _mise_hook
-#mise install
+cd 18 && _pakro_hook
+#pakro install
 test "$(node -v)" = "v18.0.0"
 
-cd .. && _mise_hook
+cd .. && _pakro_hook
 test "$(node -v)" = "v20.0.0"
 
-mise shell node@18.0.0 && _mise_hook
+pakro shell node@18.0.0 && _pakro_hook
 test "$(node -v)" = "v18.0.0"
 
-mise deactivate
+pakro deactivate
 assert_path ""

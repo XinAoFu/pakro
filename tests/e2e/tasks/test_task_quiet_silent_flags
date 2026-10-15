@@ -2,19 +2,19 @@
 
 # Test that --quiet and --silent global flags work correctly for task output
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.hello]
 run = 'echo "task output"'
 EOF
 
-# --quiet: should show task stdout, suppress mise info messages
-assert "mise --quiet run hello 2>&1" "task output"
+# --quiet: should show task stdout, suppress pakro info messages
+assert "pakro --quiet run hello 2>&1" "task output"
 
-# --silent: should suppress both task stdout AND mise info messages
-assert_empty "mise --silent run hello 2>&1"
+# --silent: should suppress both task stdout AND pakro info messages
+assert_empty "pakro --silent run hello 2>&1"
 
 # -q (short for --quiet): same as --quiet
-assert "mise -q run hello 2>&1" "task output"
+assert "pakro -q run hello 2>&1" "task output"
 
-# mise run -S (short for --silent on run subcommand): should suppress task output
-assert_empty "mise run -S hello 2>&1"
+# pakro run -S (short for --silent on run subcommand): should suppress task output
+assert_empty "pakro run -S hello 2>&1"

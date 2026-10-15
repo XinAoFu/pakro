@@ -27,7 +27,7 @@ pub enum Confirmation {
     /// supplied. This is still a safe refusal, but it is not a user decision.
     Unanswered,
     /// The question never reached anyone: nothing was drawable on stderr, or
-    /// mise is generating usage/completions.
+    /// pakro is generating usage/completions.
     Unavailable,
 }
 
@@ -37,7 +37,7 @@ pub enum Confirmation {
 /// and [`Confirm`] honors that -- but [`Dialog`] has no non-tty branch, so it
 /// drives `Term::stderr().read_key()` unconditionally. When stderr is a terminal
 /// and stdin is not (`docker run -t` without `-i`, a `script`-wrapped CI step,
-/// `mise env < /dev/null`), `console` falls back to `/dev/tty` and either fails
+/// `pakro env < /dev/null`), `console` falls back to `/dev/tty` and either fails
 /// with `ENXIO` -- burying the caller's real error under an errno -- or blocks
 /// forever on a keypress nobody is there to type. Checking both ends keeps a
 /// dialog from being drawn when nothing can answer it.
@@ -98,9 +98,9 @@ pub fn confirm_with_labels<S: Into<String>>(
     // it is read from the terminal. The guard is a no-op when no report is active.
     let _progress_pause = MultiProgressReport::try_get().map(|report| report.pause_progress());
     // Deliberately not `can_prompt_dialog()`: `Confirm` does have a non-tty
-    // branch, so `echo y | mise ...` is a supported way to answer. What it cannot
+    // branch, so `echo y | pakro ...` is a supported way to answer. What it cannot
     // do is tell EOF from a bare newline -- it discards the 0-byte return of
-    // `read_line` and applies the default -- so `mise implode < /dev/null` would
+    // `read_line` and applies the default -- so `pakro implode < /dev/null` would
     // answer "yes" to every deletion. Read the line here instead, so that no
     // answer means no.
     if !std::io::stdin().is_terminal() {
@@ -126,7 +126,7 @@ pub fn confirm_with_labels<S: Into<String>>(
 }
 
 /// Prints `message` to stderr and reads a single answer from a non-terminal
-/// stdin, which is what makes `echo y | mise ...` work without letting an
+/// stdin, which is what makes `echo y | pakro ...` work without letting an
 /// unanswered prompt (EOF) count as consent.
 fn read_confirm_from_stdin(
     message: &str,

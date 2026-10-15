@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
-mkdir -p "$MISE_DATA_DIR/installs/github-jdx-mise-test-fixtures/1.0.0/bin"
-mkdir -p "$MISE_DATA_DIR/installs/github-jdx-mise-test-fixtures/latest/bin"
-mkdir -p "$MISE_DATA_DIR/installs/node/latest/bin"
-cat <<'EOF' >"$MISE_DATA_DIR/installs/.mise-installs.toml"
+mkdir -p "$PAKRO_DATA_DIR/installs/github-jdx-mise-test-fixtures/1.0.0/bin"
+mkdir -p "$PAKRO_DATA_DIR/installs/github-jdx-mise-test-fixtures/latest/bin"
+mkdir -p "$PAKRO_DATA_DIR/installs/node/latest/bin"
+cat <<'EOF' >"$PAKRO_DATA_DIR/installs/.pakro-installs.toml"
 [github-jdx-mise-test-fixtures]
 short = "github:jdx/mise-test-fixtures"
 full = "github:jdx/mise-test-fixtures"
@@ -13,20 +13,20 @@ EOF
 # The retired startup migration no longer repairs stale directories during a
 # read-only listing. Keep that listing passive: an install is the operation
 # that rebuilds the selector link from the concrete install.
-mise ls github:jdx/mise-test-fixtures >/dev/null
-stale_latest="$MISE_DATA_DIR/installs/github-jdx-mise-test-fixtures/latest"
+pakro ls github:jdx/mise-test-fixtures >/dev/null
+stale_latest="$PAKRO_DATA_DIR/installs/github-jdx-mise-test-fixtures/latest"
 assert "test -d '$stale_latest'"
 assert "test ! -L '$stale_latest'"
 
-mise install github:jdx/mise-test-fixtures@1.0.0
-output=$(mise ls github:jdx/mise-test-fixtures)
+pakro install github:jdx/mise-test-fixtures@1.0.0
+output=$(pakro ls github:jdx/mise-test-fixtures)
 link_target=$(readlink "$stale_latest")
 assert "test '$link_target' = ./1.0.0"
-assert "test -d '$MISE_DATA_DIR/installs/node/latest'"
-assert "test ! -L '$MISE_DATA_DIR/installs/node/latest'"
+assert "test -d '$PAKRO_DATA_DIR/installs/node/latest'"
+assert "test ! -L '$PAKRO_DATA_DIR/installs/node/latest'"
 if [[ $output == *latest* ]]; then
-  fail "mise ls included stale latest entry: $output"
+  fail "pakro ls included stale latest entry: $output"
 fi
 if [[ $output != *1.0.0* ]]; then
-  fail "mise ls did not include concrete version: $output"
+  fail "pakro ls did not include concrete version: $output"
 fi

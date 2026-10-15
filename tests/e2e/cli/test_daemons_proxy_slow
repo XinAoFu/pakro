@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-if [[ -z ${MISE_TEST_PITCHFORK:-} ]]; then
-  echo "Skipping: set MISE_TEST_PITCHFORK to a build with proxy idle shutdown"
+if [[ -z ${PAKRO_TEST_PITCHFORK:-} ]]; then
+  echo "Skipping: set PAKRO_TEST_PITCHFORK to a build with proxy idle shutdown"
   exit 0
 fi
-cp "$MISE_TEST_PITCHFORK" ~/bin/pitchfork
+cp "$PAKRO_TEST_PITCHFORK" ~/bin/pitchfork
 export PATH="$HOME/bin:$PATH"
 export PITCHFORK_STATE_DIR="$TMPDIR/pf"
 export PITCHFORK_CONFIG_DIR="$TMPDIR/pf-config"
@@ -23,7 +23,7 @@ trap 'pitchfork supervisor stop >/dev/null 2>&1 || true' EXIT
 mkdir project
 cd project
 git init -q
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons_settings]
@@ -37,30 +37,30 @@ port = { auto = true, base = 35000 }
 ready_cmd = "curl -fsS http://127.0.0.1:$API_PORT/proof"
 depends = ["prepare"]
 TOML
-git add mise.toml
+git add pakro.toml
 git -c user.name=test -c user.email=test@example.invalid commit -qm fixture
 git worktree add -qb other ../other
 
-# Register each checkout with mise, then leave the stack stopped. The API has
+# Register each checkout with pakro, then leave the stack stopped. The API has
 # never started: a proxy request must start its dependency from generated config.
 for checkout in "$PWD" "$PWD/../other"; do
   (
     cd "$checkout"
     basename "$checkout" >proof
-    mise daemons start prepare
-    mise daemons stop
+    pakro daemons start prepare
+    pakro daemons stop
     mv dependency-ready dependency-before-stop
-    url=$(mise env --json | jq -r .API_URL)
+    url=$(pakro env --json | jq -r .API_URL)
     hostport=${url#http://}
     assert_contains "curl --noproxy '*' -fsS --max-time 30 --resolve '$hostport:127.0.0.1' '$url/proof'" "$(basename "$checkout")"
     assert "test -f dependency-ready"
-    assert_contains "mise daemons ls --json" '"status": "running"'
+    assert_contains "pakro daemons ls --json" '"status": "running"'
   )
 done
 
 # Both worktree URLs still resolve to their own process after the second starts.
-first_url=$(mise env --json | jq -r .API_URL)
-second_url=$(cd ../other && mise env --json | jq -r .API_URL)
+first_url=$(pakro env --json | jq -r .API_URL)
+second_url=$(cd ../other && pakro env --json | jq -r .API_URL)
 assert "test '$first_url' != '$second_url'"
 assert_contains "curl --noproxy '*' -fsS --resolve '${first_url#http://}:127.0.0.1' '$first_url/proof'" project
 assert_contains "curl --noproxy '*' -fsS --resolve '${second_url#http://}:127.0.0.1' '$second_url/proof'" other
@@ -70,12 +70,12 @@ assert_contains "curl --noproxy '*' -fsS --resolve '${second_url#http://}:127.0.
 wait_for_stopped() {
   local attempt
   for ((attempt = 0; attempt < 40; attempt++)); do
-    if mise daemons ls --json | jq -e 'length == 2 and all(.[]; .status == "stopped")' >/dev/null; then
+    if pakro daemons ls --json | jq -e 'length == 2 and all(.[]; .status == "stopped")' >/dev/null; then
       return 0
     fi
     sleep 1
   done
-  mise daemons ls --json
+  pakro daemons ls --json
   return 1
 }
 export -f wait_for_stopped
@@ -84,14 +84,14 @@ for checkout in "$PWD" "$PWD/../other"; do
     cd "$checkout"
     assert wait_for_stopped
     mv dependency-ready dependency-before-restart
-    url=$(mise env --json | jq -r .API_URL)
+    url=$(pakro env --json | jq -r .API_URL)
     assert_contains "curl --noproxy '*' -fsS --max-time 30 --resolve '${url#http://}:127.0.0.1' '$url/proof'" "$(basename "$checkout")"
     assert "test -f dependency-ready"
-    assert_contains "mise daemons ls --json" '"status": "running"'
+    assert_contains "pakro daemons ls --json" '"status": "running"'
   )
 done
 
 # Explicitly claiming a proxy-started stack keeps its dependency graph running.
-mise daemons start api
+pakro daemons start api
 sleep 8
-assert "mise daemons ls --json | jq -e 'length == 2 and all(.[]; .status == \"running\")'"
+assert "pakro daemons ls --json | jq -e 'length == 2 and all(.[]; .status == \"running\")'"

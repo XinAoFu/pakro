@@ -1,4 +1,4 @@
-//! The on-disk history store under `$MISE_STATE_DIR/history/`.
+//! The on-disk history store under `$PAKRO_STATE_DIR/history/`.
 //!
 //! The bare repository `repo.git` is the complete representation: every
 //! tracked-file version is an ordinary commit whose tree holds the files.
@@ -24,7 +24,7 @@ use crate::file::{self, display_path};
 ///
 /// **Bumped whenever a reader that does not understand the addition
 /// would draw a wrong conclusion from its absence.** Version 2 added an
-/// entry's `include` list: an older mise ignores the field, reads the
+/// entry's `include` list: an older pakro ignores the field, reads the
 /// entry as covering its whole tree, and a rollback then deletes the
 /// files the list never selected. It refuses a newer schema instead —
 /// `replay::validate` rejects anything above its own — and that is the
@@ -285,7 +285,7 @@ impl Trigger {
     }
 
     /// A capture with no metadata of its own: recorded only when something
-    /// changed. A bare `mise dot save` counts; one with a description,
+    /// changed. A bare `pakro dot save` counts; one with a description,
     /// a label, or a task always records.
     pub(crate) fn is_automatic(self) -> bool {
         matches!(self, Self::Edit | Self::Save)
@@ -353,7 +353,7 @@ pub struct Checkpoint {
     pub machine: Machine,
     /// RFC 3339, UTC.
     pub created_at: String,
-    pub mise_version: String,
+    pub pakro_version: String,
     pub trigger: Trigger,
     pub description: String,
     pub description_source: DescriptionSource,
@@ -413,7 +413,7 @@ impl Checkpoint {
             // directory has since lost its `.git` it would look like an
             // ordinary part of the tracked tree whose files the
             // checkpoint "did not hold" — which is how a rollback
-            // deletes them. As an omission it reads, on this mise and on
+            // deletes them. As an omission it reads, on this pakro and on
             // an older one, as what it is: a path this commit did not
             // capture.
             omitted: self
@@ -600,7 +600,7 @@ pub struct Coverage {
     pub exclude: Vec<String>,
     /// Which matcher read `exclude` when this checkpoint was written.
     ///
-    /// Added later, so its absence marks a checkpoint written by a mise
+    /// Added later, so its absence marks a checkpoint written by a pakro
     /// that read exclusion globs differently. A replay cannot know what
     /// such a checkpoint covered, so it says so rather than treating an
     /// unmatched path as one the snapshot held and deleting it.
@@ -695,7 +695,7 @@ pub struct Operation {
     pub id: String,
     pub kind: OperationKind,
     pub status: OperationStatus,
-    /// The mise command line without `argv[0]`, e.g. `bootstrap --yes`.
+    /// The pakro command line without `argv[0]`, e.g. `bootstrap --yes`.
     pub command: String,
     pub argv: Vec<String>,
     pub cwd: PathBuf,

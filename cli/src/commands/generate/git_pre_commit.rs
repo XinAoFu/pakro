@@ -6,7 +6,7 @@ use crate::git::Git;
 
 /// Generate a git pre-commit hook
 ///
-/// This command generates a git pre-commit hook that runs a mise task like `mise run pre-commit`
+/// This command generates a git pre-commit hook that runs a pakro task like `pakro run pre-commit`
 /// when you commit changes to your repository.
 ///
 /// Staged files are passed to the task as `STAGED`.
@@ -16,18 +16,18 @@ use crate::git::Git;
 /// arguments are not forwarded, so a `pre-push` hook's remote name and URL are not
 /// appended to the task's command.
 ///
-/// For more advanced pre-commit functionality, see mise's sister project: https://hk.jdx.dev/
+/// For more advanced pre-commit functionality, see pakro's sister project: https://hk.jdx.dev/
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
     visible_alias = "pre-commit",
     example(
-        r###"mise generate git-pre-commit --write --task=pre-commit
+        r###"pakro generate git-pre-commit --write --task=pre-commit
 git commit -m "feat: add new feature""###,
-        help = "Install the hook; committing then runs `mise run pre-commit`."
+        help = "Install the hook; committing then runs `pakro run pre-commit`."
     ),
     example(
-        r###"mise generate git-pre-commit --write -- -C subdir"###,
+        r###"pakro generate git-pre-commit --write -- -C subdir"###,
         help = r###"config lives in a subdirectory, so the hook has to change into it first"###
     )
 )]
@@ -41,17 +41,17 @@ pub(super) struct GitPreCommit {
     /// Which hook to generate (saves to .git/hooks/$hook)
     #[usage(long, default = "pre-commit")]
     hook: String,
-    /// mise flags to embed in the generated hook, given after `--`
+    /// pakro flags to embed in the generated hook, given after `--`
     ///
-    /// These are inserted between `mise` and `run`, so the hook carries the same context you
+    /// These are inserted between `pakro` and `run`, so the hook carries the same context you
     /// would pass on the command line. Useful when the config is not at the repository root,
     /// since git runs hooks from the top level: `-- -C subdir` makes the hook find it.
     #[usage(
         double_dash = "required",
-        value_name = "MISE_ARG",
+        value_name = "PAKRO_ARG",
         verbatim_doc_comment
     )]
-    mise_args: Vec<String>,
+    pakro_args: Vec<String>,
 }
 
 /// Hooks git calls with the path to a message file, as their first argument, for the
@@ -72,7 +72,7 @@ impl GitPreCommit {
             if path.exists() {
                 let old_path = path.with_extension("old");
                 if !quiet {
-                    miseprintln!(
+                    pakroprintln!(
                         "Moving existing hook to {:?}",
                         old_path.file_name().unwrap()
                     );
@@ -82,10 +82,10 @@ impl GitPreCommit {
             file::write(&path, &output)?;
             file::make_executable(&path)?;
             if !quiet {
-                miseprintln!("Wrote to {}", display_path(&path));
+                pakroprintln!("Wrote to {}", display_path(&path));
             }
         } else {
-            miseprintln!("{output}");
+            pakroprintln!("{output}");
         }
         Ok(())
     }
@@ -94,10 +94,10 @@ impl GitPreCommit {
         let task = &self.task;
         // Quoted rather than joined with spaces so an argument that contains one — a
         // `-C` pointing at a directory with a space, say — survives as a single word.
-        let mise_args = if self.mise_args.is_empty() {
+        let pakro_args = if self.pakro_args.is_empty() {
             String::new()
         } else {
-            format!(" {}", shell_words::join(&self.mise_args))
+            format!(" {}", shell_words::join(&self.pakro_args))
         };
         // A task that declares no args gets extra arguments appended to its last command,
         // so forwarding git's arguments is only safe when the task is meant to read them.
@@ -113,8 +113,8 @@ impl GitPreCommit {
             r#"#!/bin/sh
 STAGED="$(git diff-index --cached --name-only -z HEAD | xargs -0)"
 export STAGED
-export MISE_PRE_COMMIT=1
-exec mise{mise_args} run {task}{hook_args}
+export PAKRO_PRE_COMMIT=1
+exec pakro{pakro_args} run {task}{hook_args}
 "#
         )
     }
@@ -128,12 +128,12 @@ mod tests {
         generate_with_args(task, hook, &[])
     }
 
-    fn generate_with_args(task: &str, hook: &str, mise_args: &[&str]) -> String {
+    fn generate_with_args(task: &str, hook: &str, pakro_args: &[&str]) -> String {
         GitPreCommit {
             task: task.to_string(),
             write: false,
             hook: hook.to_string(),
-            mise_args: mise_args.iter().map(|s| s.to_string()).collect(),
+            pakro_args: pakro_args.iter().map(|s| s.to_string()).collect(),
         }
         .generate()
     }
@@ -144,7 +144,7 @@ mod tests {
         // hands it, which is the whole point of that hook.
         let out = generate("lint-commit-msg", "commit-msg");
         assert!(
-            out.ends_with("exec mise run lint-commit-msg \"$1\"\n"),
+            out.ends_with("exec pakro run lint-commit-msg \"$1\"\n"),
             "the message file must reach the task:\n{out}"
         );
     }
@@ -154,7 +154,7 @@ mod tests {
     #[test]
     fn prepare_commit_msg_forwards_only_the_message_file() {
         let out = generate("prep", "prepare-commit-msg");
-        assert!(out.ends_with("exec mise run prep \"$1\"\n"), "{out}");
+        assert!(out.ends_with("exec pakro run prep \"$1\"\n"), "{out}");
     }
 
     /// git calls `pre-push` with the remote name and URL. A task without declared args
@@ -163,40 +163,43 @@ mod tests {
     #[test]
     fn pre_push_does_not_forward_hook_arguments() {
         let out = generate("pre-push", "pre-push");
-        assert!(out.ends_with("exec mise run pre-push\n"), "{out}");
+        assert!(out.ends_with("exec pakro run pre-push\n"), "{out}");
     }
 
     #[test]
     fn pre_commit_output_is_unchanged_in_substance() {
         let out = generate("pre-commit", "pre-commit");
         assert!(out.starts_with("#!/bin/sh\n"), "{out}");
-        assert!(out.contains("export MISE_PRE_COMMIT=1"), "{out}");
+        assert!(out.contains("export PAKRO_PRE_COMMIT=1"), "{out}");
         assert!(out.contains("STAGED="), "{out}");
     }
 
     /// Frozen copy of the hook as it was before the passthrough existed.
-    const HOOK_WITHOUT_MISE_ARGS: &str = r#"#!/bin/sh
+    const HOOK_WITHOUT_PAKRO_ARGS: &str = r#"#!/bin/sh
 STAGED="$(git diff-index --cached --name-only -z HEAD | xargs -0)"
 export STAGED
-export MISE_PRE_COMMIT=1
-exec mise run pre-commit
+export PAKRO_PRE_COMMIT=1
+exec pakro run pre-commit
 "#;
 
     /// Passing nothing must leave the hook byte-identical, so the ones already written
     /// stay valid. Compared whole rather than by substring: an extra or duplicated line
     /// would slip past a `contains` check.
     #[test]
-    fn no_mise_args_leaves_the_hook_unchanged() {
-        assert_eq!(generate("pre-commit", "pre-commit"), HOOK_WITHOUT_MISE_ARGS);
+    fn no_pakro_args_leaves_the_hook_unchanged() {
+        assert_eq!(
+            generate("pre-commit", "pre-commit"),
+            HOOK_WITHOUT_PAKRO_ARGS
+        );
     }
 
     /// git runs hooks from the repository root, so a config kept in a subdirectory is only
-    /// reachable if the hook carries the flag that gets mise there (discussion #4304).
+    /// reachable if the hook carries the flag that gets pakro there (discussion #4304).
     #[test]
-    fn mise_args_are_inserted_before_run() {
+    fn pakro_args_are_inserted_before_run() {
         let out = generate_with_args("lint", "commit-msg", &["-C", "subdir", "-E", "ci"]);
         assert!(
-            out.contains(r#"exec mise -C subdir -E ci run lint "$1""#),
+            out.contains(r#"exec pakro -C subdir -E ci run lint "$1""#),
             "{out}"
         );
     }
@@ -209,10 +212,13 @@ exec mise run pre-commit
         let out = generate_with_args("lint", "commit-msg", &["-C", "my dir"]);
         let exec_line = out
             .lines()
-            .find(|line| line.starts_with("exec mise"))
-            .expect("generated hook should exec mise");
+            .find(|line| line.starts_with("exec pakro"))
+            .expect("generated hook should exec pakro");
         let words = shell_words::split(exec_line).expect("exec line should be valid shell");
-        assert_eq!(words, ["exec", "mise", "-C", "my dir", "run", "lint", "$1"]);
+        assert_eq!(
+            words,
+            ["exec", "pakro", "-C", "my dir", "run", "lint", "$1"]
+        );
     }
 
     /// The tests above build the struct directly, so they cannot see the question this
@@ -222,7 +228,7 @@ exec mise run pre-commit
     #[test]
     fn passthrough_args_reach_the_command_through_the_parser() {
         let argv = [
-            "mise",
+            "pakro",
             "generate",
             "git-pre-commit",
             "--task",
@@ -245,6 +251,6 @@ exec mise run pre-commit
             panic!("git-pre-commit should be the resolved subcommand");
         };
         assert_eq!(command.task, "lint");
-        assert_eq!(command.mise_args, ["-C", "subdir", "-E", "ci"]);
+        assert_eq!(command.pakro_args, ["-C", "subdir", "-E", "ci"]);
     }
 }

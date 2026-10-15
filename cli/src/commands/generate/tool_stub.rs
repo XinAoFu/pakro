@@ -35,12 +35,12 @@ use toml_edit::DocumentMut;
 /// platforms to existing stub files rather than overwriting them. This allows you
 /// to incrementally build cross-platform tool stubs.
 #[derive(Debug, usage_rs::Args)]
-#[usage(verbatim_doc_comment, example(r###"mise generate tool-stub ./bin/node --platform-url https://nodejs.org/dist/v22.17.1/node-v22.17.1-darwin-arm64.tar.gz"###, help = r###"Download and inspect a real archive to detect its binary and checksum"###),
-    example(r###"mise generate tool-stub ./bin/node --platform-url linux-x64:https://nodejs.org/dist/v22.17.1/node-v22.17.1-linux-x64.tar.gz"###, help = r###"Add a Linux artifact to the same stub"###),
-    example(r###"mise generate tool-stub ./bin/my-tool --url https://example.com/my-tool.tar.gz --skip-download
+#[usage(verbatim_doc_comment, example(r###"pakro generate tool-stub ./bin/node --platform-url https://nodejs.org/dist/v22.17.1/node-v22.17.1-darwin-arm64.tar.gz"###, help = r###"Download and inspect a real archive to detect its binary and checksum"###),
+    example(r###"pakro generate tool-stub ./bin/node --platform-url linux-x64:https://nodejs.org/dist/v22.17.1/node-v22.17.1-linux-x64.tar.gz"###, help = r###"Add a Linux artifact to the same stub"###),
+    example(r###"pakro generate tool-stub ./bin/my-tool --url https://example.com/my-tool.tar.gz --skip-download
 # Replace the URL with a real artifact before fetching metadata or executing it"###, help = r###"Create a draft for your own artifact without fetching the placeholder URL"###),
-    example(r###"mise generate tool-stub ./bin/node --fetch"###, help = r###"Fill missing checksums and sizes in an existing stub"###),
-    example(r###"mise generate tool-stub ./bin/registry-node --lock --version 22"###, help = r###"For an existing registry-backed stub, resolve and record version/platform lock data"###))]
+    example(r###"pakro generate tool-stub ./bin/node --fetch"###, help = r###"Fill missing checksums and sizes in an existing stub"###),
+    example(r###"pakro generate tool-stub ./bin/registry-node --lock --version 22"###, help = r###"For an existing registry-backed stub, resolve and record version/platform lock data"###))]
 pub(super) struct ToolStub {
     /// Output file path for the tool stub
     #[usage(value_hint = ValueHint::FilePath)]
@@ -52,16 +52,16 @@ pub(super) struct ToolStub {
     #[usage(long, short)]
     pub bin: Option<String>,
 
-    /// Wrap stub in a bootstrap script that installs mise if not already present
+    /// Wrap stub in a bootstrap script that installs pakro if not already present
     ///
     /// When enabled, generates a bash script that:
-    /// 1. Checks if mise is installed at the expected path
-    /// 2. If not, downloads and installs mise using the embedded installer
-    /// 3. Executes the tool stub using mise
+    /// 1. Checks if pakro is installed at the expected path
+    /// 2. If not, downloads and installs pakro using the embedded installer
+    /// 3. Executes the tool stub using pakro
     #[usage(long, verbatim_doc_comment)]
     pub bootstrap: bool,
 
-    /// Specify mise version for the bootstrap script
+    /// Specify pakro version for the bootstrap script
     ///
     /// By default, uses the latest version from the install script.
     /// Use this to pin to a specific version (e.g., "2025.1.0").
@@ -94,7 +94,7 @@ pub(super) struct ToolStub {
 
     /// Resolve and record lock data (exact version, platform URLs and checksums) for an existing stub
     ///
-    /// The data goes into the `mise.lock` of the nearest project config above the
+    /// The data goes into the `pakro.lock` of the nearest project config above the
     /// stub, and the stub keeps its version request. It is an error when no project
     /// config is found.
     #[usage(long, conflicts = &["url", "platform_url", "bin", "platform_bin", "fetch", "skip_download"], verbatim_doc_comment)]
@@ -190,12 +190,12 @@ impl ToolStub {
         } else {
             "Generated"
         };
-        miseprintln!("{verb} tool stub: {}", display_path(&self.output));
+        pakroprintln!("{verb} tool stub: {}", display_path(&self.output));
         if let Some(launcher) = launcher {
-            miseprintln!("{verb} Windows launcher: {}", display_path(&launcher));
+            pakroprintln!("{verb} Windows launcher: {}", display_path(&launcher));
         }
         if let Some(sidecar) = sidecar {
-            miseprintln!("Updated lockfile: {}", display_path(&sidecar.lockfile_path));
+            pakroprintln!("Updated lockfile: {}", display_path(&sidecar.lockfile_path));
         }
         Ok(())
     }
@@ -203,7 +203,7 @@ impl ToolStub {
     /// Write the `.cmd` next to a stub that could run on Windows.
     ///
     /// Windows cannot execute the stub itself: it is a shebang script, and `CreateProcess` will not
-    /// run one. The stub's own machinery works there — `mise tool-stub <file>` does the right thing
+    /// run one. The stub's own machinery works there — `pakro tool-stub <file>` does the right thing
     /// — so all that is missing is something Windows will launch.
     ///
     /// Written on every host, not just Windows, because the case worth fixing is a stub authored on
@@ -224,17 +224,17 @@ impl ToolStub {
         } else if file::read_to_string(&launcher).is_ok_and(|c| super::is_generated_launcher(&c)) {
             // A stub that used to ship for Windows and no longer does would otherwise keep a
             // launcher that still runs, contradicting the platforms it now declares. Recognised by
-            // the marker rather than by comparing text, so a launcher written by an older mise --
+            // the marker rather than by comparing text, so a launcher written by an older pakro --
             // whose body differed -- is still cleaned up; a launcher the user wrote is left alone.
             file::remove_file(&launcher)?;
         }
         Ok(None)
     }
 
-    /// Refuse to replace a `.cmd` beside the stub that mise did not write.
+    /// Refuse to replace a `.cmd` beside the stub that pakro did not write.
     ///
     /// `--output` is the user's choice, so `<stub>.cmd` is a name a project may already be using
-    /// for a script of its own, and nothing about that name says mise owns it. The stub itself is
+    /// for a script of its own, and nothing about that name says pakro owns it. The stub itself is
     /// different: the user named it, so overwriting it is what they asked for.
     fn validate_windows_launcher(&self, stub_content: &str) -> Result<()> {
         if !wants_windows_launcher(stub_content) {
@@ -460,7 +460,7 @@ impl ToolStub {
             self.wrap_with_bootstrap(&toml_content).await
         } else {
             let mut content = vec![
-                "#!/usr/bin/env -S mise tool-stub".to_string(),
+                "#!/usr/bin/env -S pakro tool-stub".to_string(),
                 "".to_string(),
             ];
 
@@ -471,19 +471,29 @@ impl ToolStub {
     }
 
     async fn wrap_with_bootstrap(&self, toml_content: &str) -> Result<String> {
+        let source = crate::cli::version::SelfUpdateSource::current();
+        source.require_release_identity()?;
+        let release_key = minisign::release_public_key()?;
         // Fetch and verify install.sh (same approach as bootstrap.rs)
         // Use versioned URL if a specific version is requested
         let url = if let Some(v) = &self.bootstrap_version {
-            format!("https://mise.jdx.dev/v{v}/install.sh")
+            let version = v.trim_start_matches('v');
+            format!(
+                "https://github.com/{}/releases/download/v{version}/install.sh",
+                source.repository
+            )
         } else {
-            "https://mise.jdx.dev/install.sh".to_string()
+            format!(
+                "https://github.com/{}/releases/latest/download/install.sh",
+                source.repository
+            )
         };
         let install = HTTP.get_text(&url).await?;
         let install_sig = HTTP.get_text(format!("{url}.minisig")).await?;
-        minisign::verify(&minisign::MISE_PUB_KEY, install.as_bytes(), &install_sig)?;
+        minisign::verify(release_key, install.as_bytes(), &install_sig)?;
         let install = info::indent_by(install, "        ");
 
-        // Store TOML in a comment block - mise tool-stub will parse this from the script
+        // Store TOML in a comment block - pakro tool-stub will parse this from the script
         let commented_toml = toml_content
             .lines()
             .map(|line| format!("# {line}"))
@@ -494,35 +504,35 @@ impl ToolStub {
             r##"#!/usr/bin/env bash
 set -eu
 
-# MISE_TOOL_STUB:
+# PAKRO_TOOL_STUB:
 {commented_toml}
-# :MISE_TOOL_STUB
+# :PAKRO_TOOL_STUB
 
-__mise_tool_stub_bootstrap() {{
-    # Check if mise is on PATH first
-    if command -v mise &>/dev/null; then
-        MISE_BIN="$(command -v mise)"
+__pakro_tool_stub_bootstrap() {{
+    # Check if pakro is on PATH first
+    if command -v pakro &>/dev/null; then
+        PAKRO_BIN="$(command -v pakro)"
         return
     fi
 
-    # Fall back to ~/.local/bin/mise
-    MISE_BIN="$HOME/.local/bin/mise"
-    if [ -f "$MISE_BIN" ]; then
+    # Fall back to ~/.local/bin/pakro
+    PAKRO_BIN="$HOME/.local/bin/pakro"
+    if [ -f "$PAKRO_BIN" ]; then
         return
     fi
 
-    # Install mise to ~/.local/bin
+    # Install pakro to ~/.local/bin
     install() {{
         local initial_working_dir="$PWD"
 {install}
         cd -- "$initial_working_dir"
     }}
-    local MISE_INSTALL_HELP=0
+    local PAKRO_INSTALL_HELP=0
     install
 }}
-__mise_tool_stub_bootstrap
+__pakro_tool_stub_bootstrap
 
-exec "$MISE_BIN" tool-stub "$0" "$@"
+exec "$PAKRO_BIN" tool-stub "$0" "$@"
 "##
         ))
     }
@@ -587,7 +597,7 @@ exec "$MISE_BIN" tool-stub "$0" "$@"
         // Create one progress reporter for the entire operation
         let pr = mpr.add(&format!("download {filename}"));
 
-        // Download using mise's HTTP client
+        // Download using pakro's HTTP client
         HTTP.download_file(url, &archive_path, Some(pr.as_ref()))
             .await?;
 
@@ -633,7 +643,7 @@ exec "$MISE_BIN" tool-stub "$0" "$@"
         let extracted_dir = temp_dir.path().join("extracted");
         std::fs::create_dir_all(&extracted_dir)?;
 
-        // Try extraction using mise's built-in extraction logic (reuse the passed progress reporter)
+        // Try extraction using pakro's built-in extraction logic (reuse the passed progress reporter)
         let format = ExtractionFormat::from_file_name(
             &archive_path
                 .file_name()
@@ -786,13 +796,13 @@ exec "$MISE_BIN" tool-stub "$0" "$@"
         }
         if !Settings::get().lockfile_enabled() {
             bail!(
-                "--lock records lock data in mise.lock, but lockfiles are disabled (`lockfile = false`)"
+                "--lock records lock data in pakro.lock, but lockfiles are disabled (`lockfile = false`)"
             );
         }
         let Some((lockfile_path, _)) = lockfile::lockfile_path_for_tool_stub(&self.output) else {
             bail!(
                 "no project config found above {}\n\
-                hint: a stub's lock data lives in its project's mise.lock; add a mise.toml in the stub's project",
+                hint: a stub's lock data lives in its project's pakro.lock; add a pakro.toml in the stub's project",
                 display_path(&self.output)
             );
         };
@@ -830,18 +840,18 @@ exec "$MISE_BIN" tool-stub "$0" "$@"
             }
         }
 
-        // Like a mise.toml request, the stub keeps its version request and
-        // mise.lock records the resolution.
+        // Like a pakro.toml request, the stub keeps its version request and
+        // pakro.lock records the resolution.
         let content = file::read_to_string(&self.output)?;
         let toml_content = extract_toml_from_stub(&content);
         let mut doc = toml_content.parse::<DocumentMut>()?;
         if self.version != "latest" {
             doc["version"] = toml_edit::value(&self.version);
         }
-        // Lock data only lives in mise.lock.
+        // Lock data only lives in pakro.lock.
         doc.remove("lock");
         let toml_content = doc.to_string();
-        let content = format!("#!/usr/bin/env -S mise tool-stub\n\n{toml_content}");
+        let content = format!("#!/usr/bin/env -S pakro tool-stub\n\n{toml_content}");
         let sidecar = SidecarLock {
             lockfile_path,
             tv,
@@ -921,7 +931,7 @@ exec "$MISE_BIN" tool-stub "$0" "$@"
             self.wrap_with_bootstrap(&toml_content).await
         } else {
             let mut output = vec![
-                "#!/usr/bin/env -S mise tool-stub".to_string(),
+                "#!/usr/bin/env -S pakro tool-stub".to_string(),
                 "".to_string(),
             ];
 
@@ -932,7 +942,7 @@ exec "$MISE_BIN" tool-stub "$0" "$@"
     }
 }
 
-/// A stub's resolved lock data bound for its project's mise.lock.
+/// A stub's resolved lock data bound for its project's pakro.lock.
 struct SidecarLock {
     lockfile_path: PathBuf,
     tv: ToolVersion,
@@ -952,7 +962,7 @@ impl SidecarLock {
         let short = &tv.ba().short;
         let backend_full = tv.ba().stored_full();
         let backend = tv.backend()?;
-        // Options can differ per platform, and `mise lock` files each
+        // Options can differ per platform, and `pakro lock` files each
         // platform's data under its own options, so do the same here.
         for target in &self.targets {
             let options = backend.resolve_lockfile_options(&tv.request, target)?;
@@ -976,7 +986,7 @@ impl SidecarLock {
 
 /// Check if content is a bootstrap stub
 fn is_bootstrap_stub(content: &str) -> bool {
-    content.contains("# MISE_TOOL_STUB:") && content.contains("# :MISE_TOOL_STUB")
+    content.contains("# PAKRO_TOOL_STUB:") && content.contains("# :PAKRO_TOOL_STUB")
 }
 
 fn format_size_comment(bytes: u64) -> String {
@@ -988,8 +998,8 @@ fn extract_toml_from_stub(content: &str) -> String {
     // Check if this is a bootstrap stub by looking for comment markers
     if is_bootstrap_stub(content) {
         // Bootstrap stub: extract TOML between comment markers
-        let start_marker = "# MISE_TOOL_STUB:";
-        let end_marker = "# :MISE_TOOL_STUB";
+        let start_marker = "# PAKRO_TOOL_STUB:";
+        let end_marker = "# :PAKRO_TOOL_STUB";
 
         if let (Some(start_pos), Some(end_pos)) =
             (content.find(start_marker), content.find(end_marker))
@@ -1020,17 +1030,17 @@ fn extract_toml_from_stub(content: &str) -> String {
 /// `%~dpn0` is the launcher's own drive+path+name with the extension dropped, which is exactly the
 /// stub sitting next to it — so the stub's name never has to be interpolated in. That matters
 /// beyond tidiness: a name containing `%` would otherwise be expanded by `cmd.exe` as an
-/// environment variable and hand `mise tool-stub` the wrong path.
+/// environment variable and hand `pakro tool-stub` the wrong path.
 ///
-/// `mise` comes off PATH, the same assumption the shebang already makes. Argument handling and the
+/// `pakro` comes off PATH, the same assumption the shebang already makes. Argument handling and the
 /// exit code are [`super::windows_launcher_body`]'s job — `%*` alone does not carry an argument
 /// containing `& ^ | " < >`, because cmd parses its command line before the batch file runs.
 ///
 /// Cleanup does not compare against this string: [`super::is_generated_launcher`] recognises a
-/// launcher by its marker and shape, so one written by an older mise is still removed, and a
+/// launcher by its marker and shape, so one written by an older pakro is still removed, and a
 /// hand-written `.cmd` still never is.
 static WINDOWS_LAUNCHER: LazyLock<String> =
-    LazyLock::new(|| super::windows_launcher_body("mise tool-stub \"%~dpn0\""));
+    LazyLock::new(|| super::windows_launcher_body("pakro tool-stub \"%~dpn0\""));
 
 /// Whether a stub warrants a Windows `.cmd` launcher.
 ///
@@ -1159,7 +1169,7 @@ url = "https://example.com/tool-linux.tar.gz"
 
     #[test]
     fn a_stub_that_names_no_platforms_gets_one() {
-        // nothing was ruled out, and these run anywhere mise does
+        // nothing was ruled out, and these run anywhere pakro does
         assert!(wants_windows_launcher(
             "version = \"1.0.0\"\ntool = \"python\"\n"
         ));

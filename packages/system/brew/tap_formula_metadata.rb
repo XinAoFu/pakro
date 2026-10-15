@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Extract the subset of Homebrew Formula metadata mise needs to build a
+# Extract the subset of Homebrew Formula metadata pakro needs to build a
 # third-party formula from source. This does not load or invoke Homebrew.
 
 module JSON
@@ -33,12 +33,12 @@ module JSON
   end
 end
 
-FORMULA_FILE = ENV.fetch("MISE_BREW_SOURCE_PATH")
-FORMULA_NAME = ENV.fetch("MISE_BREW_NAME")
+FORMULA_FILE = ENV.fetch("PAKRO_BREW_SOURCE_PATH")
+FORMULA_NAME = ENV.fetch("PAKRO_BREW_NAME")
 
 module OS
-  def self.mac? = ENV.fetch("MISE_BREW_OS") == "macos"
-  def self.linux? = ENV.fetch("MISE_BREW_OS") == "linux"
+  def self.mac? = ENV.fetch("PAKRO_BREW_OS") == "macos"
+  def self.linux? = ENV.fetch("PAKRO_BREW_OS") == "linux"
 end
 
 class MacOSVersion
@@ -51,7 +51,7 @@ class MacOSVersion
   }.freeze
 
   def self.host
-    @host ||= new(ENV.fetch("MISE_BREW_MACOS_VERSION"))
+    @host ||= new(ENV.fetch("PAKRO_BREW_MACOS_VERSION"))
   end
 
   def self.from_symbol(symbol) = new(SYMBOLS.fetch(symbol.to_sym))
@@ -266,7 +266,7 @@ raise "could not infer formula version; add an explicit version declaration" if 
 
 metadata = {
   "name" => FORMULA_NAME,
-  "tap" => ENV.fetch("MISE_BREW_TAP"),
+  "tap" => ENV.fetch("PAKRO_BREW_TAP"),
   "versions" => { "stable" => version },
   "revision" => klass.revision_value || 0,
   "keg_only" => klass.keg_only_value || false,
@@ -275,8 +275,8 @@ metadata = {
   "build_dependencies" => klass.build_dependencies || [],
   "bottle" => {},
   "urls" => { "stable" => { "url" => klass.source_url, "checksum" => klass.source_sha256 } },
-  "ruby_source_path" => ENV.fetch("MISE_BREW_SOURCE_PATH"),
-  "ruby_source_checksum" => { "sha256" => ENV.fetch("MISE_BREW_SOURCE_CHECKSUM") },
-  "tap_git_head" => ENV.fetch("MISE_BREW_TAP_COMMIT")
+  "ruby_source_path" => ENV.fetch("PAKRO_BREW_SOURCE_PATH"),
+  "ruby_source_checksum" => { "sha256" => ENV.fetch("PAKRO_BREW_SOURCE_CHECKSUM") },
+  "tap_git_head" => ENV.fetch("PAKRO_BREW_TAP_COMMIT")
 }
 puts JSON.generate(metadata)

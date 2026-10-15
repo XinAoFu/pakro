@@ -9,7 +9,7 @@ use crate::install_layout::resolver;
 /// replace a lockfile's installation in place, or installations made for
 /// different lockfiles. Requests without a lockfile entry use the one selected
 /// for their tool, version, platform and options, and when none is selected and
-/// several match, mise stops and asks for this command.
+/// several match, pakro stops and asks for this command.
 ///
 /// The selection is shared by every project on this machine that makes the same
 /// request without a lockfile. Projects whose lockfile pins an artifact keep the
@@ -18,8 +18,8 @@ use crate::install_layout::resolver;
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     example(
-        r###"mise installs ls jq
-mise installs select jq-hm3qa4vb"###,
+        r###"pakro installs ls jq
+pakro installs select jq-hm3qa4vb"###,
         help = r###"Find jq's installations, then choose one"###
     ),
     verbatim_doc_comment
@@ -37,7 +37,7 @@ impl InstallsSelect {
             .requested_as
             .as_deref()
             .unwrap_or(&selected.backend);
-        miseprintln!(
+        pakroprintln!(
             "selected {} for {tool}@{} ({}); every project that asks for it without a lockfile now uses it",
             display_path(&selected.dir),
             selected.version,

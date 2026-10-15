@@ -9,11 +9,11 @@ use eyre::{Result, WrapErr};
 use indexmap::IndexMap;
 use serde::Deserialize;
 
-use crate::config::config_file::mise_toml::MiseToml;
+use crate::config::config_file::pakro_toml::PakroToml;
 use crate::config::{Settings, SettingsExt};
 use crate::file::display_path;
 
-/// `[history]` as parsed from a single mise.toml.
+/// `[history]` as parsed from a single pakro.toml.
 #[derive(Debug, Default, Clone, Deserialize)]
 pub(crate) struct HistoryTomlConfig {
     /// Globs (with `~`) never captured; `!glob` re-includes.
@@ -39,7 +39,7 @@ pub(crate) fn git_email() -> Result<String> {
         .into_iter()
         .filter_map(|(_, layer)| layer.git_email)
         .next_back()
-        .unwrap_or_else(|| "mise@localhost".to_string());
+        .unwrap_or_else(|| "pakro@localhost".to_string());
     render_git_email(&template, &super::store::machine().name)
 }
 
@@ -113,10 +113,10 @@ fn default_branch() -> String {
 /// Project settings are deliberately never considered: this command receives
 /// personal dotfile contents and must not be controlled by a repository.
 pub(crate) fn describe_command() -> Result<Option<String>> {
-    if let Some(command) = std::env::var_os("MISE_HISTORY_DESCRIBE_COMMAND") {
+    if let Some(command) = std::env::var_os("PAKRO_HISTORY_DESCRIBE_COMMAND") {
         let command = command
             .into_string()
-            .map_err(|_| eyre::eyre!("MISE_HISTORY_DESCRIBE_COMMAND contains invalid Unicode"))?;
+            .map_err(|_| eyre::eyre!("PAKRO_HISTORY_DESCRIBE_COMMAND contains invalid Unicode"))?;
         return Ok(nonempty_command(command));
     }
 
@@ -186,7 +186,7 @@ fn config_files() -> impl Iterator<Item = PathBuf> {
 fn read_layer(path: &Path) -> Result<Option<HistoryTomlConfig>> {
     // Ignoring a malformed later layer could restore obsolete recipients or
     // remove exclusions. Fail closed instead of falling back to another policy.
-    let toml = MiseToml::from_file(path)
+    let toml = PakroToml::from_file(path)
         .wrap_err_with(|| format!("cannot read history configuration: {}", display_path(path)))?;
     Ok(toml.history_config())
 }
@@ -249,18 +249,18 @@ mod tests {
 
     #[test]
     fn history_git_email_resolves_hostname_and_rejects_invalid_email() {
-        let config: HistoryTomlConfig = toml::from_str("git_email = 'mise@{hostname}'").unwrap();
-        assert_eq!(config.git_email.as_deref(), Some("mise@{hostname}"));
+        let config: HistoryTomlConfig = toml::from_str("git_email = 'pakro@{hostname}'").unwrap();
+        assert_eq!(config.git_email.as_deref(), Some("pakro@{hostname}"));
         assert_eq!(
             render_git_email(config.git_email.as_deref().unwrap(), "work-mbp.local").unwrap(),
-            "mise@work-mbp.local"
+            "pakro@work-mbp.local"
         );
-        assert!(render_git_email("mise@{hostname}", "bad host").is_err());
+        assert!(render_git_email("pakro@{hostname}", "bad host").is_err());
         assert_eq!(
-            render_git_email("mise@static.example", "work-mbp.local").unwrap(),
-            "mise@static.example"
+            render_git_email("pakro@static.example", "work-mbp.local").unwrap(),
+            "pakro@static.example"
         );
-        assert!(render_git_email("mise@{host}", "host").is_err());
+        assert!(render_git_email("pakro@{host}", "host").is_err());
         assert!(render_git_email("not-an-email", "host").is_err());
     }
 

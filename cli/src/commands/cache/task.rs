@@ -13,7 +13,7 @@ use crate::task::task_cache::{TaskCacheEntry, task_cache_entries};
 use crate::task::task_fetcher::TaskFetcher;
 use crate::task::task_source_checker::task_cwd;
 use crate::task::{GetMatchingExt, Task};
-use crate::ui::table::MiseTable;
+use crate::ui::table::PakroTable;
 
 /// Inspect output cache entries for a task
 #[derive(Debug, usage_rs::Args)]
@@ -51,14 +51,14 @@ impl CacheTask {
                     entries,
                 })
                 .collect_vec();
-            miseprintln!("{}", serde_json::to_string_pretty(&output)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&output)?);
             return Ok(());
         }
         if task_entries
             .iter()
             .all(|(_, _, entries)| entries.is_empty())
         {
-            miseprintln!(
+            pakroprintln!(
                 "No output cache entries for {}",
                 task_entries
                     .iter()
@@ -80,7 +80,7 @@ impl CacheTask {
         if multiple_tasks {
             headings.insert(0, "Task");
         }
-        let mut table = MiseTable::new(false, &headings);
+        let mut table = PakroTable::new(false, &headings);
         for (task, _, entries) in task_entries {
             for entry in entries {
                 let mut cells = vec![
@@ -126,7 +126,7 @@ pub(super) async fn resolve_tasks(task_spec: &str) -> Result<(Arc<Config>, Vec<T
         .map(|task| (**task).clone())
         .collect_vec();
     if tasks.is_empty() {
-        bail!("Task not found: {task_spec}, use `mise tasks ls --all --hidden` to list all tasks");
+        bail!("Task not found: {task_spec}, use `pakro tasks ls --all --hidden` to list all tasks");
     }
     TaskFetcher::new(false)
         .fetch_tasks(&config, &mut tasks)

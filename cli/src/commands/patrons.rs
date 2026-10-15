@@ -7,7 +7,7 @@ use crate::file::modified_duration;
 use crate::http::HTTP;
 use crate::{dirs, duration, file};
 
-/// Show the individuals supporting mise as Patron-tier members
+/// Show the individuals supporting pakro as Patron-tier members
 ///
 /// Lists the individuals on the Patron tier from https://jdx.dev/patrons.json.
 /// The list refreshes daily; supporting terminals will render each patron's
@@ -18,9 +18,9 @@ use crate::{dirs, duration, file};
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise patrons
-mise patrons -J
-mise patrons --refresh"###
+        r###"pakro patrons
+pakro patrons -J
+pakro patrons --refresh"###
     )
 )]
 pub(crate) struct Patrons {
@@ -59,7 +59,7 @@ impl Patrons {
         let payload = load_patrons(self.refresh).await?;
 
         if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&payload)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&payload)?);
         } else {
             render_human(&payload)?;
         }
@@ -103,14 +103,14 @@ async fn load_patrons(refresh: bool) -> Result<PatronsPayload> {
 
 fn render_human(payload: &PatronsPayload) -> Result<()> {
     if payload.patrons.is_empty() {
-        miseprintln!(
+        pakroprintln!(
             "No patrons yet — be the first: {}",
             hyperlink(SPONSOR_URL, SPONSOR_URL),
         );
         return Ok(());
     }
-    miseprintln!("mise is supported by these patrons — thank you ❤");
-    miseprintln!("");
+    pakroprintln!("pakro is supported by these patrons — thank you ❤");
+    pakroprintln!("");
     for p in &payload.patrons {
         // Sanitize before either rendering branch — patron-supplied data
         // must never carry control bytes into the terminal, whether it
@@ -120,17 +120,17 @@ fn render_human(payload: &PatronsPayload) -> Result<()> {
             Some(url) => hyperlink(&strip_control(url), &name),
             None => name,
         };
-        miseprintln!("  • {label}");
+        pakroprintln!("  • {label}");
     }
-    miseprintln!("");
-    miseprintln!("Become a patron: {}", hyperlink(SPONSOR_URL, SPONSOR_URL));
+    pakroprintln!("");
+    pakroprintln!("Become a patron: {}", hyperlink(SPONSOR_URL, SPONSOR_URL));
     Ok(())
 }
 
 fn hyperlink(url: &str, text: &str) -> String {
     // Use `on(Stream::Stdout)` so we also verify stdout is a TTY — bare
     // `supports_hyperlinks()` only inspects env vars and would still emit
-    // escapes into pipes like `mise patrons | cat`.
+    // escapes into pipes like `pakro patrons | cat`.
     //
     // Callers are responsible for stripping control bytes from `url` /
     // `text` if they come from untrusted sources; we don't strip here so

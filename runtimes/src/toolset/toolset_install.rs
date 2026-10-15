@@ -267,8 +267,8 @@ impl Toolset {
     }
 
     /// sets the options on incoming requests to install to whatever is already in the toolset
-    /// this handles the use-case where you run `mise use ubi:cilium/cilium-cli` (without CLi options)
-    /// but this tool has options inside mise.toml
+    /// this handles the use-case where you run `pakro use ubi:cilium/cilium-cli` (without CLi options)
+    /// but this tool has options inside pakro.toml
     pub(super) fn init_request_options(&self, requests: &mut Vec<ToolRequest>) {
         for tr in requests {
             if let Some(tvl) = self.versions.get(tr.ba()) {
@@ -397,7 +397,7 @@ impl Toolset {
         // Capture the completed installation itself before config reload, floating-link
         // rebuilds, or a caller's later config write can change what a second lookup sees.
         // Hook-only requests must remain in the return value for callers such as
-        // `mise use` that persist the selected version, but they are not installs.
+        // `pakro use` that persist the selected version, but they are not installs.
         let installed_tools: Vec<InstalledToolInfo> = installed
             .iter()
             .filter(|tv| tv.install_satisfied != Some(true))
@@ -1079,7 +1079,7 @@ fn ensure_safe_install_options(versions: &[ToolRequest]) -> Result<()> {
 /// an installed version are unaffected by cache staleness — for those the
 /// cached answer is either correct or harmless, and refreshing is wasted
 /// network traffic. Users who want to pull the absolute latest matching a
-/// prefix can run `mise upgrade` or pin to `@latest`.
+/// prefix can run `pakro upgrade` or pin to `@latest`.
 ///
 /// Skipped in `prefer_offline` mode (shims, hook-env, activate, etc.) because
 /// the versions host is disabled there, so a refresh would bypass the

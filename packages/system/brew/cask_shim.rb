@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# mise's Homebrew cask lifecycle shim.
+# pakro's Homebrew cask lifecycle shim.
 #
 # This evaluates a sha-verified cask .rb file without requiring Homebrew and
 # executes the lifecycle hook requested by Rust. It intentionally implements a
@@ -32,13 +32,13 @@ class Array
   end
 end
 
-MISE_BREW_CASK_FILE = Pathname.new(ENV.fetch("MISE_BREW_CASK_FILE"))
-MISE_BREW_CASK_TOKEN = ENV.fetch("MISE_BREW_CASK_TOKEN")
-MISE_BREW_CASK_VERSION = ENV.fetch("MISE_BREW_CASK_VERSION")
-MISE_BREW_CASK_STAGED_PATH = Pathname.new(ENV.fetch("MISE_BREW_CASK_STAGED_PATH"))
-MISE_BREW_CASK_APPDIR = Pathname.new(ENV.fetch("MISE_BREW_CASK_APPDIR"))
-MISE_BREW_PREFIX = Pathname.new(ENV.fetch("MISE_BREW_PREFIX"))
-MISE_BREW_CASK_HOOK = ENV.fetch("MISE_BREW_CASK_HOOK")
+PAKRO_BREW_CASK_FILE = Pathname.new(ENV.fetch("PAKRO_BREW_CASK_FILE"))
+PAKRO_BREW_CASK_TOKEN = ENV.fetch("PAKRO_BREW_CASK_TOKEN")
+PAKRO_BREW_CASK_VERSION = ENV.fetch("PAKRO_BREW_CASK_VERSION")
+PAKRO_BREW_CASK_STAGED_PATH = Pathname.new(ENV.fetch("PAKRO_BREW_CASK_STAGED_PATH"))
+PAKRO_BREW_CASK_APPDIR = Pathname.new(ENV.fetch("PAKRO_BREW_CASK_APPDIR"))
+PAKRO_BREW_PREFIX = Pathname.new(ENV.fetch("PAKRO_BREW_PREFIX"))
+PAKRO_BREW_CASK_HOOK = ENV.fetch("PAKRO_BREW_CASK_HOOK")
 
 def odie(message)
   $stderr.puts "Error: #{message}"
@@ -49,7 +49,7 @@ class ShimUnsupportedError < StandardError; end
 
 def shim_unsupported!(feature)
   raise ShimUnsupportedError,
-        "cask uses `#{feature}`, which mise's cask shim does not support"
+        "cask uses `#{feature}`, which pakro's cask shim does not support"
 end
 
 module OS
@@ -222,7 +222,7 @@ class CaskContext
 
   def initialize(token)
     @token = token
-    @version = Version.new(MISE_BREW_CASK_VERSION)
+    @version = Version.new(PAKRO_BREW_CASK_VERSION)
     @hooks = {}
     @arch = Hardware::CPU.arch.to_s
     @languages = {}
@@ -315,8 +315,8 @@ class CaskContext
   def on_linux(&block) instance_eval(&block) if OS.linux? end
 
   # Mirrors Homebrew's Cask DSL `system_command` (SystemCommand.run!): raises
-  # on failure unless must_succeed: false. Elevation follows mise's sudo
-  # policy, passed down from Rust via MISE_BREW_CASK_SUDO:
+  # on failure unless must_succeed: false. Elevation follows pakro's sudo
+  # policy, passed down from Rust via PAKRO_BREW_CASK_SUDO:
   # - "interactive": run `sudo`, which may prompt on the controlling TTY
   # - "noninteractive": run `sudo -n`, so it fails instead of hanging on a
   #   password prompt that nothing can answer
@@ -348,15 +348,15 @@ class CaskContext
   end
 
   def staged_path
-    MISE_BREW_CASK_STAGED_PATH
+    PAKRO_BREW_CASK_STAGED_PATH
   end
 
   def appdir
-    MISE_BREW_CASK_APPDIR
+    PAKRO_BREW_CASK_APPDIR
   end
 
   def caskroom_path
-    MISE_BREW_PREFIX + "Caskroom"
+    PAKRO_BREW_PREFIX + "Caskroom"
   end
 
   def method_missing(name, *args, &block)
@@ -371,15 +371,15 @@ class CaskContext
 
   def sudo_argv(argv, env)
     # sudo resets the environment; pass env vars through `env` so they reach
-    # the elevated command (same as mise's sudo::run on the Rust side)
+    # the elevated command (same as pakro's sudo::run on the Rust side)
     argv = ["env", *env.map { |k, v| "#{k}=#{v}" }, *argv] unless env.empty?
-    case ENV.fetch("MISE_BREW_CASK_SUDO", "deny")
+    case ENV.fetch("PAKRO_BREW_CASK_SUDO", "deny")
     when "interactive"
       ["sudo", *argv]
     when "noninteractive"
       ["sudo", "-n", *argv]
     else
-      odie "cask lifecycle hook needs sudo, but mise is not allowed to elevate " \
+      odie "cask lifecycle hook needs sudo, but pakro is not allowed to elevate " \
            "(system_packages.sudo is disabled or sudo is unavailable). Run manually:\n" \
            "  #{(["sudo"] + argv).shelljoin}"
     end
@@ -399,16 +399,16 @@ class CaskContext
 end
 
 def cask(token, &block)
-  $mise_cask_context = CaskContext.new(token)
-  $mise_cask_context.instance_eval(&block)
+  $pakro_cask_context = CaskContext.new(token)
+  $pakro_cask_context.instance_eval(&block)
 end
 
 begin
-  load MISE_BREW_CASK_FILE.to_s
-  ctx = $mise_cask_context
-  odie "no cask block found in #{MISE_BREW_CASK_FILE}" if ctx.nil?
-  odie "expected cask #{MISE_BREW_CASK_TOKEN}, got #{ctx.token}" if ctx.token != MISE_BREW_CASK_TOKEN
-  ctx.run_hook(MISE_BREW_CASK_HOOK)
+  load PAKRO_BREW_CASK_FILE.to_s
+  ctx = $pakro_cask_context
+  odie "no cask block found in #{PAKRO_BREW_CASK_FILE}" if ctx.nil?
+  odie "expected cask #{PAKRO_BREW_CASK_TOKEN}, got #{ctx.token}" if ctx.token != PAKRO_BREW_CASK_TOKEN
+  ctx.run_hook(PAKRO_BREW_CASK_HOOK)
 rescue ShimUnsupportedError => e
   odie e.message
 end

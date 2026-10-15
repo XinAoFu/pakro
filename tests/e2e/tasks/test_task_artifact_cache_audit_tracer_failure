@@ -26,7 +26,7 @@ while (($#)); do
 done
 
 # The capability probe has no output file. Requiring -D here also verifies that
-# mise does not enable an incompatible strace and fail later during the task.
+# pakro does not enable an incompatible strace and fail later during the task.
 if [[ -z $trace ]]; then
   $daemonize || exit 1
   exec "$@"
@@ -60,7 +60,7 @@ if $daemonize; then
   exec "$@"
 fi
 
-# Without -D, strace is the process mise waits for and its internal status wins.
+# Without -D, strace is the process pakro waits for and its internal status wins.
 cat <<TRACE >"$trace"
 123 openat(AT_FDCWD<$PWD>, "secret.txt", O_RDONLY) = 3
 TRACE
@@ -71,7 +71,7 @@ chmod +x bin/strace
 
 printf 'input\n' >input.txt
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [settings]
 experimental = true
 
@@ -100,20 +100,20 @@ export PATH="$PWD/bin:$PATH"
 
 # A failure in the advisory tracer must not replace a successful task status.
 status=0
-output=$(mise run --force success 2>&1) || status=$?
+output=$(pakro run --force success 2>&1) || status=$?
 assert "test $status -eq 0"
 assert_contains_text "$output" "ptrace(PTRACE_LISTEN"
 assert_contains_text "$output" "cache audit detected undeclared read: secret.txt"
 
 # Daemonizing the tracer must not mask a real task failure either.
 status=0
-output=$(mise run --force failure 2>&1) || status=$?
+output=$(pakro run --force failure 2>&1) || status=$?
 assert "test $status -eq 42"
 
 # A long-lived traced descendant must not hang the completed task indefinitely.
-output=$(mise run --force incomplete 2>&1)
+output=$(pakro run --force incomplete 2>&1)
 assert_contains_text "$output" "cache audit tracer exceeded its drain grace; report may be incomplete"
 
 # A daemonized capability probe must still detect a tracer startup failure.
-output=$(FAKE_PROBE_FAILURE=1 mise run --force success 2>&1)
+output=$(FAKE_PROBE_FAILURE=1 pakro run --force success 2>&1)
 assert_contains_text "$output" "cache audit could not start strace; running without filesystem auditing"

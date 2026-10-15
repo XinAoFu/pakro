@@ -16,11 +16,11 @@ use crate::ui::info;
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise tasks info test"###,
+        r###"pakro tasks info test"###,
         help = r###"Inspect the selected definition and its source file"###
     ),
     example(
-        r###"mise tasks info test --json"###,
+        r###"pakro tasks info test --json"###,
         help = r###"Get the full structured task definition"###
     )
 )]
@@ -59,7 +59,7 @@ impl TasksInfo {
             // Resolve remote task files before displaying task info
             let mut tasks = vec![task.clone()];
             // always pass no_cache=false as the command doesn't take no-cache argument
-            // MISE_TASK_REMOTE_NO_CACHE env var is still respected if set
+            // PAKRO_TASK_REMOTE_NO_CACHE env var is still respected if set
             TaskFetcher::new(false)
                 .fetch_tasks(&config, &mut tasks)
                 .await?;
@@ -72,7 +72,7 @@ impl TasksInfo {
             }
         } else {
             bail!(
-                "Task not found: {}, use `mise tasks ls --all --hidden` to list all tasks",
+                "Task not found: {}, use `pakro tasks ls --all --hidden` to list all tasks",
                 self.task
             );
         }
@@ -198,7 +198,7 @@ impl TasksInfo {
             "file": task.file,
             "usage_spec": spec,
         });
-        miseprintln!("{}", serde_json::to_string_pretty(&o)?);
+        pakroprintln!("{}", serde_json::to_string_pretty(&o)?);
         Ok(())
     }
 }

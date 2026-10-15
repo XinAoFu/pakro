@@ -22,28 +22,28 @@ use std::path::{Path, PathBuf};
 /// sources, watchexec watches the current directory. Use `--watch` and `--exts`
 /// for explicit watched paths and filters, and `--print-events` to diagnose them.
 /// The default task is `default`; define it or pass a task name.
-/// watchexec must be installed; `mise use -g watchexec@latest` installs it.
+/// watchexec must be installed; `pakro use -g watchexec@latest` installs it.
 ///
 /// For more advanced process management (daemon management, auto-restart, readiness checks,
-/// cron scheduling), see mise's sister project: https://pitchfork.jdx.dev
+/// cron scheduling), see pakro's sister project: https://pitchfork.jdx.dev
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     visible_alias = "w",
     verbatim_doc_comment,
     example(
-        "mise watch build",
+        "pakro watch build",
         help = "Run the build task and rerun it whenever its sources change."
     ),
     example(
-        "mise watch build --glob 'src/**/*.rs'",
+        "pakro watch build --glob 'src/**/*.rs'",
         help = "Watch the glob instead of the task's sources."
     ),
     example(
-        "mise watch build --clear",
+        "pakro watch build --clear",
         help = "Extra arguments go to watchexec; see `watchexec --help`."
     ),
     example(
-        "mise watch serve --watch src --exts rs --restart",
+        "pakro watch serve --watch src --exts rs --restart",
         help = "Start an API server and restart it when Rust files in ./src change."
     ),
     unknown_flags = "value"
@@ -51,7 +51,7 @@ use std::path::{Path, PathBuf};
 pub(crate) struct Watch {
     /// Tasks to run
     /// Can specify multiple tasks by separating with `:::`
-    /// e.g.: `mise watch task1 arg1 arg2 ::: task2 arg1 arg2`
+    /// e.g.: `pakro watch task1 arg1 arg2 ::: task2 arg1 arg2`
     /// Defaults to `default`
     #[usage(verbatim_doc_comment)]
     task: Option<String>,
@@ -81,11 +81,11 @@ impl Watch {
     pub(crate) async fn run(self) -> Result<()> {
         if let Some(task) = &self.task {
             if task == "-h" {
-                miseprint!("{}", render_subcommand_help("watch", false))?;
+                pakroprint!("{}", render_subcommand_help("watch", false))?;
                 return Ok(());
             }
             if task == "--help" {
-                miseprint!("{}", render_subcommand_help("watch", true))?;
+                pakroprint!("{}", render_subcommand_help("watch", true))?;
                 return Ok(());
             }
         }
@@ -96,7 +96,7 @@ impl Watch {
             if !ts.versions.contains_key(&watchexec) {
                 eprintln!("{}: {}", style("Error").red().bold(), err);
                 eprintln!("{}: Install watchexec with:", style("Hint").bold());
-                eprintln!("  mise use -g watchexec@latest");
+                eprintln!("  pakro use -g watchexec@latest");
                 return Err(request_exit(1));
             }
         }
@@ -335,7 +335,7 @@ impl Watch {
         }
         args.extend([
             "--".to_string(),
-            env::MISE_BIN.to_string_lossy().to_string(),
+            env::PAKRO_BIN.to_string_lossy().to_string(),
             "run".to_string(),
         ]);
         if self.skip_deps {
@@ -359,9 +359,9 @@ impl Watch {
         for (k, v) in ts.env_with_path(&config).await? {
             cmd = cmd.env(k, v);
         }
-        // Propagate profiles selected with -E/--env to the nested `mise run` command.
-        if !env::MISE_ENV.is_empty() {
-            cmd = cmd.env("MISE_ENV", env::MISE_ENV.join(","));
+        // Propagate profiles selected with -E/--env to the nested `pakro run` command.
+        if !env::PAKRO_ENV.is_empty() {
+            cmd = cmd.env("PAKRO_ENV", env::PAKRO_ENV.join(","));
         }
 
         // watchexec's --clear=reset resets the controlling terminal, which
@@ -372,7 +372,7 @@ impl Watch {
         #[cfg(unix)]
         let _terminal = TerminalState::capture();
         // ...and however the *process* ends, including the exits that never
-        // reach a `Drop`: a `mise watch` nested under a `mise run` is killed by
+        // reach a `Drop`: a `pakro watch` nested under a `pakro run` is killed by
         // that run's `exit::kill_all()`, which sends SIGTERM.
         #[cfg(unix)]
         let _signal_restore = _terminal.arm();
@@ -1344,13 +1344,13 @@ pub(crate) struct WatchexecArgs {
     //
     // /// Print stdout/stderr by line, prefixed with the tasks's label
     // /// Defaults to true if --jobs > 1
-    // /// Configure with `task.output` config or `MISE_TASK_OUTPUT` env var
+    // /// Configure with `task.output` config or `PAKRO_TASK_OUTPUT` env var
     // #[arg(long, short, verbatim_doc_comment, overrides_with = "interleave")]
     // pub prefix: bool,
     //
     // /// Print directly to stdout/stderr instead of by line
     // /// Defaults to true if --jobs == 1
-    // /// Configure with `task.output` config or `MISE_TASK_OUTPUT` env var
+    // /// Configure with `task.output` config or `PAKRO_TASK_OUTPUT` env var
     // #[arg(long, short, verbatim_doc_comment, overrides_with = "prefix")]
     // pub interleave: bool,
     //
@@ -1361,12 +1361,12 @@ pub(crate) struct WatchexecArgs {
     //
     // /// Number of tasks to run in parallel
     // /// [default: 4]
-    // /// Configure with `jobs` config or `MISE_JOBS` env var
-    // #[arg(long, short, env = "MISE_JOBS", verbatim_doc_comment)]
+    // /// Configure with `jobs` config or `PAKRO_JOBS` env var
+    // #[arg(long, short, env = "PAKRO_JOBS", verbatim_doc_comment)]
     // pub jobs: Option<usize>,
     //
     // /// Read/write directly to stdin/stdout/stderr instead of by line
-    // /// Configure with `raw` config or `MISE_RAW` env var
+    // /// Configure with `raw` config or `PAKRO_RAW` env var
     // #[arg(long, short, verbatim_doc_comment)]
     // pub raw: bool,
 }
@@ -1397,8 +1397,8 @@ pub(crate) enum OnBusyUpdate {
 /// The flag used to be parsed and then dropped entirely, so `--wrap-process none` had no effect
 /// and a TUI task stayed stuck in a process group waiting on terminal I/O (#10212).
 ///
-/// mise deliberately has no default of its own here. watchexec's `WRAP_DEFAULT` is
-/// platform-dependent — `"session"` on macOS, `"group"` elsewhere — so any fixed default mise
+/// pakro deliberately has no default of its own here. watchexec's `WRAP_DEFAULT` is
+/// platform-dependent — `"session"` on macOS, `"group"` elsewhere — so any fixed default pakro
 /// picked would be wrong on some platform, both in `--help` and when deciding that a value is
 /// "the same as the default" and can be dropped. Forwarding exactly what was asked for, and
 /// nothing when nothing was asked for, leaves that choice where it belongs.
@@ -1446,15 +1446,15 @@ pub(crate) enum ColourMode {
 ///
 /// `--clear=reset` leaves the terminal without echo when watchexec is
 /// interrupted, and restoring on the straight-line path after the child exits
-/// is not enough: mise exited the process from the signal path until 2026.7.16,
+/// is not enough: pakro exited the process from the signal path until 2026.7.16,
 /// so the restore never ran, and `run_with_exit_signal` still drops the command
 /// future when ctrl-c wins the race.
 ///
 /// `Drop` covers the exits that unwind, which is every one of those. It does
 /// not cover being killed. An earlier version of this comment claimed it
-/// covered "every one of those exits" and that was wrong: a `mise watch` nested
-/// under a `mise run` is killed by that run's `exit::kill_all()`, which sends
-/// SIGTERM, and mise handles only SIGINT — so the process dies where it stands
+/// covered "every one of those exits" and that was wrong: a `pakro watch` nested
+/// under a `pakro run` is killed by that run's `exit::kill_all()`, which sends
+/// SIGTERM, and pakro handles only SIGINT — so the process dies where it stands
 /// and the terminal keeps whatever watchexec left in it. [`Self::arm`] closes
 /// that by restoring from a signal thread before letting the signal finish the
 /// job.
@@ -1722,7 +1722,7 @@ mod tests {
     #[test]
     fn watch_flags_after_the_task_still_belong_to_watch() {
         let argv =
-            ["mise", "watch", "default", "--postpone", "--poll=100ms"].map(std::ffi::OsStr::new);
+            ["pakro", "watch", "default", "--postpone", "--poll=100ms"].map(std::ffi::OsStr::new);
         let cli = Cli::parse_from_argv(&argv).unwrap();
         let Some(Commands::Watch(watch)) = cli.command else {
             panic!("expected the watch command");
@@ -1756,7 +1756,7 @@ mod tests {
     #[test]
     fn wrap_process_is_omitted_when_not_given() {
         // Nothing is forwarded, so watchexec applies its own platform-dependent default
-        // (`session` on macOS, `group` elsewhere) rather than one mise guessed.
+        // (`session` on macOS, `group` elsewhere) rather than one pakro guessed.
         assert!(wrap_process_args(None).is_empty());
     }
 

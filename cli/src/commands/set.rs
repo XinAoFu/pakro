@@ -5,7 +5,7 @@ use std::sync::Arc;
 use super::args::EnvVarArg;
 use crate::agecrypt;
 use crate::config::config_file::ConfigFile;
-use crate::config::config_file::mise_toml::MiseToml;
+use crate::config::config_file::pakro_toml::PakroToml;
 use crate::config::env_directive::EnvDirective;
 use crate::config::{Config, ConfigPathOptions, Settings, resolve_target_config_path};
 use crate::env::{self};
@@ -15,32 +15,32 @@ use demand::Input;
 use eyre::{Result, bail, eyre};
 use tabled::Tabled;
 
-/// Set environment variables in mise.toml
+/// Set environment variables in pakro.toml
 ///
 /// By default, this command selects the nearest configuration directory and
-/// modifies its lowest-precedence TOML file, creating `mise.toml` here if none exists.
-/// If multiple config files exist (e.g., both `mise.toml` and `mise.local.toml`),
-/// the lowest precedence file (`mise.toml`) will be used.
+/// modifies its lowest-precedence TOML file, creating `pakro.toml` here if none exists.
+/// If multiple config files exist (e.g., both `pakro.toml` and `pakro.local.toml`),
+/// the lowest precedence file (`pakro.toml`) will be used.
 /// See https://mise.jdx.dev/configuration.html#target-file-for-write-operations
 ///
-/// Use `-E <env>` to create/modify environment-specific config files like `mise.<env>.toml`.
+/// Use `-E <env>` to create/modify environment-specific config files like `pakro.<env>.toml`.
 #[derive(Debug, usage_rs::Args)]
-#[usage(aliases = ["ev", "env-vars"], verbatim_doc_comment, example(r###"mise set NODE_ENV=production"###),
-    example("mise set NODE_ENV", help = "Read NODE_ENV; example output: `production`."),
-    example("mise set -E staging NODE_ENV=staging", help = "Create or modify mise.staging.toml."),
-    example("mise set", help = "List keys, values, and source files."),
-    example("mise set --prompt PASSWORD", help = "Prompt for PASSWORD with hidden input."),
-    example("cat private.key | mise set --stdin MY_KEY", help = "Read a multiline value from stdin."),
-    example(r#"printf "line1\nline2" | mise set --stdin MY_KEY"#, help = "Store a multiline value from a pipeline."),
-    example("mise set --age-encrypt API_KEY=secret", help = "Encrypt the value with age (experimental)."),
-    example("mise set --age-encrypt --prompt API_KEY", help = "Prompt with hidden input and encrypt with age (experimental)."))]
+#[usage(aliases = ["ev", "env-vars"], verbatim_doc_comment, example(r###"pakro set NODE_ENV=production"###),
+    example("pakro set NODE_ENV", help = "Read NODE_ENV; example output: `production`."),
+    example("pakro set -E staging NODE_ENV=staging", help = "Create or modify pakro.staging.toml."),
+    example("pakro set", help = "List keys, values, and source files."),
+    example("pakro set --prompt PASSWORD", help = "Prompt for PASSWORD with hidden input."),
+    example("cat private.key | pakro set --stdin MY_KEY", help = "Read a multiline value from stdin."),
+    example(r#"printf "line1\nline2" | pakro set --stdin MY_KEY"#, help = "Store a multiline value from a pipeline."),
+    example("pakro set --age-encrypt API_KEY=secret", help = "Encrypt the value with age (experimental)."),
+    example("pakro set --age-encrypt --prompt API_KEY", help = "Prompt with hidden input and encrypt with age (experimental)."))]
 pub(crate) struct Set {
     /// Environment variable(s) to set
     /// e.g.: NODE_ENV=production
     #[usage(value_name = "ENV_VAR", verbatim_doc_comment)]
     env_vars: Option<Vec<EnvVarArg>>,
 
-    /// Create/modify an environment-specific config file like .mise.<env>.toml
+    /// Create/modify an environment-specific config file like .pakro.<env>.toml
     #[usage(short = 'E', long, overrides = &["global", "file"])]
     env: Option<String>,
 
@@ -54,7 +54,7 @@ pub(crate) struct Set {
 
     /// [experimental] Age identity file for encryption
     ///
-    /// Defaults to ~/.config/mise/age.txt if it exists
+    /// Defaults to ~/.config/pakro/age.txt if it exists
     #[usage(long, value_name = "PATH", requires = "age_encrypt", value_hint = usage_rs::ValueHint::FilePath)]
     age_key_file: Option<PathBuf>,
 
@@ -76,9 +76,9 @@ pub(crate) struct Set {
 
     /// The TOML file to update
     ///
-    /// Can be a file path or directory. If a directory is provided, will create/use mise.toml in that directory.
-    /// Defaults to [`MISE_DEFAULT_CONFIG_FILENAME`](https://mise.jdx.dev/configuration.html#mise_default_config_filename) environment variable, or `mise.toml`.
-    /// Use [`MISE_GLOBAL_CONFIG_FILE`](https://mise.jdx.dev/configuration.html#mise_global_config_file) to choose a different global config path.
+    /// Can be a file path or directory. If a directory is provided, will create/use pakro.toml in that directory.
+    /// Defaults to [`PAKRO_DEFAULT_CONFIG_FILENAME`](https://mise.jdx.dev/configuration.html#mise_default_config_filename) environment variable, or `pakro.toml`.
+    /// Use [`PAKRO_GLOBAL_CONFIG_FILE`](https://mise.jdx.dev/configuration.html#mise_global_config_file) to choose a different global config path.
     #[usage(long, visible_alias = "path", verbatim_doc_comment, required = false, value_hint = usage_rs::ValueHint::AnyPath)]
     file: Option<PathBuf>,
 
@@ -139,11 +139,11 @@ impl Set {
         }
 
         let filename = self.filename()?;
-        let mut mise_toml = get_mise_toml(&filename).await?;
+        let mut pakro_toml = get_pakro_toml(&filename).await?;
 
         if let Some(env_names) = &self.remove {
             for name in env_names {
-                mise_toml.remove_env(name)?;
+                pakro_toml.remove_env(name)?;
             }
         }
 
@@ -159,7 +159,7 @@ impl Set {
             let env = full_config.env().await?;
             match env.get(key) {
                 Some(value) => {
-                    miseprintln!("{value}");
+                    pakroprintln!("{value}");
                 }
                 None => bail!("Environment variable {key} not found"),
             }
@@ -221,7 +221,7 @@ impl Set {
                                 ..
                             } = age_directive
                             {
-                                mise_toml.update_env_age(&ev.key, &encrypted_value, format)?;
+                                pakro_toml.update_env_age(&ev.key, &encrypted_value, format)?;
                             }
                         }
                         None => bail!("{} has no value", ev.key),
@@ -230,19 +230,19 @@ impl Set {
             } else {
                 for ev in env_vars {
                     match ev.value {
-                        Some(value) => mise_toml.update_env(&ev.key, value)?,
+                        Some(value) => pakro_toml.update_env(&ev.key, value)?,
                         None => bail!("{} has no value", ev.key),
                     }
                 }
             }
         }
-        mise_toml.save()
+        pakro_toml.save()
     }
 
     async fn complete(&self) -> Result<()> {
         let config = Config::get().await?;
         for ev in self.cur_env(&config).await? {
-            miseprintln!("{}", ev.key);
+            pakroprintln!("{}", ev.key);
         }
         Ok(())
     }
@@ -273,16 +273,16 @@ impl Set {
             Some(self.filename()?)
         } else if !self.global {
             // Check for local config file when no specific file or environment is specified
-            // Check for mise.toml in current directory first
+            // Check for pakro.toml in current directory first
             let cwd = env::current_dir()?;
-            let mise_toml = cwd.join("mise.toml");
-            if mise_toml.exists() {
-                Some(mise_toml)
+            let pakro_toml = cwd.join("pakro.toml");
+            if pakro_toml.exists() {
+                Some(pakro_toml)
             } else {
-                // Fall back to .mise.toml if mise.toml doesn't exist
-                let dot_mise_toml = cwd.join(".mise.toml");
-                if dot_mise_toml.exists() {
-                    Some(dot_mise_toml)
+                // Fall back to .pakro.toml if pakro.toml doesn't exist
+                let dot_pakro_toml = cwd.join(".pakro.toml");
+                if dot_pakro_toml.exists() {
+                    Some(dot_pakro_toml)
                 } else {
                     None // Fall back to global config if no local config exists
                 }
@@ -300,7 +300,7 @@ impl Set {
             // env_with_sources already contains decrypted values
             for eva in filter {
                 if let Some((value, _source)) = env_with_sources.get(&eva.key) {
-                    miseprintln!("{value}");
+                    pakroprintln!("{value}");
                 } else {
                     bail!("Environment variable {} not found", eva.key);
                 }
@@ -309,7 +309,7 @@ impl Set {
         }
 
         // Get the config to access directives directly
-        let config = MiseToml::from_file(&config_path.unwrap()).unwrap_or_default();
+        let config = PakroToml::from_file(&config_path.unwrap()).unwrap_or_default();
 
         // For local configs, check directives directly
         let env_entries = config.env_entries()?;
@@ -325,7 +325,7 @@ impl Set {
                     // this does not obey strict=false, since we want to fail if the decryption fails
                     let decrypted =
                         Self::decrypt_value_if_needed(&eva.key, &value, directive).await?;
-                    miseprintln!("{decrypted}");
+                    pakroprintln!("{decrypted}");
                 }
                 None => bail!("Environment variable {} not found", eva.key),
             }
@@ -336,13 +336,13 @@ impl Set {
     async fn cur_env(&self, config: &Arc<Config>) -> Result<Vec<Row>> {
         let redact = !self.no_redact;
         let rows = if let Some(file) = &self.file {
-            let mise_toml = MiseToml::from_file(file).unwrap_or_default();
-            Self::rows_from_directives(mise_toml.env_entries()?, file, redact)
+            let pakro_toml = PakroToml::from_file(file).unwrap_or_default();
+            Self::rows_from_directives(pakro_toml.env_entries()?, file, redact)
         } else if self.env.is_some() {
             // When -E flag is used, read from the environment-specific file
             let filename = self.filename()?;
-            let mise_toml = MiseToml::from_file(&filename).unwrap_or_default();
-            Self::rows_from_directives(mise_toml.env_entries()?, &filename, redact)
+            let pakro_toml = PakroToml::from_file(&filename).unwrap_or_default();
+            Self::rows_from_directives(pakro_toml.env_entries()?, &filename, redact)
         } else {
             config
                 .env_with_sources()
@@ -401,7 +401,7 @@ impl Set {
             path: self.file.clone(),
             env: self.env.clone(),
             cwd: None,                // Use current working directory
-            prefer_toml: true,        // mise set only works with TOML files
+            prefer_toml: true,        // pakro set only works with TOML files
             prevent_home_local: true, // When in HOME, use global config
         };
         resolve_target_config_path(opts)
@@ -458,18 +458,18 @@ impl Set {
     }
 }
 
-async fn get_mise_toml(filename: &Path) -> Result<MiseToml> {
+async fn get_pakro_toml(filename: &Path) -> Result<PakroToml> {
     let path = env::current_dir()?.join(filename);
     // Before the exists/does-not-exist split, so a `.tool-versions` says why it is refused instead
-    // of failing later as invalid TOML, and so a name mise cannot read back is never created.
+    // of failing later as invalid TOML, and so a name pakro cannot read back is never created.
     crate::config::config_file::ensure_writable_as_toml(&path).await?;
-    let mise_toml = if path.exists() {
-        MiseToml::from_file(&path)?
+    let pakro_toml = if path.exists() {
+        PakroToml::from_file(&path)?
     } else {
-        MiseToml::init(&path)
+        PakroToml::init(&path)
     };
 
-    Ok(mise_toml)
+    Ok(pakro_toml)
 }
 
 #[derive(Tabled, Debug, Clone)]

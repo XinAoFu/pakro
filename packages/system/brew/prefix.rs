@@ -34,7 +34,7 @@ const SUBDIRS: &[&str] = &[
 pub(super) fn prefix() -> PathBuf {
     // undocumented override for testing the pour pipeline without touching
     // the real prefix
-    match crate::env::var("MISE_SYSTEM_BREW_PREFIX") {
+    match crate::env::var("PAKRO_SYSTEM_BREW_PREFIX") {
         Ok(p) if !p.is_empty() => PathBuf::from(p),
         _ if cfg!(target_os = "macos") => PathBuf::from("/opt/homebrew"),
         _ => PathBuf::from("/home/linuxbrew/.linuxbrew"),
@@ -123,7 +123,7 @@ pub(super) fn setup_linux_runtime() -> Result<()> {
 }
 
 fn writable(path: &Path) -> bool {
-    // root can write regardless of owner — and `sudo mise` must never treat
+    // root can write regardless of owner — and `sudo pakro` must never treat
     // a user-owned prefix as broken and chown it to root
     if nix::unistd::geteuid().is_root() {
         return path.exists();
@@ -135,7 +135,7 @@ fn writable(path: &Path) -> bool {
     ) && path.exists()
 }
 
-/// The invoking user when mise itself was run under sudo (root euid with
+/// The invoking user when pakro itself was run under sudo (root euid with
 /// SUDO_USER set). None for plain root (e.g. a container) and non-root runs.
 pub(super) fn sudo_invoking_user() -> Option<String> {
     if nix::unistd::geteuid().is_root()
@@ -149,7 +149,7 @@ pub(super) fn sudo_invoking_user() -> Option<String> {
     }
 }
 
-/// Who should own the prefix. Under `sudo mise`, the invoking user
+/// Who should own the prefix. Under `sudo pakro`, the invoking user
 /// (SUDO_USER), not root — mirrors brew's install.sh. Plain root (e.g. a
 /// container) owns it as root.
 pub(super) fn prefix_owner() -> Option<String> {
@@ -189,7 +189,7 @@ pub(super) fn bootstrap(dry_run: bool) -> Result<()> {
     }
     // try without elevation first — covers prefixes under user-writable
     // parents; the real prefixes need sudo to create. Skipped under `sudo
-    // mise`: root could create the dirs, but they must be chowned to the
+    // pakro`: root could create the dirs, but they must be chowned to the
     // invoking user afterwards
     if needs_create
         && !dry_run
@@ -218,8 +218,8 @@ pub(super) fn bootstrap(dry_run: bool) -> Result<()> {
         let mkdir_args: Vec<String> = ["-p".to_string()].into_iter().chain(mkdir_dirs).collect();
         let chown_args: Vec<String> = vec!["-R".to_string(), owner, prefix.display().to_string()];
         if dry_run {
-            miseprintln!("{}", sudo::argv("mkdir", &mkdir_args).join(" "));
-            miseprintln!("{}", sudo::argv("chown", &chown_args).join(" "));
+            pakroprintln!("{}", sudo::argv("mkdir", &mkdir_args).join(" "));
+            pakroprintln!("{}", sudo::argv("chown", &chown_args).join(" "));
             return Ok(());
         }
         info!("creating {} (requires sudo once)", prefix.display());
@@ -232,7 +232,7 @@ pub(super) fn bootstrap(dry_run: bool) -> Result<()> {
         // prefix is ours but subdirs are missing — show what a real run
         // would create (no sudo needed)
         for dir in &missing_subdirs {
-            miseprintln!("mkdir -p {}", dir.display());
+            pakroprintln!("mkdir -p {}", dir.display());
         }
     } else {
         // prefix is ours, just fill in missing subdirs

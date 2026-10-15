@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+
+cat >pakro.toml <<'TOML'
+[env]
+PAKRORC_SELECTED = "base"
+TOML
+cat >pakro.development.toml <<'TOML'
+[env]
+PAKRORC_SELECTED = "development"
+TOML
+cat >pakro.native.toml <<'TOML'
+[env]
+PAKRORC_SELECTED = "native"
+TOML
+mkdir -p .config
+cat >.config/pakro.toml <<'TOML'
+[env]
+PAKRORC_IGNORED = "should not load"
+TOML
+cat >.pakrorc.toml <<'TOML'
+env = ["development"]
+ignored_config_paths = [".config/pakro.toml"]
+TOML
+assert "pakro exec -- printenv PAKRORC_SELECTED" development
+
+echo 'env = ["native"]' >.pakrorc.local.toml
+assert "pakro exec -- printenv PAKRORC_SELECTED" native
+# The local file overrides env without discarding the shared ignored paths.
+assert_fail "pakro exec -- printenv PAKRORC_IGNORED"
+assert "PAKRO_ENV=development pakro exec -- printenv PAKRORC_SELECTED" development
+assert "PAKRO_ENV=native pakro -E development exec -- printenv PAKRORC_SELECTED" development
+
+# Inherit a parent's local file, but keep closer shared settings authoritative.
+mkdir child
+assert "(cd child && pakro exec -- printenv PAKRORC_SELECTED)" native
+echo 'env = ["development"]' >child/.pakrorc.toml
+assert "(cd child && pakro exec -- printenv PAKRORC_SELECTED)" development
+echo 'env = ["native"]' >child/.pakrorc.local.toml
+assert "(cd child && pakro exec -- printenv PAKRORC_SELECTED)" native
+
+# An empty list clears the shared selection. Templates work in local files too.
+echo 'env = []' >.pakrorc.local.toml
+assert "pakro exec -- printenv PAKRORC_SELECTED" base
+echo 'env = ["{{ env.PAKRORC_TEST_ENV }}"]' >.pakrorc.local.toml
+assert "PAKRORC_TEST_ENV=native pakro exec -- printenv PAKRORC_SELECTED" native
+
+# A local selector works without a shared file, including the .config layout.
+rm .pakrorc.toml
+echo 'env = ["development"]' >.config/pakrorc.toml
+echo 'env = ["native"]' >.pakrorc.local.toml
+assert "pakro exec -- printenv PAKRORC_SELECTED" native
+rm .config/pakrorc.toml
+assert "pakro exec -- printenv PAKRORC_SELECTED" native
+
+# Ceiling paths bound local discovery as well as shared discovery.
+mkdir bounded
+echo 'env.PAKRORC_SELECTED = "base"' >bounded/pakro.toml
+assert "(cd bounded && PAKRO_CEILING_PATHS='$PWD' pakro exec -- printenv PAKRORC_SELECTED)" base
+
+# The global local selector overrides global shared settings everywhere.
+rm .pakrorc.local.toml
+echo 'env = ["development"]' >"$PAKRO_CONFIG_DIR/pakrorc.toml"
+echo 'env = ["native"]' >"$PAKRO_CONFIG_DIR/pakrorc.local.toml"
+assert "pakro exec -- printenv PAKRORC_SELECTED" native
+mkdir -p "$HOME/../pakrorc-outside"
+cat >"$HOME/../pakrorc-outside/pakro.toml" <<'TOML'
+[env]
+PAKRORC_SELECTED = "base"
+TOML
+cat >"$HOME/../pakrorc-outside/pakro.native.toml" <<'TOML'
+[env]
+PAKRORC_SELECTED = "native"
+TOML
+cat >"$HOME/../pakrorc-outside/pakro.development.toml" <<'TOML'
+[env]
+PAKRORC_SELECTED = "development"
+TOML
+assert "(cd '$HOME/../pakrorc-outside' && pakro exec -- printenv PAKRORC_SELECTED)" native
+echo 'env = ["development"]' >"$HOME/../pakrorc-outside/.pakrorc.toml"
+assert "(cd '$HOME/../pakrorc-outside' && pakro exec -- printenv PAKRORC_SELECTED)" development
+assert "(cd '$HOME/../pakrorc-outside' && PAKRO_ENV=native pakro exec -- printenv PAKRORC_SELECTED)" native
+
+echo 'env = [' >.pakrorc.local.toml
+assert_fail "pakro config ls" 'Invalid TOML in config file'
+assert_fail "pakro config ls" '.pakrorc.local.toml'

@@ -7,20 +7,24 @@ use crate::{
 };
 use serde::Serialize;
 
-/// Generate devcontainer configuration for mise
+/// Generate devcontainer configuration for pakro
 ///
+/// Requires --image pointing to an image containing your local pakro build.
 /// Prints JSON by default. `--write` saves .devcontainer/devcontainer.json;
 /// review the image, mounts, and generated setup commands before opening it.
 #[derive(Debug, usage_rs::Args)]
-#[usage(verbatim_doc_comment, example(r###"mise generate devcontainer"###))]
+#[usage(
+    verbatim_doc_comment,
+    example(r###"pakro generate devcontainer --image pakro-dev:latest"###)
+)]
 pub(super) struct Devcontainer {
     /// The image to use for the devcontainer
     #[usage(long, short, verbatim_doc_comment)]
     image: Option<String>,
 
-    /// Bind the mise-data-volume to the devcontainer
+    /// Bind the pakro-data-volume to the devcontainer
     #[usage(long, short, verbatim_doc_comment)]
-    mount_mise_data: bool,
+    mount_pakro_data: bool,
 
     /// The name of the devcontainer
     #[usage(long, short, verbatim_doc_comment)]
@@ -69,54 +73,42 @@ impl Devcontainer {
             };
             file::create(&path)?;
             file::write(&path, &output)?;
-            miseprintln!("Wrote to {}", display_path(&path));
+            pakroprintln!("Wrote to {}", display_path(&path));
         } else {
-            miseprintln!("{output}");
+            pakroprintln!("{output}");
         }
 
         Ok(())
     }
 
     fn generate(&self) -> eyre::Result<String> {
-        let name = self.name.as_deref().unwrap_or("mise");
+        let name = self.name.as_deref().unwrap_or("pakro");
         let image = self
             .image
             .as_deref()
-            .unwrap_or("mcr.microsoft.com/devcontainers/base:ubuntu");
+            .ok_or_else(|| eyre::eyre!("pakro devcontainer image is not configured; pass --image with an image containing your pakro build"))?;
 
         let mut post_create_command: Option<String> = None;
         let mut mounts = vec![];
         let mut container_env = HashMap::new();
         let mut remote_env = HashMap::new();
-        if self.mount_mise_data {
+        if self.mount_pakro_data {
             mounts.push(DevcontainerMount {
-                source: "mise-data-volume".to_string(),
-                target: "/mnt/mise-data".to_string(),
+                source: "pakro-data-volume".to_string(),
+                target: "/mnt/pakro-data".to_string(),
                 type_field: "volume".to_string(),
             });
-            container_env.insert("MISE_DATA_DIR".to_string(), "/mnt/mise-data".to_string());
+            container_env.insert("PAKRO_DATA_DIR".to_string(), "/mnt/pakro-data".to_string());
             remote_env.insert(
                 "PATH".to_string(),
-                "${containerEnv:PATH}:/mnt/mise-data/shims".to_string(),
+                "${containerEnv:PATH}:/mnt/pakro-data/shims".to_string(),
             );
-            post_create_command = Some("sudo chown -R vscode:vscode /mnt/mise-data".to_string());
+            post_create_command = Some("sudo chown -R vscode:vscode /mnt/pakro-data".to_string());
         }
 
-        let mut features = HashMap::new();
-        features.insert(
-            "ghcr.io/devcontainers-extra/features/mise:1".to_string(),
-            HashMap::new(),
-        );
-
-        let mut customizations = HashMap::new();
-        let mut extensions = HashMap::new();
-
-        extensions.insert(
-            "extensions".to_string(),
-            vec!["hverlin.mise-vscode".to_string()],
-        );
-
-        customizations.insert("vscode".to_string(), extensions);
+        // No first-party feature or editor extension has been published.
+        let features = HashMap::new();
+        let customizations = HashMap::new();
 
         let template = DevcontainerTemplate {
             name: name.to_string(),

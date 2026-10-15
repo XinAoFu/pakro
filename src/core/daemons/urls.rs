@@ -2,7 +2,7 @@
 //! across worktrees instead of moving with its port.
 //!
 //! Pitchfork's reverse proxy routes `<daemon>.<worktree>.<project>.<tld>` to
-//! whichever port the daemon actually bound. mise derives the same hostname at
+//! whichever port the daemon actually bound. pakro derives the same hostname at
 //! configuration time and exports it, so a sibling service can be pointed at
 //! `{{ env.API_URL }}` and never has to learn the port. Databases keep
 //! `port = "auto"`: the proxy speaks HTTP, and a Postgres client does not.
@@ -67,7 +67,7 @@ pub struct ProxySettings {
 impl Default for ProxySettings {
     /// Pitchfork's own defaults. A machine with no proxy configuration still
     /// gets the URL it would have once the proxy is switched on, rather than no
-    /// export at all, because `mise env` runs long before any supervisor does.
+    /// export at all, because `pakro env` runs long before any supervisor does.
     fn default() -> Self {
         Self {
             https: true,
@@ -92,7 +92,7 @@ impl ProxySettings {
         }
     }
 
-    /// Where this checkout's own page lives, for `mise daemons urls`. The
+    /// Where this checkout's own page lives, for `pakro daemons urls`. The
     /// primary checkout has no page of its own; its stack is the project.
     pub fn stack_url(&self, labels: &RootLabels) -> Option<String> {
         let project = labels.project.as_deref()?;
@@ -114,10 +114,10 @@ impl ProxySettings {
 
 /// The user's effective proxy settings.
 ///
-/// Read once per process: `mise env` resolves a URL for every daemon in the
+/// Read once per process: `pakro env` resolves a URL for every daemon in the
 /// project, and none of them can disagree about the scheme. Pitchfork layers
 /// `/etc/pitchfork/config.toml`, the user config, project configs and finally
-/// the environment; mise reads the two machine-wide files and the environment,
+/// the environment; pakro reads the two machine-wide files and the environment,
 /// which are the layers that apply wherever the daemon is started from. A
 /// project-level `[settings.proxy]` in a `pitchfork.toml` is deliberately not
 /// consulted: it would make one project's URL depend on which directory the
@@ -315,7 +315,7 @@ fn hostname_fits(host: &str) -> bool {
 /// The `worktree_label` a checkout's own pitchfork configuration declares.
 ///
 /// Pitchfork reads this key from the four configuration files in the checkout
-/// itself, not from the file mise generates and registers, so mise has to read
+/// itself, not from the file pakro generates and registers, so pakro has to read
 /// it from the same place or the two would disagree about the hostname. The
 /// highest-precedence file wins, as it does for `namespace`.
 fn declared_worktree_label(dir: &Path) -> Option<String> {
@@ -391,7 +391,7 @@ pub(crate) fn labels(root: &Path, settings: &DaemonSettings) -> Result<RootLabel
         // Not the hashed default namespace: that is derived from the root path,
         // so every checkout would produce a different project label and the
         // worktree component would be saying it twice. Pitchfork names the
-        // project after the checkout that stands for it, so mise does too: the
+        // project after the checkout that stands for it, so pakro does too: the
         // main checkout, or the worktree itself where there is no main one.
         None => {
             let dir = checkout.repository.as_deref().unwrap_or(root.as_path());
@@ -419,7 +419,7 @@ pub(crate) fn labels(root: &Path, settings: &DaemonSettings) -> Result<RootLabel
         settings.namespace.as_deref(),
     ) {
         warn_once!(
-            "[daemons] {} is a worktree of a repository with no main checkout, so its hostnames carry no worktree component and every sibling worktree inheriting namespace {} resolves to the same one, which pitchfork cannot route. Give each checkout its own [daemons_settings] namespace in a gitignored mise.local.toml.",
+            "[daemons] {} is a worktree of a repository with no main checkout, so its hostnames carry no worktree component and every sibling worktree inheriting namespace {} resolves to the same one, which pitchfork cannot route. Give each checkout its own [daemons_settings] namespace in a gitignored pakro.local.toml.",
             checkout_dir.display(),
             settings.namespace.as_deref().unwrap_or_default()
         );
@@ -482,7 +482,7 @@ pub(crate) fn apply(
     validate_idle_timeout(name, table)?;
     let proxy = match table.get("proxy") {
         // `proxy = true` turns routing back on for a daemon a preset opted out
-        // of, using the name-derived label. Pitchfork accepts it, so mise does.
+        // of, using the name-derived label. Pitchfork accepts it, so pakro does.
         None | Some(toml::Value::Boolean(true)) => Proxy::Derived,
         Some(toml::Value::Boolean(false)) => Proxy::Disabled,
         Some(toml::Value::String(label)) => {
@@ -508,7 +508,7 @@ pub(crate) fn apply(
         }
     }
     // A daemon with no port is not routed, so writing a label for it would
-    // leave the generated configuration claiming something mise does not
+    // leave the generated configuration claiming something pakro does not
     // believe and its hostname outside the collision bookkeeping below.
     let label = match &proxy {
         Proxy::Disabled => None,
@@ -520,8 +520,8 @@ pub(crate) fn apply(
         withdraw(table);
         return Ok(Applied { host: None });
     };
-    // The label is written out even when mise derived it, so pitchfork routes
-    // the name mise exported rather than folding the daemon's name again.
+    // The label is written out even when pakro derived it, so pitchfork routes
+    // the name pakro exported rather than folding the daemon's name again.
     table.insert("proxy".into(), toml::Value::String(label.clone()));
     let host = labels
         .suffix(tld)
@@ -718,7 +718,7 @@ mod tests {
         );
         assert!(ip.on());
 
-        // Pitchfork compares these spellings without regard to case, so mise
+        // Pitchfork compares these spellings without regard to case, so pakro
         // must read `FALSE` and `Off` as it does rather than as "not empty".
         for spelling in ["FALSE", "False", "no", "N", "Off", "0", ""] {
             let mut cased = ProxySettings::default();
@@ -758,7 +758,7 @@ mod tests {
         };
         let (host, table) = parse("port = 3000").unwrap();
         assert_eq!(host.unwrap(), "api.shop.localhost");
-        // The derived label is written out, so pitchfork routes the name mise
+        // The derived label is written out, so pitchfork routes the name pakro
         // exported rather than folding the daemon's name a second time.
         assert_eq!(table["proxy"].as_str().unwrap(), "api");
 
@@ -771,7 +771,7 @@ mod tests {
         assert_eq!(table["proxy"].as_bool(), Some(false));
 
         // `proxy = true` turns routing back on for a daemon a preset opted out
-        // of, using the name-derived label. Pitchfork accepts it, so mise does.
+        // of, using the name-derived label. Pitchfork accepts it, so pakro does.
         let (host, table) = parse("port = 3000\nproxy = true").unwrap();
         assert_eq!(host.unwrap(), "api.shop.localhost");
         assert_eq!(table["proxy"].as_str().unwrap(), "api");
@@ -970,7 +970,7 @@ mod tests {
     /// A bare repository has no working tree to stand for the project, and the
     /// directory holding it holds unrelated repositories just as often as
     /// sibling worktrees. Pitchfork therefore gives each such worktree a
-    /// project label of its own, and mise must agree: a hostname only mise
+    /// project label of its own, and pakro must agree: a hostname only pakro
     /// believed in would be exported and routed by nothing.
     #[test]
     fn a_worktree_of_a_bare_repository_names_itself() {
@@ -1168,7 +1168,7 @@ mod tests {
     /// `git clone --separate-git-dir` leaves a common dir with an arbitrary
     /// name, which is not a main checkout's `.git`. Pitchfork's
     /// `primary_from_worktree_gitdir` refuses it for that reason, so a linked
-    /// worktree of such a clone names itself in both, and the URL mise exports
+    /// worktree of such a clone names itself in both, and the URL pakro exports
     /// is the one the proxy serves.
     #[test]
     fn a_worktree_of_a_separate_git_dir_clone_names_itself() {
@@ -1191,7 +1191,7 @@ mod tests {
     }
 
     /// Pitchfork reads `worktree_label` from the checkout's own configuration
-    /// rather than from the file mise registers, so mise reads it there too.
+    /// rather than from the file pakro registers, so pakro reads it there too.
     #[test]
     fn a_checkouts_own_config_names_the_worktree() {
         let tmp = tempfile::tempdir().unwrap();

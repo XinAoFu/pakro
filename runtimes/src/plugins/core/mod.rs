@@ -73,7 +73,7 @@ where
             // Only add a hint when the error was actually caused by a timeout
             if err.downcast_ref::<TimeoutError>().is_some() {
                 Err(err).context(
-                    "change with `fetch_remote_versions_timeout` or env `MISE_FETCH_REMOTE_VERSIONS_TIMEOUT`",
+                    "change with `fetch_remote_versions_timeout` or env `PAKRO_FETCH_REMOTE_VERSIONS_TIMEOUT`",
                 )
             } else {
                 Err(err)
@@ -94,7 +94,7 @@ where
         Err(err) => {
             if err.downcast_ref::<TimeoutError>().is_some() {
                 Err(err).context(
-                    "change with `fetch_remote_versions_timeout` or env `MISE_FETCH_REMOTE_VERSIONS_TIMEOUT`",
+                    "change with `fetch_remote_versions_timeout` or env `PAKRO_FETCH_REMOTE_VERSIONS_TIMEOUT`",
                 )
             } else {
                 Err(err)

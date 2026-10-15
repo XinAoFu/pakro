@@ -16,12 +16,12 @@ use tokio::sync::OnceCell;
 
 /// Install a tool version to a specific path
 ///
-/// Used for building a tool to a directory for use outside of mise
+/// Used for building a tool to a directory for use outside of pakro
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise install-into node@20.0.0 ./mynode && ./mynode/bin/node -v
+        r###"pakro install-into node@20.0.0 ./mynode && ./mynode/bin/node -v
 v20.0.0"###,
         help = r###"install node@20.0.0 into ./mynode"###
     )
@@ -89,9 +89,9 @@ impl InstallInto {
         // installation replaces that entry, even if it is a symlink.
         // `dunce::simplified` drops the extended-length prefix `canonicalize`
         // adds on Windows wherever the plain path names the same file. The
-        // destination reaches backends and plugins as `MISE_INSTALL_PATH`, and
-        // mise itself rejects `\\?\` paths as tool paths, so the resolved
-        // spelling has to stay one mise would accept back.
+        // destination reaches backends and plugins as `PAKRO_INSTALL_PATH`, and
+        // pakro itself rejects `\\?\` paths as tool paths, so the resolved
+        // spelling has to stay one pakro would accept back.
         let install_path = match (install_path.parent(), install_path.file_name()) {
             (Some(parent), Some(name)) => {
                 crate::file::create_dir_all(parent)?;
@@ -168,7 +168,7 @@ impl InstallInto {
 /// process create a replacement and install alongside the holder.
 fn lock_dir_overlap(destination: &Path, lock_dir: &Path) -> eyre::Report {
     eyre!(
-        "install-into destination {} overlaps mise's lock directory {}; choose a different destination",
+        "install-into destination {} overlaps pakro's lock directory {}; choose a different destination",
         display_path(destination),
         display_path(lock_dir)
     )

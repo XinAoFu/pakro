@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Omitted optional values must not cause deferred dependencies to disappear.
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.child]
 run = 'echo child'
 
@@ -56,35 +56,35 @@ depends = ['child {{usage.relese}}']
 run = 'touch should-not-run'
 EOF
 
-assert "mise run parent" "child
+assert "pakro run parent" "child
 parent"
-assert "mise run parent --release" "child --release
+assert "pakro run parent --release" "child --release
 parent"
-assert "mise run structured" "child"
-assert "mise run structured --release" "child --release"
-assert "mise run wrapper" "child
+assert "pakro run structured" "child"
+assert "pakro run structured --release" "child --release"
+assert "pakro run wrapper" "child
 parent"
-assert "mise run argument" "child"
-assert "mise run argument needle" "child needle"
-assert "mise run call" "child mode=debug"
-assert "mise run call --release" "child mode=release"
-assert "mise run post" "post
+assert "pakro run argument" "child"
+assert "pakro run argument needle" "child needle"
+assert "pakro run call" "child mode=debug"
+assert "pakro run call --release" "child mode=release"
+assert "pakro run post" "post
 child"
-assert "mise run post --release" "post
+assert "pakro run post --release" "post
 child --release"
-assert "mise run explicit-default" "child all"
-assert "mise run explicit-default needle" "child needle"
-assert "mise run mixed" "child"
-assert "mise run mixed needle" "child needle"
-assert "mise run mixed --release" "child --release"
-assert "mise run mixed needle --release" "child needle --release"
-assert "mise run conditional" "child"
-assert_fail "mise run required" "Missing required arg: <filter>"
-assert_fail "mise run typo" 'relese'
+assert "pakro run explicit-default" "child all"
+assert "pakro run explicit-default needle" "child needle"
+assert "pakro run mixed" "child"
+assert "pakro run mixed needle" "child needle"
+assert "pakro run mixed --release" "child --release"
+assert "pakro run mixed needle --release" "child needle --release"
+assert "pakro run conditional" "child"
+assert_fail "pakro run required" "Missing required arg: <filter>"
+assert_fail "pakro run typo" 'relese'
 assert "test ! -e should-not-run && echo ok" "ok"
 
 # A wait_for edge must survive an omitted flag when both tasks are scheduled.
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.slow]
 run = 'sleep 0.1; echo slow >> order.txt'
 
@@ -94,13 +94,13 @@ wait_for = ['slow {% if usage.release %}--release{% endif %}']
 run = 'echo waiter >> order.txt'
 EOF
 
-mise run waiter ::: slow
+pakro run waiter ::: slow
 assert "cat order.txt" "slow
 waiter"
 
 # Optional values in selected subcommands also get typed fallbacks, and parsed
 # values still override them. The default command remains the empty string.
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.child]
 usage = 'arg "<value>"'
 run = 'echo "$usage_value"'
@@ -115,12 +115,12 @@ cmd "build" {
 depends = [{ task = 'child', args = ['{{usage.cmd}}:{{usage.release}}:{{usage.filter}}'] }]
 EOF
 
-assert "mise run dispatch" ":false:"
-assert "mise run dispatch build" "build:false:"
-assert "mise run dispatch build --release needle" "build:true:needle"
+assert "pakro run dispatch" ":false:"
+assert "pakro run dispatch build" "build:false:"
+assert "pakro run dispatch build --release needle" "build:true:needle"
 
 # A selected subcommand's omitted values must not inherit a sibling's defaults.
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.child]
 usage = 'arg "<value>"'
 run = 'echo "$usage_value"'
@@ -140,9 +140,9 @@ depends = [{ task = 'child', args = ['{{usage.cmd}}:{{usage.release}}:{{usage.fi
 run = 'echo inline:{{usage.release}}:{{usage.filter}}'
 EOF
 
-assert "mise run dispatch check" "check:false:
+assert "pakro run dispatch check" "check:false:
 inline:false:"
-assert "mise run dispatch publish" "publish:true:all
+assert "pakro run dispatch publish" "publish:true:all
 inline:true:all"
-assert "mise run dispatch check --release needle" "check:true:needle
+assert "pakro run dispatch check --release needle" "check:true:needle
 inline:true:needle"

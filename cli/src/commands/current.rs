@@ -8,14 +8,14 @@ use crate::toolset::{Toolset, ToolsetBuilder};
 
 /// Shows current active and installed runtime versions
 ///
-/// This is similar to `mise ls --current`, but this only shows the runtime
+/// This is similar to `pakro ls --current`, but this only shows the runtime
 /// and/or version. It's designed to fit into scripts more easily.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
     hide = true,
     example(
-        r###"mise current
+        r###"pakro current
 python 3.11.0 3.10.0
 shfmt 3.6.0
 shellcheck 0.9.0
@@ -23,11 +23,11 @@ node 20.0.0"###,
         help = r###"outputs `.tool-versions` compatible format"###
     ),
     example(
-        r###"mise current node
+        r###"pakro current node
 20.0.0"###
     ),
     example(
-        r###"mise current python
+        r###"pakro current python
 3.11.0 3.10.0"###,
         help = r###"can output multiple versions"###
     )
@@ -77,7 +77,7 @@ impl Current {
                     );
                     return Ok(());
                 }
-                miseprintln!(
+                pakroprintln!(
                     "{}",
                     versions
                         .iter()
@@ -115,11 +115,11 @@ impl Current {
                     hint!(
                         "tools_missing",
                         "install missing tools with",
-                        "mise install"
+                        "pakro install"
                     );
                 }
             }
-            miseprintln!(
+            pakroprintln!(
                 "{} {}",
                 &plugin.id(),
                 versions

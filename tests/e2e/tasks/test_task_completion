@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Requires usage >= 4.0, the version that accepts `effect=` (jdx/usage#739,
-# #742), which mise's spec now carries. `latest` only reaches a new release
+# #742), which pakro's spec now carries. `latest` only reaches a new release
 # once it clears the default 24h minimum_release_age, so opt out of the delay
 # here — same as test_task_completion_global_flags.
-export MISE_MINIMUM_RELEASE_AGE=0s
+export PAKRO_MINIMUM_RELEASE_AGE=0s
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools]
 "usage" = { version = "latest", os = ["linux", "macos"] }
 
@@ -13,6 +13,6 @@ cat <<EOF >mise.toml
 run = 'echo build'
 EOF
 
-mise usage >./mise.usage.kdl
-assert "mise exec -- usage complete-word --shell zsh -f ./mise.usage.kdl -- mise tasks run build -- -c ''" "mise.toml		mise.toml
-mise.usage.kdl		mise.usage.kdl"
+pakro usage >./pakro.usage.kdl
+assert "pakro exec -- usage complete-word --shell zsh -f ./pakro.usage.kdl -- pakro tasks run build -- -c ''" "pakro.toml		pakro.toml
+pakro.usage.kdl		pakro.usage.kdl"

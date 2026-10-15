@@ -94,9 +94,9 @@ impl Display for ToolVersionType {
 
 impl ToolArg {
     /// this handles the case where the user typed in:
-    /// mise local node 20.0.0
+    /// pakro local node 20.0.0
     /// instead of
-    /// mise local node@20.0.0
+    /// pakro local node@20.0.0
     ///
     /// We can detect this, and we know what they meant, so make it work the way
     /// they expected.

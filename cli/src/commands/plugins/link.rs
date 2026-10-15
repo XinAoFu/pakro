@@ -9,22 +9,22 @@ use crate::file::{make_symlink, remove_all};
 use crate::plugins::PluginType;
 use crate::{dirs, file};
 
-/// Link a local plugin directory into mise for development
+/// Link a local plugin directory into pakro for development
 ///
 /// Edits in the source directory take effect without reinstalling the plugin. Pass
 /// both a name and directory, or only a directory to infer the name after stripping
-/// a known prefix such as `mise-` or `asdf-`. This does not install a tool version.
+/// a known prefix such as `pakro-` or `asdf-`. This does not install a tool version.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     visible_alias = "ln",
     verbatim_doc_comment,
-    example(r###"mise plugins link my-tool ./mise-my-tool"###),
+    example(r###"pakro plugins link my-tool ./pakro-my-tool"###),
     example(
-        r###"mise plugins link ./mise-my-tool"###,
+        r###"pakro plugins link ./pakro-my-tool"###,
         help = r###"Alternative: infer the name "my-tool""###
     ),
     example(
-        r###"mise ls-remote my-tool"###,
+        r###"pakro ls-remote my-tool"###,
         help = r###"List versions through the linked plugin"###
     )
 )]
@@ -35,7 +35,7 @@ pub(super) struct PluginsLink {
     name: String,
 
     /// The local path to the plugin
-    /// e.g.: ./mise-my-tool
+    /// e.g.: ./pakro-my-tool
     #[usage(value_hint = ValueHint::DirPath, verbatim_doc_comment)]
     dir: Option<PathBuf>,
 
@@ -88,6 +88,10 @@ impl PluginsLink {
 fn get_name_from_path(path: &Path) -> String {
     let name = path.file_name().unwrap().to_str().unwrap();
     let name = name.strip_prefix("asdf-").unwrap_or(name);
-    let name = name.strip_prefix("mise-").unwrap_or(name);
+    // ASDF plugin repositories retain their actual upstream prefix.
+    let name = name
+        .strip_prefix("pakro-")
+        .or_else(|| name.strip_prefix("mise-"))
+        .unwrap_or(name);
     unalias_backend(name).to_string()
 }

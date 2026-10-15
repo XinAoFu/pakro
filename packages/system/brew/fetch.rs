@@ -55,7 +55,7 @@ where
     }
 }
 
-/// Download a bottle to the mise cache (or reuse a verified cached copy).
+/// Download a bottle to the pakro cache (or reuse a verified cached copy).
 pub(super) async fn fetch_bottle(
     name: &str,
     pkg_version: &str,

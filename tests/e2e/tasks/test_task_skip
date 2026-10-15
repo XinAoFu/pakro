@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 tasks.a = "echo running a"
 tasks.b = "echo running b"
 tasks.c = "echo running c"
@@ -8,5 +8,5 @@ tasks.all.run = "echo testing!"
 tasks.all.depends = ["a", "b", "c"]
 EOF
 
-assert_contains "mise run all" "running b"
-MISE_TASK_SKIP=b assert_not_contains "mise run all" "running b"
+assert_contains "pakro run all" "running b"
+PAKRO_TASK_SKIP=b assert_not_contains "pakro run all" "running b"

@@ -120,33 +120,36 @@ fn live_tool_stubs(
 /// matching locked versions are preserved unless `--bump` re-resolves their selectors.
 /// This command writes lockfiles without installing tools; `--dry-run` previews changes.
 ///
-/// Use `--platform` for explicit targets. Otherwise mise uses `lockfile_platforms`
+/// Use `--platform` for explicit targets. Otherwise pakro uses `lockfile_platforms`
 /// plus the current platform when that setting is configured, existing lockfile
 /// platforms when available, or the common platform defaults for a new lockfile.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
-    example("mise lock", help = "create or refresh the project lockfile"),
-    example("mise lock node python", help = "update only node and python"),
+    example("pakro lock", help = "create or refresh the project lockfile"),
+    example("pakro lock node python", help = "update only node and python"),
     example(
-        "mise lock --platform linux-x64",
+        "pakro lock --platform linux-x64",
         help = "update only linux-x64 platform"
     ),
-    example("mise lock --dry-run", help = "show what would be updated"),
+    example("pakro lock --dry-run", help = "show what would be updated"),
     example(
-        "mise lock --bump",
+        "pakro lock --bump",
         help = "re-resolve selectors like \"latest\" or \"20\" to the latest matching versions"
     ),
     example(
-        "mise lock --bump --dry-run --json",
+        "pakro lock --bump --dry-run --json",
         help = "list available updates as JSON without writing"
     ),
     example(
-        "mise lock --minimum-release-age 2024-01-01",
+        "pakro lock --minimum-release-age 2024-01-01",
         help = "lock latest/fuzzy versions released before 2024-01-01"
     ),
-    example("mise lock --local", help = "update mise.local.lock for local configs"),
-    example("mise lock --global", help = "update only global config lockfiles")
+    example(
+        "pakro lock --local",
+        help = "update pakro.local.lock for local configs"
+    ),
+    example("pakro lock --global", help = "update only global config lockfiles")
 )]
 pub(crate) struct Lock {
     /// Tool(s) to update in lockfile
@@ -155,14 +158,14 @@ pub(crate) struct Lock {
     #[usage(value_name = "TOOL", verbatim_doc_comment)]
     pub tool: Vec<ToolArg>,
 
-    /// Target only global config lockfiles (~/.config/mise/mise.lock and system config)
+    /// Target only global config lockfiles (~/.config/pakro/pakro.lock and system config)
     /// By default, only the active project config root is locked
     #[usage(long, short, verbatim_doc_comment)]
     pub global: bool,
 
     /// Number of jobs to run in parallel
     /// Values below 1 are treated as 1
-    #[usage(long, short, env = "MISE_JOBS", verbatim_doc_comment)]
+    #[usage(long, short, env = "PAKRO_JOBS", verbatim_doc_comment)]
     pub jobs: Option<usize>,
 
     /// Show what would be updated without making changes
@@ -177,12 +180,12 @@ pub(crate) struct Lock {
 
     /// Re-resolve fuzzy version selectors against the latest available versions
     ///
-    /// By default, `mise lock` refreshes metadata for the currently locked versions.
+    /// By default, `pakro lock` refreshes metadata for the currently locked versions.
     /// With this flag, selectors like "latest", "lts", or prefixes like "20" are
     /// re-resolved against the latest matching remote versions, so the lockfile
     /// advances without installing anything. Config files are never modified:
     /// exactly pinned versions resolve to themselves and stay unchanged
-    /// (use `mise upgrade --bump` to rewrite pins in mise.toml).
+    /// (use `pakro upgrade --bump` to rewrite pins in pakro.toml).
     /// If the remote versions cannot be fetched, it fails rather than keep
     /// the locked version.
     #[usage(long, verbatim_doc_comment)]
@@ -194,14 +197,14 @@ pub(crate) struct Lock {
     /// name, backend, lockfile, old_versions, new_versions.
     /// Version lists keep config/lockfile order; they are not sorted.
     /// Only version-level changes are reported: checksum/URL refreshes for
-    /// unchanged versions produce no entries, so plain `mise lock --json`
+    /// unchanged versions produce no entries, so plain `pakro lock --json`
     /// typically prints `[]` while still updating the lockfile.
     /// Suppresses the human-readable output. Combine with `--dry-run` to
     /// detect available updates without writing the lockfile.
     #[usage(long, verbatim_doc_comment)]
     pub json: bool,
 
-    /// Update mise.local.lock instead of mise.lock
+    /// Update pakro.local.lock instead of pakro.lock
     /// Use for tools defined in .local.toml configs
     #[usage(long, verbatim_doc_comment)]
     pub local: bool,
@@ -231,7 +234,7 @@ pub(crate) struct Lock {
     pub upgrade: bool,
 
     /// Restrict the run to these lockfiles, for callers that relock the
-    /// entries they rewrote (`mise backends switch`).
+    /// entries they rewrote (`pakro backends switch`).
     #[usage(skip)]
     pub lockfiles: Option<BTreeSet<PathBuf>>,
 }
@@ -386,7 +389,7 @@ fn classify_lock_result(
     }
 }
 
-/// Collects why tools were skipped so `mise lock` can explain the
+/// Collects why tools were skipped so `pakro lock` can explain the
 /// `N skipped` summary, with one warning per tool version.
 #[derive(Default)]
 struct SkipWarnings {
@@ -464,7 +467,7 @@ impl Lock {
     ) -> Result<()> {
         lockfile::suppress_outdated_lockfile_warning(&config);
         if self.upgrade && !self.tool.is_empty() {
-            bail!("`mise lock --upgrade` cannot be combined with tool arguments");
+            bail!("`pakro lock --upgrade` cannot be combined with tool arguments");
         }
         let settings = Settings::get();
         let generate = settings.generate_lockfiles();
@@ -488,8 +491,8 @@ impl Lock {
         let monorepo_union = if !self.global && config.monorepo_lockfile_root().is_some() {
             // The plain union lets a sibling's request shadow the monorepo
             // root's own request for the same short, so lock treated the
-            // root's entry as stale: plain `mise lock` pruned its version and
-            // binding, and `mise lock --upgrade` migrated v0 lockfiles
+            // root's entry as stale: plain `pakro lock` pruned its version and
+            // binding, and `pakro lock --upgrade` migrated v0 lockfiles
             // without it. Lockfile maintenance needs the root-inclusive
             // variant.
             Some(config.monorepo_lockfile_union().await?)
@@ -655,7 +658,7 @@ impl Lock {
 
             if tools.is_empty() {
                 // `tools` can be empty either because config has no tools, or because a filter excludes all.
-                // For unfiltered runs (`mise lock`), this means "prune all stale lockfile entries".
+                // For unfiltered runs (`pakro lock`), this means "prune all stale lockfile entries".
                 if self.dry_run {
                     let lockfile = if generate {
                         lockfile::generate::read_previous(&config, &lockfile_path, self.upgrade)?
@@ -746,7 +749,7 @@ impl Lock {
             let target_platforms = self.determine_target_platforms(&lockfile_path)?;
 
             if !self.json {
-                miseprintln!(
+                pakroprintln!(
                     "{} Targeting {} platform(s) for {}: {}",
                     style("→").cyan(),
                     target_platforms.len(),
@@ -758,7 +761,7 @@ impl Lock {
                         .join(", ")
                 );
 
-                miseprintln!(
+                pakroprintln!(
                     "{} Processing {} tool(s): {}",
                     style("→").cyan(),
                     tools.len(),
@@ -918,13 +921,13 @@ impl Lock {
             // Print summaries for normal writes now. Upgrade summaries are
             // deferred with their writes until every target succeeds.
             if !self.json && !atomic {
-                miseprintln!(
+                pakroprintln!(
                     "{} Updated {} platform entries ({} skipped)",
                     style("✓").green(),
                     successful,
                     skipped
                 );
-                miseprintln!(
+                pakroprintln!(
                     "{} Lockfile written to {}",
                     style("✓").green(),
                     style(display_path(&lockfile_path)).cyan()
@@ -933,21 +936,21 @@ impl Lock {
         }
 
         if !has_lock_targets && !self.json {
-            // --local asks for mise.local.lock specifically, and there is no global
+            // --local asks for pakro.local.lock specifically, and there is no global
             // equivalent, so don't redirect that run to global scope.
             if !self.global && !self.local && self.global_config_declares_tools(ts) {
-                miseprintln!(
+                pakroprintln!(
                     "{} No tools configured to lock in this project, but global config declares tools. Run {} to lock those.",
                     style("!").yellow(),
-                    style("mise lock --global").cyan()
+                    style("pakro lock --global").cyan()
                 );
             } else {
-                miseprintln!("{} No tools configured to lock", style("!").yellow());
+                pakroprintln!("{} No tools configured to lock", style("!").yellow());
             }
         }
 
         // Update config files when a specific version is requested that doesn't match
-        // the current prefix (e.g., `mise lock tiny@3.0.1` when config has `tiny = "2"`).
+        // the current prefix (e.g., `pakro lock tiny@3.0.1` when config has `tiny = "2"`).
         // Never under --bump, which is documented to leave config files untouched.
         let mut deferred_config_bumps = Vec::new();
         if !self.bump {
@@ -971,7 +974,7 @@ impl Lock {
             if self.dry_run {
                 if !self.json {
                     for bump in &bumps {
-                        miseprintln!(
+                        pakroprintln!(
                             "Would update {} from {} to {} in {}",
                             bump.tool_name,
                             bump.old_version,
@@ -1092,7 +1095,7 @@ impl Lock {
 
             for staged in &staged_upgrade_writes {
                 if generate && !self.json {
-                    miseprintln!(
+                    pakroprintln!(
                         "{} Lockfile ready at {}",
                         style("✓").green(),
                         style(display_path(&staged.path)).cyan()
@@ -1106,13 +1109,13 @@ impl Lock {
                 if !self.json
                     && let Some((successful, skipped)) = staged.summary
                 {
-                    miseprintln!(
+                    pakroprintln!(
                         "{} Updated {} platform entries ({} skipped)",
                         style("✓").green(),
                         successful,
                         skipped
                     );
-                    miseprintln!(
+                    pakroprintln!(
                         "{} Lockfile written to {}",
                         style("✓").green(),
                         style(display_path(&staged.path)).cyan()
@@ -1122,7 +1125,7 @@ impl Lock {
         }
 
         if self.json && installed.is_none() {
-            miseprintln!("{}", serde_json::to_string_pretty(&all_changes)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&all_changes)?);
         }
 
         Ok(())
@@ -1136,7 +1139,7 @@ impl Lock {
     ///
     /// Versions are never sorted here: `new_versions` keeps resolution order
     /// (which follows config declaration order) and `old_versions` keeps
-    /// lockfile entry order. mise does not impose orderings on version
+    /// lockfile entry order. pakro does not impose orderings on version
     /// strings — see "DO NOT ASSUME SEMVER" in the repo guide.
     fn compute_version_changes(
         &self,
@@ -1216,7 +1219,7 @@ impl Lock {
             } else {
                 "Upgrading"
             };
-            miseprintln!(
+            pakroprintln!(
                 "{} {prefix} {} from lockfile version {} to {}",
                 style("→").yellow(),
                 style(display_path(path)).cyan(),
@@ -1225,7 +1228,7 @@ impl Lock {
             );
         } else {
             warn!(
-                "{} uses lockfile format version {}; run `mise lock --upgrade` to enable the latest lockfile features",
+                "{} uses lockfile format version {}; run `pakro lock --upgrade` to enable the latest lockfile features",
                 display_path(path),
                 lockfile.lockfile_version(),
             );
@@ -1246,7 +1249,7 @@ impl Lock {
         if self.json {
             return Ok(());
         }
-        miseprintln!(
+        pakroprintln!(
             "{} Upgraded {} to lockfile version {}",
             style("→").yellow(),
             style(display_path(path)).cyan(),
@@ -1457,7 +1460,7 @@ impl Lock {
             .iter()
             .flat_map(|(short, versions)| versions.iter().map(move |v| format!("{short}@{v}")))
             .collect();
-        miseprintln!(
+        pakroprintln!(
             "{} {} {} stale version {} from {}: {}",
             icon,
             message,
@@ -1579,7 +1582,7 @@ impl Lock {
         } else {
             (style("✓").green(), "Pruned")
         };
-        miseprintln!(
+        pakroprintln!(
             "{} {} {} stale tool {} from {}: {}",
             icon,
             message,
@@ -1655,20 +1658,20 @@ impl Lock {
                 .config_files
                 .iter()
                 .find(|(path, cf)| {
-                    cf.source().is_mise_toml() && !crate::config::is_global_config(path)
+                    cf.source().is_pakro_toml() && !crate::config::is_global_config(path)
                 })
                 .map(|(_, cf)| cf.config_root())
         })
     }
 
-    /// Whether any tool this run asked for comes from a global mise.toml, meaning
+    /// Whether any tool this run asked for comes from a global pakro.toml, meaning
     /// `--global` would have something to lock even though the project scope is empty.
     ///
     /// This also covers a config reached through two paths, such as a dotfiles repo
-    /// that symlinks ~/.config/mise/config.toml to its own mise.toml: the single
-    /// merged config counts as global, so plain `mise lock` finds nothing.
+    /// that symlinks ~/.config/pakro/config.toml to its own pakro.toml: the single
+    /// merged config counts as global, so plain `pakro lock` finds nothing.
     ///
-    /// Tool selectors are honored so `mise lock node` never points at `--global`
+    /// Tool selectors are honored so `pakro lock node` never points at `--global`
     /// for some unrelated tool that happens to live in the global config.
     fn global_config_declares_tools(&self, toolset: &Toolset) -> bool {
         toolset.list_current_versions().iter().any(|(backend, tv)| {
@@ -1680,7 +1683,7 @@ impl Lock {
             {
                 return false;
             }
-            matches!(tv.request.source(), ToolSource::MiseToml(path) if crate::config::is_global_config(path))
+            matches!(tv.request.source(), ToolSource::PakroToml(path) if crate::config::is_global_config(path))
         })
     }
 
@@ -1697,7 +1700,7 @@ impl Lock {
             if !scoped_config_paths.contains(path) {
                 continue;
             }
-            if !cf.source().is_mise_toml() {
+            if !cf.source().is_pakro_toml() {
                 continue;
             }
             let (lockfile_path, is_local) = lockfile::lockfile_path_for_config(
@@ -1755,9 +1758,9 @@ impl Lock {
                     continue;
                 }
             } else if tv.request.source().path().is_some() {
-                // Path-backed sources that do not map to a mise lockfile, such
+                // Path-backed sources that do not map to a pakro lockfile, such
                 // as .tool-versions, should not be folded into an arbitrary
-                // project mise.lock. Tool stubs map through the pass below.
+                // project pakro.lock. Tool stubs map through the pass below.
                 continue;
             } else {
                 if Settings::get().generate_lockfiles() {
@@ -1765,11 +1768,11 @@ impl Lock {
                     // CLI/environment overrides. Explicit lock selectors are applied below.
                     continue;
                 }
-                // Tools without a source path (env vars, CLI args) go to mise.lock only
+                // Tools without a source path (env vars, CLI args) go to pakro.lock only
                 let is_base_lockfile = target_lockfile_path
                     .file_name()
                     .and_then(|n| n.to_str())
-                    .is_some_and(|n| n == "mise.lock");
+                    .is_some_and(|n| n == "pakro.lock");
                 if !is_base_lockfile {
                     continue;
                 }
@@ -1851,7 +1854,7 @@ impl Lock {
                             // A request shadowed by a config that writes a different lockfile
                             // (e.g. a global `hk = "1"` under a project `hk = "1.58.1"`) still
                             // belongs in this one. Resolve it through its own lock entry so
-                            // `mise lock --global` keeps the pinned version. When the winning
+                            // `pakro lock --global` keeps the pinned version. When the winning
                             // request also writes here, it alone describes this lockfile.
                             let shadowed_elsewhere =
                                 !ts.versions.get(ba.as_ref()).is_some_and(|tvl| {
@@ -1923,7 +1926,7 @@ impl Lock {
                     continue;
                 }
             };
-            // `mise lock node` must not fail on an unrelated stub.
+            // `pakro lock node` must not fail on an unrelated stub.
             if !self.tool.is_empty()
                 && !self
                     .tool
@@ -2025,7 +2028,7 @@ impl Lock {
                                 // bump that never looked at the remote versions.
                                 Err(err) if self.bump => {
                                     return Err(err.wrap_err(format!(
-                                        "failed to resolve {request} for `mise lock --bump`"
+                                        "failed to resolve {request} for `pakro lock --bump`"
                                     )));
                                 }
                                 Err(err) => debug!("failed to resolve specified {request}: {err}"),
@@ -2093,7 +2096,7 @@ impl Lock {
                     tool.ba.clone(),
                     &request.version(),
                     request.options(),
-                    ToolSource::MiseToml(config_path.clone()),
+                    ToolSource::PakroToml(config_path.clone()),
                 )
                 .map_err(|err| {
                     err.wrap_err(format!(
@@ -2148,7 +2151,7 @@ impl Lock {
             .iter()
             .filter(|(path, cf)| {
                 config_paths.iter().any(|candidate| candidate == *path)
-                    && cf.source().is_mise_toml()
+                    && cf.source().is_pakro_toml()
                     && cf
                         .project_root()
                         .unwrap_or_else(|| cf.config_root())
@@ -2162,7 +2165,7 @@ impl Lock {
                 );
                 let is_base = lockfile_path
                     .file_name()
-                    .is_some_and(|name| name == "mise.lock");
+                    .is_some_and(|name| name == "pakro.lock");
                 (is_base, path.components().count())
             })
             .map(|(path, _)| path.clone())
@@ -2172,7 +2175,7 @@ impl Lock {
         if self.json {
             return Ok(());
         }
-        miseprintln!("{} Dry run - would update:", style("→").yellow());
+        pakroprintln!("{} Dry run - would update:", style("→").yellow());
         for (ba, tv) in tools {
             let backend = crate::backend::get(ba);
             for platform in platforms {
@@ -2183,7 +2186,7 @@ impl Lock {
                     vec![platform.clone()]
                 };
                 for variant in variants {
-                    miseprintln!(
+                    pakroprintln!(
                         "  {} {}@{} for {}",
                         style("✓").green(),
                         style(&ba.short).bold(),
@@ -2353,12 +2356,12 @@ mod tests {
     #[test]
     fn aliased_lockfile_targets_cannot_be_skipped_independently() {
         let dir = tempfile::tempdir().unwrap();
-        let lock = dir.path().join("mise.lock");
+        let lock = dir.path().join("pakro.lock");
         fs::write(&lock, "[tools]\n").unwrap();
         fs::create_dir(dir.path().join("sub")).unwrap();
-        let alias = dir.path().join("sub/../mise.lock");
+        let alias = dir.path().join("sub/../pakro.lock");
         assert!(!distinct_lockfile_targets([&lock, &alias].into_iter()));
-        let other = dir.path().join("mise.dev.lock");
+        let other = dir.path().join("pakro.dev.lock");
         assert!(distinct_lockfile_targets([&lock, &other].into_iter()));
         fs::write(&other, "[tools]\n").unwrap();
         assert!(distinct_lockfile_targets([&lock, &other].into_iter()));
@@ -2366,14 +2369,14 @@ mod tests {
 
     #[test]
     fn publication_locks_read_only_inputs_without_adding_rollback_targets() {
-        let mutations = std::collections::BTreeSet::from([std::path::PathBuf::from("mise.lock")]);
+        let mutations = std::collections::BTreeSet::from([std::path::PathBuf::from("pakro.lock")]);
         let configs = BTreeMap::from([
-            (std::path::PathBuf::from("mise.toml"), None),
+            (std::path::PathBuf::from("pakro.toml"), None),
             (std::path::PathBuf::from("tasks/build"), None),
         ]);
         let lockfiles = BTreeMap::from([(std::path::PathBuf::from("legacy.lock"), None)]);
         let locked = super::publication_lock_paths(&mutations, &configs, &lockfiles);
-        for path in ["mise.lock", "mise.toml", "tasks/build", "legacy.lock"] {
+        for path in ["pakro.lock", "pakro.toml", "tasks/build", "legacy.lock"] {
             assert!(locked.contains(std::path::Path::new(path)));
         }
         assert_eq!(mutations.len(), 1);
@@ -2382,7 +2385,12 @@ mod tests {
     #[test]
     fn snapshot_recheck_detects_config_and_migration_edits_after_initial_check() {
         let dir = tempfile::tempdir().unwrap();
-        for filename in ["mise.toml", "legacy.mise.lock", "uv.lock", "aube-lock.yaml"] {
+        for filename in [
+            "pakro.toml",
+            "legacy.pakro.lock",
+            "uv.lock",
+            "aube-lock.yaml",
+        ] {
             let path = dir.path().join(filename);
             fs::write(&path, "original").unwrap();
             let snapshots = BTreeMap::from([(path.clone(), Some(b"original".to_vec()))]);
@@ -2397,8 +2405,8 @@ mod tests {
     #[test]
     fn rollback_restores_replaced_files_and_removes_created_files() {
         let temp = tempfile::tempdir().unwrap();
-        let replaced = temp.path().join("mise.lock");
-        let created = temp.path().join("mise.local.lock");
+        let replaced = temp.path().join("pakro.lock");
+        let created = temp.path().join("pakro.local.lock");
         fs::write(&replaced, "original").unwrap();
         let snapshots = vec![
             LockfileSnapshot {
@@ -2426,7 +2434,7 @@ mod tests {
         use std::os::unix::fs::symlink;
 
         let temp = tempfile::tempdir().unwrap();
-        let lockfile = temp.path().join("mise.lock");
+        let lockfile = temp.path().join("pakro.lock");
         symlink("missing.lock", &lockfile).unwrap();
         let snapshots = vec![LockfileSnapshot {
             path: lockfile.clone(),

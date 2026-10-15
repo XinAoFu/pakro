@@ -21,14 +21,14 @@ use tokio::task::JoinSet;
 
 #[cfg(any(windows, test))]
 const NATIVE_SHIM_MARKER: &[u8] = include_bytes!("../../assets/native-shim-marker");
-const GENERATED_SHELL_SHIM_HEADER: &str = "#!/bin/sh\n# mise generated shim\n";
+const GENERATED_SHELL_SHIM_HEADER: &str = "#!/bin/sh\n# pakro generated shim\n";
 #[cfg(any(windows, test))]
-const GENERATED_WINDOWS_CMD_SHIM_HEADER: &str = "@echo off\r\nrem mise generated shim\r\n";
+const GENERATED_WINDOWS_CMD_SHIM_HEADER: &str = "@echo off\r\nrem pakro generated shim\r\n";
 #[cfg(any(windows, test))]
-const GENERATED_WINDOWS_BASH_SHIM_HEADER: &str = "#!/bin/bash\n# mise generated shim\n";
+const GENERATED_WINDOWS_BASH_SHIM_HEADER: &str = "#!/bin/bash\n# pakro generated shim\n";
 const SHIM_SCRIPT_INSPECTION_LIMIT: u64 = 16 * 1024;
 
-pub const TASK_TOOL_ARGS_ENV: &str = "__MISE_TASK_TOOL_ARGS";
+pub const TASK_TOOL_ARGS_ENV: &str = "__PAKRO_TASK_TOOL_ARGS";
 
 #[derive(serde::Deserialize, serde::Serialize)]
 struct TaskToolArg {
@@ -91,7 +91,7 @@ pub fn task_tool_args_from_env() -> Result<Vec<ToolArg>> {
         .collect()
 }
 
-// executes as if it was a shim if the command is not "mise", e.g.: "node"
+// executes as if it was a shim if the command is not "pakro", e.g.: "node"
 
 /// A wrapper's command usually comes from another configured tool (cargo → mbx
 /// from mr-boxington). Install a missing provider the way that command's own
@@ -142,8 +142,8 @@ pub async fn backend_which_shim(
 }
 
 /// Build the actionable, `which_shim`-style resolution error for a bin that a
-/// shim failed to resolve while dispatching through `mise x` (the exe-mode shim
-/// on Windows, invoked with `__MISE_SHIM_PATH` set). Without this, that path
+/// shim failed to resolve while dispatching through `pakro x` (the exe-mode shim
+/// on Windows, invoked with `__PAKRO_SHIM_PATH` set). Without this, that path
 /// surfaces the opaque `cannot find binary path`; symlink shims already get
 /// this message directly from `which_shim`. See discussion #11183.
 #[cfg(not(test))]
@@ -189,10 +189,10 @@ pub fn shim_farm_dirs() -> Vec<PathBuf> {
 ///
 /// A `lazy = true` entry written by hand has no shim until something rebuilds the farm.
 /// An interactive shell still recovers, because its not-found handler installs the
-/// tool, but a task or `mise x` child has no such handler and fails with "command not
+/// tool, but a task or `pakro x` child has no such handler and fails with "command not
 /// found" (discussion #12678). `missing` is the toolset's already-computed missing
 /// version list. Once every lazy declaration is installed there is nothing left to
-/// write, and the function returns before locating the mise binary, so that steady
+/// write, and the function returns before locating the pakro binary, so that steady
 /// state costs only the option checks.
 pub fn ensure_lazy_shims(missing: &[ToolVersion]) -> Result<()> {
     let mut bins_by_dir = BTreeMap::<PathBuf, Vec<String>>::new();
@@ -219,13 +219,13 @@ pub fn ensure_lazy_shims(missing: &[ToolVersion]) -> Result<()> {
         bins_by_dir.entry(shims_dir).or_default().extend(bins);
     }
     if !bins_by_dir.is_empty() {
-        // Locating the mise binary walks PATH, so defer it until a declaration
+        // Locating the pakro binary walks PATH, so defer it until a declaration
         // actually needs a shim.
-        let mise_bin = mise_bin_for_shims().absolutize()?.into_owned();
+        let pakro_bin = pakro_bin_for_shims().absolutize()?.into_owned();
         let excluded = &Settings::get().shims.exclude;
         for (shims_dir, bins) in bins_by_dir {
             // Bootstrap shims are written outside the reshim path, so they need the
-            // same exclusion filter get_desired_shims applies, or a `mise env`/`x`/`run`
+            // same exclusion filter get_desired_shims applies, or a `pakro env`/`x`/`run`
             // for a missing lazy tool restores a name reshim had just removed. Filter
             // after platform expansion, exactly as get_desired_shims does: on Windows
             // `platform_shim_names` goes through `Path::with_extension`, which treats a
@@ -234,16 +234,16 @@ pub fn ensure_lazy_shims(missing: &[ToolVersion]) -> Result<()> {
             // that unversioned shim through.
             let shims = bins
                 .iter()
-                .flat_map(|bin| platform_shim_names(&mise_bin, bin))
+                .flat_map(|bin| platform_shim_names(&pakro_bin, bin))
                 .filter(|name| !shim_name_excluded(excluded, name))
                 .collect::<BTreeSet<String>>();
-            match write_bootstrap_shims(&mise_bin, &shims_dir, &shims, false)? {
+            match write_bootstrap_shims(&pakro_bin, &shims_dir, &shims, false)? {
                 None => {}
                 // A shared farm such as `/usr/local/bin` may belong to root. No
                 // command can write a bootstrap shim there for this user, so
-                // warning on every `mise env`, `mise x` and `mise run` would only
+                // warning on every `pakro env`, `pakro x` and `pakro run` would only
                 // be noise. Lazy tools in that farm still install through the
-                // not-found handler or an explicit `mise install`.
+                // not-found handler or an explicit `pakro install`.
                 Some(err) => {
                     debug!(
                         "skipping bootstrap shims in {}: {err:#}",
@@ -261,7 +261,7 @@ pub fn ensure_lazy_shims(missing: &[ToolVersion]) -> Result<()> {
 }
 
 fn write_bootstrap_shims(
-    mise_bin: &Path,
+    pakro_bin: &Path,
     shims_dir: &Path,
     shims: &BTreeSet<String>,
     _prune_stale_windows_variants: bool,
@@ -282,12 +282,12 @@ fn write_bootstrap_shims(
     }
 
     #[cfg(windows)]
-    validate_windows_shim_source(mise_bin)?;
+    validate_windows_shim_source(pakro_bin)?;
 
     for shim in shims {
         let path = shims_dir.join(shim);
         if !path.exists()
-            && let Err(err) = add_shim(mise_bin, &path, shim)
+            && let Err(err) = add_shim(pakro_bin, &path, shim)
         {
             if is_permission_denied(&err) {
                 return Ok(Some(err));
@@ -320,11 +320,11 @@ fn remove_stale_windows_shim_variants(shims_dir: &Path, desired: &BTreeSet<Strin
 }
 
 #[cfg(windows)]
-fn validate_windows_shim_source(mise_bin: &Path) -> Result<()> {
+fn validate_windows_shim_source(pakro_bin: &Path) -> Result<()> {
     match Settings::get().windows_shim_mode.as_str() {
         "hardlink" => {
-            fs::metadata(mise_bin).wrap_err_with(|| {
-                eyre!("Failed to access shim source {}", display_path(mise_bin))
+            fs::metadata(pakro_bin).wrap_err_with(|| {
+                eyre!("Failed to access shim source {}", display_path(pakro_bin))
             })?;
         }
         "file" | "symlink" => {}
@@ -368,8 +368,8 @@ pub async fn reshim_for(
         })
         .lock();
 
-    let mise_bin = mise_bin_for_shims();
-    let mise_bin = mise_bin.absolutize()?; // relative paths don't work as shims
+    let pakro_bin = pakro_bin_for_shims();
+    let pakro_bin = pakro_bin.absolutize()?; // relative paths don't work as shims
 
     #[cfg(windows)]
     let shim_mode = Settings::get().windows_shim_mode.clone();
@@ -382,8 +382,8 @@ pub async fn reshim_for(
             .then(|| fs::read_to_string(&mode_file).unwrap_or_default())
             .is_some_and(|prev| prev.trim() != shim_mode)
     };
-    // On Windows, "hardlink" shims embed the mise binary, so they go stale when mise is updated (by self-update or an
-    // external package manager) until a forced reshim. Track the mise version
+    // On Windows, "hardlink" shims embed the pakro binary, so they go stale when pakro is updated (by self-update or an
+    // external package manager) until a forced reshim. Track the pakro version
     // that generated the shims in a `.version` marker (mirroring `.mode`) and
     // rebuild from scratch whenever it changes. The marker is written by
     // whichever binary runs reshim, so after an update the new binary stamps
@@ -399,21 +399,21 @@ pub async fn reshim_for(
     if matches!(requested_scope, ShimScope::System)
         && crate::system_install::needs_elevation(&shims_dir)
     {
-        // The root helper publishes symlinks to `mise_bin` and removes the
-        // mise-owned shims that no installed tool provides any more. The
+        // The root helper publishes symlinks to `pakro_bin` and removes the
+        // pakro-owned shims that no installed tool provides any more. The
         // directory itself may not exist yet; the helper creates it.
         let (desired, extra) = if shims_dir.is_dir() {
-            let diffs = get_shim_diffs(config, &mise_bin, ts, &shims_dir, scope, false).await?;
+            let diffs = get_shim_diffs(config, &pakro_bin, ts, &shims_dir, scope, false).await?;
             (diffs.desired, diffs.extra.into_iter().collect())
         } else {
-            let desired = get_desired_shims(config, &mise_bin, ts, scope, force).await?;
+            let desired = get_desired_shims(config, &pakro_bin, ts, scope, force).await?;
             (desired.into_iter().collect(), vec![])
         };
         return crate::system_install::links(
             &shims_dir,
             desired
                 .into_iter()
-                .map(|name| (name, mise_bin.to_path_buf()))
+                .map(|name| (name, pakro_bin.to_path_buf()))
                 .collect(),
             extra,
             vec![],
@@ -423,17 +423,17 @@ pub async fn reshim_for(
 
     let dedicated = is_dedicated_shims_dir(&shims_dir);
     let (desired, shims_to_stage, known_owned, prune_entries) = if full_rebuild {
-        let desired = get_desired_shims(config, &mise_bin, ts, scope, force).await?;
+        let desired = get_desired_shims(config, &pakro_bin, ts, scope, force).await?;
         let shims_to_stage = desired.iter().cloned().collect();
         if dedicated {
             (desired, shims_to_stage, HashSet::new(), HashSet::new())
         } else {
-            let actual = get_actual_shims(&mise_bin, &shims_dir).await?;
+            let actual = get_actual_shims(&pakro_bin, &shims_dir).await?;
             let prune_entries = actual.owned.difference(&desired).cloned().collect();
             (desired, shims_to_stage, actual.owned, prune_entries)
         }
     } else {
-        let diffs = get_shim_diffs(config, &mise_bin, ts, &shims_dir, scope, false).await?;
+        let diffs = get_shim_diffs(config, &pakro_bin, ts, &shims_dir, scope, false).await?;
         (
             diffs.desired,
             diffs.missing,
@@ -443,7 +443,7 @@ pub async fn reshim_for(
     };
     let staging = stage_shim_farm(
         &shims_dir,
-        &mise_bin,
+        &pakro_bin,
         scope,
         &shims_to_stage,
         &shim_mode,
@@ -452,7 +452,7 @@ pub async fn reshim_for(
     .await?;
     publish_staged_shim_farm(
         &shims_dir,
-        &mise_bin,
+        &pakro_bin,
         staging,
         desired,
         known_owned,
@@ -461,7 +461,7 @@ pub async fn reshim_for(
     )?;
 
     if matches!(requested_scope, ShimScope::User | ShimScope::Both) {
-        sync_command_wrapper_shims(config, ts, &mise_bin, full_rebuild)?;
+        sync_command_wrapper_shims(config, ts, &pakro_bin, full_rebuild)?;
     }
 
     Ok(())
@@ -469,14 +469,14 @@ pub async fn reshim_for(
 
 async fn stage_shim_farm(
     shims_dir: &Path,
-    mise_bin: &Path,
+    pakro_bin: &Path,
     scope: ShimScope,
     desired: &BTreeSet<String>,
     shim_mode: &str,
     shim_version: &str,
 ) -> Result<tempfile::TempDir> {
     let staging = tempfile::Builder::new()
-        .prefix(".mise-shims-stage-")
+        .prefix(".pakro-shims-stage-")
         .tempdir_in(shims_dir)
         .wrap_err_with(|| {
             format!(
@@ -486,7 +486,7 @@ async fn stage_shim_farm(
         })?;
     write_shim_metadata(staging.path(), shim_mode, shim_version)?;
     for shim in desired {
-        add_shim(mise_bin, &staging.path().join(shim), shim)?;
+        add_shim(pakro_bin, &staging.path().join(shim), shim)?;
     }
     add_plugin_shims(staging.path(), scope).await?;
     Ok(staging)
@@ -538,7 +538,7 @@ async fn add_plugin_shims(shims_dir: &Path, scope: ShimScope) -> Result<()> {
 
 fn publish_staged_shim_farm(
     shims_dir: &Path,
-    mise_bin: &Path,
+    pakro_bin: &Path,
     staging: tempfile::TempDir,
     mut desired: HashSet<String>,
     known_owned: HashSet<String>,
@@ -571,8 +571,8 @@ fn publish_staged_shim_farm(
         let destination_owned = is_hidden_shim_name(&entry.file_name())
             || known_owned.contains(&entry.file_name().to_string_lossy().into_owned())
             || (destination_exists
-                && (is_mise_shim(&destination, mise_bin)?
-                    || symlink_target_names_mise(&destination)?));
+                && (is_pakro_shim(&destination, pakro_bin)?
+                    || symlink_target_names_pakro(&destination)?));
         if destination_exists
             && !prune_unmanaged
             && !destination_owned
@@ -600,8 +600,8 @@ fn publish_staged_shim_farm(
     }
 
     // A shared executable directory can contain arbitrary user and package
-    // manager files. Only prune entries that can be identified as mise shims.
-    // Mise's default, dedicated farms retain their historical full cleanup.
+    // manager files. Only prune entries that can be identified as pakro shims.
+    // Pakro's default, dedicated farms retain their historical full cleanup.
     for shim in list_shims_in(shims_dir)?.difference(&desired) {
         let path = shims_dir.join(shim);
         if prune_unmanaged || prune_entries.contains(shim) {
@@ -621,7 +621,7 @@ fn publish_staged_shim_farm(
 
 fn is_dedicated_shims_dir(path: &Path) -> bool {
     matches_unredirected_dedicated_dir(path, &dirs::DATA.join("shims"))
-        || matches_unredirected_dedicated_dir(path, &env::MISE_SYSTEM_DATA_DIR.join("shims"))
+        || matches_unredirected_dedicated_dir(path, &env::PAKRO_SYSTEM_DATA_DIR.join("shims"))
 }
 
 fn matches_unredirected_dedicated_dir(path: &Path, dedicated: &Path) -> bool {
@@ -660,11 +660,11 @@ fn read_file_prefix(path: &Path) -> Result<Vec<u8>> {
     Ok(contents)
 }
 
-fn is_mise_dispatcher_name(name: &str) -> bool {
+fn is_pakro_dispatcher_name(name: &str) -> bool {
     if cfg!(windows) {
-        name.eq_ignore_ascii_case("mise") || name.eq_ignore_ascii_case("mise.exe")
+        name.eq_ignore_ascii_case("pakro") || name.eq_ignore_ascii_case("pakro.exe")
     } else {
-        name == "mise"
+        name == "pakro"
     }
 }
 
@@ -680,22 +680,22 @@ fn resolved_symlink_target(path: &Path) -> Result<Option<PathBuf>> {
     }))
 }
 
-fn symlink_target_names_mise(path: &Path) -> Result<bool> {
+fn symlink_target_names_pakro(path: &Path) -> Result<bool> {
     Ok(resolved_symlink_target(path)?.is_some_and(|target| {
         target
             .file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(is_mise_dispatcher_name)
+            .is_some_and(is_pakro_dispatcher_name)
     }))
 }
 
-fn is_mise_shim(path: &Path, mise_bin: &Path) -> Result<bool> {
+fn is_pakro_shim(path: &Path, pakro_bin: &Path) -> Result<bool> {
     if path
         .file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(is_mise_dispatcher_name)
+        .is_some_and(is_pakro_dispatcher_name)
     {
-        // A package manager may install mise itself as a symlink in the shared
+        // A package manager may install pakro itself as a symlink in the shared
         // directory. It is the dispatcher, not one of its shims.
         return Ok(false);
     }
@@ -703,7 +703,7 @@ fn is_mise_shim(path: &Path, mise_bin: &Path) -> Result<bool> {
         let target = resolved_symlink_target(path)?.expect("symlink target");
         return Ok(file::paths_eq(
             &file::canonicalize_or_self(&target),
-            &file::canonicalize_or_self(mise_bin),
+            &file::canonicalize_or_self(pakro_bin),
         ));
     }
 
@@ -714,8 +714,8 @@ fn is_mise_shim(path: &Path, mise_bin: &Path) -> Result<bool> {
         }
         let parent = path.parent().unwrap_or_else(|| Path::new("."));
         if is_dedicated_shims_dir(parent) {
-            // Preserve the existing upgrade behavior in mise's dedicated
-            // farms. Native copies from an older mise cannot be identified by
+            // Preserve the existing upgrade behavior in pakro's dedicated
+            // farms. Native copies from an older pakro cannot be identified by
             // their contents after a native helper update. Use the same
             // unredirected check as pruning so a junction to a shared bin
             // directory never grants ownership of every regular file there.
@@ -736,8 +736,8 @@ fn is_mise_shim(path: &Path, mise_bin: &Path) -> Result<bool> {
         {
             return Ok(true);
         }
-        let matches_mise = files_identical(path, mise_bin).unwrap_or(false);
-        if matches_mise {
+        let matches_pakro = files_identical(path, pakro_bin).unwrap_or(false);
+        if matches_pakro {
             return Ok(true);
         }
         let contents = if is_script {
@@ -745,7 +745,7 @@ fn is_mise_shim(path: &Path, mise_bin: &Path) -> Result<bool> {
         } else {
             fs::read(path).unwrap_or_default()
         };
-        Ok(has_mise_native_shim_fingerprint(&contents))
+        Ok(has_pakro_native_shim_fingerprint(&contents))
     }
 
     #[cfg(not(windows))]
@@ -785,21 +785,21 @@ fn is_legacy_plugin_shim(contents: &[u8]) -> bool {
             .is_some_and(|line| line.starts_with("export PATH=\"") && line.ends_with(":$PATH\""))
         && lines
             .next()
-            .is_some_and(|line| line.starts_with("mise x -- ") && line.ends_with(" \"$@\""))
+            .is_some_and(|line| line.starts_with("pakro x -- ") && line.ends_with(" \"$@\""))
         && lines.next().is_none()
 }
 
 #[cfg(any(windows, test))]
-fn has_mise_native_shim_fingerprint(contents: &[u8]) -> bool {
+fn has_pakro_native_shim_fingerprint(contents: &[u8]) -> bool {
     bytes_contain(contents, NATIVE_SHIM_MARKER)
-        // Transition shims made by mise versions predating the stable marker.
+        // Transition shims made by pakro versions predating the stable marker.
         || (bytes_contain(
             contents,
-            b"mise-shim: failed to determine executable path",
-        ) && bytes_contain(contents, b"mise-shim: failed to execute mise"))
-        || (bytes_contain(contents, b"__MISE_SHIM_PATH")
+            b"pakro-shim: failed to determine executable path",
+        ) && bytes_contain(contents, b"pakro-shim: failed to execute pakro"))
+        || (bytes_contain(contents, b"__PAKRO_SHIM_PATH")
             && bytes_contain(contents, b"recursive shim invocation detected")
-            && bytes_contain(contents, b"mise x --"))
+            && bytes_contain(contents, b"pakro x --"))
 }
 
 #[cfg(test)]
@@ -837,7 +837,7 @@ fn is_legacy_windows_cmd_shim(contents: &[u8]) -> bool {
     let normalized = String::from_utf8_lossy(contents).replace("\r\n", "\n");
     matches!(
         normalized.as_str(),
-        "@echo off\nsetlocal\nmise x -- %*\n" | "@echo off\nsetlocal\nmise x -- %*"
+        "@echo off\nsetlocal\npakro x -- %*\n" | "@echo off\nsetlocal\npakro x -- %*"
     )
 }
 
@@ -851,13 +851,13 @@ pub fn ensure_command_wrapper_shims(config: &Config, ts: &Toolset) -> Result<()>
     if wrappers.is_empty() {
         return Ok(());
     }
-    let mise_bin = mise_bin_for_shims().absolutize()?.into_owned();
+    let pakro_bin = pakro_bin_for_shims().absolutize()?.into_owned();
     let shims = wrappers
         .keys()
-        .flat_map(|name| platform_shim_names(&mise_bin, name))
+        .flat_map(|name| platform_shim_names(&pakro_bin, name))
         .collect();
     if let Some(error) =
-        write_bootstrap_shims(&mise_bin, &dirs::COMMAND_WRAPPERS, &shims, cfg!(windows))?
+        write_bootstrap_shims(&pakro_bin, &dirs::COMMAND_WRAPPERS, &shims, cfg!(windows))?
     {
         return Err(error);
     }
@@ -867,7 +867,7 @@ pub fn ensure_command_wrapper_shims(config: &Config, ts: &Toolset) -> Result<()>
 fn sync_command_wrapper_shims(
     config: &Config,
     ts: &Toolset,
-    mise_bin: &Path,
+    pakro_bin: &Path,
     force: bool,
 ) -> Result<()> {
     let wrappers = load_command_wrappers(
@@ -894,7 +894,7 @@ fn sync_command_wrapper_shims(
 
     let mut desired = HashSet::new();
     for name in wrappers.keys() {
-        desired.extend(platform_shim_names(mise_bin, name));
+        desired.extend(platform_shim_names(pakro_bin, name));
     }
     let actual = list_shims_in(&dirs::COMMAND_WRAPPERS)?;
     for shim in desired.difference(&actual) {
@@ -902,7 +902,7 @@ fn sync_command_wrapper_shims(
         if cfg!(windows) && path.exists() {
             remove_shim_with_rename_fallback(&path)?;
         }
-        add_shim(mise_bin, &path, shim)?;
+        add_shim(pakro_bin, &path, shim)?;
     }
     for shim in actual.difference(&desired) {
         let path = dirs::COMMAND_WRAPPERS.join(shim);
@@ -956,28 +956,28 @@ pub fn validate_wrapper_names<'a>(names: impl IntoIterator<Item = &'a String>) -
     Ok(())
 }
 
-/// Resolve the mise executable that Unix symlink shims should target.
+/// Resolve the pakro executable that Unix symlink shims should target.
 ///
 /// Snap exposes applications through `/snap/bin`, where each command is a symlink to the
 /// `snap` dispatcher. That dispatcher identifies the application from argv[0], so invoking it
-/// through a mise shim named `node`, `python`, etc. runs the snap CLI instead of mise. Point Snap
+/// through a pakro shim named `node`, `python`, etc. runs the snap CLI instead of pakro. Point Snap
 /// shims at the payload beneath its refresh-stable `current` symlink instead. For other package
 /// managers, retain the PATH-visible executable so their stable launcher survives upgrades.
-pub fn mise_bin_for_shims() -> PathBuf {
+pub fn pakro_bin_for_shims() -> PathBuf {
     env::var_path("SNAP")
         .as_deref()
-        .and_then(|snap| snap_mise_bin(&env::MISE_BIN, snap))
-        .unwrap_or_else(|| file::which_no_shims("mise").unwrap_or(env::MISE_BIN.clone()))
+        .and_then(|snap| snap_pakro_bin(&env::PAKRO_BIN, snap))
+        .unwrap_or_else(|| file::which_no_shims("pakro").unwrap_or(env::PAKRO_BIN.clone()))
 }
 
-fn snap_mise_bin(mise_bin: &Path, snap: &Path) -> Option<PathBuf> {
-    let relative = mise_bin
+fn snap_pakro_bin(pakro_bin: &Path, snap: &Path) -> Option<PathBuf> {
+    let relative = pakro_bin
         .strip_prefix(snap)
         .map(Path::to_path_buf)
         .or_else(|_| {
-            let mise_bin = file::canonicalize_or_self(mise_bin);
+            let pakro_bin = file::canonicalize_or_self(pakro_bin);
             let snap = file::canonicalize_or_self(snap);
-            mise_bin.strip_prefix(snap).map(Path::to_path_buf)
+            pakro_bin.strip_prefix(snap).map(Path::to_path_buf)
         })
         .ok()?;
     let snap_mount = snap.parent()?;
@@ -1059,9 +1059,9 @@ fn old_shim_path(path: &Path) -> PathBuf {
 ///
 /// The shim's directory can leak into WSL via the default Windows-PATH interop
 /// (it is mounted under /mnt/c where every file is treated as executable), so WSL
-/// runs this script natively. Calling the Windows `mise` from there either fails
-/// with `exec: mise: not found` or, with a Linux mise present, recurses forever --
-/// mise's loop guard only recognises its own shims dir, not the Windows one under
+/// runs this script natively. Calling the Windows `pakro` from there either fails
+/// with `exec: pakro: not found` or, with a Linux pakro present, recurses forever --
+/// pakro's loop guard only recognises its own shims dir, not the Windows one under
 /// /mnt/c. So detect WSL, drop this shim's own directory from PATH, and exec a
 /// native tool instead (or fail with a clear `<tool>: not found`). Outside WSL the
 /// guard is inert, so Git Bash/Cygwin behaviour is unchanged. (#10299)
@@ -1069,12 +1069,12 @@ fn old_shim_path(path: &Path) -> PathBuf {
 fn bash_shim_script(tool: &str) -> String {
     formatdoc! {r#"
         #!/bin/bash
-        # mise generated shim
+        # pakro generated shim
 
         shim_dir=$(cd -- "$(dirname -- "$0")" && pwd -P)
         shim_path="$shim_dir/${{0##*/}}"
-        if [ "${{__MISE_SHIM_PATH:-}}" = "$shim_path" ]; then
-          echo "mise: recursive shim invocation detected for {tool}: $shim_path" >&2
+        if [ "${{__PAKRO_SHIM_PATH:-}}" = "$shim_path" ]; then
+          echo "pakro: recursive shim invocation detected for {tool}: $shim_path" >&2
           exit 1
         fi
 
@@ -1093,12 +1093,12 @@ fn bash_shim_script(tool: &str) -> String {
           exec {tool} "$@"
         fi
 
-        export __MISE_SHIM_PATH="$shim_path"
-        exec mise x -- {tool} "$@"
+        export __PAKRO_SHIM_PATH="$shim_path"
+        exec pakro x -- {tool} "$@"
         "#}
 }
 
-/// The `.cmd` body for a `"file"`-mode shim: run `mise x -- <tool>` with the caller's arguments.
+/// The `.cmd` body for a `"file"`-mode shim: run `pakro x -- <tool>` with the caller's arguments.
 ///
 /// `%*` alone does not carry them. cmd.exe parses the whole command line before a batch file runs,
 /// so calling one from PowerShell loses `& ^ | " < >` and expands `%VAR%` before `%*` ever expands.
@@ -1111,7 +1111,7 @@ fn bash_shim_script(tool: &str) -> String {
 /// cmd destroys on the way in it also keeps, in its `CMDCMDLINE` pseudo-variable, so the body
 /// copies that out — `!CMDCMDLINE!` rather than `%CMDCMDLINE%`, which is substituted before special
 /// characters are parsed and truncates at the first `&` — and passes it through the environment,
-/// where cmd gets no second chance to parse it. mise re-splits it with the rules a native program's
+/// where cmd gets no second chance to parse it. pakro re-splits it with the rules a native program's
 /// runtime uses and substitutes the result for everything after [`env::LAUNCHER_ARGS_SENTINEL`].
 ///
 /// The guard decides whether cmd was spawned *for* this shim. When it was not — an interactive
@@ -1126,32 +1126,32 @@ fn bash_shim_script(tool: &str) -> String {
 /// `the_shim_body_carries_the_same_recovery` fails if the shapes drift.
 ///
 /// Compiled on every platform, unlike the shim code around it, so the body itself is unit-tested
-/// everywhere. It is public so that comparison can live beside the launcher, in the `mise` binary's
+/// everywhere. It is public so that comparison can live beside the launcher, in the `pakro` binary's
 /// own tests, which `cfg(test)` on this library does not reach.
 pub fn windows_file_shim_body(shim: &str) -> String {
     let raw = env::LAUNCHER_RAW_CMDLINE_ENV;
     let path = env::LAUNCHER_PATH_ENV;
     let sentinel = env::LAUNCHER_ARGS_SENTINEL;
-    let shim_env = env::MISE_SHIM_PATH_ENV;
-    let run = format!("mise x -- {shim} {sentinel} %*");
+    let shim_env = env::PAKRO_SHIM_PATH_ENV;
+    let run = format!("pakro x -- {shim} {sentinel} %*");
     [
         "@echo off",
-        "rem mise generated shim",
+        "rem pakro generated shim",
         // `%~f0` is captured before delayed expansion is on, so a `!` in the path survives.
         "setlocal DisableDelayedExpansion",
         "set \"shim_path=%~f0\"",
         &format!("if /I \"%{shim_env}%\"==\"%shim_path%\" ("),
-        &format!("  echo mise: recursive shim invocation detected for {shim}: %shim_path% 1>&2"),
+        &format!("  echo pakro: recursive shim invocation detected for {shim}: %shim_path% 1>&2"),
         "  exit /b 1",
         ")",
         &format!("set \"{shim_env}=%shim_path%\""),
         "setlocal EnableDelayedExpansion",
         &format!("set \"{path}=!shim_path!\""),
         &format!("set \"{raw}=!CMDCMDLINE!\""),
-        &format!("if \"!{raw}!\"==\"!{raw}:%{path}%=!\" goto mise_shim_fallback"),
+        &format!("if \"!{raw}!\"==\"!{raw}:%{path}%=!\" goto pakro_shim_fallback"),
         &run,
         "exit !ERRORLEVEL!",
-        ":mise_shim_fallback",
+        ":pakro_shim_fallback",
         // Cleared, or a value inherited from an outer launcher would be recovered as this one's.
         &format!("set \"{raw}=\""),
         &format!("set \"{path}=\""),
@@ -1162,7 +1162,7 @@ pub fn windows_file_shim_body(shim: &str) -> String {
 }
 
 #[cfg(windows)]
-fn add_shim(mise_bin: &Path, symlink_path: &Path, shim: &str) -> Result<()> {
+fn add_shim(pakro_bin: &Path, symlink_path: &Path, shim: &str) -> Result<()> {
     match Settings::get().windows_shim_mode.as_str() {
         "file" => {
             let shim = shim.trim_end_matches(".cmd");
@@ -1171,7 +1171,7 @@ fn add_shim(mise_bin: &Path, symlink_path: &Path, shim: &str) -> Result<()> {
                 || {
                     eyre!(
                         "Failed to create symlink from {} to {}",
-                        display_path(mise_bin),
+                        display_path(pakro_bin),
                         display_path(symlink_path)
                     )
                 },
@@ -1183,23 +1183,23 @@ fn add_shim(mise_bin: &Path, symlink_path: &Path, shim: &str) -> Result<()> {
             .wrap_err_with(|| {
                 eyre!(
                     "Failed to create symlink from {} to {}",
-                    display_path(mise_bin),
+                    display_path(pakro_bin),
                     display_path(symlink_path)
                 )
             })
         }
-        "hardlink" => fs::hard_link(mise_bin, symlink_path).wrap_err_with(|| {
+        "hardlink" => fs::hard_link(pakro_bin, symlink_path).wrap_err_with(|| {
             eyre!(
                 "Failed to create hardlink from {} to {}",
-                display_path(mise_bin),
+                display_path(pakro_bin),
                 display_path(symlink_path)
             )
         }),
         "symlink" => {
-            std::os::windows::fs::symlink_file(mise_bin, symlink_path).wrap_err_with(|| {
+            std::os::windows::fs::symlink_file(pakro_bin, symlink_path).wrap_err_with(|| {
                 eyre!(
                     "Failed to create symlink from {} to {}",
-                    display_path(mise_bin),
+                    display_path(pakro_bin),
                     display_path(symlink_path)
                 )
             })
@@ -1209,11 +1209,11 @@ fn add_shim(mise_bin: &Path, symlink_path: &Path, shim: &str) -> Result<()> {
 }
 
 #[cfg(unix)]
-fn add_shim(mise_bin: &Path, symlink_path: &Path, _shim: &str) -> Result<()> {
-    file::make_symlink(mise_bin, symlink_path).wrap_err_with(|| {
+fn add_shim(pakro_bin: &Path, symlink_path: &Path, _shim: &str) -> Result<()> {
+    file::make_symlink(pakro_bin, symlink_path).wrap_err_with(|| {
         eyre!(
             "Failed to create symlink from {} to {}",
-            display_path(mise_bin),
+            display_path(pakro_bin),
             display_path(symlink_path)
         )
     })?;
@@ -1277,16 +1277,16 @@ fn calculate_shim_diffs(
 // with the desired shims specified by the Toolset
 pub async fn get_shim_diffs(
     config: &Arc<Config>,
-    mise_bin: impl AsRef<Path>,
+    pakro_bin: impl AsRef<Path>,
     toolset: &Toolset,
     shims_dir: &Path,
     scope: ShimScope,
     strict_lazy_bins: bool,
 ) -> Result<ShimDiffs> {
-    let mise_bin = mise_bin.as_ref();
+    let pakro_bin = pakro_bin.as_ref();
     let (actual_shims, desired_shims) = tokio::join!(
-        get_actual_shims(mise_bin, shims_dir),
-        get_desired_shims(config, mise_bin, toolset, scope, strict_lazy_bins)
+        get_actual_shims(pakro_bin, shims_dir),
+        get_desired_shims(config, pakro_bin, toolset, scope, strict_lazy_bins)
     );
     let (actual_shims, desired_shims) = (actual_shims?, desired_shims?);
     let (missing, extra) = calculate_shim_diffs(
@@ -1303,8 +1303,8 @@ pub async fn get_shim_diffs(
     })
 }
 
-async fn get_actual_shims(mise_bin: impl AsRef<Path>, shims_dir: &Path) -> Result<ActualShims> {
-    let mise_bin = mise_bin.as_ref();
+async fn get_actual_shims(pakro_bin: impl AsRef<Path>, shims_dir: &Path) -> Result<ActualShims> {
+    let pakro_bin = pakro_bin.as_ref();
     let occupied = list_shims_in(shims_dir)?;
     let mut current = HashSet::new();
     let mut dedicated_present = HashSet::new();
@@ -1312,12 +1312,12 @@ async fn get_actual_shims(mise_bin: impl AsRef<Path>, shims_dir: &Path) -> Resul
     let mut repairable = HashSet::new();
     for bin in &occupied {
         let path = shims_dir.join(bin);
-        if is_mise_shim(&path, mise_bin).unwrap_or(false) {
+        if is_pakro_shim(&path, pakro_bin).unwrap_or(false) {
             owned.insert(bin.clone());
-            if is_current_owned_mise_shim(&path, mise_bin).unwrap_or(false) {
+            if is_current_owned_pakro_shim(&path, pakro_bin).unwrap_or(false) {
                 current.insert(bin.clone());
             }
-        } else if symlink_target_names_mise(&path).unwrap_or(false) {
+        } else if symlink_target_names_pakro(&path).unwrap_or(false) {
             repairable.insert(bin.clone());
         }
         if !path.is_symlink() || current.contains(bin) {
@@ -1333,7 +1333,7 @@ async fn get_actual_shims(mise_bin: impl AsRef<Path>, shims_dir: &Path) -> Resul
     })
 }
 
-fn is_current_owned_mise_shim(path: &Path, mise_bin: &Path) -> Result<bool> {
+fn is_current_owned_pakro_shim(path: &Path, pakro_bin: &Path) -> Result<bool> {
     if !path.is_symlink() {
         return Ok(true);
     }
@@ -1341,7 +1341,7 @@ fn is_current_owned_mise_shim(path: &Path, mise_bin: &Path) -> Result<bool> {
     // Raw path equality is deliberate. A shim that points through to the same
     // binary but bypasses the stable package-manager launcher must be migrated
     // before the versioned path disappears during an upgrade.
-    Ok(file::paths_eq(&target, mise_bin))
+    Ok(file::paths_eq(&target, pakro_bin))
 }
 
 fn list_executables_in_dir(dir: &Path) -> Result<HashSet<String>> {
@@ -1397,13 +1397,13 @@ fn is_hidden_shim_name(name: &std::ffi::OsStr) -> bool {
     name.to_string_lossy().starts_with('.')
 }
 
-/// Whether existing shims were generated by a different mise version AND the
+/// Whether existing shims were generated by a different pakro version AND the
 /// current shim mode produces version-dependent shim files. "hardlink"
-/// embeds the mise binary; "file" writes a bash script
-/// whose contents are baked into the mise binary as well (e.g. the WSL guard added
+/// embeds the pakro binary; "file" writes a bash script
+/// whose contents are baked into the pakro binary as well (e.g. the WSL guard added
 /// in #10299), so both must rebuild on a version change to pick up script
 /// changes — otherwise a normal reshim leaves the old script in place. "symlink"
-/// only points at the mise binary (no embedded content), so it is never
+/// only points at the pakro binary (no embedded content), so it is never
 /// version-stale. `prev == None` (no `.version` marker yet) heals installs that
 /// predate the marker by forcing a one-time rebuild. See discussions #10022 and
 /// #10299.
@@ -1439,12 +1439,12 @@ fn shim_scope_contains_request(scope: ShimScope, request: &crate::toolset::ToolR
 
 async fn get_desired_shims(
     config: &Arc<Config>,
-    mise_bin: &Path,
+    pakro_bin: &Path,
     toolset: &Toolset,
     scope: ShimScope,
     strict_lazy_bins: bool,
 ) -> Result<HashSet<String>> {
-    let _mise_bin = mise_bin; // used on Windows only
+    let _pakro_bin = pakro_bin; // used on Windows only
     let mut shims = HashSet::new();
     for (t, tv) in toolset.list_installed_versions(config).await? {
         if !shim_scope_contains_install(scope, &tv.install_path()) {
@@ -1458,7 +1458,7 @@ async fn get_desired_shims(
             });
         shims.extend(
             bins.into_iter()
-                .flat_map(|b| platform_shim_names(_mise_bin, &b)),
+                .flat_map(|b| platform_shim_names(_pakro_bin, &b)),
         );
     }
     for request in toolset.list_current_requests() {
@@ -1468,7 +1468,7 @@ async fn get_desired_shims(
         match request.lazy_bins() {
             Ok(Some(bins)) => shims.extend(
                 bins.into_iter()
-                    .flat_map(|bin| platform_shim_names(_mise_bin, &bin)),
+                    .flat_map(|bin| platform_shim_names(_pakro_bin, &bin)),
             ),
             Ok(None) => {}
             Err(err) if strict_lazy_bins => return Err(err),
@@ -1519,7 +1519,7 @@ pub(crate) fn shim_name_excluded(excluded: &BTreeSet<String>, name: &str) -> boo
     excluded.iter().any(|e| shim_name_key(e) == key)
 }
 
-fn platform_shim_names(_mise_bin: &Path, bin: &str) -> Vec<String> {
+fn platform_shim_names(_pakro_bin: &Path, bin: &str) -> Vec<String> {
     if cfg!(windows) {
         #[cfg(windows)]
         let shim_mode = Settings::get().windows_shim_mode.clone();
@@ -1566,7 +1566,7 @@ async fn make_shim(target: &Path, shim: &Path) -> Result<()> {
     file::write_async(
         shim,
         format!(
-            "{GENERATED_SHELL_SHIM_HEADER}export ASDF_DATA_DIR={data_dir}\nexport PATH=\"{fake_asdf_dir}:$PATH\"\nmise x -- {target} \"$@\"\n",
+            "{GENERATED_SHELL_SHIM_HEADER}export ASDF_DATA_DIR={data_dir}\nexport PATH=\"{fake_asdf_dir}:$PATH\"\npakro x -- {target} \"$@\"\n",
         data_dir = dirs::DATA.display(),
         fake_asdf_dir = fake_asdf::setup()?.display(),
         target = target.display()
@@ -1590,7 +1590,7 @@ pub async fn err_no_version_set(
 ) -> Result<PathBuf> {
     if tvs.is_empty() {
         bail!(
-            "{bin_name} is not a valid shim. This likely means you uninstalled a tool and the shim does not point to anything. Run `mise use <TOOL>` to reinstall the tool."
+            "{bin_name} is not a valid shim. This likely means you uninstalled a tool and the shim does not point to anything. Run `pakro use <TOOL>` to reinstall the tool."
         );
     }
     let missing_plugins = tvs.iter().map(|tv| tv.ba()).collect::<HashSet<_>>();
@@ -1607,7 +1607,7 @@ pub async fn err_no_version_set(
         let mut msg = format!("No version is set for shim: {bin_name}\n");
         msg.push_str("Set a global default version with one of the following:\n");
         for tv in tvs {
-            msg.push_str(&format!("mise use -g {}@{}\n", tv.ba(), tv.version));
+            msg.push_str(&format!("pakro use -g {}@{}\n", tv.ba(), tv.version));
         }
         Err(eyre!(msg.trim().to_string()))
     } else {
@@ -1619,7 +1619,7 @@ pub async fn err_no_version_set(
         for t in missing_tools.drain(..) {
             msg.push_str(&format!("Missing tool version: {t}\n"));
         }
-        msg.push_str("Install all missing tools with: mise install\n");
+        msg.push_str("Install all missing tools with: pakro install\n");
         Err(eyre!(msg.trim().to_string()))
     }
 }
@@ -1648,7 +1648,7 @@ pub fn unavailable_configured_tool_message(
     msg.push_str("Reinstall it with:\n");
     for tv in versions {
         msg.push_str(&format!(
-            "mise install --force {}@{}\n",
+            "pakro install --force {}@{}\n",
             tv.ba(),
             tv.version
         ));
@@ -1656,8 +1656,8 @@ pub fn unavailable_configured_tool_message(
     Some(msg.trim().to_string())
 }
 
-/// `mise install <tool>` deliberately writes to no config file, so the tool's
-/// bin dir never joins the PATH `mise exec` builds and resolution fails with an
+/// `pakro install <tool>` deliberately writes to no config file, so the tool's
+/// bin dir never joins the PATH `pakro exec` builds and resolution fails with an
 /// opaque error (`cannot find binary path` on Windows, `couldn't exec process`
 /// on unix). When an installed-but-unconfigured tool would have supplied the
 /// bin, name it and say how to activate it. See discussion #4407.
@@ -1692,11 +1692,11 @@ pub(crate) fn inactive_installed_tool_message(
         format!("{bin_name} is installed but not activated — it is not in any config file.\n");
     msg.push_str("To activate it, run:\n");
     for short in &shorts {
-        msg.push_str(&format!("  mise use {short}\n"));
+        msg.push_str(&format!("  pakro use {short}\n"));
     }
     msg.push_str("To run it without changing any config file, run:\n");
     for short in &shorts {
-        msg.push_str(&format!("  mise exec {short} -- {bin_name}\n"));
+        msg.push_str(&format!("  pakro exec {short} -- {bin_name}\n"));
     }
     Some(msg.trim().to_string())
 }
@@ -1706,11 +1706,11 @@ pub(crate) fn inactive_installed_tool_message(
 /// `registry/<tool>.toml` carries an `os` list, and a tool whose list omits the running OS is
 /// dropped by `ToolRequestSetBuilder::is_disabled` before any version is resolved. That drop is
 /// silent by design — the tool is not unknown, and the user has not disabled it — so nothing is
-/// installed and the bin is simply absent. `mise install` and `mise use` reach the backend and
-/// report the reason; `mise exec` only ever saw the missing bin. mise has the answer in its own
+/// installed and the bin is simply absent. `pakro install` and `pakro use` reach the backend and
+/// report the reason; `pakro exec` only ever saw the missing bin. pakro has the answer in its own
 /// registry, so say it rather than leaving the user with `cannot find binary path`.
 ///
-/// Matched on `bins` and on the tool's own name, so `mise x aws-cli -- aws` is recognised through
+/// Matched on `bins` and on the tool's own name, so `pakro x aws-cli -- aws` is recognised through
 /// either. Returns `None` when the OS list is empty or includes this one, which is the normal case.
 pub(crate) fn os_unsupported_tool_message(bin_name: &str) -> Option<String> {
     let shorts = crate::registry::REGISTRY
@@ -1731,7 +1731,7 @@ pub(crate) fn os_unsupported_tool_message(bin_name: &str) -> Option<String> {
             format!(", which provides {bin_name},")
         };
         msg.push_str(&format!(
-            "{short}{provides} is not available on {}: mise's registry lists it for {oses} only.\n",
+            "{short}{provides} is not available on {}: pakro's registry lists it for {oses} only.\n",
             std::env::consts::OS,
         ));
     }
@@ -1753,8 +1753,8 @@ pub async fn exec_resolution_hint(bin_name: &str) -> Option<String> {
         .await
         .ok()?;
     // A disabled tool is skipped by `Toolset::add_version`, so it never reaches
-    // the configured-tool check above. Suggesting `mise use` for one would be
-    // wrong twice over: it may well be in a config file, and mise has been told
+    // the configured-tool check above. Suggesting `pakro use` for one would be
+    // wrong twice over: it may well be in a config file, and pakro has been told
     // not to manage it.
     let settings = Settings::get();
     let enable_tools = settings.enable_tools();
@@ -1879,22 +1879,22 @@ mod tests {
     }
 
     #[test]
-    fn snap_mise_bin_uses_refresh_stable_current_path() {
+    fn snap_pakro_bin_uses_refresh_stable_current_path() {
         assert_eq!(
-            snap_mise_bin(
-                Path::new("/snap/mise/189/bin/mise"),
-                Path::new("/snap/mise/189")
+            snap_pakro_bin(
+                Path::new("/snap/pakro/189/bin/pakro"),
+                Path::new("/snap/pakro/189")
             ),
-            Some(PathBuf::from("/snap/mise/current/bin/mise"))
+            Some(PathBuf::from("/snap/pakro/current/bin/pakro"))
         );
     }
 
     #[test]
-    fn snap_mise_bin_rejects_unrelated_executable() {
+    fn snap_pakro_bin_rejects_unrelated_executable() {
         assert_eq!(
-            snap_mise_bin(
-                Path::new("/home/user/.local/bin/mise"),
-                Path::new("/snap/mise/189")
+            snap_pakro_bin(
+                Path::new("/home/user/.local/bin/pakro"),
+                Path::new("/snap/pakro/189")
             ),
             None
         );
@@ -1902,21 +1902,21 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn snap_mise_bin_handles_symlinked_snap_mount() {
+    fn snap_pakro_bin_handles_symlinked_snap_mount() {
         let temp = tempfile::tempdir().unwrap();
         let canonical_mount = temp.path().join("var/lib/snapd/snap");
-        let canonical_snap = canonical_mount.join("mise/189");
-        let mise_bin = canonical_snap.join("bin/mise");
-        fs::create_dir_all(mise_bin.parent().unwrap()).unwrap();
-        fs::write(&mise_bin, "").unwrap();
+        let canonical_snap = canonical_mount.join("pakro/189");
+        let pakro_bin = canonical_snap.join("bin/pakro");
+        fs::create_dir_all(pakro_bin.parent().unwrap()).unwrap();
+        fs::write(&pakro_bin, "").unwrap();
 
         let snap_mount = temp.path().join("snap");
         std::os::unix::fs::symlink(&canonical_mount, &snap_mount).unwrap();
-        let snap = snap_mount.join("mise/189");
+        let snap = snap_mount.join("pakro/189");
 
         assert_eq!(
-            snap_mise_bin(&mise_bin, &snap),
-            Some(snap_mount.join("mise/current/bin/mise"))
+            snap_pakro_bin(&pakro_bin, &snap),
+            Some(snap_mount.join("pakro/current/bin/pakro"))
         );
     }
 
@@ -1941,7 +1941,7 @@ mod tests {
         }
 
         let msg = unavailable_configured_tool_message(&config, &ts, "codex").unwrap();
-        assert!(msg.contains("mise install --force codex@1.0.0"));
+        assert!(msg.contains("pakro install --force codex@1.0.0"));
         assert!(!msg.contains("node@1.0.0"));
     }
 
@@ -1952,8 +1952,8 @@ mod tests {
 
         let msg = inactive_installed_tool_message(&ts, &["gh".to_string()], "gh").unwrap();
         assert!(msg.contains("installed but not activated"));
-        assert!(msg.contains("mise use gh"));
-        assert!(msg.contains("mise exec gh -- gh"));
+        assert!(msg.contains("pakro use gh"));
+        assert!(msg.contains("pakro exec gh -- gh"));
     }
 
     #[tokio::test]
@@ -2065,7 +2065,7 @@ mod tests {
         // `!CMDCMDLINE!`, not `%CMDCMDLINE%`: the percent form is substituted before special
         // characters are parsed and truncates the line at the first `&`.
         assert!(
-            body.contains(r#"set "__MISE_RAW_CMDLINE=!CMDCMDLINE!""#),
+            body.contains(r#"set "__PAKRO_RAW_CMDLINE=!CMDCMDLINE!""#),
             "{body}"
         );
         assert!(!body.contains("%CMDCMDLINE%"), "{body}");
@@ -2073,7 +2073,7 @@ mod tests {
         // The recursion guard is unchanged, and still decides before anything else runs.
         let guard = lines
             .iter()
-            .position(|l| l.contains("%__MISE_SHIM_PATH%"))
+            .position(|l| l.contains("%__PAKRO_SHIM_PATH%"))
             .unwrap();
         assert!(guard < enable, "{body}");
         assert!(
@@ -2082,14 +2082,14 @@ mod tests {
         );
         assert!(body.contains("exit /b 1"), "{body}");
 
-        // Both arms hand mise the same command; the sentinel marks where `%*` begins, so a run
+        // Both arms hand pakro the same command; the sentinel marks where `%*` begins, so a run
         // that cannot recover the raw line still gets what cmd managed to deliver.
-        let run = format!("mise x -- gh {} %*", env::LAUNCHER_ARGS_SENTINEL);
+        let run = format!("pakro x -- gh {} %*", env::LAUNCHER_ARGS_SENTINEL);
         assert_eq!(lines.iter().filter(|l| **l == run).count(), 2, "{body}");
 
         // The recovering arm exits rather than `exit /b`, so cmd does not go on to run whatever it
         // queued from the same line -- given `gh c&d`, that is `d`.
-        assert!(body.contains("goto mise_shim_fallback"), "{body}");
+        assert!(body.contains("goto pakro_shim_fallback"), "{body}");
         assert!(body.contains("exit !ERRORLEVEL!"), "{body}");
     }
 
@@ -2098,12 +2098,12 @@ mod tests {
         let body = windows_file_shim_body("gh");
         let after: Vec<&str> = body
             .lines()
-            .skip_while(|l| *l != ":mise_shim_fallback")
+            .skip_while(|l| *l != ":pakro_shim_fallback")
             .collect();
         assert!(!after.is_empty(), "{body}");
         // Or a value inherited from an outer launcher would be recovered as this shim's arguments.
-        assert!(after.contains(&r#"set "__MISE_RAW_CMDLINE=""#), "{body}");
-        assert!(after.contains(&r#"set "__MISE_LAUNCHER=""#), "{body}");
+        assert!(after.contains(&r#"set "__PAKRO_RAW_CMDLINE=""#), "{body}");
+        assert!(after.contains(&r#"set "__PAKRO_LAUNCHER=""#), "{body}");
     }
 
     #[test]
@@ -2128,7 +2128,7 @@ mod tests {
         .unwrap();
         assert!(is_generated_windows_file_shim(&shim));
 
-        fs::write(&shim, "@echo off\r\nsetlocal\r\nmise x -- %*\r\n").unwrap();
+        fs::write(&shim, "@echo off\r\nsetlocal\r\npakro x -- %*\r\n").unwrap();
         assert!(is_generated_windows_file_shim(&shim));
 
         fs::write(&shim, "@echo off\r\necho user script\r\n").unwrap();
@@ -2155,14 +2155,14 @@ mod tests {
         assert!(script.contains(r#"shim_dir=$(cd -- "$(dirname -- "$0")" && pwd -P)"#));
         // globbing disabled while splitting PATH so wildcard entries are not expanded
         assert!(script.contains("set -f"));
-        // The shim identifies its actual location even if MISE_DATA_DIR is absent.
+        // The shim identifies its actual location even if PAKRO_DATA_DIR is absent.
         assert!(script.contains(r#"shim_path="$shim_dir/${0##*/}""#));
-        assert!(script.contains(r#"export __MISE_SHIM_PATH="$shim_path""#));
+        assert!(script.contains(r#"export __PAKRO_SHIM_PATH="$shim_path""#));
         assert!(script.contains("recursive shim invocation detected"));
         // In WSL: drop the shim dir and run the native tool directly.
         assert!(script.contains(r#"exec gh "$@""#));
-        // Outside WSL: defer to mise as before.
-        assert!(script.contains(r#"exec mise x -- gh "$@""#));
+        // Outside WSL: defer to pakro as before.
+        assert!(script.contains(r#"exec pakro x -- gh "$@""#));
     }
 
     #[test]
@@ -2190,25 +2190,25 @@ mod tests {
     #[test]
     fn staged_shim_publication_preserves_unmanaged_and_modified_files() {
         let live = tempfile::tempdir().unwrap();
-        let mise_bin = live.path().join("mise");
-        fs::write(&mise_bin, "mise").unwrap();
+        let pakro_bin = live.path().join("pakro");
+        fs::write(&pakro_bin, "pakro").unwrap();
         let unmanaged = live.path().join("unmanaged");
         fs::write(&unmanaged, "from another package manager").unwrap();
         file::make_executable(&unmanaged).unwrap();
 
         let staging = tempfile::Builder::new()
-            .prefix(".mise-shims-stage-")
+            .prefix(".pakro-shims-stage-")
             .tempdir_in(live.path())
             .unwrap();
-        fs::write(staging.path().join("unmanaged"), "mise shim").unwrap();
+        fs::write(staging.path().join("unmanaged"), "pakro shim").unwrap();
         fs::write(
             staging.path().join("owned"),
-            "#!/bin/sh\n# mise generated shim\nmise x -- owned \"$@\"\n",
+            "#!/bin/sh\n# pakro generated shim\npakro x -- owned \"$@\"\n",
         )
         .unwrap();
         publish_staged_shim_farm(
             live.path(),
-            &mise_bin,
+            &pakro_bin,
             staging,
             HashSet::new(),
             HashSet::new(),
@@ -2223,19 +2223,19 @@ mod tests {
         );
         assert_eq!(
             fs::read_to_string(live.path().join("owned")).unwrap(),
-            "#!/bin/sh\n# mise generated shim\nmise x -- owned \"$@\"\n"
+            "#!/bin/sh\n# pakro generated shim\npakro x -- owned \"$@\"\n"
         );
 
-        // Once an owned shim is changed outside mise, an otherwise empty
+        // Once an owned shim is changed outside pakro, an otherwise empty
         // reshim cedes ownership instead of deleting the replacement.
         fs::write(live.path().join("owned"), "user replacement").unwrap();
         let empty_staging = tempfile::Builder::new()
-            .prefix(".mise-shims-stage-")
+            .prefix(".pakro-shims-stage-")
             .tempdir_in(live.path())
             .unwrap();
         publish_staged_shim_farm(
             live.path(),
-            &mise_bin,
+            &pakro_bin,
             empty_staging,
             HashSet::new(),
             HashSet::new(),
@@ -2253,20 +2253,20 @@ mod tests {
     #[test]
     fn staged_shim_publication_removes_unchanged_owned_shims() {
         let live = tempfile::tempdir().unwrap();
-        let mise_bin = live.path().join("mise");
-        fs::write(&mise_bin, "mise").unwrap();
+        let pakro_bin = live.path().join("pakro");
+        fs::write(&pakro_bin, "pakro").unwrap();
         let staging = tempfile::Builder::new()
-            .prefix(".mise-shims-stage-")
+            .prefix(".pakro-shims-stage-")
             .tempdir_in(live.path())
             .unwrap();
         fs::write(
             staging.path().join("owned"),
-            "#!/bin/sh\n# mise generated shim\nmise x -- owned \"$@\"\n",
+            "#!/bin/sh\n# pakro generated shim\npakro x -- owned \"$@\"\n",
         )
         .unwrap();
         publish_staged_shim_farm(
             live.path(),
-            &mise_bin,
+            &pakro_bin,
             staging,
             HashSet::new(),
             HashSet::new(),
@@ -2276,12 +2276,12 @@ mod tests {
         .unwrap();
 
         let empty_staging = tempfile::Builder::new()
-            .prefix(".mise-shims-stage-")
+            .prefix(".pakro-shims-stage-")
             .tempdir_in(live.path())
             .unwrap();
         publish_staged_shim_farm(
             live.path(),
-            &mise_bin,
+            &pakro_bin,
             empty_staging,
             HashSet::new(),
             HashSet::from(["owned".to_string()]),
@@ -2296,13 +2296,13 @@ mod tests {
     #[test]
     fn staged_shim_publication_prunes_unmanaged_files_in_dedicated_farm() {
         let live = tempfile::tempdir().unwrap();
-        let mise_bin = live.path().join("mise");
-        fs::write(&mise_bin, "mise").unwrap();
+        let pakro_bin = live.path().join("pakro");
+        fs::write(&pakro_bin, "pakro").unwrap();
         let orphan = live.path().join("orphan");
-        fs::write(&orphan, "not a mise shim").unwrap();
+        fs::write(&orphan, "not a pakro shim").unwrap();
         file::make_executable(&orphan).unwrap();
         let staging = tempfile::Builder::new()
-            .prefix(".mise-shims-stage-")
+            .prefix(".pakro-shims-stage-")
             .tempdir_in(live.path())
             .unwrap();
         let collision = live.path().join("collision");
@@ -2311,7 +2311,7 @@ mod tests {
 
         publish_staged_shim_farm(
             live.path(),
-            &mise_bin,
+            &pakro_bin,
             staging,
             HashSet::new(),
             HashSet::new(),
@@ -2327,18 +2327,18 @@ mod tests {
     #[test]
     fn staged_shim_publication_updates_metadata_in_shared_directory() {
         let live = tempfile::tempdir().unwrap();
-        let mise_bin = live.path().join("mise");
-        fs::write(&mise_bin, "mise").unwrap();
+        let pakro_bin = live.path().join("pakro");
+        fs::write(&pakro_bin, "pakro").unwrap();
         fs::write(live.path().join(".version"), "old").unwrap();
         let staging = tempfile::Builder::new()
-            .prefix(".mise-shims-stage-")
+            .prefix(".pakro-shims-stage-")
             .tempdir_in(live.path())
             .unwrap();
         fs::write(staging.path().join(".version"), "new").unwrap();
 
         publish_staged_shim_farm(
             live.path(),
-            &mise_bin,
+            &pakro_bin,
             staging,
             HashSet::new(),
             HashSet::new(),
@@ -2392,7 +2392,7 @@ mod tests {
     }
 
     #[test]
-    fn dangling_desired_mise_symlink_remains_missing_in_shared_directory() {
+    fn dangling_desired_pakro_symlink_remains_missing_in_shared_directory() {
         let actual = ActualShims {
             current: HashSet::new(),
             dedicated_present: HashSet::new(),
@@ -2441,23 +2441,23 @@ mod tests {
     #[test]
     fn staged_shim_publication_preserves_unstaged_desired_shims() {
         let live = tempfile::tempdir().unwrap();
-        let mise_bin = live.path().join("mise");
-        fs::write(&mise_bin, "mise").unwrap();
+        let pakro_bin = live.path().join("pakro");
+        fs::write(&pakro_bin, "pakro").unwrap();
         let existing = live.path().join("existing");
         fs::write(
             &existing,
-            "#!/bin/sh\n# mise generated shim\nmise x -- existing \"$@\"\n",
+            "#!/bin/sh\n# pakro generated shim\npakro x -- existing \"$@\"\n",
         )
         .unwrap();
         file::make_executable(&existing).unwrap();
         let staging = tempfile::Builder::new()
-            .prefix(".mise-shims-stage-")
+            .prefix(".pakro-shims-stage-")
             .tempdir_in(live.path())
             .unwrap();
 
         publish_staged_shim_farm(
             live.path(),
-            &mise_bin,
+            &pakro_bin,
             staging,
             HashSet::from(["existing".to_string()]),
             HashSet::from(["existing".to_string()]),
@@ -2471,59 +2471,59 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn mise_shim_detection_distinguishes_symlink_targets() {
+    fn pakro_shim_detection_distinguishes_symlink_targets() {
         let dir = tempfile::tempdir().unwrap();
-        let mise_bin = dir.path().join("mise");
+        let pakro_bin = dir.path().join("pakro");
         let other_bin = dir.path().join("other");
-        fs::write(&mise_bin, "mise").unwrap();
+        fs::write(&pakro_bin, "pakro").unwrap();
         fs::write(&other_bin, "other").unwrap();
         let shim = dir.path().join("shim");
 
-        std::os::unix::fs::symlink(&mise_bin, &shim).unwrap();
-        assert!(is_mise_shim(&shim, &mise_bin).unwrap());
+        std::os::unix::fs::symlink(&pakro_bin, &shim).unwrap();
+        assert!(is_pakro_shim(&shim, &pakro_bin).unwrap());
 
         fs::remove_file(&shim).unwrap();
         std::os::unix::fs::symlink(&other_bin, &shim).unwrap();
-        assert!(!is_mise_shim(&shim, &mise_bin).unwrap());
+        assert!(!is_pakro_shim(&shim, &pakro_bin).unwrap());
 
         // A dangling target name alone is not proof of ownership: an unrelated
-        // symlink in a shared directory may also point at a file named `mise`.
+        // symlink in a shared directory may also point at a file named `pakro`.
         // Publication uses this weaker signal only for a desired collision.
         fs::remove_file(&shim).unwrap();
-        std::os::unix::fs::symlink(dir.path().join("old/bin/mise"), &shim).unwrap();
-        assert!(!is_mise_shim(&shim, &mise_bin).unwrap());
-        assert!(symlink_target_names_mise(&shim).unwrap());
-        assert!(!is_current_owned_mise_shim(&shim, &mise_bin).unwrap());
+        std::os::unix::fs::symlink(dir.path().join("old/bin/pakro"), &shim).unwrap();
+        assert!(!is_pakro_shim(&shim, &pakro_bin).unwrap());
+        assert!(symlink_target_names_pakro(&shim).unwrap());
+        assert!(!is_current_owned_pakro_shim(&shim, &pakro_bin).unwrap());
 
         fs::remove_file(&shim).unwrap();
-        std::os::unix::fs::symlink(dir.path().join("scripts/mise-wrapper.sh"), &shim).unwrap();
-        assert!(!is_mise_shim(&shim, &mise_bin).unwrap());
-        assert!(!symlink_target_names_mise(&shim).unwrap());
+        std::os::unix::fs::symlink(dir.path().join("scripts/pakro-wrapper.sh"), &shim).unwrap();
+        assert!(!is_pakro_shim(&shim, &pakro_bin).unwrap());
+        assert!(!symlink_target_names_pakro(&shim).unwrap());
 
-        // The real mise dispatcher may itself be installed as a symlink in a
+        // The real pakro dispatcher may itself be installed as a symlink in a
         // shared bin directory; its own name keeps it out of shim pruning.
-        let dispatcher = dir.path().join("mise");
+        let dispatcher = dir.path().join("pakro");
         fs::remove_file(&dispatcher).unwrap();
         std::os::unix::fs::symlink(&other_bin, &dispatcher).unwrap();
-        assert!(!is_mise_shim(&dispatcher, &mise_bin).unwrap());
+        assert!(!is_pakro_shim(&dispatcher, &pakro_bin).unwrap());
     }
 
     #[cfg(unix)]
     #[tokio::test]
     async fn current_shim_check_migrates_to_stable_launcher_path() {
         let dir = tempfile::tempdir().unwrap();
-        let versioned = dir.path().join("Cellar/mise/1/bin/mise");
+        let versioned = dir.path().join("Cellar/pakro/1/bin/pakro");
         fs::create_dir_all(versioned.parent().unwrap()).unwrap();
-        fs::write(&versioned, "mise").unwrap();
-        let launcher = dir.path().join("bin/mise");
+        fs::write(&versioned, "pakro").unwrap();
+        let launcher = dir.path().join("bin/pakro");
         fs::create_dir_all(launcher.parent().unwrap()).unwrap();
         std::os::unix::fs::symlink(&versioned, &launcher).unwrap();
         let shim = dir.path().join("shims/node");
         fs::create_dir_all(shim.parent().unwrap()).unwrap();
         std::os::unix::fs::symlink(&versioned, &shim).unwrap();
 
-        assert!(is_mise_shim(&shim, &launcher).unwrap());
-        assert!(!is_current_owned_mise_shim(&shim, &launcher).unwrap());
+        assert!(is_pakro_shim(&shim, &launcher).unwrap());
+        assert!(!is_current_owned_pakro_shim(&shim, &launcher).unwrap());
 
         let actual = get_actual_shims(&launcher, shim.parent().unwrap())
             .await
@@ -2535,50 +2535,50 @@ mod tests {
     }
 
     #[test]
-    fn mise_shim_detection_recognizes_current_and_legacy_plugin_scripts() {
+    fn pakro_shim_detection_recognizes_current_and_legacy_plugin_scripts() {
         let dir = tempfile::tempdir().unwrap();
-        let mise_bin = dir.path().join("mise");
-        fs::write(&mise_bin, "mise").unwrap();
+        let pakro_bin = dir.path().join("pakro");
+        fs::write(&pakro_bin, "pakro").unwrap();
         let shim = dir.path().join("shim");
 
         fs::write(
             &shim,
-            format!("{GENERATED_SHELL_SHIM_HEADER}mise x -- foo \"$@\"\n"),
+            format!("{GENERATED_SHELL_SHIM_HEADER}pakro x -- foo \"$@\"\n"),
         )
         .unwrap();
-        assert!(is_mise_shim(&shim, &mise_bin).unwrap());
+        assert!(is_pakro_shim(&shim, &pakro_bin).unwrap());
 
         fs::write(
             &shim,
-            "#!/bin/sh\nexport ASDF_DATA_DIR=/tmp/mise\necho user-wrapper\nmise x -- foo \"$@\"\n",
+            "#!/bin/sh\nexport ASDF_DATA_DIR=/tmp/pakro\necho user-wrapper\npakro x -- foo \"$@\"\n",
         )
         .unwrap();
-        assert!(!is_mise_shim(&shim, &mise_bin).unwrap());
+        assert!(!is_pakro_shim(&shim, &pakro_bin).unwrap());
 
         fs::write(
             &shim,
-            "#!/bin/sh\nexport ASDF_DATA_DIR=/tmp/mise\nexport PATH=\"x:$PATH\"\nmise x -- foo \"$@\"\n",
+            "#!/bin/sh\nexport ASDF_DATA_DIR=/tmp/pakro\nexport PATH=\"x:$PATH\"\npakro x -- foo \"$@\"\n",
         )
         .unwrap();
-        assert!(is_mise_shim(&shim, &mise_bin).unwrap());
+        assert!(is_pakro_shim(&shim, &pakro_bin).unwrap());
 
         fs::write(&shim, "#!/bin/sh\necho user-script\n").unwrap();
-        assert!(!is_mise_shim(&shim, &mise_bin).unwrap());
+        assert!(!is_pakro_shim(&shim, &pakro_bin).unwrap());
     }
 
     #[test]
     fn native_shim_fingerprint_recognizes_current_and_transition_binaries() {
-        assert!(has_mise_native_shim_fingerprint(
-            b"PE\0mise generated native shim v1\n\0"
+        assert!(has_pakro_native_shim_fingerprint(
+            b"PE\0pakro generated native shim v1\n\0"
         ));
-        assert!(has_mise_native_shim_fingerprint(
-            b"mise-shim: failed to determine executable path\0mise-shim: failed to execute mise"
+        assert!(has_pakro_native_shim_fingerprint(
+            b"pakro-shim: failed to determine executable path\0pakro-shim: failed to execute pakro"
         ));
-        assert!(has_mise_native_shim_fingerprint(
-            b"__MISE_SHIM_PATH\0recursive shim invocation detected\0mise x --"
+        assert!(has_pakro_native_shim_fingerprint(
+            b"__PAKRO_SHIM_PATH\0recursive shim invocation detected\0pakro x --"
         ));
-        assert!(!has_mise_native_shim_fingerprint(
-            b"an unrelated executable mentioning mise x --"
+        assert!(!has_pakro_native_shim_fingerprint(
+            b"an unrelated executable mentioning pakro x --"
         ));
     }
 
@@ -2626,7 +2626,7 @@ mod tests {
         // no marker yet: heal once (covers installs created before this marker)
         assert!(shim_version_stale(None, "2026.5.16", "hardlink"));
         assert!(shim_version_stale(None, "2026.5.16", "file"));
-        // symlink shims only point at the mise binary, so never version-stale
+        // symlink shims only point at the pakro binary, so never version-stale
         assert!(!shim_version_stale(
             Some("2026.5.13"),
             "2026.5.16",

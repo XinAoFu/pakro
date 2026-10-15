@@ -1,47 +1,53 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
-MISE_VERSION=$(./packaging/scripts/get-version.sh)
+PAKRO_VERSION=$(./packaging/scripts/get-version.sh)
 
-mkdir -p mise/lib
-cat >mise/lib/mise-self-update-instructions.toml <<'TOML'
-message = "To update mise from the RPM repository, run:\n\n  sudo dnf upgrade mise\n"
+mkdir -p pakro/lib
+cat >pakro/lib/pakro-self-update-instructions.toml <<'TOML'
+message = "To update pakro from the RPM repository, run:\n\n  sudo dnf upgrade pakro\n"
 TOML
 
-tar -xvJf "dist/mise-$MISE_VERSION-linux-x64.tar.xz"
+tar -xvJf "dist/pakro-$PAKRO_VERSION-linux-x64.tar.xz"
 fpm -s dir -t rpm \
-	--name mise \
+	--name pakro \
 	--license MIT \
-	--version "${MISE_VERSION#v*}" \
+	--version "${PAKRO_VERSION#v*}" \
 	--architecture x86_64 \
 	--description "Dev tools, env vars, and tasks in one CLI" \
-	--url "https://github.com/jdx/mise" \
-	--maintainer "Jeff Dickey @jdx" \
-	mise/bin/mise=/usr/bin/mise \
-	mise/lib/mise-self-update-instructions.toml=/usr/lib/mise/mise-self-update-instructions.toml \
-	mise/man/man1/mise.1=/usr/share/man/man1/mise.1
+	--url "${PAKRO_PROJECT_URL:-}" \
+	--maintainer "${PAKRO_PACKAGE_MAINTAINER:-pakro contributors}" \
+	pakro/bin/pakro=/usr/bin/pakro \
+	pakro/lib/pakro-self-update-instructions.toml=/usr/lib/pakro/pakro-self-update-instructions.toml \
+	pakro/man/man1/pakro.1=/usr/share/man/man1/pakro.1
 
-tar -xvJf "dist/mise-$MISE_VERSION-linux-arm64.tar.xz"
+tar -xvJf "dist/pakro-$PAKRO_VERSION-linux-arm64.tar.xz"
 fpm -s dir -t rpm \
-	--name mise \
+	--name pakro \
 	--license MIT \
-	--version "${MISE_VERSION#v*}" \
+	--version "${PAKRO_VERSION#v*}" \
 	--architecture aarch64 \
 	--description "Dev tools, env vars, and tasks in one CLI" \
-	--url "https://github.com/jdx/mise" \
-	--maintainer "Jeff Dickey @jdx" \
-	mise/bin/mise=/usr/bin/mise \
-	mise/lib/mise-self-update-instructions.toml=/usr/lib/mise/mise-self-update-instructions.toml \
-	mise/man/man1/mise.1=/usr/share/man/man1/mise.1
+	--url "${PAKRO_PROJECT_URL:-}" \
+	--maintainer "${PAKRO_PACKAGE_MAINTAINER:-pakro contributors}" \
+	pakro/bin/pakro=/usr/bin/pakro \
+	pakro/lib/pakro-self-update-instructions.toml=/usr/lib/pakro/pakro-self-update-instructions.toml \
+	pakro/man/man1/pakro.1=/usr/share/man/man1/pakro.1
 
+if [[ -n "${PAKRO_GPG_SIGNING_KEY:-}" ]]; then
 cat <<EOF >~/.rpmmacros
 %_signature gpg
-%_gpg_name 8B81C9D17413A06D
+%_gpg_name $PAKRO_GPG_SIGNING_KEY
 EOF
+fi
 
 mkdir -p dist/rpmrepo/packages
-cp -v packaging/rpm/mise.repo dist/rpmrepo
+cp -v packaging/rpm/pakro.repo dist/rpmrepo
 cp -v ./*.rpm dist/rpmrepo/packages
-rpm --addsign dist/rpmrepo/packages/*.rpm
+if [[ -n "${PAKRO_GPG_SIGNING_KEY:-}" ]]; then
+  rpm --addsign dist/rpmrepo/packages/*.rpm
+fi
 createrepo dist/rpmrepo
-gpg --batch --yes --detach-sign --armor dist/rpmrepo/repodata/repomd.xml
+if [[ -n "${PAKRO_GPG_SIGNING_KEY:-}" ]]; then
+  gpg -u "$PAKRO_GPG_SIGNING_KEY" --batch --yes --detach-sign --armor dist/rpmrepo/repodata/repomd.xml
+fi

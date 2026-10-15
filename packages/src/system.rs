@@ -1,5 +1,5 @@
 //! Go and Maven: "storage-layer absorption" — go.mod and pom.xml stay the
-//! package declarations; mise takes over where artifacts physically live
+//! package declarations; pakro takes over where artifacts physically live
 //! (GOMODCACHE / maven.repo.local) and orchestrates the download.
 
 use std::path::Path;
@@ -42,7 +42,7 @@ pub(crate) fn install_go_modules(project_root: &Path, locations: &Locations) -> 
         bail!("go mod download failed with {status}");
     }
     // go manages its own cache layout; record the project's usage so
-    // `mise store ls` can report it
+    // `pakro store ls` can report it
     let marker = locations.store_root.join("go/refs");
     std::fs::create_dir_all(&marker)?;
     let marker = marker.join(project_root.to_string_lossy().replace('/', "_"));
@@ -51,7 +51,7 @@ pub(crate) fn install_go_modules(project_root: &Path, locations: &Locations) -> 
 }
 
 fn find_go_binary() -> eyre::Result<std::path::PathBuf> {
-    // the go tool mise installed for this project's toolset
+    // the go tool pakro installed for this project's toolset
     let installed = crate::dirs::INSTALLS
         .join("go")
         .read_dir()
@@ -79,7 +79,7 @@ fn which_go() -> eyre::Result<std::path::PathBuf> {
             return Ok(candidate);
         }
     }
-    eyre::bail!("no go binary found in PATH or mise installs")
+    eyre::bail!("no go binary found in PATH or pakro installs")
 }
 
 pub(crate) fn install_maven_dependencies(
@@ -120,7 +120,7 @@ fn find_maven() -> eyre::Result<std::path::PathBuf> {
             return Ok(candidate);
         }
     }
-    // mise-installed maven via java backend sits in installs/java/*/bin
+    // pakro-installed maven via java backend sits in installs/java/*/bin
     let installed = crate::dirs::INSTALLS
         .join("java")
         .read_dir()
@@ -132,5 +132,5 @@ fn find_maven() -> eyre::Result<std::path::PathBuf> {
                 .max_by_key(|e| e.file_name().to_string_lossy().to_string())
                 .map(|e| e.path().join("bin/mvn"))
         });
-    installed.ok_or_else(|| eyre::eyre!("no mvn binary found in PATH or mise installs"))
+    installed.ok_or_else(|| eyre::eyre!("no mvn binary found in PATH or pakro installs"))
 }

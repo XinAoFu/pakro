@@ -1,6 +1,6 @@
 //! Native `[bootstrap.packages]` support for OCI builds.
 //!
-//! This intentionally does not use a container engine. mise unpacks the pulled
+//! This intentionally does not use a container engine. pakro unpacks the pulled
 //! base image into a temporary rootfs, asks the matching host package manager
 //! to install into that rootfs, then emits the filesystem changes as one OCI
 //! layer.
@@ -71,7 +71,7 @@ pub(crate) fn build_system_packages_layer(
     };
     if base_layers.is_empty() {
         bail!(
-            "mise oci requires an {}-based base image when [bootstrap.packages] contains {} \
+            "pakro oci requires an {}-based base image when [bootstrap.packages] contains {} \
              entries; `scratch` has no {} metadata",
             manager.name(),
             manager.name(),
@@ -80,7 +80,7 @@ pub(crate) fn build_system_packages_layer(
     }
     validate_host_requirements(manager)?;
 
-    let td = TempDir::with_prefix(format!("mise-oci-{}-rootfs-", manager.name())).wrap_err_with(
+    let td = TempDir::with_prefix(format!("pakro-oci-{}-rootfs-", manager.name())).wrap_err_with(
         || {
             format!(
                 "creating temp rootfs for {} system packages",
@@ -131,14 +131,16 @@ fn validate_host_requirements(manager: OciPackageManager) -> Result<()> {
     match manager {
         OciPackageManager::Apk => {
             if std::env::consts::OS != "linux" {
-                bail!("mise oci needs a Linux host to install apk system packages into an image");
+                bail!("pakro oci needs a Linux host to install apk system packages into an image");
             }
             if file::which("apk").is_none() {
-                bail!("mise oci needs `apk` on PATH to install apk system packages into the image");
+                bail!(
+                    "pakro oci needs `apk` on PATH to install apk system packages into the image"
+                );
             }
             if !crate::system::sudo::is_root() {
                 bail!(
-                    "mise oci needs to run as root to install apk system packages because apk \
+                    "pakro oci needs to run as root to install apk system packages because apk \
                      executes package scripts in a chroot"
                 );
             }
@@ -146,12 +148,12 @@ fn validate_host_requirements(manager: OciPackageManager) -> Result<()> {
         OciPackageManager::Apt => {
             if file::which("apt-get").is_none() {
                 bail!(
-                    "mise oci needs `apt-get` on PATH to install apt system packages into the image"
+                    "pakro oci needs `apt-get` on PATH to install apt system packages into the image"
                 );
             }
             if file::which("dpkg").is_none() {
                 bail!(
-                    "mise oci needs `dpkg` on PATH to install apt system packages into the image"
+                    "pakro oci needs `dpkg` on PATH to install apt system packages into the image"
                 );
             }
         }
@@ -190,14 +192,14 @@ fn collect_package_requests(
         unsupported.sort();
         unsupported.dedup();
         bail!(
-            "mise oci currently supports only apt and apk entries in [bootstrap.packages]; \
+            "pakro oci currently supports only apt and apk entries in [bootstrap.packages]; \
              unsupported manager(s): {}",
             unsupported.join(", ")
         );
     }
     if !apk.is_empty() && !apt.is_empty() {
         bail!(
-            "mise oci cannot mix apk and apt entries in [bootstrap.packages]; use the package \
+            "pakro oci cannot mix apk and apt entries in [bootstrap.packages]; use the package \
              manager matching the selected base image"
         );
     }
@@ -332,7 +334,7 @@ fn remove_path(path: &Path) -> Result<()> {
 fn prepare_apt_install(rootfs: &Path) -> Result<()> {
     if !rootfs.join("etc/apt").is_dir() {
         bail!(
-            "mise oci found apt packages in [bootstrap.packages], but the base image does not \
+            "pakro oci found apt packages in [bootstrap.packages], but the base image does not \
              contain /etc/apt. Use a Debian/Ubuntu base image or remove the apt entries."
         );
     }
@@ -342,7 +344,7 @@ fn prepare_apt_install(rootfs: &Path) -> Result<()> {
 fn prepare_apk_install(rootfs: &Path) -> Result<()> {
     if !rootfs.join("etc/apk").is_dir() || !rootfs.join("lib/apk/db").is_dir() {
         bail!(
-            "mise oci found apk packages in [bootstrap.packages], but the base image does not \
+            "pakro oci found apk packages in [bootstrap.packages], but the base image does not \
              contain an apk database. Use an Alpine/Wolfi base image or remove the apk entries."
         );
     }
@@ -505,8 +507,8 @@ fn run_apt_get(args: Vec<String>) -> Result<()> {
 }
 
 /// Normalize the non-reproducible state that apt/dpkg postinstall scripts
-/// leave behind, so re-running `mise oci build` with identical inputs yields a
-/// byte-identical package layer (the reproducibility guarantee mise documents).
+/// leave behind, so re-running `pakro oci build` with identical inputs yields a
+/// byte-identical package layer (the reproducibility guarantee pakro documents).
 /// Everything cleared here is a regenerable cache, a timestamped log, or a
 /// first-boot sentinel, never real package content.
 fn clean_apt_transients(rootfs: &Path) -> Result<()> {
@@ -890,7 +892,7 @@ mod tests {
 
     #[test]
     fn clean_apk_transients_removes_cache_and_log() {
-        let td = TempDir::with_prefix("mise-oci-apk-clean-test-").unwrap();
+        let td = TempDir::with_prefix("pakro-oci-apk-clean-test-").unwrap();
         let rootfs = td.path().join("rootfs");
         write_file(&rootfs.join("var/cache/apk/APKINDEX.tar.gz"), "index");
         write_file(&rootfs.join("var/log/apk.log"), "install jq\n");
@@ -909,7 +911,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn clean_apk_transients_rejects_symlinked_cache_parent() {
-        let td = TempDir::with_prefix("mise-oci-apk-clean-symlink-parent-").unwrap();
+        let td = TempDir::with_prefix("pakro-oci-apk-clean-symlink-parent-").unwrap();
         let rootfs = td.path().join("rootfs");
         let outside = td.path().join("outside");
         write_file(&outside.join("apk/keep"), "outside");
@@ -928,7 +930,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn clean_apk_transients_rejects_symlinked_cache_directory() {
-        let td = TempDir::with_prefix("mise-oci-apk-clean-symlink-dir-").unwrap();
+        let td = TempDir::with_prefix("pakro-oci-apk-clean-symlink-dir-").unwrap();
         let rootfs = td.path().join("rootfs");
         let outside = td.path().join("outside");
         write_file(&outside.join("keep"), "outside");
@@ -943,7 +945,7 @@ mod tests {
 
     #[test]
     fn apt_preparation_is_excluded_from_package_diff() {
-        let td = TempDir::with_prefix("mise-oci-apt-snapshot-test-").unwrap();
+        let td = TempDir::with_prefix("pakro-oci-apt-snapshot-test-").unwrap();
         let rootfs = td.path().join("rootfs");
         let sources = rootfs.join("etc/apt/sources.list");
         write_file(
@@ -968,7 +970,7 @@ mod tests {
 
     #[test]
     fn clean_apt_transients_normalizes_nondeterministic_state() {
-        let td = TempDir::with_prefix("mise-oci-clean-test-").unwrap();
+        let td = TempDir::with_prefix("pakro-oci-clean-test-").unwrap();
         let rootfs = td.path().join("rootfs");
 
         // Timestamped logs at various depths under /var/log.
@@ -1019,7 +1021,7 @@ mod tests {
 
     #[test]
     fn clean_apt_transients_is_a_noop_on_a_bare_rootfs() {
-        let td = TempDir::with_prefix("mise-oci-clean-empty-").unwrap();
+        let td = TempDir::with_prefix("pakro-oci-clean-empty-").unwrap();
         let rootfs = td.path().join("rootfs");
         file::create_dir_all(&rootfs).unwrap();
         // No transient paths exist; every helper must tolerate the missing dirs.
@@ -1029,7 +1031,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn clean_apt_transients_leaves_machine_id_symlink_untouched() {
-        let td = TempDir::with_prefix("mise-oci-clean-symlink-").unwrap();
+        let td = TempDir::with_prefix("pakro-oci-clean-symlink-").unwrap();
         let rootfs = td.path().join("rootfs");
         write_file(&rootfs.join("etc/machine-id"), "abc\n");
         file::create_dir_all(rootfs.join("var/lib/dbus")).unwrap();

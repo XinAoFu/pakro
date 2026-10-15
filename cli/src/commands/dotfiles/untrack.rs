@@ -104,13 +104,13 @@ impl DotfilesUntrack {
                     }
                 }
                 None => {
-                    // A declaration mise could not read is not absent,
+                    // A declaration pakro could not read is not absent,
                     // and saying "not tracked" about one would send the
                     // user looking for something that is right there.
                     if let Some(invalid) = crate::system::files::invalid_declarations()
                         .into_iter()
                         .find(|invalid| {
-                            // only a declaration mise could not read: one
+                            // only a declaration pakro could not read: one
                             // ignored by policy is not this path's
                             // declaration at all
                             invalid.cause == crate::system::files::Ignored::Unreadable
@@ -151,7 +151,7 @@ impl DotfilesUntrack {
                     // as the user would type it: the rule on disk is the
                     // escaped form and is not what to type back
                     info!(
-                        "dotfiles: {key} is covered by {} ({}); excluded it in {} (`mise dot include '{key}'` captures it again)",
+                        "dotfiles: {key} is covered by {} ({}); excluded it in {} (`pakro dot include '{key}'` captures it again)",
                         owner.display(),
                         owner.mode,
                         display_path(&global)
@@ -261,6 +261,6 @@ impl DotfilesUntrack {
 static AFTER_LONG_HELP: &str = color_print::cstr!(
     r#"<bold><underline>Examples:</underline></bold>
 
-    $ <bold>mise dot untrack ~/.zshrc</bold>
+    $ <bold>pakro dot untrack ~/.zshrc</bold>
 "#
 );

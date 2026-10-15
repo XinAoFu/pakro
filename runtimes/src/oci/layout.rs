@@ -84,7 +84,7 @@ impl ImageLayout {
 
     pub(crate) fn read_blob(&self, digest: &str) -> Result<Vec<u8>> {
         // Validate before turning the digest into a path component — a crafted
-        // layout (`mise oci push/run --image-dir <untrusted>`) could otherwise
+        // layout (`pakro oci push/run --image-dir <untrusted>`) could otherwise
         // use `sha256:../../etc/passwd` to read outside the blobs directory.
         validate_sha256_digest(digest)?;
         let path = self.blob_path(digest);

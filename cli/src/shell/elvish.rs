@@ -30,7 +30,7 @@ impl Shell for Elvish {
             set edit:before-readline = (conj $edit:before-readline $hook-env~)
 
             fn activate {{
-              set-env MISE_SHELL elvish
+              set-env PAKRO_SHELL elvish
               set hook-enabled = ${hook_enabled}
               hook-env
             }}
@@ -40,7 +40,7 @@ impl Shell for Elvish {
               eval ((external {exe}) deactivate | slurp)
             }}
 
-            fn mise {{|@a|
+            fn pakro {{|@a|
               if (== (count $a) 0) {{
                 (external {exe})
                 return
@@ -67,9 +67,9 @@ impl Shell for Elvish {
 
     fn deactivate(&self) -> String {
         formatdoc! {r#"
-            unset-env MISE_SHELL
-            unset-env __MISE_DIFF
-            unset-env __MISE_SESSION
+            unset-env PAKRO_SHELL
+            unset-env __PAKRO_DIFF
+            unset-env __PAKRO_SESSION
         "#}
     }
 
@@ -95,7 +95,7 @@ impl Shell for Elvish {
         // every time -- a drive letter and backslashes both trip `needs_quoting`.
         //
         // The separator is the host's, since the shell reading this script runs on the platform
-        // mise was built for. bash and zsh hardcode ":" here too, but under Git Bash their own
+        // pakro was built for. bash and zsh hardcode ":" here too, but under Git Bash their own
         // $PATH is unix-form and colon-separated, so that is a different question.
         let sep = if cfg!(windows) { ';' } else { ':' };
         let v = escape(format!("{v}{sep}").into());
@@ -153,7 +153,7 @@ mod tests {
     #[test]
     fn test_hook_init() {
         let elvish = Elvish::default();
-        let exe = Path::new("/some/dir/mise");
+        let exe = Path::new("/some/dir/pakro");
         let opts = ActivateOptions {
             exe: exe.to_path_buf(),
             flags: " --status".into(),
@@ -234,7 +234,7 @@ mod tests {
     }
 
     /// `set_env` used to replace the two characters `\` and `n` with a newline, which no other
-    /// shell in this directory does. Measured on 2026.8.14: `mise env -s elvish` printed
+    /// shell in this directory does. Measured on 2026.8.14: `pakro env -s elvish` printed
     /// `set-env NODEDIR 'C:` / `odejs'` across two lines for a value of `C:\nodejs`, and a newline
     /// inside `'...'` is just a newline, so that is what the variable ended up holding.
     #[test]

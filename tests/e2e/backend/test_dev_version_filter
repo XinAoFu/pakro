@@ -8,7 +8,7 @@
 # pre-release filter and incorrectly satisfy a request for "2026.3.3".
 
 # Create a custom plugin that returns versions including .dev suffixes
-PLUGIN_DIR="$MISE_DATA_DIR/plugins/devtest"
+PLUGIN_DIR="$PAKRO_DATA_DIR/plugins/devtest"
 mkdir -p "$PLUGIN_DIR/bin"
 
 cat <<'LISTALL' >"$PLUGIN_DIR/bin/list-all"
@@ -29,20 +29,20 @@ INSTALL
 chmod +x "$PLUGIN_DIR/bin/install"
 
 # Test 1: latest for "2026.3.3" should return exactly "2026.3.3", not a dev version
-assert "mise latest devtest@2026.3.3" "2026.3.3"
+assert "pakro latest devtest@2026.3.3" "2026.3.3"
 
 # Test 2: latest for "2026.3" should return "2026.3.3" (highest stable), not a dev version
-assert "mise latest devtest@2026.3" "2026.3.3"
+assert "pakro latest devtest@2026.3" "2026.3.3"
 
 # Test 3: If user explicitly requests a dev version by exact match, it should work
-mise install devtest@2026.3.3.dev0
-assert_contains "mise x devtest@2026.3.3.dev0 -- devtest" "2026.3.3.dev0"
+pakro install devtest@2026.3.3.dev0
+assert_contains "pakro x devtest@2026.3.3.dev0 -- devtest" "2026.3.3.dev0"
 
 # Test 4: Install stable version, then verify it resolves correctly even with
 # the dev version already installed (core bug from the discussion)
-mise install devtest@2026.3.3
-assert_contains "mise x devtest@2026.3.3 -- devtest" "devtest 2026.3.3"
-assert_not_contains "mise x devtest@2026.3.3 -- devtest" "dev0"
+pakro install devtest@2026.3.3
+assert_contains "pakro x devtest@2026.3.3 -- devtest" "devtest 2026.3.3"
+assert_not_contains "pakro x devtest@2026.3.3 -- devtest" "dev0"
 
 # Test 5: latest for a version that only has dev releases should return nothing
-assert_empty "mise latest devtest@2026.3.4"
+assert_empty "pakro latest devtest@2026.3.4"

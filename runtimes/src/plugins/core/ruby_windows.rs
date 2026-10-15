@@ -176,7 +176,7 @@ impl Backend for RubyPlugin {
     }
     async fn _list_remote_versions(&self, _config: &Arc<Config>) -> Result<Vec<VersionInfo>> {
         // TODO: use windows set of versions
-        //  match self.core.fetch_remote_versions_from_mise() {
+        //  match self.core.fetch_remote_versions_from_pakro() {
         //      Ok(Some(versions)) => return Ok(versions),
         //      Ok(None) => {}
         //      Err(e) => warn!("failed to fetch remote versions: {}", e),

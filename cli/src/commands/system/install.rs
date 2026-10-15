@@ -7,7 +7,7 @@ use crate::system::history::OperationScope;
 
 #[derive(Debug, Default)]
 pub(crate) struct BootstrapApplyReport {
-    /// Whether top-level `mise bootstrap` should print a user follow-up item
+    /// Whether top-level `pakro bootstrap` should print a user follow-up item
     /// for this phase after a successful apply or dry-run.
     pub needs_follow_up: bool,
     pub skipped_reason: Option<String>,
@@ -28,10 +28,10 @@ pub(crate) struct BootstrapApplyReport {
     visible_alias = "i",
     verbatim_doc_comment,
     example(
-        r###"mise bootstrap packages apply
-mise bootstrap packages apply brew:jq brew-cask:firefox winget:BurntSushi.ripgrep.MSVC
-mise bootstrap packages apply --dry-run
-mise bootstrap packages apply --manager apt --yes"###
+        r###"pakro bootstrap packages apply
+pakro bootstrap packages apply brew:jq brew-cask:firefox winget:BurntSushi.ripgrep.MSVC
+pakro bootstrap packages apply --dry-run
+pakro bootstrap packages apply --manager apt --yes"###
     )
 )]
 pub(crate) struct SystemInstall {
@@ -152,7 +152,7 @@ pub(crate) async fn apply_defaults_with_report(
     })
 }
 
-/// Apply `[bootstrap.user].login_shell` when it differs for `mise bootstrap`.
+/// Apply `[bootstrap.user].login_shell` when it differs for `pakro bootstrap`.
 /// Inert off-Unix or when `chsh` is missing.
 pub(crate) fn apply_login_shell(
     request: Option<system::login_shell::LoginShellRequest>,
@@ -211,7 +211,7 @@ pub(crate) fn apply_login_shell_with_report(
     })
 }
 
-/// Apply `[bootstrap.mise_shell_activate]` entries using dotfile edit blocks.
+/// Apply `[bootstrap.pakro_shell_activate]` entries using dotfile edit blocks.
 pub(crate) fn apply_shell_activation(
     config: &Config,
     requests: Vec<system::shell_activation::ShellActivationRequest>,
@@ -226,7 +226,7 @@ pub(crate) fn apply_shell_activation(
         .map(|request| request.edit)
         .collect::<Vec<_>>();
     let opts = system::edits::ApplyOpts {
-        part: "mise-shell-activate",
+        part: "pakro-shell-activate",
         dry_run,
         verbose: Settings::get().verbose,
         yes,

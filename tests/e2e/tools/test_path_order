@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [env]
 _.path = ["bin", "bin2"]
 [tools]
@@ -9,7 +9,7 @@ jq = "1.7.1"
 EOF
 
 mkdir bin subdir subdir/bin
-cat <<EOF >subdir/mise.toml
+cat <<EOF >subdir/pakro.toml
 [env]
 _.path = ["bin", "bin2"]
 [tools]
@@ -18,11 +18,11 @@ pitchfork = "0.1.5"
 EOF
 
 cd subdir
-mise i
+pakro i
 
-assert "mise bin-paths" "$MISE_DATA_DIR/installs/dummy/2.0.0/bin
-$MISE_DATA_DIR/installs/pitchfork/0.1.5
-$MISE_DATA_DIR/installs/jq/1.7.1"
+assert "pakro bin-paths" "$PAKRO_DATA_DIR/installs/dummy/2.0.0/bin
+$PAKRO_DATA_DIR/installs/pitchfork/0.1.5
+$PAKRO_DATA_DIR/installs/jq/1.7.1"
 
-assert "mise env | grep PATH" "export PATH='$HOME/workdir/subdir/bin:$HOME/workdir/subdir/bin2:$HOME/workdir/bin:$HOME/workdir/bin2:$MISE_DATA_DIR/installs/dummy/2.0.0/bin:$MISE_DATA_DIR/installs/pitchfork/0.1.5:$MISE_DATA_DIR/installs/jq/1.7.1:$PATH'"
-assert "mise hook-env | grep PATH | tail -n1" "export PATH='$HOME/workdir/subdir/bin:$HOME/workdir/subdir/bin2:$HOME/workdir/bin:$HOME/workdir/bin2:$MISE_DATA_DIR/installs/dummy/2.0.0/bin:$MISE_DATA_DIR/installs/pitchfork/0.1.5:$MISE_DATA_DIR/installs/jq/1.7.1:$MISE_DATA_DIR/shims:$PATH'"
+assert "pakro env | grep PATH" "export PATH='$HOME/workdir/subdir/bin:$HOME/workdir/subdir/bin2:$HOME/workdir/bin:$HOME/workdir/bin2:$PAKRO_DATA_DIR/installs/dummy/2.0.0/bin:$PAKRO_DATA_DIR/installs/pitchfork/0.1.5:$PAKRO_DATA_DIR/installs/jq/1.7.1:$PATH'"
+assert "pakro hook-env | grep PATH | tail -n1" "export PATH='$HOME/workdir/subdir/bin:$HOME/workdir/subdir/bin2:$HOME/workdir/bin:$HOME/workdir/bin2:$PAKRO_DATA_DIR/installs/dummy/2.0.0/bin:$PAKRO_DATA_DIR/installs/pitchfork/0.1.5:$PAKRO_DATA_DIR/installs/jq/1.7.1:$PAKRO_DATA_DIR/shims:$PATH'"

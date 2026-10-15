@@ -11,61 +11,61 @@ cat <<'EOF' >repo/packages/app/package.json
   }
 }
 EOF
-cat <<'EOF' >repo/mise.toml
+cat <<'EOF' >repo/pakro.toml
 [settings]
 idiomatic_version_file_enable_tools = ["node"]
 EOF
 
 # Track package.json while an ancestor config enables the idiomatic parser.
-assert "mise -C repo/packages/app current node" "22.0.0"
+assert "pakro -C repo/packages/app current node" "22.0.0"
 
 # Tracked loading from another directory must honor the owning hierarchy's setting.
-output=$(mise -C other ls --all-sources 2>&1)
+output=$(pakro -C other ls --all-sources 2>&1)
 assert_contains "echo '$output'" "22.0.0"
 assert_contains "echo '$output'" "repo/packages/app/package.json"
 
 # Environment settings outrank the owning hierarchy.
-output=$(MISE_IDIOMATIC_VERSION_FILE_ENABLE_TOOLS="" MISE_LOG_LEVEL=debug mise -C other ls --all-sources 2>&1)
+output=$(PAKRO_IDIOMATIC_VERSION_FILE_ENABLE_TOOLS="" PAKRO_LOG_LEVEL=debug pakro -C other ls --all-sources 2>&1)
 assert_contains "echo '$output'" "skipping disabled idiomatic tracked config"
 assert_not_contains "echo '$output'" "error loading tracked config file"
 
 # --no-config ignores file-based owner/global settings while keeping explicit env defaults.
-output=$(MISE_NO_CONFIG=1 MISE_LOG_LEVEL=debug mise -C other ls --all-sources 2>&1)
+output=$(PAKRO_NO_CONFIG=1 PAKRO_LOG_LEVEL=debug pakro -C other ls --all-sources 2>&1)
 assert_contains "echo '$output'" "skipping disabled idiomatic tracked config"
 assert_not_contains "echo '$output'" "error loading tracked config file"
 
-output=$(MISE_NO_CONFIG=1 MISE_IDIOMATIC_VERSION_FILE_ENABLE_TOOLS=node mise -C other ls --all-sources 2>&1)
+output=$(PAKRO_NO_CONFIG=1 PAKRO_IDIOMATIC_VERSION_FILE_ENABLE_TOOLS=node pakro -C other ls --all-sources 2>&1)
 assert_contains "echo '$output'" "22.0.0"
 assert_contains "echo '$output'" "repo/packages/app/package.json"
 assert_not_contains "echo '$output'" "error loading tracked config file"
 
 # Safe mode remains trust-exempt even when paranoid mode is also enabled. Use the environment
 # setting because safe mode intentionally ignores the owning project's [settings].
-output=$(MISE_SAFE=1 MISE_PARANOID=1 MISE_TRUSTED_CONFIG_PATHS="" MISE_IDIOMATIC_VERSION_FILE_ENABLE_TOOLS=node MISE_LOG_LEVEL=debug mise -C other ls --all-sources 2>&1)
+output=$(PAKRO_SAFE=1 PAKRO_PARANOID=1 PAKRO_TRUSTED_CONFIG_PATHS="" PAKRO_IDIOMATIC_VERSION_FILE_ENABLE_TOOLS=node PAKRO_LOG_LEVEL=debug pakro -C other ls --all-sources 2>&1)
 assert_contains "echo '$output'" "22.0.0"
 assert_contains "echo '$output'" "repo/packages/app/package.json"
 assert_not_contains "echo '$output'" "skipping untrusted tracked config: ~/workdir/repo/packages/app/package.json"
 
 # A higher-precedence config in the owning hierarchy can disable the file. The
 # stale entry should then be ignored without a write error from another directory.
-cat <<'EOF' >repo/packages/app/mise.local.toml
+cat <<'EOF' >repo/packages/app/pakro.local.toml
 [settings]
 idiomatic_version_file_enable_tools = []
 EOF
-output=$(MISE_LOG_LEVEL=debug mise -C other ls --all-sources 2>&1)
+output=$(PAKRO_LOG_LEVEL=debug pakro -C other ls --all-sources 2>&1)
 assert_contains "echo '$output'" "skipping disabled idiomatic tracked config"
 assert_not_contains "echo '$output'" "error loading tracked config file"
 assert_not_contains "echo '$output'" "cannot update idiomatic version file"
 
 # Genuine parse failures in tracked configs must still warn.
 mkdir broken
-cat <<'EOF' >broken/mise.toml
+cat <<'EOF' >broken/pakro.toml
 [tools]
 dummy = "1"
 EOF
-mise -C broken ls >/dev/null
-printf '[tools\n' >broken/mise.toml
-output=$(mise -C other ls --all-sources 2>&1)
+pakro -C broken ls >/dev/null
+printf '[tools\n' >broken/pakro.toml
+output=$(pakro -C other ls --all-sources 2>&1)
 assert_contains "echo '$output'" "error loading tracked config file"
-assert_contains "echo '$output'" "broken/mise.toml"
+assert_contains "echo '$output'" "broken/pakro.toml"
 assert_not_contains "echo '$output'" "Error loading settings file"

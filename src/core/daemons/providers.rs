@@ -1,6 +1,6 @@
 //! User-owned servers. A provider is never a member of a consumer's lifecycle.
 use super::{Daemon, DaemonSet, ports, presets, runtime};
-use crate::config::config_file::mise_toml::MiseToml;
+use crate::config::config_file::pakro_toml::PakroToml;
 use crate::config::{Config, ConfigMap};
 use crate::env_diff::EnvMap;
 use eyre::{Result, bail};
@@ -40,7 +40,7 @@ pub(crate) fn load_selected(
             }
             if !crate::config::is_global_config(cf.get_path()) {
                 bail!(
-                    "[daemon_providers] belongs in global mise configuration, not {}",
+                    "[daemon_providers] belongs in global pakro configuration, not {}",
                     cf.get_path().display()
                 );
             }
@@ -65,7 +65,7 @@ pub(crate) fn load_selected(
 
 impl Provider {
     pub(crate) fn id(&self) -> String {
-        format!("mise-provider-{}/server", self.name)
+        format!("pakro-provider-{}/server", self.name)
     }
 
     pub(crate) fn daemon(&self) -> Result<Daemon> {
@@ -99,7 +99,7 @@ impl Provider {
                 "port" | "ports" | "options" | "data_dir" | "tool"
             ) {
                 bail!(
-                    "provider {} does not accept {key:?}; lifecycle and commands are managed by mise",
+                    "provider {} does not accept {key:?}; lifecycle and commands are managed by pakro",
                     self.name
                 );
             }
@@ -126,7 +126,7 @@ impl Provider {
             .or_insert_with(|| root.join("data").to_string_lossy().into_owned().into());
         // Render unwrapped commands: the frozen tool environment below belongs to
         // this provider, never to a consuming project or the supervisor's shell.
-        table.insert("mise".into(), false.into());
+        table.insert("pakro".into(), false.into());
         // Shared stores can have several consumers' databases to checkpoint.
         // Pitchfork's short default can kill PostgreSQL before that completes.
         table.insert(
@@ -175,7 +175,7 @@ impl Provider {
                 version.clone().into(),
             )])),
         )]);
-        let cf = MiseToml::from_str(&toml::to_string(&doc)?, &self.source)?;
+        let cf = PakroToml::from_str(&toml::to_string(&doc)?, &self.source)?;
         let mut config = Config::load_from_config_files(
             IndexMap::from([(
                 self.source.clone(),
@@ -284,7 +284,7 @@ impl Provider {
             && rt.active(&root, &runtime::read_state(&root)?).await?
         {
             bail!(
-                "provider {} configuration changed while running; use `mise daemons providers restart {}`",
+                "provider {} configuration changed while running; use `pakro daemons providers restart {}`",
                 self.name,
                 self.name
             );
@@ -364,7 +364,7 @@ impl Provider {
                 key.clone(),
                 format!(
                     "{} daemons __provider-exec {} {}",
-                    presets::quote(crate::env::MISE_BIN.to_string_lossy()),
+                    presets::quote(crate::env::PAKRO_BIN.to_string_lossy()),
                     presets::quote(manifest.to_string_lossy()),
                     key
                 )
@@ -373,7 +373,7 @@ impl Provider {
         }
         let set = DaemonSet {
             daemons: IndexMap::from([("server".into(), daemon)]),
-            namespaces: IndexMap::from([(root.clone(), format!("mise-provider-{}", self.name))]),
+            namespaces: IndexMap::from([(root.clone(), format!("pakro-provider-{}", self.name))]),
             ..Default::default()
         };
         Box::pin(rt.prepare(&root, &set, force_registration, true, &["server".into()])).await?;
@@ -409,11 +409,11 @@ fn base_env() -> EnvMap {
         crate::dirs::HOME.to_string_lossy().into_owned(),
     );
     env.insert("LANG".into(), "C.UTF-8".into());
-    env.insert("MISE_EXPERIMENTAL".into(), "1".into());
+    env.insert("PAKRO_EXPERIMENTAL".into(), "1".into());
     for (key, value) in [
-        ("MISE_STATE_DIR", &*crate::dirs::STATE),
-        ("MISE_DATA_DIR", &*crate::dirs::DATA),
-        ("MISE_CONFIG_DIR", &*crate::dirs::CONFIG),
+        ("PAKRO_STATE_DIR", &*crate::dirs::STATE),
+        ("PAKRO_DATA_DIR", &*crate::dirs::DATA),
+        ("PAKRO_CONFIG_DIR", &*crate::dirs::CONFIG),
     ] {
         env.insert(key.into(), value.to_string_lossy().into_owned());
     }
@@ -590,10 +590,10 @@ impl Providers {
         }
         if action == "ls" {
             if json {
-                miseprintln!("{}", serde_json::to_string_pretty(&rows)?);
+                pakroprintln!("{}", serde_json::to_string_pretty(&rows)?);
             } else {
                 for row in rows {
-                    miseprintln!(
+                    pakroprintln!(
                         "{}\t{}\t{}",
                         row["name"].as_str().unwrap_or_default(),
                         row["preset"].as_str().unwrap_or_default(),
@@ -629,7 +629,7 @@ pub(super) fn validate_resource(resource: &str) -> Result<()> {
 
 fn resource_name(root: &Path, name: &str) -> String {
     let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-    format!("mise_{}", crate::hash::hash_to_str(&(root, name)))
+    format!("pakro_{}", crate::hash::hash_to_str(&(root, name)))
 }
 
 pub(crate) fn binding(
@@ -684,7 +684,7 @@ pub(crate) fn binding(
     }
     let command = format!(
         "{} daemons __resource {} {}",
-        presets::quote(crate::env::MISE_BIN.to_string_lossy()),
+        presets::quote(crate::env::PAKRO_BIN.to_string_lossy()),
         presets::quote(directory(&provider.name).to_string_lossy()),
         presets::quote(&resource)
     );
@@ -692,7 +692,7 @@ pub(crate) fn binding(
         name: name.into(),
         source,
         root,
-        table: toml::toml! { run = command mise = false proxy = false ready_output = { pattern = "mise shared resource ready", timeout = "120s" } },
+        table: toml::toml! { run = command pakro = false proxy = false ready_output = { pattern = "pakro shared resource ready", timeout = "120s" } },
         preset: Some(preset.into()),
         data_dir: None,
         task: None,
@@ -787,7 +787,7 @@ impl Resource {
         }
         // Readiness is output only after provisioning succeeded. Pitchfork owns
         // this small process, so stopping a consumer cannot stop the provider.
-        miseprintln!("mise shared resource ready");
+        pakroprintln!("pakro shared resource ready");
         use std::io::Write;
         std::io::stdout().flush()?;
         std::future::pending::<()>().await;
@@ -867,10 +867,10 @@ mod tests {
         let d = p.daemon().unwrap();
         assert_eq!(d.root, directory("test-postgres"));
         assert_eq!(d.data_dir.unwrap(), directory("test-postgres").join("data"));
-        assert_eq!(d.table["mise"].as_bool(), Some(false));
+        assert_eq!(d.table["pakro"].as_bool(), Some(false));
         assert_eq!(d.table["proxy_idle_timeout"].as_bool(), Some(false));
         assert!(d.table["auto"].as_array().unwrap().is_empty());
-        assert!(!base_env().contains_key("MISE_ENV"));
+        assert!(!base_env().contains_key("PAKRO_ENV"));
         assert!(!base_env().contains_key("DATABASE_URL"));
         assert!(!base_env().contains_key("GITHUB_TOKEN"));
     }

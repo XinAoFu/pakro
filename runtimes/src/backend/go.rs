@@ -84,8 +84,8 @@ impl Backend for GoBackend {
             config,
             "go",
             &["go"],
-            "To use go packages with mise, you need to install Go first:\n\
-              mise use go@latest\n\n\
+            "To use go packages with pakro, you need to install Go first:\n\
+              pakro use go@latest\n\n\
             Or install Go via https://go.dev/dl/",
         )
         .await;
@@ -276,8 +276,8 @@ impl Backend for GoBackend {
             &ctx.config,
             "go",
             &["go"],
-            "To use go packages with mise, you need to install Go first:\n\
-              mise use go@latest\n\n\
+            "To use go packages with pakro, you need to install Go first:\n\
+              pakro use go@latest\n\n\
             Or install Go via https://go.dev/dl/",
         )
         .await;
@@ -301,8 +301,8 @@ impl Backend for GoBackend {
                 .with_pr(ctx.pr.as_ref())
                 .envs(self.dependency_env(&ctx.config).await?)
                 // `go` derives GOROOT from where its own executable lives, so it
-                // does not need one. An inherited GOROOT does harm: mise exports
-                // one for the Go it manages and `mise activate` carries it into
+                // does not need one. An inherited GOROOT does harm: pakro exports
+                // one for the Go it manages and `pakro activate` carries it into
                 // the shell, and on unix `spawn_program` hands back the bare name
                 // `go`, so which Go actually runs is up to the child's PATH. The
                 // moment that is a different Go, every compile fails with
@@ -396,9 +396,9 @@ impl GoBackend {
             return Ok(None);
         }
 
-        // Read GOPROXY from the effective mise environment. In particular, this
+        // Read GOPROXY from the effective pakro environment. In particular, this
         // includes values supplied through [env], which are not necessarily in
-        // mise's own process environment.
+        // pakro's own process environment.
         let proxies = parse_goproxy(env.get("GOPROXY").map(String::as_str));
         if proxies.is_empty() {
             return Ok(None);
@@ -820,7 +820,7 @@ fn parse_goproxy(goproxy: Option<&str>) -> Vec<GoProxy> {
     parse_goproxy_value(goproxy)
 }
 
-/// Return whether Go should handle module routing instead of mise's proxy client.
+/// Return whether Go should handle module routing instead of pakro's proxy client.
 ///
 /// If private-module routing is configured, delegating all discovery to Go is
 /// deliberately conservative: Go applies its own patterns and independently

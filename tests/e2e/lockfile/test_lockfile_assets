@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
-export MISE_LOCKFILE=1
+export PAKRO_LOCKFILE=1
 
 # Test creating a lockfile with inline table platforms
-cat <<EOF >mise.lock
+cat <<EOF >pakro.lock
 [[tools.tiny]]
 version = "1.0.0"
 backend = "asdf:tiny"
@@ -16,24 +16,24 @@ backend = "core:dummy"
 EOF
 
 echo "New format lockfile:"
-cat mise.lock
+cat pakro.lock
 
 # Test that the lockfile is read correctly
-mise ls
+pakro ls
 
 echo "After reading:"
-cat mise.lock
+cat pakro.lock
 
 # Should have platforms with inline table format
-assert_contains "cat mise.lock" '"platforms.linux-x64"'
-assert_contains "cat mise.lock" 'checksum = "sha256:abc123"'
-assert_contains "cat mise.lock" 'checksum = "sha256:def456"'
-assert_contains "cat mise.lock" 'url = "https://example.com/dummy-2.0.0-linux-x64.tar.gz"'
+assert_contains "cat pakro.lock" '"platforms.linux-x64"'
+assert_contains "cat pakro.lock" 'checksum = "sha256:abc123"'
+assert_contains "cat pakro.lock" 'checksum = "sha256:def456"'
+assert_contains "cat pakro.lock" 'url = "https://example.com/dummy-2.0.0-linux-x64.tar.gz"'
 
 # Should not have individual tool asset sections
-assert_not_contains "cat mise.lock" "[tools.tiny.assets]"
-assert_not_contains "cat mise.lock" "[tools.dummy.assets]"
-assert_not_contains "cat mise.lock" "[tools.tiny.checksums]"
-assert_not_contains "cat mise.lock" "[tools.dummy.checksums]"
+assert_not_contains "cat pakro.lock" "[tools.tiny.assets]"
+assert_not_contains "cat pakro.lock" "[tools.dummy.assets]"
+assert_not_contains "cat pakro.lock" "[tools.tiny.checksums]"
+assert_not_contains "cat pakro.lock" "[tools.dummy.checksums]"
 
 echo "Platform-based format test passed!"

@@ -2,7 +2,7 @@
 # Test that usage field defaults using tera env templates work when flags are provided
 # Regression test for https://github.com/jdx/mise/discussions/8954
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [env]
 DEFAULT_FILE = "my-file.txt"
 
@@ -14,16 +14,16 @@ run = "echo ${usage_file}"
 EOF
 
 # Test with no flags — should use default from env
-assert "mise run tera-env-default" "my-file.txt"
+assert "pakro run tera-env-default" "my-file.txt"
 
 # Test with explicit flag — should use the provided value
-assert "mise run tera-env-default -f another-file.txt" "another-file.txt"
+assert "pakro run tera-env-default -f another-file.txt" "another-file.txt"
 
 # Test --help doesn't error
-assert_contains "mise run tera-env-default --help" "--file"
+assert_contains "pakro run tera-env-default --help" "--file"
 
 # Test system env vars (e.g. HOME) are also available in usage defaults
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.tera-sys-env]
 usage = '''
 flag "-d --dir [dir]" default="{{ env.HOME }}"
@@ -31,5 +31,5 @@ flag "-d --dir [dir]" default="{{ env.HOME }}"
 run = "echo ${usage_dir}"
 EOF
 
-assert "mise run tera-sys-env" "$HOME"
-assert "mise run tera-sys-env -d /tmp" "/tmp"
+assert "pakro run tera-sys-env" "$HOME"
+assert "pakro run tera-sys-env -d /tmp" "/tmp"

@@ -45,11 +45,11 @@ pub struct BackendArg {
     full: Option<String>,
     /// the name of the tool within the backend, e.g.: "node", "prettier", "eza"
     pub tool_name: String,
-    /// ~/.local/share/mise/cache/<THIS>
+    /// ~/.local/share/pakro/cache/<THIS>
     cache_path: PathBuf,
-    /// ~/.local/share/mise/installs/<THIS>
+    /// ~/.local/share/pakro/installs/<THIS>
     installs_path: PathBuf,
-    /// ~/.local/share/mise/downloads/<THIS>
+    /// ~/.local/share/pakro/downloads/<THIS>
     downloads_path: PathBuf,
     pub opts: Option<ToolVersionOptions>,
     opts_source: Option<ToolOptionSource>,
@@ -325,7 +325,7 @@ impl BackendArg {
         //     if let Some(backend) = backend::get(self) {
         //         Ok(backend)
         //     } else {
-        //         bail!("{self} not found in mise tool registry");
+        //         bail!("{self} not found in pakro tool registry");
         //     }
         // })?;
         // Ok(backend.clone())
@@ -362,7 +362,7 @@ impl BackendArg {
             {
                 let all_backends: Vec<&str> = rt.backends.iter().map(|rb| rb.full).collect();
                 bail!(
-                    "{self} is in the mise tool registry but none of its backends ({}) are supported in the current configuration{}",
+                    "{self} is in the pakro tool registry but none of its backends ({}) are supported in the current configuration{}",
                     all_backends.join(", "),
                     self.registry_version
                         .as_ref()
@@ -379,14 +379,14 @@ impl BackendArg {
                     .map(|s| s.to_string())
                     .collect();
 
-            let mise_names: HashSet<String> = suggestions.iter().cloned().collect();
+            let pakro_names: HashSet<String> = suggestions.iter().cloned().collect();
             for aqua in crate::aqua::aqua_registry_wrapper::aqua_suggest(&self.short) {
-                if !mise_names.contains(&aqua.name) {
+                if !pakro_names.contains(&aqua.name) {
                     suggestions.push(aqua.backend);
                 }
             }
 
-            let mut msg = format!("{self} not found in mise tool registry");
+            let mut msg = format!("{self} not found in pakro tool registry");
             if !suggestions.is_empty() {
                 msg.push_str("\n\nDid you mean?");
                 for s in suggestions.iter().take(5) {
@@ -501,7 +501,7 @@ impl BackendArg {
         let short = short.as_ref();
 
         // Check for environment variable override first
-        // e.g., MISE_BACKENDS_MYTOOLS='github:myorg/mytools'
+        // e.g., PAKRO_BACKENDS_MYTOOLS='github:myorg/mytools'
         if let Some(env_value) = self.env_backend_override() {
             return env_value;
         }
@@ -541,9 +541,9 @@ impl BackendArg {
             }
 
             // A locked backend stays in use when the registry moves the tool to
-            // another one, so re-resolving a version (`mise lock --bump`,
-            // `mise upgrade`) cannot silently change where it installs from.
-            // `mise backends switch` adopts the registry's backend. With
+            // another one, so re-resolving a version (`pakro lock --bump`,
+            // `pakro upgrade`) cannot silently change where it installs from.
+            // `pakro backends switch` adopts the registry's backend. With
             // version-dependent registry backends, the lock only holds for
             // versions its backend can serve.
             let config = Config::get_();
@@ -697,7 +697,7 @@ impl BackendArg {
         if let Some((locked, registry)) = self.superseded_locked_backend(version) {
             warn_once!(
                 "{short} is locked to {locked}, but the registry now installs it from {registry}. \
-                 Run `mise backends switch {short}` to switch.",
+                 Run `pakro backends switch {short}` to switch.",
                 short = self.short,
             );
         }
@@ -798,7 +798,7 @@ impl BackendArg {
     fn env_backend_override(&self) -> Option<String> {
         let short = unalias_backend(&self.short);
         let short = short.as_ref();
-        let env_key = format!("MISE_BACKENDS_{}", short.to_shouty_snake_case());
+        let env_key = format!("PAKRO_BACKENDS_{}", short.to_shouty_snake_case());
         env::var(&env_key).ok()
     }
 

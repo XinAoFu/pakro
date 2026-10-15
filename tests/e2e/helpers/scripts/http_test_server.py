@@ -39,7 +39,7 @@ TASK_SCRIPT = '#!/usr/bin/env bash\necho "running mytask"\n'
 # is resolved for tasks fetched at run time
 EXTENDS_TASK_SCRIPT = (
     "#!/usr/bin/env bash\n"
-    '#MISE extends="shared"\n'
+    '#PAKRO extends="shared"\n'
     'echo "extends-task FOO=$FOO"\n'
 )
 SLIDESHOW_JSON = json.dumps(
@@ -96,7 +96,7 @@ class TestHandler(http.server.SimpleHTTPRequestHandler):
                     revision = TestHandler.remote_revision
             body = (
                 "#!/usr/bin/env bash\n"
-                f'#MISE description="remote revision {revision}"\n'
+                f'#PAKRO description="remote revision {revision}"\n'
                 f'echo "remote revision {revision}"\n'
             ).encode()
             route = (200, "text/plain", body)

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 tools.erlang = "1.0.0-erlang"
 tools.node = "1.0.0-node"
 tools.corenode = "22.0.0"
@@ -19,11 +19,11 @@ backend = "asdf:mise-plugins/mise-tiny"
 versions = {lts = "1.0.1"}
 EOF
 
-assert_contains "mise x erlang -- mise-tiny" "mise-tiny: v1.0.0-erlang"
-assert_contains "mise x node -- rtx-tiny" "rtx-tiny: v1.0.0-node"
-assert_contains "mise x corenode -- node -v" "v22.0.0"
-assert_contains "mise x python -- mise-tiny" "mise-tiny: v1.0.0-python"
-assert_contains "mise x mytool -- rtx-tiny" "rtx-tiny: v2.1.0"
-assert_contains "mise x mytool-lts -- rtx-tiny" "rtx-tiny: v1.0.1"
+assert_contains "pakro x erlang -- mise-tiny" "mise-tiny: v1.0.0-erlang"
+assert_contains "pakro x node -- rtx-tiny" "rtx-tiny: v1.0.0-node"
+assert_contains "pakro x corenode -- node -v" "v22.0.0"
+assert_contains "pakro x python -- mise-tiny" "mise-tiny: v1.0.0-python"
+assert_contains "pakro x mytool -- rtx-tiny" "rtx-tiny: v2.1.0"
+assert_contains "pakro x mytool-lts -- rtx-tiny" "rtx-tiny: v1.0.1"
 
-assert_contains "mise x rg@14.0.0 -- rg --version" "ripgrep 14.0.0"
+assert_contains "pakro x rg@14.0.0 -- rg --version" "ripgrep 14.0.0"

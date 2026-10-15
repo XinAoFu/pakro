@@ -234,8 +234,8 @@ impl Backend for SPMBackend {
             &ctx.config,
             "swift",
             &["swift"],
-            "To use Swift Package Manager (spm) tools with mise, you need to install Swift first:\n\
-              mise use swift@latest\n\n\
+            "To use Swift Package Manager (spm) tools with pakro, you need to install Swift first:\n\
+              pakro use swift@latest\n\n\
             Or install Swift via https://swift.org/download/",
         )
         .await;
@@ -378,7 +378,7 @@ impl SPMBackend {
             .cmd_body_args(shell_args, install_command)
             .env_values(tv.install_env())
             .env("PREFIX", tv.install_path())
-            .env("MISE_TOOL_INSTALL_PATH", tv.install_path())
+            .env("PAKRO_TOOL_INSTALL_PATH", tv.install_path())
             .prepend_path(
                 self.dependency_toolset(&ctx.config)
                     .await?
@@ -697,7 +697,7 @@ fn filter_executables(
 ///
 /// A package's install script may exit 0 even when the underlying `swift build`
 /// failed (for example when the script does not use `set -e`), which would
-/// otherwise leave mise reporting a successful install for a directory that has
+/// otherwise leave pakro reporting a successful install for a directory that has
 /// no runnable tool in it.
 fn verify_install_command_output(install_command: &str, bin_path: &Path) -> eyre::Result<()> {
     if !file::ls(bin_path)?
@@ -705,7 +705,7 @@ fn verify_install_command_output(install_command: &str, bin_path: &Path) -> eyre
         .any(|entry| entry.is_file() && file::is_executable(entry))
     {
         bail!(
-            "install_command `{install_command}` exited successfully but installed no executable into {}; check that it installs into $MISE_TOOL_INSTALL_PATH and that it fails when the build fails",
+            "install_command `{install_command}` exited successfully but installed no executable into {}; check that it installs into $PAKRO_TOOL_INSTALL_PATH and that it fails when the build fails",
             bin_path.display()
         );
     }

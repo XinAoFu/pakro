@@ -1,0 +1,7 @@
+[pakro-repo]
+name=pakro repo
+# Configure the pakro repository and its own signing key before enabling it.
+# baseurl=<PAKRO_RPM_REPOSITORY_URL>
+enabled=0
+gpgcheck=1
+# gpgkey=<PAKRO_RPM_GPG_KEY_URL>

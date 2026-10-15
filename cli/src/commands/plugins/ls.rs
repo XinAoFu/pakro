@@ -14,21 +14,21 @@ use crate::ui::table;
 ///
 /// Use `--core` for built-in runtimes or `--core --user` for both groups. `--outdated`
 /// queries Git remotes for plugin updates; it does not compare installed tool versions.
-/// Use `mise plugins ls-remote` for registry plugin sources and `mise ls` for tools.
+/// Use `pakro plugins ls-remote` for registry plugin sources and `pakro ls` for tools.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     visible_alias = "list",
     example(
-        r###"mise plugins ls
-mise plugins ls --urls
-mise plugins ls --core --user
-mise plugins ls --outdated"###
+        r###"pakro plugins ls
+pakro plugins ls --urls
+pakro plugins ls --core --user
+pakro plugins ls --outdated"###
     ),
     verbatim_doc_comment
 )]
 pub(super) struct PluginsLs {
     /// List all available remote plugins
-    /// Same as `mise plugins ls-remote`
+    /// Same as `pakro plugins ls-remote`
     #[usage(short, long, hide = true, verbatim_doc_comment)]
     pub all: bool,
 
@@ -69,7 +69,7 @@ impl PluginsLs {
 
         if self.core {
             for p in CORE_PLUGINS.keys() {
-                miseprintln!("{p}");
+                pakroprintln!("{p}");
                 plugins.remove(p);
             }
             if !self.user {
@@ -182,9 +182,9 @@ impl PluginsLs {
             let mut table = Table::new(data);
             table::print(&mut table, false)?;
         } else {
-            hint!("registry", "see available plugins with", "mise registry");
+            hint!("registry", "see available plugins with", "pakro registry");
             for tool in plugins.values() {
-                miseprintln!("{tool}");
+                pakroprintln!("{tool}");
             }
         }
         Ok(())

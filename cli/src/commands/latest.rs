@@ -16,16 +16,16 @@ use crate::ui::multi_progress_report::MultiProgressReport;
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise latest node@20
-mise latest node"###,
+        r###"pakro latest node@20
+pakro latest node"###,
         help = r###"Resolve a Node 20 release, or the backend's latest stable release"###
     ),
     example(
-        r###"mise latest node@20 --installed"###,
+        r###"pakro latest node@20 --installed"###,
         help = r###"Restrict resolution to installed versions"###
     ),
     example(
-        r###"mise latest node --minimum-release-age 30d"###,
+        r###"pakro latest node --minimum-release-age 30d"###,
         help = r###"Exclude releases newer than the requested age"###
     )
 )]
@@ -105,7 +105,7 @@ impl Latest {
             backend.latest_version(&config, prefix, before_date).await?
         };
         if let Some(version) = latest_version {
-            miseprintln!("{}", version);
+            pakroprintln!("{}", version);
         }
         Ok(())
     }

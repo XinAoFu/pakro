@@ -52,7 +52,7 @@ for token in ("auto-parent", "auto-child", "auto-latest"):
     caskroom = prefix / "Caskroom" / token / "1"
     caskroom.mkdir(parents=True)
     (caskroom / app.name).symlink_to(app)
-    receipt = caskroom / ".mise-cask.toml"
+    receipt = caskroom / ".pakro-cask.toml"
     receipt.write_text(f'version = "1"\nauto_updates = true\napps = [{json.dumps(str(app))}]\n')
     receipts[token] = (receipt, receipt.read_bytes())
     archive = io.BytesIO()
@@ -67,13 +67,13 @@ for token in ("auto-parent", "auto-child", "auto-latest"):
     if token == "auto-latest":
         metadata["version"] = "latest"
     responses[f"/api/cask/{token}.json"] = json.dumps(metadata).encode()
-(root / "mise.toml").write_text('[bootstrap.packages]\n"brew-cask:auto-parent" = "latest"\n"brew-cask:auto-latest" = "latest"\n')
-env = dict(os.environ, MISE_SYSTEM_BREW_PREFIX=str(prefix), MISE_BREW_CASK_OPT_APPDIR=str(prefix / "Applications"),
-           MISE_URL_REPLACEMENTS=json.dumps({"https://formulae.brew.sh": base}))
+(root / "pakro.toml").write_text('[bootstrap.packages]\n"brew-cask:auto-parent" = "latest"\n"brew-cask:auto-latest" = "latest"\n')
+env = dict(os.environ, PAKRO_SYSTEM_BREW_PREFIX=str(prefix), PAKRO_BREW_CASK_OPT_APPDIR=str(prefix / "Applications"),
+           PAKRO_URL_REPLACEMENTS=json.dumps({"https://formulae.brew.sh": base}))
 
 
 def run(*args):
-    command = ["mise", "bootstrap", "packages", *args]
+    command = ["pakro", "bootstrap", "packages", *args]
     print("$ " + " ".join(command), flush=True)
     result = subprocess.run(command, env=env, text=True, capture_output=True)
     print(result.stdout + result.stderr, end="", flush=True)
@@ -89,7 +89,7 @@ try:
     assert downloads == []
     for receipt, original in receipts.values():
         assert receipt.read_bytes() == original
-    assert not (prefix / "Caskroom/.mise.lock").exists()
+    assert not (prefix / "Caskroom/.pakro.lock").exists()
 
     parent_app = prefix / "Applications/auto-parent.app"
     parent = parent_app / "Contents/payload"
@@ -142,7 +142,7 @@ try:
     child_receipt, original = receipts["auto-child"]
     assert child_receipt.read_bytes() == original
     assert (prefix / "Applications/auto-child.app/Contents/payload").read_text() == "original"
-    receipt = prefix / "Caskroom/auto-parent/2/.mise-cask.toml"
+    receipt = prefix / "Caskroom/auto-parent/2/.pakro-cask.toml"
     assert 'version = "2"' in receipt.read_text()
     original = receipt.read_bytes()
     original_receipt_v2 = original
@@ -198,7 +198,7 @@ try:
     ]
     responses["/api/cask/auto-parent.json"] = json.dumps(metadata).encode()
     live_plist.write_bytes(plistlib.dumps({"CFBundleShortVersionString": "2"}))
-    journals = Path(os.environ["MISE_STATE_DIR"]) / "brew-cask/auto-parent"
+    journals = Path(os.environ["PAKRO_STATE_DIR"]) / "brew-cask/auto-parent"
     try:
         output = run("upgrade", "--yes")
         assert "skipped: installed app started running during the upgrade and updates itself" in output, output

@@ -15,17 +15,17 @@ end
 module ReshimInstaller
   class << self
     def debug?
-      ENV["MISE_DEBUG"] == "true"
+      ENV["PAKRO_DEBUG"] == "true"
     end
 
     def log_debug(msg)
-      warn "[DEBUG] mise #{msg}" if debug?
+      warn "[DEBUG] pakro #{msg}" if debug?
     end
 
     def reshim
       if defined?(RbConfig::CONFIG)
         log_debug "reshim"
-        `mise reshim`
+        `pakro reshim`
       else
         log_debug "reshim skipped: ruby not found"
       end

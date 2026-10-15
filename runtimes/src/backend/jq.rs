@@ -18,7 +18,7 @@ use eyre::Result;
 ///
 /// # Examples
 /// ```text
-/// use mise::backend::jq::extract;
+/// use pakro::backend::jq::extract;
 /// use serde_json::json;
 ///
 /// let data = json!(["1.0.0", "2.0.0"]);

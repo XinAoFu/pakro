@@ -1,7 +1,7 @@
-//! The installation catalog under `<installs>/.mise/`.
+//! The installation catalog under `<installs>/.pakro/`.
 //!
 //! ```text
-//! .mise/
+//! .pakro/
 //!   alloc.lock               held while a directory name is allocated
 //!   identities/<bucket>/<digest>.toml   IdentityRecord, bucketed by backend
 //!   names/<dir>              reservation: the digest a directory name belongs to
@@ -42,7 +42,7 @@ pub(crate) struct Catalog {
 }
 
 impl Catalog {
-    /// A catalog for the installs root `root` (for example `~/.local/share/mise/installs`).
+    /// A catalog for the installs root `root` (for example `~/.local/share/pakro/installs`).
     pub(crate) fn new(root: impl Into<PathBuf>) -> Self {
         let root = root.into();
         let store = super::resolver::store_of(&root);
@@ -68,7 +68,7 @@ impl Catalog {
     }
 
     pub(crate) fn meta_dir(&self) -> PathBuf {
-        self.root.join(".mise")
+        self.root.join(".pakro")
     }
 
     fn identities_dir(&self) -> PathBuf {
@@ -573,7 +573,7 @@ mod tests {
         let (_tmp, catalog) = catalog();
         let id = identity("core:node", "20.0.0");
         let digest = id.digest().to_base32();
-        // A directory that mise knows nothing about sits on the first choice.
+        // A directory that pakro knows nothing about sits on the first choice.
         let squatter = catalog.root().join(format!("node-{}", &digest[..8]));
         std::fs::create_dir_all(&squatter).unwrap();
         std::fs::write(squatter.join("keep"), "x").unwrap();
@@ -594,7 +594,7 @@ mod tests {
             &Receipt {
                 record: record.clone(),
                 requested_as: None,
-                mise_version: None,
+                pakro_version: None,
             },
         )
         .unwrap();
@@ -671,7 +671,7 @@ mod tests {
             &Receipt {
                 record: record.clone(),
                 requested_as: None,
-                mise_version: None,
+                pakro_version: None,
             },
         )
         .unwrap();
@@ -775,7 +775,7 @@ mod tests {
             &Receipt {
                 record,
                 requested_as: None,
-                mise_version: None,
+                pakro_version: None,
             },
         )
         .unwrap();

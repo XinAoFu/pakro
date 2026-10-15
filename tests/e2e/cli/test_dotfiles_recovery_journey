@@ -3,7 +3,7 @@
 # pull, undo, and fresh setup on a third machine from ordinary Git history.
 # shellcheck disable=SC2016
 require_cmd git
-export MISE_EXPERIMENTAL=0
+export PAKRO_EXPERIMENTAL=0
 
 origin="$PWD/origin.git"
 git init -q --bare -b main "$origin"
@@ -11,18 +11,18 @@ mkdir -p ~/.config/journey
 printf 'initial\n' >~/.config/journey/bindings
 printf 'machine-specific\n' >~/.config/journey/monitor
 chmod 600 ~/.config/journey/monitor
-assert_succeed 'mise bootstrap dotfiles track ~/.config/journey/bindings'
-assert_succeed "mise bootstrap dotfiles origin set file://$origin --sync manual --yes"
+assert_succeed 'pakro bootstrap dotfiles track ~/.config/journey/bindings'
+assert_succeed "pakro bootstrap dotfiles origin set file://$origin --sync manual --yes"
 initial=$(git --git-dir="$origin" rev-parse main)
 
 wrapper() {
-  mkdir -p "$2/.config/mise"
+  mkdir -p "$2/.config/pakro"
   cat <<WRAPPER >"$PWD/$1"
 #!/usr/bin/env bash
-export HOME="$2" XDG_CONFIG_HOME="$2/.config" MISE_CONFIG_DIR="$2/.config/mise" \\
-  MISE_STATE_DIR="$2/.local/state/mise" MISE_DATA_DIR="$2/.local/share/mise" \\
-  MISE_CACHE_DIR="$2/.cache/mise" MISE_TRUSTED_CONFIG_PATHS="$2"
-cd "\$HOME" && exec mise "\$@"
+export HOME="$2" XDG_CONFIG_HOME="$2/.config" PAKRO_CONFIG_DIR="$2/.config/pakro" \\
+  PAKRO_STATE_DIR="$2/.local/state/pakro" PAKRO_DATA_DIR="$2/.local/share/pakro" \\
+  PAKRO_CACHE_DIR="$2/.cache/pakro" PAKRO_TRUSTED_CONFIG_PATHS="$2"
+cd "\$HOME" && exec pakro "\$@"
 WRAPPER
   chmod +x "$PWD/$1"
 }
@@ -38,7 +38,7 @@ assert_fail "test -e $B/.config/journey/monitor"
 
 # Independent edits survive an offline interval; neither side silently wins.
 printf 'laptop edit\n' >~/.config/journey/bindings
-assert_succeed 'mise bootstrap dotfiles save'
+assert_succeed 'pakro bootstrap dotfiles save'
 mv "$origin" "$origin.offline"
 printf 'desktop edit\n' >"$B/.config/journey/bindings"
 chmod +x "$B/.config/journey/bindings"
@@ -46,15 +46,15 @@ assert_succeed "$b bootstrap dotfiles save"
 assert_fail "$b bootstrap dotfiles sync"
 assert_contains "$b bootstrap dotfiles history diff latest --patch" '+desktop edit'
 mv "$origin.offline" "$origin"
-assert_succeed 'mise bootstrap dotfiles sync'
+assert_succeed 'pakro bootstrap dotfiles sync'
 assert_succeed "$b bootstrap dotfiles sync"
 assert_fail "$b bootstrap dotfiles pull --yes" 'sync paused'
 assert "cat $B/.config/journey/bindings" 'desktop edit'
-assert_contains "$b bootstrap dotfiles status" 'mise dot conflicts'
+assert_contains "$b bootstrap dotfiles status" 'pakro dot conflicts'
 assert_contains "$b bootstrap dotfiles conflicts $B/.config/journey/bindings" '-desktop edit'
 assert_contains "$b bootstrap dotfiles conflicts $B/.config/journey/bindings" '+laptop edit'
-HOME="$B" git config --global merge.tool mise-test
-HOME="$B" git config --global mergetool.mise-test.cmd \
+HOME="$B" git config --global merge.tool pakro-test
+HOME="$B" git config --global mergetool.pakro-test.cmd \
   'grep -q "desktop edit" "$LOCAL" && grep -q "laptop edit" "$REMOTE" && touch "$HOME/difftool-ran"'
 assert_contains "$b bootstrap dotfiles conflicts --difftool $B/.config/journey/bindings" 'mode: 100755 -> 100644'
 assert_succeed "test -f $B/difftool-ran"
@@ -83,7 +83,7 @@ exec "$b" bootstrap dotfiles pull --yes
 WRAPPER
 chmod +x "$PWD/interrupted-pull"
 printf 'incoming edit\n' >~/.config/journey/bindings
-assert_succeed 'mise bootstrap dotfiles sync'
+assert_succeed 'pakro bootstrap dotfiles sync'
 assert_succeed "$b bootstrap dotfiles sync"
 assert_fail "$PWD/interrupted-pull"
 assert "cat $B/.config/journey/bindings" 'incoming edit'
@@ -102,5 +102,5 @@ assert_succeed "$c bootstrap dotfiles rollback $C/.config/journey/bindings --to 
 assert "cat $C/.config/journey/bindings" 'initial'
 assert_succeed "$c bootstrap dotfiles undo --yes"
 assert "cat $C/.config/journey/bindings" 'incoming edit'
-assert_fail "test -e $C/.config/mise/config.toml"
-assert "git --git-dir=$origin for-each-ref --format='%(refname)' refs/mise-history" ''
+assert_fail "test -e $C/.config/pakro/config.toml"
+assert "git --git-dir=$origin for-each-ref --format='%(refname)' refs/pakro-history" ''

@@ -38,7 +38,7 @@ pub enum ServiceScope {
     /// An existing Linux systemd system unit (the original behaviour).
     #[default]
     System,
-    /// A service mise defines for the current user: a systemd user unit on
+    /// A service pakro defines for the current user: a systemd user unit on
     /// Linux, a LaunchAgent on macOS, a Scheduled Task on Windows.
     User,
 }
@@ -89,7 +89,7 @@ pub struct ServiceTomlConfig {
     /// `"system"` (default) or `"user"`. A `builtin` implies `"user"`.
     #[serde(default)]
     pub scope: Option<ServiceScope>,
-    /// A service definition mise supplies (for example `"history-watch"`).
+    /// A service definition pakro supplies (for example `"history-watch"`).
     #[serde(default)]
     pub builtin: Option<String>,
     /// User scope: the command line to run.

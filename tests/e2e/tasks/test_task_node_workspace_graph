@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 monorepo_root = true
 EOF
 
@@ -44,19 +44,19 @@ cat <<'EOF' >packages/lib/package.json
 }
 EOF
 
-assert_contains "mise tasks graph" "node:@scope/app"
-assert_contains "mise tasks graph" "packages/app"
-assert_contains "mise tasks graph" '"package_manager":"bun"'
-assert_contains "mise tasks graph" '"workspace_source":"package.json"'
-assert_contains "mise tasks graph" "node:lib"
-assert_contains "mise tasks graph --explain" "Project: node:@scope/app"
-assert_contains "mise tasks graph --explain" "node:lib — node (packages/app/package.json)"
-assert_contains "mise tasks graph --explain" "Input: src/** — node (turbo.json)"
-assert_contains "mise tasks graph --explain" "Output: dist/** — node (turbo.json)"
-assert_contains "mise tasks graph --explain" "Cache: enabled — node (turbo.json)"
-assert_contains "mise tasks graph --explain" "Task dependency: ^build — node (turbo.json)"
+assert_contains "pakro tasks graph" "node:@scope/app"
+assert_contains "pakro tasks graph" "packages/app"
+assert_contains "pakro tasks graph" '"package_manager":"bun"'
+assert_contains "pakro tasks graph" '"workspace_source":"package.json"'
+assert_contains "pakro tasks graph" "node:lib"
+assert_contains "pakro tasks graph --explain" "Project: node:@scope/app"
+assert_contains "pakro tasks graph --explain" "node:lib — node (packages/app/package.json)"
+assert_contains "pakro tasks graph --explain" "Input: src/** — node (turbo.json)"
+assert_contains "pakro tasks graph --explain" "Output: dist/** — node (turbo.json)"
+assert_contains "pakro tasks graph --explain" "Cache: enabled — node (turbo.json)"
+assert_contains "pakro tasks graph --explain" "Task dependency: ^build — node (turbo.json)"
 
-assert_json "mise tasks graph --json | jq '.projects | map({id, root, dependencies})'" '[
+assert_json "pakro tasks graph --json | jq '.projects | map({id, root, dependencies})'" '[
   {
     "id": "node:@scope/app",
     "root": "packages/app",
@@ -71,7 +71,7 @@ assert_json "mise tasks graph --json | jq '.projects | map({id, root, dependenci
   }
 ]'
 
-assert_json "mise tasks graph --json | jq '.projects[] | select(.id == \"node:@scope/app\") | {
+assert_json "pakro tasks graph --json | jq '.projects[] | select(.id == \"node:@scope/app\") | {
   project: .provenance.provider,
   dependency: .dependency_provenance[\"node:lib\"].provider,
   task: .tasks.build.provenance.provider,

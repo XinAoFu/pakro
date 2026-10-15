@@ -2,22 +2,22 @@
 # shellcheck disable=SC2016
 # A common Git ancestor is sufficient even without a per-machine sync baseline.
 require_cmd git
-export MISE_HISTORY_NOTIFY=false
+export PAKRO_HISTORY_NOTIFY=false
 origin="$PWD/ordinary-origin.git"
 git init -q --bare -b main "$origin"
 echo base >~/.native
 echo base >~/.other
 echo base >~/.third
-assert_succeed "mise bootstrap dotfiles track ~/.native ~/.other ~/.third"
-assert_succeed "mise bootstrap dotfiles origin set file://$origin --sync manual --yes"
+assert_succeed "pakro bootstrap dotfiles track ~/.native ~/.other ~/.third"
+assert_succeed "pakro bootstrap dotfiles origin set file://$origin --sync manual --yes"
 
 second="$(dirname "$HOME")/second"
-mkdir -p "$second/.config/mise" "$second/.local/state/mise/history"
-git clone -q --bare "$origin" "$second/.local/state/mise/history/repo.git"
+mkdir -p "$second/.config/pakro" "$second/.local/state/pakro/history"
+git clone -q --bare "$origin" "$second/.local/state/pakro/history/repo.git"
 echo base >"$second/.native"
 echo base >"$second/.other"
 echo base >"$second/.third"
-cat >"$second/.config/mise/config.toml" <<'TOML'
+cat >"$second/.config/pakro/config.toml" <<'TOML'
 [dotfiles]
 "~/.native" = { mode = "track" }
 "~/.other" = { mode = "track" }
@@ -26,21 +26,21 @@ TOML
 b() {
   (
     cd "$second" || exit
-    env HOME="$second" XDG_CONFIG_HOME="$second/.config" MISE_CONFIG_DIR="$second/.config/mise" \
-      MISE_STATE_DIR="$second/.local/state/mise" MISE_DATA_DIR="$second/.local/share/mise" \
-      MISE_CACHE_DIR="$second/.cache/mise" MISE_TRUSTED_CONFIG_PATHS="$second" mise "$@"
+    env HOME="$second" XDG_CONFIG_HOME="$second/.config" PAKRO_CONFIG_DIR="$second/.config/pakro" \
+      PAKRO_STATE_DIR="$second/.local/state/pakro" PAKRO_DATA_DIR="$second/.local/share/pakro" \
+      PAKRO_CACHE_DIR="$second/.cache/pakro" PAKRO_TRUSTED_CONFIG_PATHS="$second" pakro "$@"
   )
 }
 export second
 export -f b
 assert_succeed "b bootstrap dotfiles origin set file://$origin --sync manual --yes"
-state="$second/.local/state/mise/history/repo.git/mise-sync-state.json"
+state="$second/.local/state/pakro/history/repo.git/pakro-sync-state.json"
 if [[ -f $state ]]; then
   mv "$state" "$state.saved-for-test"
 fi
 echo incoming >~/.native
-assert_succeed "mise bootstrap dotfiles save"
-assert_succeed "mise bootstrap dotfiles sync"
+assert_succeed "pakro bootstrap dotfiles save"
+assert_succeed "pakro bootstrap dotfiles sync"
 incoming=$(git --git-dir="$origin" rev-parse main)
 assert_succeed "b bootstrap dotfiles sync --fetch-only"
 assert_succeed "b bootstrap dotfiles pull --yes"
@@ -49,16 +49,16 @@ assert_succeed "b bootstrap dotfiles sync"
 assert_succeed "git --git-dir=$origin merge-base --is-ancestor $incoming main"
 
 # Two unresolved files hold unrelated incoming changes until all choices exist.
-assert_succeed "mise bootstrap dotfiles sync"
+assert_succeed "pakro bootstrap dotfiles sync"
 echo first-machine >~/.native
 echo first-machine >~/.third
 echo incoming-other >~/.other
 echo second-machine >"$second/.native"
 echo second-machine >"$second/.third"
 echo newly-enrolled >~/.fourth
-assert_succeed "mise bootstrap dotfiles track ~/.fourth"
-assert_succeed "mise bootstrap dotfiles save"
-assert_succeed "mise bootstrap dotfiles sync"
+assert_succeed "pakro bootstrap dotfiles track ~/.fourth"
+assert_succeed "pakro bootstrap dotfiles save"
+assert_succeed "pakro bootstrap dotfiles sync"
 first_head=$(git --git-dir="$origin" rev-parse main)
 assert_succeed "b bootstrap dotfiles save"
 assert_succeed "b bootstrap dotfiles sync"

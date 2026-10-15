@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
-mise_bin=${MISE_BIN:-"$repo_root/target/release/mise"}
+pakro_bin=${PAKRO_BIN:-"$repo_root/target/release/pakro"}
 source_count=${TASK_CACHE_BENCH_SOURCES:-2000}
 artifact_bytes=${TASK_CACHE_BENCH_ARTIFACT_BYTES:-33554432}
 task_count=${TASK_CACHE_BENCH_TASKS:-500}
@@ -14,8 +14,8 @@ for value in "$source_count" "$artifact_bytes" "$task_count" "$runs"; do
 		exit 2
 	fi
 done
-if [[ ! -x $mise_bin ]]; then
-	echo "mise benchmark binary is not executable: $mise_bin" >&2
+if [[ ! -x $pakro_bin ]]; then
+	echo "pakro benchmark binary is not executable: $pakro_bin" >&2
 	exit 2
 fi
 
@@ -34,7 +34,7 @@ if ! [[ $date_ns =~ ^[0-9]+$ ]]; then
 	fi
 fi
 
-fixture=$(mktemp -d "${TMPDIR:-/tmp}/mise-task-cache-bench.XXXXXX")
+fixture=$(mktemp -d "${TMPDIR:-/tmp}/pakro-task-cache-bench.XXXXXX")
 trap 'rm -rf "$fixture"' EXIT
 mkdir -p "$fixture/sources" "$fixture/cache" "$fixture/state"
 
@@ -76,13 +76,13 @@ EOF
 	for ((i = 1; i <= task_count; i++)); do
 		printf '\n[tasks."node-%d"]\nrun = "true"\noutputs = []\n' "$i"
 	done
-} >"$fixture/mise.toml"
+} >"$fixture/pakro.toml"
 
-export MISE_CACHE_DIR="$fixture/cache"
-export MISE_STATE_DIR="$fixture/state"
-export MISE_TRUSTED_CONFIG_PATHS="$fixture"
-export MISE_TASK_CACHE_MAX_AGE=0
-export MISE_TASK_CACHE_MAX_SIZE=0
+export PAKRO_CACHE_DIR="$fixture/cache"
+export PAKRO_STATE_DIR="$fixture/state"
+export PAKRO_TRUSTED_CONFIG_PATHS="$fixture"
+export PAKRO_TASK_CACHE_MAX_AGE=0
+export PAKRO_TASK_CACHE_MAX_SIZE=0
 
 now_ns() {
 	case $clock in
@@ -123,17 +123,17 @@ measure() {
 }
 
 # Populate every entry before timing cache-hit traversal and restoration.
-"$mise_bin" -C "$fixture" run --force hash >/dev/null 2>&1
-"$mise_bin" -C "$fixture" run --force archive >/dev/null 2>&1
-"$mise_bin" -C "$fixture" run --jobs 1 graph >/dev/null 2>&1
+"$pakro_bin" -C "$fixture" run --force hash >/dev/null 2>&1
+"$pakro_bin" -C "$fixture" run --force archive >/dev/null 2>&1
+"$pakro_bin" -C "$fixture" run --jobs 1 graph >/dev/null 2>&1
 
 printf 'task cache fixture: %d sources, %d artifact bytes, %d graph nodes\n\n' \
 	"$source_count" "$artifact_bytes" "$task_count"
 printf '| Phase           | Median    | Runs |\n'
 printf '|-----------------|-----------|------|\n'
-measure hashing "$mise_bin" -C "$fixture" run --force hash
-measure archive-publish "$mise_bin" -C "$fixture" run --force archive
-measure restore "$mise_bin" -C "$fixture" run archive
-measure cached-graph "$mise_bin" -C "$fixture" run --jobs 1 graph
+measure hashing "$pakro_bin" -C "$fixture" run --force hash
+measure archive-publish "$pakro_bin" -C "$fixture" run --force archive
+measure restore "$pakro_bin" -C "$fixture" run archive
+measure cached-graph "$pakro_bin" -C "$fixture" run --jobs 1 graph
 
 test -f "$fixture/dist/payload.bin"

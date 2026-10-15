@@ -45,7 +45,7 @@ pub fn enabled() -> bool {
     true
 }
 
-/// Backends whose installs are not a plain directory mise owns, so a receipt and
+/// Backends whose installs are not a plain directory pakro owns, so a receipt and
 /// a hashed directory name make no sense for them. They keep the legacy layout.
 ///
 /// * `http` installs are links into a content-addressed extraction cache that
@@ -80,7 +80,7 @@ pub(crate) fn applies_to(tv: &ToolVersion) -> bool {
 /// resolution). On Windows case, separators and the `\\?\` verbatim prefix are
 /// ignored, which canonicalizing would add and the configured roots do not carry.
 pub(crate) fn same_path(a: &Path, b: &Path) -> bool {
-    // A relative data directory (`MISE_DATA_DIR=data`) makes the configured roots
+    // A relative data directory (`PAKRO_DATA_DIR=data`) makes the configured roots
     // relative while paths derived from a link are absolute: compare them
     // from the same working directory.
     use path_absolutize::Absolutize;
@@ -136,7 +136,7 @@ pub(crate) fn is_primary_store(path: &Path) -> bool {
 }
 
 /// Whether `path` is an installation in the primary root's store, the only place
-/// mise installs into.
+/// pakro installs into.
 pub(crate) fn is_primary_install(path: &Path) -> bool {
     path.parent().is_some_and(is_primary_store)
 }
@@ -722,8 +722,8 @@ fn ambiguity_error(tv: &ToolVersion, installations: &[Located]) -> eyre::Report 
         .join("\n");
     eyre::eyre!(
         "{} matches several installations and none is selected:\n{list}\n\
-         Choose one with `mise installs select <dir>`, or install a fresh one with \
-         `mise install --force {}@{}`",
+         Choose one with `pakro installs select <dir>`, or install a fresh one with \
+         `pakro install --force {}@{}`",
         tv.style(),
         tv.ba().short,
         tv.version
@@ -752,7 +752,7 @@ fn legacy_located(legacy: PathBuf) -> Located {
 /// is only trusted when it is the one the request resolves to; otherwise the
 /// version is installed afresh in the new layout instead of reinterpreting
 /// another backend's payload. A tool directory with no recorded backend at all
-/// (made before mise recorded one) is, as it always was, its short name's own.
+/// (made before pakro recorded one) is, as it always was, its short name's own.
 fn legacy_dir(tv: &ToolVersion, identity: &InstallIdentity) -> Option<PathBuf> {
     let name = tv.tv_pathname();
     for root in roots() {
@@ -883,7 +883,7 @@ pub fn physical_dir(ba: &crate::args::BackendArg, name: &str) -> Option<PathBuf>
         if let Some(dir) = link_target(&slot) {
             return Some(dir);
         }
-        // A legacy installation or a `mise link` stands for itself: another
+        // A legacy installation or a `pakro link` stands for itself: another
         // installation that happens to list under the same name must not be mistaken
         // for it.
         if is_foreign_slot(&slot) {
@@ -907,7 +907,7 @@ pub fn sibling_version(tv: &ToolVersion, dir_name: &str) -> Option<String> {
     (receipt.record.identity.backend == backend).then_some(receipt.record.identity.version)
 }
 
-/// Refuse to remove an identity-layout path that mise did not create: a direct
+/// Refuse to remove an identity-layout path that pakro did not create: a direct
 /// child of an installs root that has neither a receipt nor a reserved name.
 /// Anything else (a legacy `<tool>/<version>` dir, an explicit path) is not this
 /// function's business.
@@ -920,11 +920,11 @@ pub(crate) fn guard_removal(path: &Path) -> Result<()> {
     let Some(root) = root_of_store(store) else {
         return Ok(());
     };
-    if read_receipt(path).is_some() || root.join(".mise").join("names").join(name).exists() {
+    if read_receipt(path).is_some() || root.join(".pakro").join("names").join(name).exists() {
         return Ok(());
     }
     eyre::bail!(
-        "refusing to remove {}: it is not an installation mise created",
+        "refusing to remove {}: it is not an installation pakro created",
         path.display()
     )
 }
@@ -964,7 +964,7 @@ pub(crate) fn unlink_installation(dir: &Path) {
 }
 
 /// Remove every identity-layout installation of a tool's backends, for
-/// `mise plugins uninstall --purge`. The catalog keeps its records.
+/// `pakro plugins uninstall --purge`. The catalog keeps its records.
 pub(crate) fn purge_installs(ba: &crate::args::BackendArg) -> Result<()> {
     if !enabled() {
         return Ok(());
@@ -1011,7 +1011,7 @@ pub(crate) fn installs_matching(backend: &str, version: &str) -> Vec<(String, Op
 
 /// The installations of `tv`'s tool and version on this platform made with the
 /// install options `tv` carries and more (see `extends`). A version named on the
-/// command line carries none of its own, so `mise where tool@1.0` has to find a
+/// command line carries none of its own, so `pakro where tool@1.0` has to find a
 /// copy made with the options a configuration file sets. Installations of `tv`'s
 /// own request are not variants: which of those it uses is its selection's
 /// business, never a guess here.
@@ -1096,20 +1096,20 @@ fn install_lock_path(dir: &Path) -> Option<PathBuf> {
         return None;
     }
     // Kept beside the installation, in its store: installs directories that share
-    // a store (MISE_INSTALL_STORE_DIR) then share the lock too. With the store
+    // a store (PAKRO_INSTALL_STORE_DIR) then share the lock too. With the store
     // in the installs directory this is the catalog's own lock directory.
     let store = store_of(&dirs::INSTALLS);
     let locks = if same_path(&store, &dirs::INSTALLS) {
-        store.join(".mise").join("locks")
+        store.join(".pakro").join("locks")
     } else {
-        store.join(".mise-locks")
+        store.join(".pakro-locks")
     };
     Some(locks.join(format!("{name}.lock")))
 }
 
 /// Whether the version slot `path` holds something this layout did not put there:
 /// a real directory (a legacy installation) or a link that is neither a
-/// compatibility link into the layout nor a runtime alias (`mise link`).
+/// compatibility link into the layout nor a runtime alias (`pakro link`).
 fn is_foreign_slot(path: &Path) -> bool {
     let Ok(meta) = std::fs::symlink_metadata(path) else {
         return false;
@@ -1166,7 +1166,7 @@ static WRITE_OBSERVER: std::sync::Mutex<Option<WriteObserver>> = std::sync::Mute
 
 /// Have `observer` told about every installation directory an install in this
 /// process is about to write into, once it holds that directory's lock and has
-/// found it has to write; `None` stops it. `mise installs migrate` records
+/// found it has to write; `None` stops it. `pakro installs migrate` records
 /// them, so that undoing an interrupted migration withdraws exactly what it
 /// made.
 pub fn observe_writes(observer: Option<WriteObserver>) {
@@ -1214,7 +1214,7 @@ pub(crate) fn allocate(tv: &ToolVersion, refresh: bool) -> Result<Option<Allocat
         && located.installed
     {
         match located.record {
-            // A legacy installation (or a `mise link`) is used, and refreshed, in
+            // A legacy installation (or a `pakro link`) is used, and refreshed, in
             // place; it is never moved into the identity layout.
             None => return Ok(None),
             // A variant standing in for a bare version (see `locate`) is used where
@@ -1264,8 +1264,8 @@ pub(crate) fn allocate(tv: &ToolVersion, refresh: bool) -> Result<Option<Allocat
             Unlocked::Selected(located) if !refresh && !is_primary_root(&located.root) => {
                 eyre::bail!(
                     "the installation selected for {} is in {}, which no longer has it. \
-                     Select another with `mise installs select <dir>`, or install a fresh one \
-                     with `mise install --force {}@{}`",
+                     Select another with `pakro installs select <dir>`, or install a fresh one \
+                     with `pakro install --force {}@{}`",
                     tv.style(),
                     located.root.display(),
                     tv.ba().short,
@@ -1361,7 +1361,7 @@ pub(crate) fn finish(
             &Receipt {
                 record: record.clone(),
                 requested_as: Some(tv.ba().short.clone()),
-                mise_version: Some(crate::version::VERSION.to_string()),
+                pakro_version: Some(crate::version::VERSION.to_string()),
             },
         )?;
     }
@@ -1397,7 +1397,7 @@ fn check_restored_artifact(
     }
     eyre::bail!(
         "{} was installed from an artifact with checksum {recorded}, but the artifact now \
-         available has checksum {acquired}. Run `mise install --force {}@{}` to adopt the new \
+         available has checksum {acquired}. Run `pakro install --force {}@{}` to adopt the new \
          artifact deliberately",
         tv.style(),
         tv.ba().short,
@@ -1473,7 +1473,7 @@ pub(crate) fn note_reuse(tv: &ToolVersion) -> Result<()> {
 ///
 /// A real legacy directory in that slot is left alone. Where a link cannot be
 /// created (Windows without junction support) the install still works through
-/// mise; the compatibility path is just unavailable, with a warning.
+/// pakro; the compatibility path is just unavailable, with a warning.
 pub(crate) fn link(tv: &ToolVersion, dir: &Path) -> Result<()> {
     let tool_dir = tv.ba().installs_path().to_path_buf();
     let slot = tool_dir.join(tv.tv_pathname());
@@ -1494,7 +1494,7 @@ pub(crate) fn link(tv: &ToolVersion, dir: &Path) -> Result<()> {
     if let Err(err) = file::make_dir_link(&target, &slot) {
         if cfg!(windows) {
             warn!(
-                "could not link {} to {}: {err:#}. {} works through mise; run `mise where` for \
+                "could not link {} to {}: {err:#}. {} works through pakro; run `pakro where` for \
                  its path.",
                 slot.display(),
                 dir.display(),
@@ -1513,7 +1513,7 @@ pub(crate) fn link(tv: &ToolVersion, dir: &Path) -> Result<()> {
 /// `i` beside `installs`), else the installation's absolute path.
 fn link_value(tool_dir: &Path, dir: &Path) -> PathBuf {
     use path_absolutize::Absolutize;
-    // A relative store (`MISE_INSTALL_STORE_DIR=store`) would be read from the
+    // A relative store (`PAKRO_INSTALL_STORE_DIR=store`) would be read from the
     // link's own directory, so a target that is not relative to it is absolute.
     let absolute = || {
         dir.absolutize()
@@ -1527,7 +1527,7 @@ fn link_value(tool_dir: &Path, dir: &Path) -> PathBuf {
         return Path::new("..").join(name);
     }
     // The sibling form `../../<store>/<name>` has to be right both ways it is
-    // read: lexically, by mise, which recognizes a version link by its target's
+    // read: lexically, by pakro, which recognizes a version link by its target's
     // directory being the configured store; and physically, by everything that
     // follows the link, where `..` through a symlinked installs directory leaves
     // the symlink's target. So the configured directories must be siblings, and
@@ -1576,7 +1576,7 @@ pub(crate) fn heal_links(ba: &crate::args::BackendArg) {
         return;
     }
     let primary = Catalog::new(dirs::INSTALLS.to_path_buf());
-    // Under the catalog lock `mise installs select` moves links with, so a choice
+    // Under the catalog lock `pakro installs select` moves links with, so a choice
     // made meanwhile is not overwritten with an older one.
     let _lock = match primary.lock() {
         Ok(lock) => lock,
@@ -1642,7 +1642,7 @@ pub fn link_target(slot: &Path) -> Option<PathBuf> {
     (is_store && target.join(RECEIPT_FILE).exists()).then_some(target)
 }
 
-/// One installation of the identity layout, as `mise installs` shows it.
+/// One installation of the identity layout, as `pakro installs` shows it.
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct Installation {
     /// The directory name, `<label>-<hash>`.
@@ -1773,7 +1773,7 @@ pub fn select(installation: &str) -> Result<Installation> {
         eyre::bail!("{name} is in more than one installs directory; pass its path:\n{paths}");
     }
     let Some((root, catalog)) = found.pop() else {
-        eyre::bail!("{installation} is not an installation; `mise installs ls` lists them");
+        eyre::bail!("{installation} is not an installation; `pakro installs ls` lists them");
     };
     let dir = catalog.store().join(&name);
     let receipt = read_receipt(&dir).ok_or_else(|| eyre::eyre!("{name} has no receipt"))?;
@@ -1813,7 +1813,7 @@ pub fn select(installation: &str) -> Result<Installation> {
 }
 
 /// Forget the unlocked selections that name the installation `dir`, after
-/// `mise uninstall` removed it on purpose: the requests it answered choose
+/// `pakro uninstall` removed it on purpose: the requests it answered choose
 /// again (another installation, or a legacy or shared copy). Prune keeps them,
 /// so a pruned selection is restored in place.
 pub fn forget_selections_of(dir: &Path) {
@@ -1875,7 +1875,7 @@ fn retarget_links(record: &IdentityRecord, dir: &Path, requested_as: Option<&str
             }
             // An empty slot, or a version link whose installation is gone, in the
             // directory of the tool it was requested as. Anything else there (a
-            // legacy installation, a `mise link`) is left alone.
+            // legacy installation, a `pakro link`) is left alone.
             None => {
                 requested
                     && (std::fs::symlink_metadata(&slot).is_err() || is_compat_link_shape(&slot))
@@ -1971,7 +1971,7 @@ pub fn installation_of(tv: &ToolVersion) -> Option<PathBuf> {
 }
 
 /// Adopt installations whose receipt is on disk but that the primary catalog does
-/// not know (it was lost, or a mise that predates it made them), so the catalog can
+/// not know (it was lost, or a pakro that predates it made them), so the catalog can
 /// always be rebuilt from receipts alone. `root_entries` are the names in the
 /// primary installs root, already read by the caller; a separate store is read here.
 pub(crate) fn adopt_unrecorded_installs(root_entries: &std::collections::BTreeSet<String>) {
@@ -1999,14 +1999,14 @@ pub fn is_receipt_name(name: &std::ffi::OsStr) -> bool {
 }
 
 /// Whether the entry `name` of an installs `root` is not a tool directory: the
-/// catalog (`.mise`, or any hidden entry) or an identity-layout installation,
+/// catalog (`.pakro`, or any hidden entry) or an identity-layout installation,
 /// told apart by its reservation or its receipt rather than by how it is named.
 pub(crate) fn is_reserved_dir(root: &Path, name: &str) -> bool {
     // Every name the catalog assigns ends in a hash, so a tool directory is told
     // apart without touching the disk.
     name.starts_with('.')
         || (has_hash_suffix(name)
-            && (root.join(".mise").join("names").join(name).exists()
+            && (root.join(".pakro").join("names").join(name).exists()
                 || root.join(name).join(RECEIPT_FILE).exists()))
 }
 
@@ -2084,14 +2084,14 @@ mod tests {
 
     #[test]
     fn windows_spellings_of_one_root_compare_equal() {
-        let a = windows_comparable(Path::new(r"C:\Users\Me\AppData\Local\mise\installs"));
+        let a = windows_comparable(Path::new(r"C:\Users\Me\AppData\Local\pakro\installs"));
         assert_eq!(
             a,
-            windows_comparable(Path::new(r"\\?\c:\users\me\appdata\local\mise\installs\"))
+            windows_comparable(Path::new(r"\\?\c:\users\me\appdata\local\pakro\installs\"))
         );
         assert_eq!(
             a,
-            windows_comparable(Path::new("C:/Users/Me/AppData/Local/mise/installs"))
+            windows_comparable(Path::new("C:/Users/Me/AppData/Local/pakro/installs"))
         );
         assert_ne!(
             a,
@@ -2099,8 +2099,8 @@ mod tests {
         );
         // UNC and WSL shares: the verbatim spelling is the same place.
         assert_eq!(
-            windows_comparable(Path::new(r"\\?\UNC\server\Share\mise\installs")),
-            windows_comparable(Path::new(r"\\server\share\mise\installs"))
+            windows_comparable(Path::new(r"\\?\UNC\server\Share\pakro\installs")),
+            windows_comparable(Path::new(r"\\server\share\pakro\installs"))
         );
         assert_eq!(
             windows_comparable(Path::new(r"\\?\UNC\wsl$\Ubuntu\home\me\installs\")),
@@ -2182,7 +2182,7 @@ mod tests {
                 &Receipt {
                     record,
                     requested_as: None,
-                    mise_version: None,
+                    pakro_version: None,
                 },
             )
             .unwrap();
@@ -2264,13 +2264,13 @@ mod tests {
     }
 
     #[test]
-    fn removal_is_refused_for_a_directory_mise_did_not_create() {
+    fn removal_is_refused_for_a_directory_pakro_did_not_create() {
         let fx = Fixture::new();
         assert!(guard_removal(&fx.install).is_ok());
         let stranger = dirs::INSTALL_STORE.join(format!("stranger-{}", std::process::id()));
         std::fs::create_dir_all(&stranger).unwrap();
         let err = guard_removal(&stranger).unwrap_err().to_string();
-        assert!(err.contains("not an installation mise created"), "{err}");
+        assert!(err.contains("not an installation pakro created"), "{err}");
         // A legacy `<tool>/<version>` path is not this function's business.
         assert!(guard_removal(&fx.tool_dir.join("1.2.3")).is_ok());
         let _ = std::fs::remove_dir_all(&stranger);
@@ -2305,7 +2305,7 @@ mod tests {
             err.contains("sha256:a") && err.contains("sha256:b"),
             "{err}"
         );
-        assert!(err.contains("mise install --force dummy@1.0.0"), "{err}");
+        assert!(err.contains("pakro install --force dummy@1.0.0"), "{err}");
     }
 
     #[test]

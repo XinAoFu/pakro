@@ -2,10 +2,10 @@
 set -euo pipefail
 
 detect_platform
-export MISE_LOCKFILE_MODE=generate
-assert_fail "MISE_LOCKFILE_MODE=invalid mise settings get lockfile_mode"
+export PAKRO_LOCKFILE_MODE=generate
+assert_fail "PAKRO_LOCKFILE_MODE=invalid pakro settings get lockfile_mode"
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [settings]
 lockfile_platforms = ["linux-x64", "macos-arm64"]
 
@@ -16,50 +16,50 @@ bin_path = "hello-world-1.0.0/bin"
 EOF
 
 # Choosing the generator does not opt in to creating a file during install.
-mise install
-assert "test -e mise.lock && echo exists || echo absent" "absent"
+pakro install
+assert "test -e pakro.lock && echo exists || echo absent" "absent"
 
-mise lock
-assert_contains "cat mise.lock" 'sha256:'
-assert_not_contains "cat mise.lock" 'provenance_verified'
-cp mise.lock expected.lock
-mise lock
-diff -u expected.lock mise.lock
-mise install
-diff -u expected.lock mise.lock
+pakro lock
+assert_contains "cat pakro.lock" 'sha256:'
+assert_not_contains "cat pakro.lock" 'provenance_verified'
+cp pakro.lock expected.lock
+pakro lock
+diff -u expected.lock pakro.lock
+pakro install
+diff -u expected.lock pakro.lock
 
 # A filtered update must carry the other target forward.
-mise lock --platform linux-x64
-diff -u expected.lock mise.lock
+pakro lock --platform linux-x64
+diff -u expected.lock pakro.lock
 
-# `mise unuse` prunes the removed tool's entry, but an unuse that edits nothing
+# `pakro unuse` prunes the removed tool's entry, but an unuse that edits nothing
 # leaves the lockfile exactly as it found it.
-cp mise.toml with-fixture.toml
-mise unuse http:generate-absent
-diff -u expected.lock mise.lock
-mise unuse http:generate-fixture
-assert_not_contains "cat mise.lock" 'generate-fixture'
-cp with-fixture.toml mise.toml
-cp expected.lock mise.lock
+cp pakro.toml with-fixture.toml
+pakro unuse http:generate-absent
+diff -u expected.lock pakro.lock
+pakro unuse http:generate-fixture
+assert_not_contains "cat pakro.lock" 'generate-fixture'
+cp with-fixture.toml pakro.toml
+cp expected.lock pakro.lock
 
 # Explicit choices override the configured mode, with no format migration.
-mise settings --local set lockfile_mode merge
-assert "mise settings get lockfile_mode" "generate"
-unset MISE_LOCKFILE_MODE
-assert "mise settings get lockfile_mode" "merge"
-mise install
-diff -u expected.lock mise.lock
-export MISE_LOCKFILE_MODE=generate
-mise lock
-diff -u expected.lock mise.lock
+pakro settings --local set lockfile_mode merge
+assert "pakro settings get lockfile_mode" "generate"
+unset PAKRO_LOCKFILE_MODE
+assert "pakro settings get lockfile_mode" "merge"
+pakro install
+diff -u expected.lock pakro.lock
+export PAKRO_LOCKFILE_MODE=generate
+pakro lock
+diff -u expected.lock pakro.lock
 
 # Failure cannot publish over an existing lockfile.
-mise settings --local set lockfile_mode generate
-cat >>mise.toml <<'EOF'
+pakro settings --local set lockfile_mode generate
+cat >>pakro.toml <<'EOF'
 
 [tools."http:generate-broken"]
 version = "1.0.0"
 url = "http://127.0.0.1:1/unavailable.tar.gz"
 EOF
-assert_fail "MISE_HTTP_RETRIES=0 mise lock"
-diff -u expected.lock mise.lock
+assert_fail "PAKRO_HTTP_RETRIES=0 pakro lock"
+diff -u expected.lock pakro.lock

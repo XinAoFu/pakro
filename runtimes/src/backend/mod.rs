@@ -92,7 +92,7 @@ pub(crate) type BackendList = Vec<ABackend>;
 pub(crate) type IdiomaticVersion = (String, Option<ToolVersionOptions>);
 pub(crate) type VersionCacheManager = CacheManager<Vec<VersionInfo>>;
 
-pub(crate) const MISE_BINS_DIR: &str = ".mise-bins";
+pub(crate) const PAKRO_BINS_DIR: &str = ".pakro-bins";
 
 /// Why a backend's remote version listing failed.
 ///
@@ -131,7 +131,7 @@ pub fn version_listing_failure(ba: &BackendArg) -> Option<String> {
         .cloned()
 }
 
-/// mise-versions publishes one version list per registry short name, generated from the
+/// pakro-versions publishes one version list per registry short name, generated from the
 /// entry's first backend. Every other backend of the same entry lists different versions:
 /// a `min_version` boundary routes older requests to a later backend, and platform or
 /// settings filtering can select one too. Compare against the declared first backend
@@ -267,7 +267,7 @@ pub struct VersionInfo {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub release_url: Option<String>,
     /// If true, this is a rolling release (like "nightly") that should always
-    /// be considered potentially outdated for `mise up` purposes
+    /// be considered potentially outdated for `pakro up` purposes
     #[serde(default, skip_serializing_if = "is_false")]
     pub rolling: bool,
     /// Checksum of the release asset, used to detect changes in rolling releases
@@ -278,7 +278,7 @@ pub struct VersionInfo {
     /// flag, or semver/PEP 440 detection where the version grammar is total).
     /// `None` means the source has no pre-release signal at all, so consumers
     /// can distinguish "confirmed stable" from "unknown". Metadata-free
-    /// listing backends can opt in to stamping `Some(true)` from mise's
+    /// listing backends can opt in to stamping `Some(true)` from pakro's
     /// legacy pre-release pattern before caching.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prerelease: Option<bool>,
@@ -714,7 +714,7 @@ fn parse_matching_registry_idiomatic_file(
         .filter(|spec| spec.has_parser())
     {
         Some(spec) => match spec.deprecated {
-            // The file's only parser reads a value mise should not be installing from.
+            // The file's only parser reads a value pakro should not be installing from.
             // Opting in early means it yields nothing -- `Some(vec![])` rather than
             // `None`, so the backend's plain-text fallback doesn't read the whole file.
             Some(_) if Settings::get().idiomatic_version_file_ignore_minimum_versions => {
@@ -735,7 +735,7 @@ fn parse_matching_registry_idiomatic_file(
                         "2026.8.10",
                         "2026.11.0",
                         id,
-                        "{reason} mise will stop reading it as an idiomatic version file; set the version in mise.toml instead."
+                        "{reason} pakro will stop reading it as an idiomatic version file; set the version in pakro.toml instead."
                     );
                 }
                 Ok(versions)
@@ -759,7 +759,7 @@ fn which_non_pristine_executable(bin: &str) -> Option<PathBuf> {
 ///
 /// * `false` — the historical "looks executable" test. On Windows that deliberately
 ///   accepts a shebang-only script and a `.ps1`, because it answers *"does this tool
-///   provide this bin"* for `mise which`, shims, auto-install and tool-stubs. Not to be
+///   provide this bin"* for `pakro which`, shims, auto-install and tool-stubs. Not to be
 ///   narrowed.
 /// * `true` — [`is_spawnable`], i.e. *"can the OS launch this"*. Crucially it keeps
 ///   searching **past** a candidate it rejects, so `None` means "nothing spawnable
@@ -770,7 +770,7 @@ fn which_non_pristine_executable(bin: &str) -> Option<PathBuf> {
 /// `which` crate all use, and the order [`Backend::which`] has always used. It diverges
 /// from [`which_non_pristine_executable`], which is *name-major* — the bare name is tried
 /// across the whole PATH before any extension — and that one is left alone. Only
-/// directory-major resolves the case this exists for: mise's own node install ships a
+/// directory-major resolves the case this exists for: pakro's own node install ships a
 /// shebang `npm` and an `npm.cmd` side by side in one directory, with no `npm.exe`.
 ///
 /// On unix `file::executable_names` returns exactly one name, so both orders are the same
@@ -795,11 +795,11 @@ where
 /// actually spawn.
 ///
 /// Non-pristine to match that function, which is what [`Backend::dependency_which`] uses.
-/// The "a mise-managed tool beats a system one" contract that
+/// The "a pakro-managed tool beats a system one" contract that
 /// comes from consulting the toolset
 /// first in [`Backend::spawnable_dependency`], not from the PATH flavor, so it is kept.
 ///
-/// mise's shim directories are skipped on Windows. A shim re-enters mise, and once a
+/// pakro's shim directories are skipped on Windows. A shim re-enters pakro, and once a
 /// resolved absolute path is handed to `Command::new` the child PATH no longer gets a
 /// vote, so a shim that the child PATH would have shadowed must not win —
 /// [`file::which_no_shims`] exists for the same reason. Windows-gated so the unix answer
@@ -808,16 +808,16 @@ where
 /// The skip is not free for callers that treat `None` as fatal. Through
 /// [`Backend::spawn_program`] a miss falls back to the bare name, i.e. today's code path.
 /// Through [`Backend::spawnable_dependency`] it is a gate, so a tool reachable *only* via a
-/// mise shim — installed by mise yet declared in no active config, so the dependency
+/// pakro shim — installed by pakro yet declared in no active config, so the dependency
 /// toolset does not have it either — now reports its install instructions instead of
-/// re-entering mise through the shim. That trade is deliberate: the alternative is
+/// re-entering pakro through the shim. That trade is deliberate: the alternative is
 /// spawning our own shim from inside an install, and the instructions are correct advice
 /// for a tool that is installed but unconfigured.
 fn which_non_pristine_spawnable(bin: &str) -> Option<PathBuf> {
     let skip_shims = cfg!(windows);
     let dirs = env::PATH_NON_PRISTINE
         .iter()
-        .filter(|p| !skip_shims || !file::is_mise_dispatch_dir(p))
+        .filter(|p| !skip_shims || !file::is_pakro_dispatch_dir(p))
         .cloned();
     which_in_dirs(dirs, bin, true)
 }
@@ -825,7 +825,7 @@ fn which_non_pristine_spawnable(bin: &str) -> Option<PathBuf> {
 pub(crate) fn which_no_shims_spawnable(bin: &str) -> Option<PathBuf> {
     let dirs = env::PATH_NON_PRISTINE
         .iter()
-        .filter(|p| !file::is_mise_dispatch_dir(p))
+        .filter(|p| !file::is_pakro_dispatch_dir(p))
         .cloned();
     which_in_dirs(dirs, bin, true)
 }
@@ -1288,7 +1288,7 @@ mod tests {
 
     #[test]
     fn test_only_the_preferred_registry_backend_may_use_the_versions_host() {
-        // mise-versions publishes one list per short name, built from the preferred
+        // pakro-versions publishes one list per short name, built from the preferred
         // backend. A `min_version` boundary routes older requests to a later backend
         // whose versions that list does not describe.
         let preferred = BackendArg::new(
@@ -1836,7 +1836,7 @@ mod tests {
 
     #[test]
     fn test_version_info_prerelease_json_three_states() {
-        // `ls-remote --json` consumers (e.g. mise-versions) rely on the
+        // `ls-remote --json` consumers (e.g. pakro-versions) rely on the
         // distinction: explicit true/false when the source can tell, key
         // absent when it cannot. A backend without a pre-release signal must
         // not serialize `prerelease: false` as if the version were confirmed
@@ -1994,7 +1994,7 @@ mod tests {
         assert!(!backend.include_prereleases(&opts));
 
         // Flipping the global setting takes effect without any per-tool config —
-        // this is the path `MISE_PRERELEASES=1` and `mise ls-remote --prerelease`
+        // this is the path `PAKRO_PRERELEASES=1` and `pakro ls-remote --prerelease`
         // both ride on.
         let mut partial = SettingsPartial::empty();
         partial.prereleases = Some(true);
@@ -2170,7 +2170,7 @@ pub trait Backend: Debug + Send + Sync {
     /// These options affect artifact identity and must match exactly for lockfile lookup.
     ///
     /// For the current platform: resolves from Settings and ToolRequest options
-    /// For other platforms (cross-platform mise lock): uses sensible defaults
+    /// For other platforms (cross-platform pakro lock): uses sensible defaults
     ///
     /// Backends should override this to return options that affect which artifact is downloaded.
     fn resolve_lockfile_options(
@@ -2206,7 +2206,7 @@ pub trait Backend: Debug + Send + Sync {
     ///
     /// Some tools have compile-time variants (e.g., bun has baseline/musl variants)
     /// that result in different download URLs and checksums. This method allows
-    /// backends to declare all variants so `mise lock` can fetch checksums for each.
+    /// backends to declare all variants so `pakro lock` can fetch checksums for each.
     ///
     /// Default returns just the base platform. Backends should override this to
     /// return additional variants when applicable.
@@ -2266,7 +2266,7 @@ pub trait Backend: Debug + Send + Sync {
 
     /// Plugin-declared system prerequisites (build tools, libraries, ...) that
     /// must be present on the machine before this tool can install. Distinct
-    /// from [`Backend::get_dependencies`], which returns other *mise tools*.
+    /// from [`Backend::get_dependencies`], which returns other *pakro tools*.
     /// Detection is the source of truth; the package hints attached to each dep
     /// only drive optional remediation. Infallible by design — a malformed
     /// declaration must never block an install, so overrides warn and skip.
@@ -2693,14 +2693,14 @@ pub trait Backend: Debug + Send + Sync {
 
     /// Whether `version` names a rolling release channel (e.g. zig's "master")
     /// rather than a concrete version. Cheap (no network). Channels are re-resolved
-    /// to a concrete version like "latest" so `mise upgrade`/`outdated` can track
+    /// to a concrete version like "latest" so `pakro upgrade`/`outdated` can track
     /// new builds instead of pinning the channel name forever. (#10251)
     fn is_rolling_channel(&self, _version: &str) -> bool {
         false
     }
 
     /// The latest installed version that belongs to the rolling `channel` (see
-    /// [`Backend::is_rolling_channel`]), or `None`. Lets `mise x` / hook-env reuse
+    /// [`Backend::is_rolling_channel`]), or `None`. Lets `pakro x` / hook-env reuse
     /// an installed channel build without a network round-trip, while never falling
     /// back to an unrelated release (e.g. a stable Zig for `zig@master`). Cheap --
     /// it filters already-installed versions, no network. (#10251)
@@ -2743,7 +2743,7 @@ pub trait Backend: Debug + Send + Sync {
         None
     }
     /// Backend-specific validation for an install prefix that exists and is
-    /// otherwise complete. Keep this check cheap: it runs anywhere mise asks
+    /// otherwise complete. Keep this check cheap: it runs anywhere pakro asks
     /// whether a version is installed, including activation and doctor.
     fn is_install_path_healthy(&self, _install_path: &Path) -> bool {
         true
@@ -2809,7 +2809,7 @@ pub trait Backend: Debug + Send + Sync {
                     // after the channel (`installs/<id>/latest/`) from a prior install that
                     // never got a symlink (e.g., first install ran offline or remote resolution
                     // transiently returned None, leaving tv.version="latest"). We must check
-                    // the RESOLVED path instead so that `mise upgrade` re-runs the backend's
+                    // the RESOLVED path instead so that `pakro upgrade` re-runs the backend's
                     // install hook and writes the new version to `installs/<id>/<new-version>/`.
                     if matches!(
                         &tv.request,
@@ -2830,7 +2830,7 @@ pub trait Backend: Debug + Send + Sync {
     /// Whether an explicit install request is already satisfied.
     ///
     /// Most backends are satisfied when the version's install path exists. Some
-    /// backends have extra mutable install state outside mise's install path,
+    /// backends have extra mutable install state outside pakro's install path,
     /// such as rustup components and targets.
     async fn is_install_satisfied(
         &self,
@@ -2843,7 +2843,7 @@ pub trait Backend: Debug + Send + Sync {
 
     /// Bring an installed but unsatisfied version back in line with its
     /// request without reinstalling it. Returns `false` when the backend cannot
-    /// repair in place, in which case mise reinstalls the version.
+    /// repair in place, in which case pakro reinstalls the version.
     async fn repair_install(&self, _ctx: &InstallContext, _tv: &ToolVersion) -> Result<bool> {
         Ok(false)
     }
@@ -3680,7 +3680,7 @@ pub trait Backend: Debug + Send + Sync {
             if !has_lockfile_url {
                 bail!(
                     "No lockfile URL found for {} on platform {} (--locked mode)\n\
-                    hint: Run `mise lock` to generate lockfile URLs, or disable locked mode",
+                    hint: Run `pakro lock` to generate lockfile URLs, or disable locked mode",
                     tv.style(),
                     platform_key
                 );
@@ -3762,7 +3762,7 @@ pub trait Backend: Debug + Send + Sync {
             crate::install_layout::resolver::lock_install(&tv.install_path(), &|pid| {
                 ctx.pr.set_message(install_lock_wait_message(pid));
             })?;
-        // Another mise may be installing this exact version. Say so while we
+        // Another pakro may be installing this exact version. Say so while we
         // wait on it: a row that sits in "resolving" for a minute looks hung.
         let mut _state_lock = Some(install_state::lock_tool_version_with_notice(
             tv.ba(),
@@ -3905,7 +3905,7 @@ pub trait Backend: Debug + Send + Sync {
 
         let old_tv = tv.clone();
         // An in-place update leaves the installed version with the backend, so a
-        // failed update must not also take away mise's link to it.
+        // failed update must not also take away pakro's link to it.
         let kept_symlink = (rolling_reinstall && self.updates_rolling_version_in_place())
             .then(|| file::resolve_symlink(&tv.install_path()).ok().flatten())
             .flatten();
@@ -3972,7 +3972,7 @@ pub trait Backend: Debug + Send + Sync {
             } else if env::install_path_category(&install_path) != env::InstallPathCategory::Local {
                 // For --system/--shared installs, write manifest to the target installs dir
                 if let Some(installs_dir) = install_path.parent().and_then(|p| p.parent()) {
-                    let manifest = installs_dir.join(".mise-installs.toml");
+                    let manifest = installs_dir.join(".pakro-installs.toml");
                     install_state::write_backend_meta_to(self.ba(), &manifest)?;
                     update_install_state = true;
                 }
@@ -4154,9 +4154,9 @@ pub trait Backend: Debug + Send + Sync {
 
         let mut runner = CmdLineRunner::new(program)
             .env(&*env::PATH_KEY, path_env.join())
-            .env("MISE_TOOL_INSTALL_PATH", tv.install_path())
-            .env("MISE_TOOL_NAME", tv.ba().short.clone())
-            .env(env::MISE_TOOL_VERSION_ENV_VAR, tv.version.clone())
+            .env("PAKRO_TOOL_INSTALL_PATH", tv.install_path())
+            .env("PAKRO_TOOL_NAME", tv.ba().short.clone())
+            .env(env::PAKRO_TOOL_VERSION_ENV_VAR, tv.version.clone())
             .with_pr(ctx.pr.as_ref())
             .cmd_body_args(shell_args, &rendered_script)
             .envs(env_vars);
@@ -4164,16 +4164,16 @@ pub trait Backend: Debug + Send + Sync {
             runner = runner.env_remove(key);
         }
 
-        // Keep the declaring config and active project distinct. MISE_CONFIG_FILE is also a
-        // legacy alias for the global config, so pin the actual global path for nested mise calls.
+        // Keep the declaring config and active project distinct. PAKRO_CONFIG_FILE is also a
+        // legacy alias for the global config, so pin the actual global path for nested pakro calls.
         if let Some(source_path) = tv.request.source().path() {
             let config_root = config_root::config_root(source_path);
             let project_root = ctx.config.project_root.as_ref().unwrap_or(&config_root);
             runner = runner
-                .env("MISE_CONFIG_FILE", source_path)
-                .env("MISE_GLOBAL_CONFIG_FILE", global_config_path())
-                .env("MISE_CONFIG_ROOT", &config_root)
-                .env("MISE_PROJECT_ROOT", project_root);
+                .env("PAKRO_CONFIG_FILE", source_path)
+                .env("PAKRO_GLOBAL_CONFIG_FILE", global_config_path())
+                .env("PAKRO_CONFIG_ROOT", &config_root)
+                .env("PAKRO_PROJECT_ROOT", project_root);
         }
 
         let result = runner
@@ -4442,7 +4442,7 @@ pub trait Backend: Debug + Send + Sync {
     fn cleanup_empty_installs_dir(&self) {
         let installs_path = &self.ba().installs_path();
         if file::dir_subdirs(installs_path).is_ok_and(|entries| entries.is_empty()) {
-            let _ = file::remove_file(installs_path.join(".mise.backend.toml"));
+            let _ = file::remove_file(installs_path.join(".pakro.backend.toml"));
             if installs_path
                 .read_dir()
                 .is_ok_and(|mut entries| entries.next().is_none())
@@ -4545,7 +4545,7 @@ pub trait Backend: Debug + Send + Sync {
     /// the search `Command::spawn` used to perform itself: every spawn site hands the
     /// child an environment whose PATH has the dependency toolset's dirs *prepended*
     /// (`dependency_env`/`prepend_path`), and std resolves a bare program against that
-    /// child PATH — so the mise-managed tool won. Resolving host PATH first here would
+    /// child PATH — so the pakro-managed tool won. Resolving host PATH first here would
     /// flip that, and a system npm would beat the node-bundled one for the `ts: None`
     /// metadata probes (`npm view`, `gem sources`, `go list`). Dependency toolset first
     /// preserves the old selection.
@@ -4581,16 +4581,16 @@ pub trait Backend: Debug + Send + Sync {
 
     /// The program to hand `CmdLineRunner::new` or `cmd!` for `bin`.
     ///
-    /// On Windows: a resolved absolute path when one spawnable candidate was found. mise's
+    /// On Windows: a resolved absolute path when one spawnable candidate was found. pakro's
     /// own lookup is PATHEXT-aware — `executable_names` expands the
     /// `windows_executable_extensions` setting — but `Command::new` is not: std only ever
-    /// appends `.exe` to a bare name and then reports "program not found". mise's node
+    /// appends `.exe` to a bare name and then reports "program not found". pakro's node
     /// install ships `npm` (a `#!/usr/bin/env bash` script), `npm.cmd` and `npm.ps1` but no
     /// `npm.exe`, and on Windows the node plugin puts the install root itself on PATH;
     /// pipx from scoop or `pip install pipx` is only ever `pipx.cmd` (discussion #5333).
     /// Handing over the resolved path skips std's weaker second lookup — std routes
     /// `.cmd`/`.bat` through cmd.exe with escaped arguments, the same way the `pip.cmd`
-    /// wrappers mise synthesizes for Windows python are already run.
+    /// wrappers pakro synthesizes for Windows python are already run.
     ///
     /// Falls back to the bare name — today's behavior on every platform — when nothing
     /// spawnable resolved. The child still receives a PATH built from the toolset, so the
@@ -4599,9 +4599,9 @@ pub trait Backend: Debug + Send + Sync {
     ///
     /// Unix keeps the bare name on purpose, and `cfg!(windows)` short-circuits so it does
     /// no filesystem work to get there. The unix spawn already works, and it is the child
-    /// PATH that decides between a mise-managed tool and a system one
+    /// PATH that decides between a pakro-managed tool and a system one
     /// (`e2e/backend/test_pipx_direct_dependencies` asserts that preference). Resolving
-    /// there would move that decision out of the child's PATH and into mise.
+    /// there would move that decision out of the child's PATH and into pakro.
     ///
     /// Returns `OsString`, and that is load-bearing rather than cosmetic: duct implements
     /// `IntoExecutablePath for PathBuf` as `Path::new(".").join(path)`, so a `PathBuf` in a
@@ -4628,7 +4628,7 @@ pub trait Backend: Debug + Send + Sync {
     /// `provided_by` lists tool names that are known to provide the `program` binary
     /// (e.g., "npm" is provided by &["node"]). If any of these tools are configured
     /// in the toolset (even if not yet installed), the warning is suppressed since
-    /// mise will install them as dependencies first.
+    /// pakro will install them as dependencies first.
     async fn warn_if_dependency_missing(
         &self,
         config: &Arc<Config>,
@@ -4640,7 +4640,7 @@ pub trait Backend: Debug + Send + Sync {
 
         if !found {
             // Check if a tool that provides this program is configured in the toolset
-            // (even if not yet installed). If so, mise will install it as a dependency
+            // (even if not yet installed). If so, pakro will install it as a dependency
             // before this tool needs it, so the warning is spurious.
             if let Ok(ts) = self.dependency_toolset(config).await
                 && ts
@@ -4659,7 +4659,7 @@ pub trait Backend: Debug + Send + Sync {
 
     async fn dependency_env(&self, config: &Arc<Config>) -> eyre::Result<BTreeMap<String, String>> {
         // Use full_env_without_tools to avoid triggering `tools = true` env module
-        // hooks (e.g., MiseEnv Lua hooks). Those modules may depend on tools that
+        // hooks (e.g., PakroEnv Lua hooks). Those modules may depend on tools that
         // are not in the dependency toolset, causing "command not found" errors.
         // The dependency env only needs tool bin paths on PATH, not module outputs.
         let mut env = self
@@ -4668,14 +4668,14 @@ pub trait Backend: Debug + Send + Sync {
             .full_env_without_tools(config)
             .await?;
 
-        // Remove mise shims from PATH to prevent infinite shim recursion when a
+        // Remove pakro shims from PATH to prevent infinite shim recursion when a
         // dependency tool (e.g., go) is configured but not installed. Without this,
-        // the shim for the dependency would call `mise exec` which would call the
+        // the shim for the dependency would call `pakro exec` which would call the
         // shim again infinitely.
         //
-        // `is_mise_shims_dir` covers both the user shims dir (`dirs::SHIMS`) and
-        // the system shims dir (`MISE_SYSTEM_DATA_DIR/shims`). Both are typically
-        // on PATH in devcontainer/Docker setups built with `mise install --system`;
+        // `is_pakro_shims_dir` covers both the user shims dir (`dirs::SHIMS`) and
+        // the system shims dir (`PAKRO_SYSTEM_DATA_DIR/shims`). Both are typically
+        // on PATH in devcontainer/Docker setups built with `pakro install --system`;
         // filtering only one used to leak recursion through the other (#8475
         // closed the user dir for `dependency_env`, this PR closes the system dir
         // and aligns with the dual-dir guard already in `which_shim` (#8816)).
@@ -4701,7 +4701,7 @@ pub trait Backend: Debug + Send + Sync {
             let original_len = paths.len();
             let filtered: Vec<_> = paths
                 .into_iter()
-                .filter(|p| !file::is_mise_dispatch_dir(p))
+                .filter(|p| !file::is_pakro_dispatch_dir(p))
                 .collect();
             if filtered.len() != original_len {
                 let joined = env::join_paths(&filtered)?;
@@ -6268,7 +6268,7 @@ const UNINSTALL_OPERATION_WEIGHT: f64 = 0.05;
 /// What an install says while another process holds its tool-version lock.
 /// Naming the PID matters: the holder is usually a shim auto-installing the
 /// tool, and a shim's command line reads like the tool (`node app.js`), not
-/// like mise.
+/// like pakro.
 pub(crate) fn install_lock_wait_message(holder_pid: Option<u32>) -> String {
     match holder_pid {
         Some(pid) => format!("waiting for install lock held by pid {pid}"),
@@ -6347,7 +6347,7 @@ fn find_match_in_list(list: &[String], query: &str) -> Option<String> {
 
 /// Apply the read-time `prerelease` filter to the cached remote-versions
 /// superset. Backends cache the full list and stamp `VersionInfo.prerelease`
-/// either from upstream metadata or, for metadata-free listing backends, mise's
+/// either from upstream metadata or, for metadata-free listing backends, pakro's
 /// legacy pre-release pattern. This helper drops pre-release entries when the
 /// current tool opts don't opt in.
 /// What a backend may report while offline: whatever the cache holds, and

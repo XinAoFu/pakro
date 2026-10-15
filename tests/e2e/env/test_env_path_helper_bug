@@ -2,7 +2,7 @@
 # shellcheck disable=SC1071
 set -eu
 
-# Verifies that user PATH modifications after mise activation are respected
+# Verifies that user PATH modifications after pakro activation are respected
 
 mkdir -p homebrew/bin system/bin
 
@@ -18,15 +18,15 @@ echo "system-tool"
 EOF
 chmod +x system/bin/tool
 
-cat >.mise.toml <<'EOF'
+cat >.pakro.toml <<'EOF'
 [env]
 _.path = ["homebrew/bin"]
 EOF
 
-# Activate mise (homebrew/bin comes first)
-eval "$(mise activate zsh --status)"
+# Activate pakro (homebrew/bin comes first)
+eval "$(pakro activate zsh --status)"
 
-# User explicitly prepends their own path after mise activation
+# User explicitly prepends their own path after pakro activation
 # This should be respected and remain first
 export PATH="$PWD/system/bin:$PATH"
 
@@ -34,7 +34,7 @@ export PATH="$PWD/system/bin:$PATH"
 test "$(tool)" = "system-tool" || exit 1
 
 # After precmd runs, user's explicit PATH modification should still be respected
-_mise_hook_precmd
+_pakro_hook_precmd
 
-# User's path should still have priority over mise paths
+# User's path should still have priority over pakro paths
 test "$(tool)" = "system-tool" || exit 1

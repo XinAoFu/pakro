@@ -14,7 +14,7 @@ use std::{
     sync::Arc,
 };
 
-// use indexmap so source is after value for `mise env --json` output
+// use indexmap so source is after value for `pakro env --json` output
 type EnvMap = IndexMap<String, String>;
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -248,14 +248,14 @@ impl EnvResults {
             Ok(content) => content,
             Err(err) => {
                 // Read and then discarded is a different thing from never opened, and it is the
-                // silence this exists to end: the user wrote a file mise looked at and dropped.
+                // silence this exists to end: the user wrote a file pakro looked at and dropped.
                 warn!("ignoring {}: {err:#}", display_path(p));
                 return Ok(EnvMap::new());
             }
         };
         // `${VAR}` resolves against earlier assignments in this file first, so a file's own
         // values are never shadowed by variables that happen to be set already (e.g. exported
-        // by `mise activate` from another `.env`). Only then do the surrounding values apply:
+        // by `pakro activate` from another `.env`). Only then do the surrounding values apply:
         // everything loaded so far when `expand = true`, otherwise the process environment.
         let outer: Vec<(String, String)> = if expand {
             acc.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
@@ -263,7 +263,7 @@ impl EnvResults {
             crate::env::vars_safe().collect()
         };
         let mut env = EnvMap::new();
-        for (k, v) in mise_dotenv::parse(&content, true, outer).wrap_err_with(errfn)? {
+        for (k, v) in pakro_dotenv::parse(&content, true, outer).wrap_err_with(errfn)? {
             env.insert(k, v);
         }
         Ok(env)
@@ -309,10 +309,10 @@ mod tests {
     async fn decrypts_sops_toml_file() {
         let _settings = crate::test::SettingsGuard::lock();
         let _lock = ENV_MUTEX.lock().await;
-        let prev_age_key = crate::env::var("MISE_SOPS_AGE_KEY").ok();
-        let prev_rops = crate::env::var("MISE_SOPS_ROPS").ok();
-        crate::env::remove_var("MISE_SOPS_ROPS");
-        crate::env::set_var("MISE_SOPS_AGE_KEY", AGE_PRIVATE_KEY);
+        let prev_age_key = crate::env::var("PAKRO_SOPS_AGE_KEY").ok();
+        let prev_rops = crate::env::var("PAKRO_SOPS_ROPS").ok();
+        crate::env::remove_var("PAKRO_SOPS_ROPS");
+        crate::env::set_var("PAKRO_SOPS_AGE_KEY", AGE_PRIVATE_KEY);
         Settings::reset(None);
         let config = Config::reset().await.unwrap();
         let tmp = tempfile::tempdir().unwrap();
@@ -328,20 +328,20 @@ mod tests {
         assert_eq!(env.get("SECRET").unwrap(), "mysecret");
         assert!(sops_used, "decrypted sops values must not be env-cached");
 
-        restore_env_var("MISE_SOPS_AGE_KEY", prev_age_key);
-        restore_env_var("MISE_SOPS_ROPS", prev_rops);
+        restore_env_var("PAKRO_SOPS_AGE_KEY", prev_age_key);
+        restore_env_var("PAKRO_SOPS_ROPS", prev_rops);
     }
 
     #[tokio::test]
-    async fn decrypts_sops_toml_file_with_exec_env_mise_age_key_file() {
+    async fn decrypts_sops_toml_file_with_exec_env_pakro_age_key_file() {
         let _settings = crate::test::SettingsGuard::lock();
         let _lock = ENV_MUTEX.lock().await;
-        let prev_age_key = crate::env::var("MISE_SOPS_AGE_KEY").ok();
-        let prev_age_key_file = crate::env::var("MISE_SOPS_AGE_KEY_FILE").ok();
-        let prev_rops = crate::env::var("MISE_SOPS_ROPS").ok();
-        crate::env::remove_var("MISE_SOPS_AGE_KEY");
-        crate::env::remove_var("MISE_SOPS_AGE_KEY_FILE");
-        crate::env::remove_var("MISE_SOPS_ROPS");
+        let prev_age_key = crate::env::var("PAKRO_SOPS_AGE_KEY").ok();
+        let prev_age_key_file = crate::env::var("PAKRO_SOPS_AGE_KEY_FILE").ok();
+        let prev_rops = crate::env::var("PAKRO_SOPS_ROPS").ok();
+        crate::env::remove_var("PAKRO_SOPS_AGE_KEY");
+        crate::env::remove_var("PAKRO_SOPS_AGE_KEY_FILE");
+        crate::env::remove_var("PAKRO_SOPS_ROPS");
         Settings::reset(None);
         let config = Config::reset().await.unwrap();
         let tmp = tempfile::tempdir().unwrap();
@@ -352,7 +352,7 @@ mod tests {
 
         let mut exec_env = TeraEnvMap::new();
         exec_env.insert(
-            "MISE_SOPS_AGE_KEY_FILE".into(),
+            "PAKRO_SOPS_AGE_KEY_FILE".into(),
             key_file.to_string_lossy().to_string(),
         );
         let env = EnvResults::toml(&config, &exec_env, &p, Ok, &mut false)
@@ -360,21 +360,21 @@ mod tests {
             .unwrap();
         assert_eq!(env.get("SECRET").unwrap(), "mysecret");
 
-        restore_env_var("MISE_SOPS_AGE_KEY", prev_age_key);
-        restore_env_var("MISE_SOPS_AGE_KEY_FILE", prev_age_key_file);
-        restore_env_var("MISE_SOPS_ROPS", prev_rops);
+        restore_env_var("PAKRO_SOPS_AGE_KEY", prev_age_key);
+        restore_env_var("PAKRO_SOPS_AGE_KEY_FILE", prev_age_key_file);
+        restore_env_var("PAKRO_SOPS_ROPS", prev_rops);
     }
 
     #[tokio::test]
     async fn decrypts_sops_toml_file_with_multiple_age_keys() {
         let _settings = crate::test::SettingsGuard::lock();
         let _lock = ENV_MUTEX.lock().await;
-        let prev_age_key = crate::env::var("MISE_SOPS_AGE_KEY").ok();
-        let prev_age_key_file = crate::env::var("MISE_SOPS_AGE_KEY_FILE").ok();
-        let prev_rops = crate::env::var("MISE_SOPS_ROPS").ok();
-        crate::env::remove_var("MISE_SOPS_AGE_KEY");
-        crate::env::remove_var("MISE_SOPS_AGE_KEY_FILE");
-        crate::env::remove_var("MISE_SOPS_ROPS");
+        let prev_age_key = crate::env::var("PAKRO_SOPS_AGE_KEY").ok();
+        let prev_age_key_file = crate::env::var("PAKRO_SOPS_AGE_KEY_FILE").ok();
+        let prev_rops = crate::env::var("PAKRO_SOPS_ROPS").ok();
+        crate::env::remove_var("PAKRO_SOPS_AGE_KEY");
+        crate::env::remove_var("PAKRO_SOPS_AGE_KEY_FILE");
+        crate::env::remove_var("PAKRO_SOPS_ROPS");
         Settings::reset(None);
         let config = Config::reset().await.unwrap();
         let tmp = tempfile::tempdir().unwrap();
@@ -391,7 +391,7 @@ mod tests {
 
         let mut exec_env = TeraEnvMap::new();
         exec_env.insert(
-            "MISE_SOPS_AGE_KEY_FILE".into(),
+            "PAKRO_SOPS_AGE_KEY_FILE".into(),
             key_file.to_string_lossy().to_string(),
         );
         let env = EnvResults::toml(&config, &exec_env, &p, Ok, &mut false)
@@ -399,21 +399,21 @@ mod tests {
             .unwrap();
         assert_eq!(env.get("SECRET").unwrap(), "mysecret");
 
-        restore_env_var("MISE_SOPS_AGE_KEY", prev_age_key);
-        restore_env_var("MISE_SOPS_AGE_KEY_FILE", prev_age_key_file);
-        restore_env_var("MISE_SOPS_ROPS", prev_rops);
+        restore_env_var("PAKRO_SOPS_AGE_KEY", prev_age_key);
+        restore_env_var("PAKRO_SOPS_AGE_KEY_FILE", prev_age_key_file);
+        restore_env_var("PAKRO_SOPS_ROPS", prev_rops);
     }
 
     #[tokio::test]
     async fn rejects_invalid_non_comment_age_key_lines() {
         let _settings = crate::test::SettingsGuard::lock();
         let _lock = ENV_MUTEX.lock().await;
-        let prev_age_key = crate::env::var("MISE_SOPS_AGE_KEY").ok();
-        let prev_age_key_file = crate::env::var("MISE_SOPS_AGE_KEY_FILE").ok();
-        let prev_rops = crate::env::var("MISE_SOPS_ROPS").ok();
-        crate::env::remove_var("MISE_SOPS_AGE_KEY");
-        crate::env::remove_var("MISE_SOPS_AGE_KEY_FILE");
-        crate::env::remove_var("MISE_SOPS_ROPS");
+        let prev_age_key = crate::env::var("PAKRO_SOPS_AGE_KEY").ok();
+        let prev_age_key_file = crate::env::var("PAKRO_SOPS_AGE_KEY_FILE").ok();
+        let prev_rops = crate::env::var("PAKRO_SOPS_ROPS").ok();
+        crate::env::remove_var("PAKRO_SOPS_AGE_KEY");
+        crate::env::remove_var("PAKRO_SOPS_AGE_KEY_FILE");
+        crate::env::remove_var("PAKRO_SOPS_ROPS");
         Settings::reset(None);
         let config = Config::reset().await.unwrap();
         let tmp = tempfile::tempdir().unwrap();
@@ -424,7 +424,7 @@ mod tests {
 
         let mut exec_env = TeraEnvMap::new();
         exec_env.insert(
-            "MISE_SOPS_AGE_KEY_FILE".into(),
+            "PAKRO_SOPS_AGE_KEY_FILE".into(),
             key_file.to_string_lossy().to_string(),
         );
         let err = EnvResults::toml(&config, &exec_env, &p, Ok, &mut false)
@@ -435,22 +435,22 @@ mod tests {
             "{err}"
         );
 
-        restore_env_var("MISE_SOPS_AGE_KEY", prev_age_key);
-        restore_env_var("MISE_SOPS_AGE_KEY_FILE", prev_age_key_file);
-        restore_env_var("MISE_SOPS_ROPS", prev_rops);
+        restore_env_var("PAKRO_SOPS_AGE_KEY", prev_age_key);
+        restore_env_var("PAKRO_SOPS_AGE_KEY_FILE", prev_age_key_file);
+        restore_env_var("PAKRO_SOPS_ROPS", prev_rops);
     }
 
     #[tokio::test]
     async fn ambient_sops_age_key_file_precedes_exec_env_sops_age_key() {
         let _settings = crate::test::SettingsGuard::lock();
         let _lock = ENV_MUTEX.lock().await;
-        let prev_mise_age_key = crate::env::var("MISE_SOPS_AGE_KEY").ok();
+        let prev_pakro_age_key = crate::env::var("PAKRO_SOPS_AGE_KEY").ok();
         let prev_sops_age_key = crate::env::var("SOPS_AGE_KEY").ok();
         let prev_sops_age_key_file = crate::env::var("SOPS_AGE_KEY_FILE").ok();
-        let prev_rops = crate::env::var("MISE_SOPS_ROPS").ok();
-        crate::env::remove_var("MISE_SOPS_AGE_KEY");
+        let prev_rops = crate::env::var("PAKRO_SOPS_ROPS").ok();
+        crate::env::remove_var("PAKRO_SOPS_AGE_KEY");
         crate::env::remove_var("SOPS_AGE_KEY");
-        crate::env::remove_var("MISE_SOPS_ROPS");
+        crate::env::remove_var("PAKRO_SOPS_ROPS");
         Settings::reset(None);
         let config = Config::reset().await.unwrap();
         let tmp = tempfile::tempdir().unwrap();
@@ -467,20 +467,20 @@ mod tests {
             .unwrap();
         assert_eq!(env.get("SECRET").unwrap(), "mysecret");
 
-        restore_env_var("MISE_SOPS_AGE_KEY", prev_mise_age_key);
+        restore_env_var("PAKRO_SOPS_AGE_KEY", prev_pakro_age_key);
         restore_env_var("SOPS_AGE_KEY", prev_sops_age_key);
         restore_env_var("SOPS_AGE_KEY_FILE", prev_sops_age_key_file);
-        restore_env_var("MISE_SOPS_ROPS", prev_rops);
+        restore_env_var("PAKRO_SOPS_ROPS", prev_rops);
     }
 
     #[tokio::test]
     async fn errors_when_sops_cli_is_configured_for_toml_file() {
         let _settings = crate::test::SettingsGuard::lock();
         let _lock = ENV_MUTEX.lock().await;
-        let prev_age_key = crate::env::var("MISE_SOPS_AGE_KEY").ok();
-        let prev_rops = crate::env::var("MISE_SOPS_ROPS").ok();
-        crate::env::set_var("MISE_SOPS_AGE_KEY", AGE_PRIVATE_KEY);
-        crate::env::set_var("MISE_SOPS_ROPS", "0");
+        let prev_age_key = crate::env::var("PAKRO_SOPS_AGE_KEY").ok();
+        let prev_rops = crate::env::var("PAKRO_SOPS_ROPS").ok();
+        crate::env::set_var("PAKRO_SOPS_AGE_KEY", AGE_PRIVATE_KEY);
+        crate::env::set_var("PAKRO_SOPS_ROPS", "0");
         Settings::reset(None);
         let config = Config::reset().await.unwrap();
         let tmp = tempfile::tempdir().unwrap();
@@ -498,8 +498,8 @@ mod tests {
             "{err}"
         );
 
-        restore_env_var("MISE_SOPS_AGE_KEY", prev_age_key);
-        restore_env_var("MISE_SOPS_ROPS", prev_rops);
+        restore_env_var("PAKRO_SOPS_AGE_KEY", prev_age_key);
+        restore_env_var("PAKRO_SOPS_ROPS", prev_rops);
     }
 
     #[tokio::test]

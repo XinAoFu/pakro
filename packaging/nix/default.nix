@@ -1,7 +1,7 @@
 { pkgs, lib, rustPlatform, coreutils, bash, direnv, openssl, git }:
 
 rustPlatform.buildRustPackage {
-  pname = "mise";
+  pname = "pakro";
   version = "2026.10.3";
 
   src = lib.cleanSource ../../.;
@@ -42,12 +42,12 @@ rustPlatform.buildRustPackage {
       --replace '/usr/bin/env bash' '${bash}/bin/bash'
     substituteInPlace ./runtimes/src/shims/fake_asdf.rs ./cli/src/commands/generate/git_pre_commit.rs \
       --replace '/bin/sh' '${bash}/bin/sh'
-    substituteInPlace ./src/crates/mise-util/src/env_diff.rs \
+    substituteInPlace ./src/crates/pakro-util/src/env_diff.rs \
       --replace '"bash"' '"${bash}/bin/bash"'
     substituteInPlace ./cli/src/commands/direnv/exec.rs \
       --replace '"env"' '"${coreutils}/bin/env"' \
       --replace 'cmd!("direnv"' 'cmd!("${direnv}/bin/direnv"'
-    substituteInPlace ./src/core/util/git.rs ./src/crates/mise-util/src/git.rs \
+    substituteInPlace ./src/core/util/git.rs ./src/crates/pakro-util/src/git.rs \
       --replace '"git"' '"${git}/bin/git"'
   '';
 
@@ -89,8 +89,7 @@ rustPlatform.buildRustPackage {
 
   meta = with lib; {
     description = "Dev tools, env vars, and tasks in one CLI";
-    homepage = "https://github.com/jdx/mise";
     license = licenses.mit;
-    mainProgram = "mise";
+    mainProgram = "pakro";
   };
 }

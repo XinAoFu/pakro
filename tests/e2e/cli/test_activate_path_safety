@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
 
-eval "$(mise activate bash)" && eval "$(mise hook-env)"
-install -m 0755 /dev/null "$TMPDIR/MISE_PATH_SAFETY_CHECK"
-assert_fail "cd '$TMPDIR' && command -v MISE_PATH_SAFETY_CHECK"
+eval "$(pakro activate bash)" && eval "$(pakro hook-env)"
+install -m 0755 /dev/null "$TMPDIR/PAKRO_PATH_SAFETY_CHECK"
+assert_fail "cd '$TMPDIR' && command -v PAKRO_PATH_SAFETY_CHECK"

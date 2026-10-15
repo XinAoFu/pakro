@@ -1,5 +1,5 @@
 //! `[bootstrap.user].login_shell` - declarative current-user login shell,
-//! applied by `mise bootstrap user apply` or `mise bootstrap`.
+//! applied by `pakro bootstrap user apply` or `pakro bootstrap`.
 
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -74,7 +74,7 @@ pub fn apply(request: &LoginShellRequest, dry_run: bool) -> Result<()> {
     ensure_shell_listed(&request.shell, dry_run)?;
     let display = shell_words::join(&args);
     if dry_run {
-        miseprintln!("chsh {display}");
+        pakroprintln!("chsh {display}");
         return Ok(());
     }
     info!("$ chsh {display}");
@@ -140,7 +140,7 @@ fn chsh_args(request: &LoginShellRequest, _user: &TargetUser) -> Vec<String> {
 }
 
 fn shells_file() -> PathBuf {
-    crate::env::var("MISE_TEST_SHELLS_FILE")
+    crate::env::var("PAKRO_TEST_SHELLS_FILE")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("/etc/shells"))
 }
@@ -179,9 +179,9 @@ fn ensure_shell_listed(shell: &str, dry_run: bool) -> Result<()> {
     ];
     if dry_run {
         if can_append_shell_directly(&path) {
-            miseprintln!("sh {}", shell_words::join(&args));
+            pakroprintln!("sh {}", shell_words::join(&args));
         } else {
-            miseprintln!(
+            pakroprintln!(
                 "{}",
                 shell_words::join(crate::system::sudo::argv("sh", &args))
             );

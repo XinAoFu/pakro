@@ -3,9 +3,9 @@
 # Test that lockfile is respected when using version aliases
 # https://github.com/jdx/mise/discussions/8175
 
-export MISE_LOCKFILE=1
+export PAKRO_LOCKFILE=1
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools]
 tiny = "myalias"
 
@@ -16,12 +16,12 @@ myalias = "2"
 lockfile = true
 EOF
 
-cat <<EOF >mise.lock
+cat <<EOF >pakro.lock
 [[tools.tiny]]
 version = "2.0.0"
 EOF
 
-rm -rf "$MISE_DATA_DIR/installs/tiny"
-mise install
-assert "mise ls tiny --json --current | jq -r '.[0].requested_version'" "myalias"
-assert "mise ls tiny --json --current | jq -r '.[0].version'" "2.0.0"
+rm -rf "$PAKRO_DATA_DIR/installs/tiny"
+pakro install
+assert "pakro ls tiny --json --current | jq -r '.[0].requested_version'" "myalias"
+assert "pakro ls tiny --json --current | jq -r '.[0].version'" "2.0.0"

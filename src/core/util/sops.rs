@@ -193,32 +193,32 @@ fn resolve_age_key<PT>(env: &EnvMap, parse_template: &mut PT) -> Option<Resolved
 where
     PT: FnMut(String) -> result::Result<String>,
 {
-    // 1. Check mise-specific MISE_SOPS_AGE_KEY setting first (highest priority)
+    // 1. Check pakro-specific PAKRO_SOPS_AGE_KEY setting first (highest priority)
     if let Some(age_key) = &Settings::get().sops.age_key
         && !age_key.is_empty()
     {
         return Some(ResolvedAgeKey::Direct(age_key.clone()));
     }
 
-    // 2. Check mise-specific MISE_SOPS_AGE_KEY_FILE setting
+    // 2. Check pakro-specific PAKRO_SOPS_AGE_KEY_FILE setting
     if let Some(key_file) = &Settings::get().sops.age_key_file
         && let Some(key) = read_age_key_file(
             key_file.to_string_lossy().to_string(),
             parse_template,
-            "MISE_SOPS_AGE_KEY_FILE",
+            "PAKRO_SOPS_AGE_KEY_FILE",
         )
     {
         return Some(key);
     }
 
     // 3. Check ordered env directives that have already been resolved
-    if let Some(age_key) = env.get("MISE_SOPS_AGE_KEY").filter(|key| !key.is_empty()) {
+    if let Some(age_key) = env.get("PAKRO_SOPS_AGE_KEY").filter(|key| !key.is_empty()) {
         return Some(ResolvedAgeKey::Direct(age_key.clone()));
     }
 
-    if let Some(key_file) = env.get("MISE_SOPS_AGE_KEY_FILE")
+    if let Some(key_file) = env.get("PAKRO_SOPS_AGE_KEY_FILE")
         && let Some(key) =
-            read_age_key_file(key_file.clone(), parse_template, "MISE_SOPS_AGE_KEY_FILE")
+            read_age_key_file(key_file.clone(), parse_template, "PAKRO_SOPS_AGE_KEY_FILE")
     {
         return Some(key);
     }
@@ -246,7 +246,7 @@ where
         return Some(ResolvedAgeKey::Direct(key.trim().to_string()));
     }
 
-    // 5. Fall back to default path ~/.config/mise/age.txt
+    // 5. Fall back to default path ~/.config/pakro/age.txt
     if let Some(key) = read_age_key_file(
         dirs::CONFIG.join("age.txt").to_string_lossy().to_string(),
         parse_template,

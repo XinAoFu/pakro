@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-export MISE_EXPERIMENTAL=1
-if [[ -z ${MISE_TEST_PITCHFORK:-} ]]; then
-  mise install pitchfork@2.27.0 --minimum-release-age 0s
-  MISE_TEST_PITCHFORK="$(mise which pitchfork --tool pitchfork@2.27.0)"
+export PAKRO_EXPERIMENTAL=1
+if [[ -z ${PAKRO_TEST_PITCHFORK:-} ]]; then
+  pakro install pitchfork@2.27.0 --minimum-release-age 0s
+  PAKRO_TEST_PITCHFORK="$(pakro which pitchfork --tool pitchfork@2.27.0)"
 fi
 export PITCHFORK_STATE_DIR="$TMPDIR/pf"
 export PITCHFORK_CONFIG_DIR="$TMPDIR/pf-config"
 export PITCHFORK_PROXY_ENABLE=false
-cp "$MISE_TEST_PITCHFORK" ~/bin/pitchfork
+cp "$PAKRO_TEST_PITCHFORK" ~/bin/pitchfork
 export PATH="$HOME/bin:$PATH"
 trap 'pitchfork supervisor stop >/dev/null 2>&1 || true' EXIT
-mkdir -p "$MISE_CONFIG_DIR" one two three four broken
+mkdir -p "$PAKRO_CONFIG_DIR" one two three four broken
 ports=$(
   python3 - <<'PYPORT'
 import random
@@ -32,7 +32,7 @@ else:
 PYPORT
 )
 read -r nats_port monitor_port <<<"$ports"
-cat >"$MISE_CONFIG_DIR/config.toml" <<TOML
+cat >"$PAKRO_CONFIG_DIR/config.toml" <<TOML
 [daemon_providers.bus]
 preset = "nats"
 version = "2"
@@ -40,7 +40,7 @@ port = $nats_port
 ports.monitor_port = $monitor_port
 TOML
 for dir in one two three four broken; do
-  cat >"$dir/mise.toml" <<'TOML'
+  cat >"$dir/pakro.toml" <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons.bus]
@@ -48,7 +48,7 @@ provider = "bus"
 TOML
 done
 for dir in three four; do
-  printf 'resource = "shared_events"\n' >>"$dir/mise.toml"
+  printf 'resource = "shared_events"\n' >>"$dir/pakro.toml"
 done
 python3 - <<'PYTEST'
 import json
@@ -61,14 +61,14 @@ from pathlib import Path
 
 base = Path.cwd()
 
-def mise(project, *args):
-    return subprocess.check_output(["mise", "--cd", str(base / project), *args], text=True)
+def pakro(project, *args):
+    return subprocess.check_output(["pakro", "--cd", str(base / project), *args], text=True)
 
 def start(project):
-    subprocess.run(["mise", "--cd", str(base / project), "daemons", "start", "bus"], check=True)
+    subprocess.run(["pakro", "--cd", str(base / project), "daemons", "start", "bus"], check=True)
 
 def url(project):
-    return json.loads(mise(project, "env", "--json"))["NATS_URL"]
+    return json.loads(pakro(project, "env", "--json"))["NATS_URL"]
 
 class Client:
     def __init__(self, url):
@@ -130,7 +130,7 @@ assert first_url != second_url
 b = Client(second_url)
 # Reject an invalid candidate before replacing or reloading the live config.
 broken_url = urllib.parse.urlparse(url("broken"))
-provider = Path(os.environ["MISE_STATE_DIR"]) / "daemon-providers/bus/nats-accounts"
+provider = Path(os.environ["PAKRO_STATE_DIR"]) / "daemon-providers/bus/nats-accounts"
 credentials = provider / "credentials" / (broken_url.username + ".json")
 original_credentials = credentials.read_bytes()
 invalid = json.loads(original_credentials)
@@ -138,7 +138,7 @@ invalid["user"] = urllib.parse.urlparse(first_url).username
 credentials.write_text(json.dumps(invalid))
 live_config = (provider / "server.json").read_bytes()
 rejected = subprocess.run(
-    ["mise", "--cd", str(base / "broken"), "daemons", "__resource", str(provider.parent), broken_url.username],
+    ["pakro", "--cd", str(base / "broken"), "daemons", "__resource", str(provider.parent), broken_url.username],
     capture_output=True, text=True, timeout=60,
 )
 assert rejected.returncode != 0, "invalid account configuration was accepted"
@@ -171,11 +171,11 @@ c.request("shared", {"n": 73})
 d = Client(url("four"))
 assert d.request("$JS.API.STREAM.INFO.shared", {})["state"]["messages"] == 1
 # Consumer stop keeps other accounts, their subscriptions and their server alive.
-mise("one", "daemons", "stop")
+pakro("one", "daemons", "stop")
 b.ping()
 for client in [a, b, c, d]:
     client.close()
-mise("two", "daemons", "providers", "restart", "bus")
+pakro("two", "daemons", "providers", "restart", "bus")
 assert url("one") == first_url
 assert url("two") == second_url
 for endpoint in [first_url, second_url]:
@@ -183,7 +183,7 @@ for endpoint in [first_url, second_url]:
     assert client.request("$JS.API.STREAM.INFO.proof", {})["state"]["messages"] == 1
     client.close()
 # Inspection must not contain passwords from the connection URLs.
-rows = mise("two", "daemons", "ls", "--json")
+rows = pakro("two", "daemons", "ls", "--json")
 assert urllib.parse.urlparse(second_url).password not in rows
 print("NATS subjects, streams, account sharing, reload connections and persistent data verified")
 PYTEST

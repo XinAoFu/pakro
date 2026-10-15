@@ -30,15 +30,15 @@ use std::env::split_paths;
 use std::path::{Path, PathBuf};
 use strum::IntoEnumIterator;
 
-/// Check mise installation for possible problems
+/// Check pakro installation for possible problems
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     visible_alias = "dr",
     verbatim_doc_comment,
     example(
-        r###"mise doctor
-mise doctor --json
-mise doctor path --full"###
+        r###"pakro doctor
+pakro doctor --json
+pakro doctor path --full"###
     )
 )]
 pub(crate) struct Doctor {
@@ -183,7 +183,7 @@ impl Doctor {
         data.insert("shell".into(), shell.into());
         data.insert(
             "dirs".into(),
-            mise_dirs()
+            pakro_dirs()
                 .into_iter()
                 .map(|(k, p)| (k, p.to_string_lossy().to_string()))
                 .collect(),
@@ -204,10 +204,10 @@ impl Doctor {
             aqua_registry_count().into(),
         );
         data.insert("aqua".into(), aqua.into());
-        data.insert("env_vars".into(), mise_env_vars().into_iter().collect());
+        data.insert("env_vars".into(), pakro_env_vars().into_iter().collect());
         data.insert(
             "settings".into(),
-            serde_json::from_str(&cmd!(&*env::MISE_BIN, "settings", "-J").read()?)?,
+            serde_json::from_str(&cmd!(&*env::PAKRO_BIN, "settings", "-J").read()?)?,
         );
 
         let config = Config::get().await?;
@@ -275,7 +275,7 @@ impl Doctor {
                             tool.insert("version".into(), tv.version.to_string().into());
                             tool.insert("missing".into(), true.into());
                             self.errors.push(format!(
-                                "tool {tv} is not installed, install with `mise install`"
+                                "tool {tv} is not installed, install with `pakro install`"
                             ));
                         }
                     }
@@ -312,7 +312,7 @@ impl Doctor {
         }
 
         let out = serde_json::to_string_pretty(&data)?;
-        let written = miseprint!("{out}\n");
+        let written = pakroprint!("{out}\n");
 
         // Diagnosed problems decide the exit status even when the reader has gone away.
         if !self.errors.is_empty() {
@@ -342,11 +342,11 @@ impl Doctor {
         info::section("shell", shell())?;
         info::section("aqua", aqua_registry_count_str())?;
 
-        let mise_dirs = mise_dirs()
+        let pakro_dirs = pakro_dirs()
             .into_iter()
             .map(|(k, p)| format!("{k}: {}", display_path(p)))
             .join("\n");
-        info::section("dirs", mise_dirs)?;
+        info::section("dirs", pakro_dirs)?;
 
         match Config::get().await {
             Ok(config) => self.analyze_config(&config).await?,
@@ -362,7 +362,7 @@ impl Doctor {
             }
         }
 
-        let env_vars = mise_env_vars()
+        let env_vars = pakro_env_vars()
             .into_iter()
             .map(|(k, v)| format!("{k}={v}"))
             .join("\n");
@@ -377,28 +377,28 @@ impl Doctor {
         #[cfg(all(windows, feature = "self_update"))]
         self.analyze_self_update_leftovers();
 
-        miseprintln!();
+        pakroprintln!();
 
         if !self.warnings.is_empty() {
             let warnings_plural = if self.warnings.len() == 1 { "" } else { "s" };
             let warning_summary =
                 format!("{} warning{warnings_plural} found:", self.warnings.len());
-            miseprintln!("{}\n", style(warning_summary).yellow().bold());
+            pakroprintln!("{}\n", style(warning_summary).yellow().bold());
             for (i, check) in self.warnings.iter().enumerate() {
                 let num = style::nyellow(format!("{}.", i + 1));
-                miseprintln!("{num} {}\n", info::indent_by(check, "   ").trim_start());
+                pakroprintln!("{num} {}\n", info::indent_by(check, "   ").trim_start());
             }
         }
 
         if self.errors.is_empty() {
-            miseprintln!("No problems found");
+            pakroprintln!("No problems found");
         } else {
             let errors_plural = if self.errors.len() == 1 { "" } else { "s" };
             let error_summary = format!("{} problem{errors_plural} found:", self.errors.len());
-            miseprintln!("{}\n", style(error_summary).red().bold());
+            pakroprintln!("{}\n", style(error_summary).red().bold());
             for (i, check) in self.errors.iter().enumerate() {
                 let num = style::nred(format!("{}.", i + 1));
-                miseprintln!("{num} {}\n", info::indent_by(check, "   ").trim_start());
+                pakroprintln!("{num} {}\n", info::indent_by(check, "   ").trim_start());
             }
             return Err(crate::request_exit(1));
         }
@@ -468,14 +468,14 @@ impl Doctor {
                 version::show_latest().await;
             }
             self.warnings.push(format!(
-                "new mise version {latest} available, currently on {}",
+                "new pakro version {latest} available, currently on {}",
                 *crate::version::V
             ));
         }
     }
 
-    /// Windows `self-update` moves the running mise.exe aside and spawns a copy of it to do the
-    /// deleting; when that copy fails to remove itself both stay in `TEMP`, a full mise.exe each.
+    /// Windows `self-update` moves the running pakro.exe aside and spawns a copy of it to do the
+    /// deleting; when that copy fails to remove itself both stay in `TEMP`, a full pakro.exe each.
     /// Only another `self-update` collects them, so without this nothing says they are there: they
     /// sit outside the cache, and their generated names mean nothing to anyone reading a directory
     /// listing. Reported rather than deleted — `doctor` is not a command that should remove files.
@@ -488,7 +488,7 @@ impl Doctor {
         let total: u64 = orphans.iter().map(|(_, size)| size).sum();
         let plural = if orphans.len() == 1 { "y" } else { "ies" };
         self.warnings.push(format!(
-            "{} stale cop{plural} of mise ({}) left by self-update in {}\n`mise self-update` removes them",
+            "{} stale cop{plural} of pakro ({}) left by self-update in {}\n`pakro self-update` removes them",
             orphans.len(),
             bytesize::ByteSize::b(total).display().iec(),
             display_path(std::env::temp_dir()),
@@ -496,7 +496,7 @@ impl Doctor {
     }
 
     fn analyze_settings(&mut self) -> eyre::Result<()> {
-        match cmd!("mise", "settings").read() {
+        match cmd!("pakro", "settings").read() {
             Ok(settings) => {
                 info::section("settings", settings)?;
             }
@@ -508,7 +508,7 @@ impl Doctor {
         info::section("config_files", render_config_files(config))?;
         info::section("env_files", render_env_files(config).await?)?;
         if IGNORED_CONFIG_FILES.is_empty() {
-            miseprintln!();
+            pakroprintln!();
             info::inline_section("ignored_config_files", "(none)")?;
         } else {
             info::section(
@@ -533,14 +533,14 @@ impl Doctor {
             let shims = style::ncyan(display_path(dirs::shims()));
             if cfg!(windows) {
                 self.errors.push(formatdoc!(
-                    r#"mise shims are not on PATH
+                    r#"pakro shims are not on PATH
                     Add this directory to PATH: {shims}"#
                 ));
             } else {
-                let cmd = style::nyellow("mise help activate");
+                let cmd = style::nyellow("pakro help activate");
                 let url = style::nunderline("https://mise.jdx.dev");
                 self.errors.push(formatdoc!(
-                    r#"mise is not activated, run {cmd} or
+                    r#"pakro is not activated, run {cmd} or
                         read documentation at {url} for activation instructions.
                         Alternatively, add the shims directory {shims} to PATH.
                         Using the shims directory is preferred for non-interactive setups."#
@@ -631,7 +631,7 @@ impl Doctor {
         }
         if total_missing > 0 {
             self.warnings.push(format!(
-                "{total_missing} system package(s) are missing, install them with `mise bootstrap packages apply`"
+                "{total_missing} system package(s) are missing, install them with `pakro bootstrap packages apply`"
             ));
         }
         Some(map.into())
@@ -662,7 +662,7 @@ impl Doctor {
                     .count();
                 if out_of_sync > 0 {
                     self.warnings.push(format!(
-                        "{out_of_sync} macOS default(s) are out of sync, apply them with `mise bootstrap macos defaults apply`"
+                        "{out_of_sync} macOS default(s) are out of sync, apply them with `pakro bootstrap macos defaults apply`"
                     ));
                 }
                 Some(SystemDefaultsDiagnosis::Checked {
@@ -771,19 +771,19 @@ impl Doctor {
         };
         if let Some(reason) = unavailable {
             self.errors.push(format!(
-                "dotfiles: checkpoints cannot be saved ({reason}).\n     Edits are not being protected.\n     Inspect with: mise dot status"
+                "dotfiles: checkpoints cannot be saved ({reason}).\n     Edits are not being protected.\n     Inspect with: pakro dot status"
             ));
         }
         match watcher {
             crate::cli::dotfiles::capture_health::Watcher::DeclaredNotRunning => {
                 self.warnings.push(
-                    "dotfiles: the history watcher is declared but not running.\n     Edits are not saved automatically until it runs; explicit saves still work.\n     Run: mise bootstrap services apply"
+                    "dotfiles: the history watcher is declared but not running.\n     Edits are not saved automatically until it runs; explicit saves still work.\n     Run: pakro bootstrap services apply"
                         .to_string(),
                 );
             }
             crate::cli::dotfiles::capture_health::Watcher::ServiceNotWatching => {
                 self.warnings.push(
-                    "dotfiles: the history service is running but is not watching this store.\n     Its process predates this mise version, or uses a different MISE_STATE_DIR; edits are not saved automatically until it is restarted.\n     Run: mise bootstrap services apply"
+                    "dotfiles: the history service is running but is not watching this store.\n     Its process predates this pakro version, or uses a different PAKRO_STATE_DIR; edits are not saved automatically until it is restarted.\n     Run: pakro bootstrap services apply"
                         .to_string(),
                 );
             }
@@ -809,13 +809,13 @@ impl Doctor {
                         String::new()
                     };
                     self.errors.push(format!(
-                    "dotfiles: the watcher could not save a checkpoint ({error}; {} consecutive failure(s), last at {}).\n     Edits since then are not protected.{recovery}\n     Inspect with: mise dot status",
+                    "dotfiles: the watcher could not save a checkpoint ({error}; {} consecutive failure(s), last at {}).\n     Edits since then are not protected.{recovery}\n     Inspect with: pakro dot status",
                     w.consecutive_failures,
                     w.last_error_at.as_deref().unwrap_or("unknown")
                 ));
                 } else {
                     self.warnings.push(format!(
-                        "dotfiles: the stopped watcher's last capture failed ({error}).\n     This is historical health, not a current capture attempt.\n     Check or save with: mise dot save"
+                        "dotfiles: the stopped watcher's last capture failed ({error}).\n     This is historical health, not a current capture attempt.\n     Check or save with: pakro dot save"
                     ));
                 }
             }
@@ -828,7 +828,7 @@ impl Doctor {
             for degraded in w.degraded.iter().filter(|_| running) {
                 diagnosis.degraded.push(degraded.clone());
                 self.warnings.push(format!(
-                    "dotfiles: {degraded}.\n     Changes there are saved by reconciliation only.\n     Inspect with: mise dot status"
+                    "dotfiles: {degraded}.\n     Changes there are saved by reconciliation only.\n     Inspect with: pakro dot status"
                 ));
             }
             diagnosis.throttled = health.throttled.clone();
@@ -876,7 +876,7 @@ impl Doctor {
                 if failing_for.is_some_and(|secs| secs > fetch_interval.saturating_mul(3)) {
                     diagnosis.sync_failing_for_secs = failing_for;
                     self.warnings.push(format!(
-                        "dotfiles: syncing with the setup repository keeps failing ({error}; {} attempt(s)).\n     Local checkpoints continue; nothing is published or pulled until it succeeds.\n     Inspect with: mise dot status",
+                        "dotfiles: syncing with the setup repository keeps failing ({error}; {} attempt(s)).\n     Local checkpoints continue; nothing is published or pulled until it succeeds.\n     Inspect with: pakro dot status",
                         status.consecutive_failures
                     ));
                 }
@@ -912,7 +912,7 @@ impl Doctor {
         // compromise it
         for throttled in &diagnosis.throttled {
             lines.push(format!(
-                "{} changes constantly: saved every {} ({} unsaved change(s); last saved {}). Not a failure; `mise dot exclude` if it is a log, cache, or database",
+                "{} changes constantly: saved every {} ({} unsaved change(s); last saved {}). Not a failure; `pakro dot exclude` if it is a log, cache, or database",
                 throttled.path,
                 crate::system::history::watch::runtime::humantime(std::time::Duration::from_secs(
                     throttled.interval_secs
@@ -970,7 +970,7 @@ impl Doctor {
                 let out_of_sync = status.state != crate::system::login_shell::LoginShellState::Set;
                 if out_of_sync {
                     self.warnings.push(
-                        "login shell is out of sync, apply it with `mise bootstrap user apply`"
+                        "login shell is out of sync, apply it with `pakro bootstrap user apply`"
                             .to_string(),
                     );
                 }
@@ -1097,7 +1097,7 @@ impl Doctor {
         }
         if total_missing > 0 {
             self.warnings.push(format!(
-                "{total_missing} system package(s) are missing, install them with `mise bootstrap packages apply`"
+                "{total_missing} system package(s) are missing, install them with `pakro bootstrap packages apply`"
             ));
         }
         info::section("system_packages", lines.join("\n"))?;
@@ -1117,7 +1117,7 @@ impl Doctor {
                 true => (tv.to_string(), style::nstyle("")),
                 false => {
                     self.errors.push(format!(
-                        "tool {tv} is not installed, install with `mise install`"
+                        "tool {tv} is not installed, install with `pakro install`"
                     ));
                     (tv.to_string(), style::ndim("(missing)"))
                 }
@@ -1141,7 +1141,7 @@ impl Doctor {
     }
 
     async fn analyze_shims(&mut self, config: &Arc<Config>, toolset: &Toolset) -> HashSet<String> {
-        let mise_bin = shims::mise_bin_for_shims();
+        let pakro_bin = shims::pakro_bin_for_shims();
 
         let shims_dir = dirs::shims();
         let scope = if file::storage_paths_eq(&shims_dir, &dirs::system_shims()) {
@@ -1150,9 +1150,9 @@ impl Doctor {
             shims::ShimScope::User
         };
         if let Ok(diffs) =
-            shims::get_shim_diffs(config, mise_bin, toolset, &shims_dir, scope, false).await
+            shims::get_shim_diffs(config, pakro_bin, toolset, &shims_dir, scope, false).await
         {
-            let cmd = style::nyellow("mise reshim");
+            let cmd = style::nyellow("pakro reshim");
 
             if !diffs.missing.is_empty() {
                 self.errors.push(formatdoc!(
@@ -1229,13 +1229,13 @@ impl Doctor {
                     formatdoc!(
                         r#"tool '{short}' installed with explicit backend '{stored_full}'
                            differs from registry recommendation '{registry_full}'.
-                           To switch: mise uninstall --all {short} && mise install {short}"#
+                           To switch: pakro uninstall --all {short} && pakro install {short}"#
                     )
                 } else {
                     formatdoc!(
                         r#"tool '{short}' installed with backend '{stored_full}'
                            but registry now recommends '{registry_full}'.
-                           To migrate: mise uninstall --all {short} && mise install {short}"#
+                           To migrate: pakro uninstall --all {short} && pakro install {short}"#
                     )
                 };
                 self.warnings.push(msg);
@@ -1264,23 +1264,23 @@ impl Doctor {
         Ok(())
     }
 
-    /// Check that mise tool paths appear before system paths in the current PATH.
+    /// Check that pakro tool paths appear before system paths in the current PATH.
     /// This detects cases where shell configuration (e.g. brew, system profile) has
-    /// inserted entries before mise's paths, causing system tools to shadow mise-managed ones.
+    /// inserted entries before pakro's paths, causing system tools to shadow pakro-managed ones.
     async fn check_path_ordering(&mut self, ts: &Toolset, config: &Arc<Config>) {
         if !env::is_activated() {
             return;
         }
 
-        // Get all mise-managed paths (tool installs, env._.path, UV venv, MISE_ADD_PATH, etc.)
-        let mise_paths = match ts.final_env(config).await {
+        // Get all pakro-managed paths (tool installs, env._.path, UV venv, PAKRO_ADD_PATH, etc.)
+        let pakro_paths = match ts.final_env(config).await {
             Ok((_env, env_results)) => match ts.list_final_paths(config, env_results).await {
                 Ok(paths) => paths,
                 Err(_) => return,
             },
             Err(_) => return,
         };
-        if mise_paths.is_empty() {
+        if pakro_paths.is_empty() {
             return;
         }
 
@@ -1291,36 +1291,36 @@ impl Doctor {
 
         let resolve = |p: &PathBuf| canonicalize_or_self(p);
 
-        // Resolve all mise-managed paths for comparison
-        let mise_paths_resolved: HashSet<PathBuf> = mise_paths.iter().map(resolve).collect();
+        // Resolve all pakro-managed paths for comparison
+        let pakro_paths_resolved: HashSet<PathBuf> = pakro_paths.iter().map(resolve).collect();
 
-        // Also exclude the mise binary's own directory
-        let mise_bin_parent = env::MISE_BIN.parent().and_then(canonicalize_cached);
+        // Also exclude the pakro binary's own directory
+        let pakro_bin_parent = env::PAKRO_BIN.parent().and_then(canonicalize_cached);
 
-        // Find the index of the first mise-managed path in the current PATH
-        // Note: mise_bin_parent is intentionally excluded here — it's a directory like
-        // /opt/homebrew/bin that happens to contain the mise binary, not a mise tool path.
+        // Find the index of the first pakro-managed path in the current PATH
+        // Note: pakro_bin_parent is intentionally excluded here — it's a directory like
+        // /opt/homebrew/bin that happens to contain the pakro binary, not a pakro tool path.
         // Including it would mask the exact PATH ordering issue we're trying to detect.
-        let first_mise_idx = current_path
+        let first_pakro_idx = current_path
             .iter()
-            .position(|p| mise_paths_resolved.contains(&resolve(p)));
+            .position(|p| pakro_paths_resolved.contains(&resolve(p)));
 
-        let Some(first_mise_idx) = first_mise_idx else {
-            // No mise paths found in current PATH at all — this is already
+        let Some(first_pakro_idx) = first_pakro_idx else {
+            // No pakro paths found in current PATH at all — this is already
             // covered by the activation check
             return;
         };
 
-        if first_mise_idx == 0 {
+        if first_pakro_idx == 0 {
             return;
         }
 
-        // Everything before first_mise_idx is by definition not a mise-managed path.
-        // Filter out the mise binary's own directory (e.g. /opt/homebrew/bin) since
-        // that's not a problematic entry — it's just where mise itself is installed.
-        let paths_display = current_path[..first_mise_idx]
+        // Everything before first_pakro_idx is by definition not a pakro-managed path.
+        // Filter out the pakro binary's own directory (e.g. /opt/homebrew/bin) since
+        // that's not a problematic entry — it's just where pakro itself is installed.
+        let paths_display = current_path[..first_pakro_idx]
             .iter()
-            .filter(|p| mise_bin_parent.as_ref().is_none_or(|bp| bp != &resolve(p)))
+            .filter(|p| pakro_bin_parent.as_ref().is_none_or(|bp| bp != &resolve(p)))
             .map(display_path)
             .join("\n  ");
 
@@ -1328,14 +1328,14 @@ impl Doctor {
             return;
         }
         self.warnings.push(formatdoc!(
-            r#"mise tool paths are not first in PATH. These paths take precedence:
+            r#"pakro tool paths are not first in PATH. These paths take precedence:
               {paths_display}
-            This may cause system-installed tools to be used instead of mise-managed versions.
-            Ensure `mise activate` runs after other PATH modifications in your shell rc file."#
+            This may cause system-installed tools to be used instead of pakro-managed versions.
+            Ensure `pakro activate` runs after other PATH modifications in your shell rc file."#
         ));
     }
 
-    /// Check whether commands provided by mise shims resolve to another executable first.
+    /// Check whether commands provided by pakro shims resolve to another executable first.
     /// Paths before the shim directory are allowed to take precedence intentionally, so report
     /// only concrete command collisions instead of warning merely because shims are not first.
     async fn check_shim_shadowing(&mut self, desired_shims: &HashSet<String>) {
@@ -1363,10 +1363,10 @@ impl Doctor {
             let Ok(resolved) = which::which_in(&command, Some(&path), &cwd) else {
                 continue;
             };
-            let is_mise_shim = resolved
+            let is_pakro_shim = resolved
                 .parent()
                 .is_some_and(|parent| file::paths_eq(&file::replace_path(parent), &shims_dir));
-            if !is_mise_shim {
+            if !is_pakro_shim {
                 shadowed.insert(command, resolved);
             }
         }
@@ -1380,9 +1380,9 @@ impl Doctor {
             .map(|(command, path)| format!("{command}: {}", display_path(path)))
             .join("\n  ");
         self.warnings.push(formatdoc!(
-            r#"mise shims are shadowed by executables earlier in PATH:
+            r#"pakro shims are shadowed by executables earlier in PATH:
               {shadowed}
-            Move {} earlier in PATH to use the mise-managed versions."#,
+            Move {} earlier in PATH to use the pakro-managed versions."#,
             display_path(dirs::shims()),
         ));
     }
@@ -1404,7 +1404,7 @@ fn shim_command_name(shim: &str) -> String {
 fn shims_on_path() -> bool {
     env::PATH
         .iter()
-        .any(|path| crate::file::is_mise_shims_dir(path))
+        .any(|path| crate::file::is_pakro_shims_dir(path))
 }
 
 fn yn(b: bool) -> String {
@@ -1415,7 +1415,7 @@ fn yn(b: bool) -> String {
     }
 }
 
-fn mise_dirs() -> Vec<(String, PathBuf)> {
+fn pakro_dirs() -> Vec<(String, PathBuf)> {
     vec![
         ("cache".into(), dirs::CACHE.to_path_buf()),
         ("config".into(), dirs::CONFIG.to_path_buf()),
@@ -1426,15 +1426,15 @@ fn mise_dirs() -> Vec<(String, PathBuf)> {
     ]
 }
 
-fn mise_env_vars() -> Vec<(String, String)> {
+fn pakro_env_vars() -> Vec<(String, String)> {
     const REDACT_KEYS: &[&str] = &[
-        "MISE_GITHUB_TOKEN",
-        "MISE_GITLAB_TOKEN",
-        "MISE_GITHUB_ENTERPRISE_TOKEN",
-        "MISE_GITLAB_ENTERPRISE_TOKEN",
+        "PAKRO_GITHUB_TOKEN",
+        "PAKRO_GITLAB_TOKEN",
+        "PAKRO_GITHUB_ENTERPRISE_TOKEN",
+        "PAKRO_GITLAB_ENTERPRISE_TOKEN",
     ];
     env::vars_safe()
-        .filter(|(k, _)| k.starts_with("MISE_"))
+        .filter(|(k, _)| k.starts_with("PAKRO_"))
         .map(|(k, v)| {
             let v = if REDACT_KEYS.contains(&k.as_str()) {
                 style::ndim("REDACTED").to_string()
@@ -1571,7 +1571,7 @@ fn build_info() -> IndexMap<String, &'static str> {
 }
 
 fn shell() -> String {
-    match env::MISE_SHELL.map(|s| s.to_string()) {
+    match env::PAKRO_SHELL.map(|s| s.to_string()) {
         Some(shell) => {
             let shell_cmd = if env::SHELL.ends_with(shell.as_str()) {
                 &*env::SHELL
@@ -1605,8 +1605,8 @@ fn aqua_registry_count_str() -> String {
 ///
 /// `Backend::is_version_installed` decides on path existence alone, so an
 /// interrupted download leaves a directory that passes it while providing
-/// nothing to run: `mise install` then reports "all tools are installed" and
-/// `mise ls` lists the version. `mise which` already notices; doctor did not
+/// nothing to run: `pakro install` then reports "all tools are installed" and
+/// `pakro ls` lists the version. `pakro which` already notices; doctor did not
 /// (discussions #9324 and #9826).
 ///
 /// Deliberately only the empty case. A directory holding files but no runnable
@@ -1614,9 +1614,9 @@ fn aqua_registry_count_str() -> String {
 /// calling a healthy install broken is worse than missing one.
 /// Whether an install is present but has nothing in it.
 ///
-/// `@system` is excluded: it points at a tool mise did not install, so a stray
+/// `@system` is excluded: it points at a tool pakro did not install, so a stray
 /// directory under `installs/` says nothing about its health, and
-/// `mise install --force <tool>@system` would be nonsense advice.
+/// `pakro install --force <tool>@system` would be nonsense advice.
 fn install_is_empty(tv: &ToolVersion) -> bool {
     if matches!(tv.request, ToolRequest::System { .. }) {
         return false;
@@ -1628,7 +1628,7 @@ fn install_is_empty(tv: &ToolVersion) -> bool {
 fn empty_install_error(tv: &ToolVersion) -> String {
     format!(
         "tool {tv} is installed but its directory is empty, reinstall with \
-         `mise install --force {}@{}`",
+         `pakro install --force {}@{}`",
         tv.ba(),
         tv.version
     )

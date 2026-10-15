@@ -5,7 +5,7 @@
 //! This crate provides functionality for working with Aqua package registry files.
 //! It handles parsing registry YAML, looking up packages, and managing compiled
 //! registry cache files. Fetching policy, remote fallback behavior, and baked-in
-//! registry integration live in mise.
+//! registry integration live in pakro.
 
 mod cache;
 mod codec;
@@ -14,7 +14,7 @@ mod file_ext;
 mod template;
 pub mod types;
 
-// Re-export only what's needed by the main mise crate
+// Re-export only what's needed by the main pakro crate
 pub use cache::RegistryCache;
 pub use codec::{decode_package_rkyv, encode_package_rkyv};
 pub use compiled::{CompiledRegistry, ParsedRegistry};

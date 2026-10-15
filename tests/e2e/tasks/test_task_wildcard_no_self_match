@@ -4,7 +4,7 @@
 # This prevents circular invocation when a parent task delegates to its children.
 # See: https://github.com/jdx/mise/discussions/8138
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks."test:foo"]
 run = 'echo foo'
 
@@ -17,6 +17,6 @@ run = [
 ]
 EOF
 
-# "mise run test" should run test:foo and test:bar without circular dependency
-assert_contains "mise run test" "foo"
-assert_contains "mise run test" "bar"
+# "pakro run test" should run test:foo and test:bar without circular dependency
+assert_contains "pakro run test" "foo"
+assert_contains "pakro run test" "bar"

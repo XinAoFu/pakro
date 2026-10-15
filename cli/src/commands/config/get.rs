@@ -2,15 +2,15 @@ use crate::file::display_path;
 use eyre::bail;
 use std::path::PathBuf;
 
-/// Display a value from one mise TOML file
+/// Display a value from one pakro TOML file
 ///
 /// Reads the highest-precedence loaded TOML file by default. Select another with
 /// `--file`, `--global`, or `--system`. This reads stored values, not the merged or
-/// template-expanded environment; use `mise env` for the resolved environment.
+/// template-expanded environment; use `pakro env` for the resolved environment.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     example(
-        r###"mise config get tools.python
+        r###"pakro config get tools.python
 3.12"###
     ),
     verbatim_doc_comment
@@ -20,7 +20,7 @@ pub(super) struct ConfigGet {
     #[usage(complete = complete_key)]
     pub key: Option<String>,
 
-    /// The path to the mise.toml file to read
+    /// The path to the pakro.toml file to read
     ///
     /// Can be a file path or directory. If a directory is provided, the config file in that directory is used.
     ///
@@ -63,11 +63,11 @@ impl ConfigGet {
             }
 
             match value {
-                toml::Value::String(s) => miseprintln!("{}", s),
-                toml::Value::Integer(i) => miseprintln!("{}", i),
-                toml::Value::Boolean(b) => miseprintln!("{}", b),
-                toml::Value::Float(f) => miseprintln!("{}", f),
-                toml::Value::Datetime(d) => miseprintln!("{}", d),
+                toml::Value::String(s) => pakroprintln!("{}", s),
+                toml::Value::Integer(i) => pakroprintln!("{}", i),
+                toml::Value::Boolean(b) => pakroprintln!("{}", b),
+                toml::Value::Float(f) => pakroprintln!("{}", f),
+                toml::Value::Datetime(d) => pakroprintln!("{}", d),
                 toml::Value::Array(a) => {
                     // seems that the toml crate does not have a way to serialize an array directly?
                     // workaround which only handle non-nested arrays
@@ -83,14 +83,14 @@ impl ConfigGet {
                             toml::Value::Table(_) => "{...}".to_string(),
                         })
                         .collect();
-                    miseprintln!("[{}]", elements.join(", "));
+                    pakroprintln!("[{}]", elements.join(", "));
                 }
                 toml::Value::Table(t) => {
-                    miseprintln!("{}", toml::to_string(t)?);
+                    pakroprintln!("{}", toml::to_string(t)?);
                 }
             }
         } else {
-            bail!("No mise.toml file found");
+            bail!("No pakro.toml file found");
         }
         Ok(())
     }

@@ -12,30 +12,30 @@ use path_absolutize::Absolutize;
 
 /// Remove tool requests from configuration and prune unused installations
 ///
-/// Without a selector, mise edits the first loaded config that declares one of the
+/// Without a selector, pakro edits the first loaded config that declares one of the
 /// requested tools. Use `--path`, `--global`, or `--env` to choose a specific file.
 /// A version argument matches the configured request literally: to remove `node = "20"`,
-/// use `mise unuse node@20`, not the concrete installed version it resolved to.
+/// use `pakro unuse node@20`, not the concrete installed version it resolved to.
 /// Omit the version to remove all requests for that tool from the selected file.
 ///
 /// Versions are pruned only when no remaining tracked config or tool stub needs them.
 /// Pass `--no-prune` to edit configuration while keeping installations. To remove an
-/// installation without editing configuration, use `mise uninstall`.
+/// installation without editing configuration, use `pakro uninstall`.
 #[derive(Debug, usage_rs::Args)]
-#[usage(verbatim_doc_comment, visible_aliases = ["rm", "remove"], example(r###"mise unuse node@18.0.0"###, help = r###"remove node@18.0.0 from mise.toml and uninstall it"###),
-    example(r###"mise unuse -g node@18.0.0"###, help = r###"remove it from the global config instead"###),
-    example(r###"mise unuse --env local node@20"###, help = r###"remove the literal node@20 request from mise.local.toml"###),
-    example(r###"mise unuse --env staging node@20"###, help = r###"remove the literal node@20 request from mise.staging.toml"###))]
+#[usage(verbatim_doc_comment, visible_aliases = ["rm", "remove"], example(r###"pakro unuse node@18.0.0"###, help = r###"remove node@18.0.0 from pakro.toml and uninstall it"###),
+    example(r###"pakro unuse -g node@18.0.0"###, help = r###"remove it from the global config instead"###),
+    example(r###"pakro unuse --env local node@20"###, help = r###"remove the literal node@20 request from pakro.local.toml"###),
+    example(r###"pakro unuse --env staging node@20"###, help = r###"remove the literal node@20 request from pakro.staging.toml"###))]
 pub(crate) struct Unuse {
     /// Tool(s) to remove
     #[usage(value_name = "INSTALLED_TOOL@VERSION", required = true)]
     installed_tool: Vec<ToolArg>,
 
-    /// Modify `.mise.<env>.toml` when it exists, otherwise `mise.<env>.toml`
+    /// Modify `.pakro.<env>.toml` when it exists, otherwise `pakro.<env>.toml`
     #[usage(long, short, overrides = & ["global", "path"])]
     env: Option<String>,
 
-    /// Use the global config file (`~/.config/mise/config.toml`) instead of the local one
+    /// Use the global config file (`~/.config/pakro/config.toml`) instead of the local one
     #[usage(short, long, overrides = & ["path", "env"])]
     global: bool,
 
@@ -59,7 +59,7 @@ impl Unuse {
             if requests
                 .sources
                 .get(&ta.ba)
-                .is_some_and(|s| s.is_mise_toml_daemon())
+                .is_some_and(|s| s.is_pakro_toml_daemon())
             {
                 warn!(
                     "{} is declared by [daemons]; edit that declaration to remove it",
@@ -139,7 +139,7 @@ impl Unuse {
                 !requests
                     .sources
                     .get(&ta.ba)
-                    .is_some_and(|s| s.is_mise_toml_daemon())
+                    .is_some_and(|s| s.is_pakro_toml_daemon())
             })
             .map(|ta| ta.ba.as_ref())
             .collect();
@@ -185,11 +185,11 @@ impl Unuse {
                 p
             }
         } else if let Some(env) = &self.env {
-            let p = cwd.join(format!(".mise.{env}.toml"));
+            let p = cwd.join(format!(".pakro.{env}.toml"));
             if p.exists() {
                 p
             } else {
-                cwd.join(format!("mise.{env}.toml"))
+                cwd.join(format!("pakro.{env}.toml"))
             }
         } else if env::in_home_dir() {
             config::global_config_path()

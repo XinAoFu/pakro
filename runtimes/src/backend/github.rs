@@ -9,7 +9,7 @@ use crate::backend::static_helpers::{
     lookup_with_fallback, template_string, try_with_v_prefix, try_with_v_prefix_and_repo,
     verify_artifact,
 };
-use crate::backend::{MISE_BINS_DIR, SecurityFeature, runtime_path_for_install_path};
+use crate::backend::{PAKRO_BINS_DIR, SecurityFeature, runtime_path_for_install_path};
 use crate::config::{Config, Settings, SettingsExt};
 use crate::file;
 use crate::http::HTTP;
@@ -60,7 +60,7 @@ impl AssetVerification {
     };
 }
 
-const ADDITIONAL_ASSETS_STATE_FILENAME: &str = ".mise-additional-assets.toml";
+const ADDITIONAL_ASSETS_STATE_FILENAME: &str = ".pakro-additional-assets.toml";
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 struct AdditionalAssetsInstallState {
@@ -332,7 +332,7 @@ impl<'a> GitBackendOptions<'a> {
 /// GitHub artifact attestations are only served by https://api.github.com. GHE
 /// Server doesn't implement the attestations endpoint, so any verification
 /// attempt against a custom api_url will fail. Callers gate on this so users
-/// don't have to disable `MISE_GITHUB_ATTESTATIONS` globally for GHE tools.
+/// don't have to disable `PAKRO_GITHUB_ATTESTATIONS` globally for GHE tools.
 /// The provenance an install must verify: the registry's requirement when
 /// there is one, since a lockfile may have been written without it (after a
 /// wrong "no attestations", or recording SLSA instead); otherwise the
@@ -353,7 +353,7 @@ fn locked_provenance_satisfies(
     required.is_none_or(|required| locked == Some(required))
 }
 
-/// Fail `mise lock` when verification settled on anything other than the
+/// Fail `pakro lock` when verification settled on anything other than the
 /// provenance the registry requires (SLSA, or nothing at all).
 fn ensure_registry_provenance(
     tv: &ToolVersion,
@@ -362,7 +362,7 @@ fn ensure_registry_provenance(
 ) -> Result<()> {
     match required {
         Some(required) if verified != Some(required) => Err(eyre::eyre!(
-            "mise registry requires {required} provenance for {tv} but {}. \
+            "pakro registry requires {required} provenance for {tv} but {}. \
              This may indicate a downgrade attack.",
             verified.map_or_else(
                 || "none was verified".to_string(),
@@ -380,7 +380,7 @@ fn attestations_supported(api_url: &str) -> bool {
 fn github_attestations_disabled_for_tool_error(tv: &ToolVersion) -> eyre::Report {
     eyre::eyre!(
         "Lockfile requires github-attestations provenance for {tv} but \
-         github_attestations is disabled for this tool. Re-run `mise lock` \
+         github_attestations is disabled for this tool. Re-run `pakro lock` \
          to refresh the lockfile, or remove github_attestations = false."
     )
 }
@@ -466,7 +466,7 @@ fn is_flat_platform_url_key(key: &str) -> bool {
 /// The exemption changes the shape of the version list, so a tool that has it
 /// cannot share a cache entry with one that does not. But a registry entry that
 /// declares platform URLs gives *every* client the same exemption, and
-/// mise-versions is built from that same canonical configuration — so isolating
+/// pakro-versions is built from that same canonical configuration — so isolating
 /// there would only cost the shared listing for no difference in content. The
 /// context therefore appears when a local config, alias, or inline option moves
 /// the exemption away from the registry default, in either direction.
@@ -481,12 +481,12 @@ fn direct_url_cache_context(effective: bool, registry_default: bool) -> Option<S
     (effective != registry_default).then(|| crate::hash::hash_to_str(&effective))
 }
 
-/// Whether a release has anything mise could install from.
+/// Whether a release has anything pakro could install from.
 ///
-/// A release with nothing attached has no source at all: mise never falls back
+/// A release with nothing attached has no source at all: pakro never falls back
 /// to the forge's auto-generated source archives, so every asset-selection path
 /// ends in "No matching asset found". Listing such a release advertises a
-/// version that cannot be installed -- `mise install <tool>@<version>` fails
+/// version that cannot be installed -- `pakro install <tool>@<version>` fails
 /// with that error rather than doing anything useful.
 ///
 /// Deliberately *not* "has an asset for the current platform". That would make
@@ -900,7 +900,7 @@ impl Backend for UnifiedGitBackend {
         // Skip this when `asset_pattern` is set: it supersedes `matching`/
         // `matching_regex` for both binary selection and provenance (see
         // `matching_for_provenance` and `resolve_*_asset_url_for_target`), so the
-        // regex is never consulted and an invalid one is irrelevant. mise doesn't
+        // regex is never consulted and an invalid one is irrelevant. pakro doesn't
         // hard-fail on options it won't act on — `url` short-circuits before
         // `asset_pattern` is ever templated (resolve_asset_url_for_target), an
         // ignored hook `shell` is dropped with a warning (src/hooks.rs), and
@@ -1009,9 +1009,9 @@ impl Backend for UnifiedGitBackend {
     ) -> Result<Vec<std::path::PathBuf>> {
         let raw_opts = tv.request.options();
         let opts = self.options(&raw_opts);
-        let mise_bins_dir = tv.install_path().join(MISE_BINS_DIR);
-        if opts.filter_bins().is_some() || mise_bins_dir.is_dir() {
-            return Ok(vec![tv.runtime_path().join(MISE_BINS_DIR)]);
+        let pakro_bins_dir = tv.install_path().join(PAKRO_BINS_DIR);
+        if opts.filter_bins().is_some() || pakro_bins_dir.is_dir() {
+            return Ok(vec![tv.runtime_path().join(PAKRO_BINS_DIR)]);
         }
 
         Ok(self
@@ -1075,7 +1075,7 @@ impl Backend for UnifiedGitBackend {
                     None
                 };
                 // Every recorded provenance claim must be verified, including
-                // artifacts for platforms other than the host running mise lock.
+                // artifacts for platforms other than the host running pakro lock.
                 if provenance.is_some() {
                     match self
                         .verify_provenance_at_lock_time(
@@ -1191,9 +1191,9 @@ impl UnifiedGitBackend {
         }
     }
 
-    /// The provenance the mise registry requires for `tv`'s primary asset:
+    /// The provenance the pakro registry requires for `tv`'s primary asset:
     /// GitHub attestations, for a tool the registry says publishes them from
-    /// this version on. Without this, "no attestations" (from mise-versions,
+    /// this version on. Without this, "no attestations" (from pakro-versions,
     /// or a lockfile written after it) just skips verification. Off whenever
     /// the user has turned GitHub attestations off.
     fn registry_required_provenance(
@@ -1390,7 +1390,7 @@ impl UnifiedGitBackend {
 
     /// Verify provenance at lock time by downloading the artifact to a temp directory
     /// and running cryptographic verification. Only called for the current platform
-    /// during `mise lock`.
+    /// during `pakro lock`.
     async fn verify_provenance_at_lock_time(
         &self,
         tv: &ToolVersion,
@@ -2546,9 +2546,9 @@ impl UnifiedGitBackend {
         }
     }
 
-    /// Creates a `.mise-bins` directory with symlinks only to the binaries specified in filter_bins.
+    /// Creates a `.pakro-bins` directory with symlinks only to the binaries specified in filter_bins.
     fn create_symlink_bin_dir(&self, tv: &ToolVersion, bins: Vec<String>) -> Result<()> {
-        let symlink_dir = tv.install_path().join(MISE_BINS_DIR);
+        let symlink_dir = tv.install_path().join(PAKRO_BINS_DIR);
         file::create_dir_all(&symlink_dir)?;
 
         // Find where the actual binaries are
@@ -2713,7 +2713,7 @@ impl UnifiedGitBackend {
             return Err(eyre::eyre!(
                 "Lockfile requires github-attestations provenance for {tv} but the \
                  configured api_url ({api_url}) does not serve attestations. \
-                 Re-run `mise lock` to refresh the lockfile, or remove the custom api_url."
+                 Re-run `pakro lock` to refresh the lockfile, or remove the custom api_url."
             ));
         }
         if !opts.github_attestations()
@@ -2818,7 +2818,7 @@ impl UnifiedGitBackend {
         // succeeded, it's a downgrade attack
         if let Some(expected) = expected_provenance {
             return Err(eyre::eyre!(
-                "Lockfile or mise registry requires {expected} provenance for {tv} but verification \
+                "Lockfile or pakro registry requires {expected} provenance for {tv} but verification \
                  was not performed. This may indicate a downgrade attack. Enable the corresponding \
                  verification setting or update the lockfile."
             ));
@@ -3318,7 +3318,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_direct_url_templates_use_resolved_version() {
-        use crate::config::config_file::{ConfigFile, mise_toml::MiseToml};
+        use crate::config::config_file::{ConfigFile, pakro_toml::PakroToml};
 
         crate::toolset::install_state::init().await.unwrap();
         for backend in [
@@ -3326,7 +3326,7 @@ mod tests {
             create_test_gitlab_backend(),
             create_test_forgejo_backend(),
         ] {
-            let config = MiseToml::from_str(
+            let config = PakroToml::from_str(
                 &format!(
                     "[tools.\"{}\"]\n{}",
                     backend.ba.full(),
@@ -3338,7 +3338,7 @@ platforms_windows_x64_url = 'https://example.com/fixed.zip?download=1'
 platforms.macos-arm64.url = 'https://example.com/{{ version }}/tool-darwin-arm64.tar.gz'
 "#,
                 ),
-                Path::new("mise.toml"),
+                Path::new("pakro.toml"),
             )
             .unwrap();
             let requests = config.to_tool_request_set().unwrap();
@@ -3942,9 +3942,9 @@ platforms.macos-arm64.url = 'https://example.com/{{ version }}/tool-darwin-arm64
     #[test]
     fn test_direct_url_cache_context_isolates_only_departures_from_the_registry() {
         // Both cases where the tool agrees with the registry share the default
-        // partition — which is what keeps mise-versions usable. That matters
+        // partition — which is what keeps pakro-versions usable. That matters
         // most for the second one: a registry entry that ships platform URLs
-        // gives every client the same exemption, and mise-versions is built
+        // gives every client the same exemption, and pakro-versions is built
         // from that same configuration.
         assert_eq!(direct_url_cache_context(false, false), None);
         assert_eq!(direct_url_cache_context(true, true), None);
@@ -4114,7 +4114,7 @@ platforms.macos-arm64.url = 'https://example.com/{{ version }}/tool-darwin-arm64
     fn test_matching_options_are_install_time_keys() {
         // `matching`/`matching_regex` must be install-time-only keys so a stale
         // cached filter from a prior install can't silently override what's in
-        // mise.toml now. They are deliberately NOT folded into the install path
+        // pakro.toml now. They are deliberately NOT folded into the install path
         // (that stays keyed by tool name + version) — `tool_alias` is the way to
         // install multiple binaries from one repo into distinct dirs.
         let keys = install_time_option_keys();
@@ -4300,7 +4300,7 @@ platforms.macos-arm64.url = 'https://example.com/{{ version }}/tool-darwin-arm64
         let msg = github_attestations_disabled_for_tool_error(&tv).to_string();
 
         assert!(msg.contains("github_attestations is disabled for this tool"));
-        assert!(msg.contains("mise lock"));
+        assert!(msg.contains("pakro lock"));
         assert!(msg.contains("remove github_attestations = false"));
     }
 
@@ -4415,7 +4415,7 @@ platforms.macos-arm64.url = 'https://example.com/{{ version }}/tool-darwin-arm64
             );
 
             // Cache-keying: a stale cached filter must never silently override
-            // mise.toml, so both keys must be install-time keys for every type
+            // pakro.toml, so both keys must be install-time keys for every type
             // (gitlab/forgejo inherit github's list via the routing in mod.rs).
             let itk = crate::backend::install_time_option_keys_for_type(&backend_type);
             assert!(
@@ -4546,7 +4546,7 @@ platforms.macos-arm64.url = 'https://example.com/{{ version }}/tool-darwin-arm64
 
     #[test]
     fn test_is_slsa_format_issue_sigstore_missing_field() {
-        // mise-sigstore maps sigstore-verify's "missing field …" JSON parse
+        // pakro-sigstore maps sigstore-verify's "missing field …" JSON parse
         // failures into the Sigstore variant. Treat those as format issues.
         let err = crate::github::sigstore::AttestationError::Sigstore(
             "JSON error: missing field `verificationMaterial` at line 1 column 8480".to_string(),

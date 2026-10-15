@@ -2,27 +2,27 @@ use crate::github;
 use crate::tokens;
 use eyre::bail;
 
-/// Display the GitHub token mise will use for a given host
+/// Display the GitHub token pakro will use for a given host
 ///
-/// Shows which token source mise would use, useful for debugging
+/// Shows which token source pakro would use, useful for debugging
 /// authentication issues. The token is masked by default.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise token github
+        r###"pakro token github
 github.com: ghp_…xxxx (source: GITHUB_TOKEN)"###
     ),
     example(
-        r###"mise token github --unmask
+        r###"pakro token github --unmask
 github.com: ghp_xxxxxxxxxxxx (source: GITHUB_TOKEN)"###
     ),
     example(
-        r###"mise token github github.mycompany.com
+        r###"pakro token github github.mycompany.com
 github.mycompany.com: (none)"###
     ),
     example(
-        r###"mise token github --oauth --refresh
+        r###"pakro token github --oauth --refresh
 github.com: gho_…xxxx (source: GitHub OAuth)"###
     )
 )]
@@ -77,7 +77,7 @@ impl Github {
         match resolved {
             Some((token, source)) => {
                 if self.raw {
-                    miseprintln!("{token}");
+                    pakroprintln!("{token}");
                     return Ok(());
                 }
                 let display_token = if self.unmask {
@@ -85,13 +85,13 @@ impl Github {
                 } else {
                     tokens::mask_token(&token)
                 };
-                miseprintln!("{}: {} (source: {})", self.host, display_token, source);
+                pakroprintln!("{}: {} (source: {})", self.host, display_token, source);
             }
             None => {
                 if self.raw {
                     bail!("no GitHub token found for {}", self.host);
                 }
-                miseprintln!("{}: (none)", self.host);
+                pakroprintln!("{}: (none)", self.host);
             }
         }
         Ok(())

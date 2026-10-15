@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-mkdir -p .config/mise/conf.d .mise/tasks
+mkdir -p .config/pakro/conf.d .pakro/tasks
 
-cat <<'EOF' >.config/mise.toml
+cat <<'EOF' >.config/pakro.toml
 [tasks.a]
 description = ".config/a"
 run = "echo .config/a"
@@ -13,55 +13,55 @@ alias = "low"
 env = { LOWER_PRECEDENCE = "applied" }
 EOF
 
-cat <<'EOF' >.mise/config.toml
+cat <<'EOF' >.pakro/config.toml
 [tasks.a]
-description = ".mise/a"
-run = "echo .mise/a"
+description = ".pakro/a"
+run = "echo .pakro/a"
 
 [tasks.b]
-description = ".mise/b"
+description = ".pakro/b"
 alias = "high"
 env = { HIGHER_PRECEDENCE = "applied" }
 EOF
 
-cat <<'EOF' >.mise/tasks/b
+cat <<'EOF' >.pakro/tasks/b
 #!/usr/bin/env bash
 echo "HIGHER_PRECEDENCE=${HIGHER_PRECEDENCE:-<unset>}"
 echo "LOWER_PRECEDENCE=${LOWER_PRECEDENCE:-<unset>}"
 EOF
-chmod +x .mise/tasks/b
+chmod +x .pakro/tasks/b
 
-assert_contains "mise tasks" "a  .mise/a"
-assert_not_contains "mise tasks" "a  .config/a"
-assert_contains "mise run a" ".mise/a"
-assert_not_contains "mise run a" ".config/a"
+assert_contains "pakro tasks" "a  .pakro/a"
+assert_not_contains "pakro tasks" "a  .config/a"
+assert_contains "pakro run a" ".pakro/a"
+assert_not_contains "pakro run a" ".config/a"
 
 # A script receives only the highest-precedence inline definition. Additive
 # fields such as aliases and env must not accumulate from lower configs.
-assert_contains "mise tasks" "b  .mise/b"
-assert_contains "mise run high" "HIGHER_PRECEDENCE=applied"
-assert_contains "mise run high" "LOWER_PRECEDENCE=<unset>"
-assert_fail "mise run low"
+assert_contains "pakro tasks" "b  .pakro/b"
+assert_contains "pakro run high" "HIGHER_PRECEDENCE=applied"
+assert_contains "pakro run high" "LOWER_PRECEDENCE=<unset>"
+assert_fail "pakro run low"
 
-cat <<'EOF' >.config/mise/conf.d/01-base.toml
+cat <<'EOF' >.config/pakro/conf.d/01-base.toml
 [tasks.c]
 description = "conf.d/01/c"
 env = { LOWER_PRECEDENCE = "applied" }
 EOF
 
-cat <<'EOF' >.config/mise/conf.d/02-override.toml
+cat <<'EOF' >.config/pakro/conf.d/02-override.toml
 [tasks.c]
 description = "conf.d/02/c"
 env = { HIGHER_PRECEDENCE = "applied" }
 EOF
 
-cat <<'EOF' >.mise/tasks/c
+cat <<'EOF' >.pakro/tasks/c
 #!/usr/bin/env bash
 echo "HIGHER_PRECEDENCE=${HIGHER_PRECEDENCE:-<unset>}"
 echo "LOWER_PRECEDENCE=${LOWER_PRECEDENCE:-<unset>}"
 EOF
-chmod +x .mise/tasks/c
+chmod +x .pakro/tasks/c
 
-assert_contains "mise tasks" "c  conf.d/02/c"
-assert_contains "mise run c" "HIGHER_PRECEDENCE=applied"
-assert_contains "mise run c" "LOWER_PRECEDENCE=<unset>"
+assert_contains "pakro tasks" "c  conf.d/02/c"
+assert_contains "pakro run c" "HIGHER_PRECEDENCE=applied"
+assert_contains "pakro run c" "LOWER_PRECEDENCE=<unset>"

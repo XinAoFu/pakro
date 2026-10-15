@@ -16,7 +16,7 @@ const PRESETS: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/daemon_pres
 /// literal that must not gain quotes.
 const SHELL_KEYS: &[&str] = &["run", "ready_cmd"];
 
-const MARKER: &str = ".mise-daemon-version";
+const MARKER: &str = ".pakro-daemon-version";
 
 /// How long an ephemeral init server has to accept its first request, across every
 /// attempt, and how many times a lost port race is retried.
@@ -45,7 +45,7 @@ struct Preset {
     ports: IndexMap<String, u16>,
     version: VersionSpec,
     /// A file the tool itself writes with its own major version, cross-checked
-    /// against the mise marker (for example Postgres's `PG_VERSION`).
+    /// against the pakro marker (for example Postgres's `PG_VERSION`).
     #[serde(default)]
     data_version_file: Option<String>,
     /// The tool exits when run as root, as `initdb` and `postgres` do.
@@ -316,7 +316,7 @@ pub(crate) fn ensure_runnable_as_user(label: &str, preset_name: &str) -> Result<
     if root && preset(preset_name)?.refuses_root {
         bail!(
             "{label} cannot run as root: the {preset_name} preset's server refuses root privileges. \
-             Run mise as a regular user, for example by adding one and switching to it with \
+             Run pakro as a regular user, for example by adding one and switching to it with \
              `USER` in a Dockerfile or with `su - <user>`"
         );
     }
@@ -391,7 +391,7 @@ pub(crate) fn cmd_quote(value: &str) -> String {
 
 /// The program to spawn for a preset command. Windows looks up only `.exe` for a
 /// bare name, and a tool can be on PATH as a `.cmd`, as conda's are. The search uses
-/// this process's PATH, which `mise x` put the preset's tool on.
+/// this process's PATH, which `pakro x` put the preset's tool on.
 fn program(name: &str) -> PathBuf {
     if cfg!(windows)
         && let Ok(path) = which::which(name)
@@ -498,7 +498,7 @@ fn resolve_options(
 }
 
 /// Options the user set that the preset declares a no-op, given what else is set.
-/// Only a declaration the user wrote counts: `mise daemons __init` reconstructs a
+/// Only a declaration the user wrote counts: `pakro daemons __init` reconstructs a
 /// full table from the resolved context, where every option would look deliberate.
 fn ignored_options(
     preset: &Preset,
@@ -577,7 +577,7 @@ fn context(
     ctx
 }
 
-/// The option values `mise daemons __init` needs, as JSON embedded in the run command.
+/// The option values `pakro daemons __init` needs, as JSON embedded in the run command.
 fn init_values(
     port: u16,
     ports: &IndexMap<String, u16>,
@@ -621,15 +621,15 @@ fn render_value(
 }
 
 /// Wrap a command so it runs inside the project's tool environment. Needed
-/// wherever pitchfork is told not to wrap the daemon itself in `mise x`.
+/// wherever pitchfork is told not to wrap the daemon itself in `pakro x`.
 pub(crate) fn in_tool_env(command: &str) -> String {
-    let mise = shell_program(crate::env::MISE_BIN.to_string_lossy());
+    let pakro = shell_program(crate::env::PAKRO_BIN.to_string_lossy());
     if cfg!(windows) {
-        // The whole command runs in a cmd inside `mise x`, as `sh -c` does on Unix,
+        // The whole command runs in a cmd inside `pakro x`, as `sh -c` does on Unix,
         // so every part of `a && b` gets the tool environment.
-        return format!("{mise} x -- cmd /c {}", cmd_quote(command));
+        return format!("{pakro} x -- cmd /c {}", cmd_quote(command));
     }
-    format!("{mise} x -- sh -c {}", quote(command))
+    format!("{pakro} x -- sh -c {}", quote(command))
 }
 
 /// Probes are separate processes: wrapping the daemon does not give them its
@@ -661,7 +661,7 @@ pub(crate) fn with_init(steps: &[String], run: &str) -> String {
     format!("{} && {run}", steps.join(" && "))
 }
 
-/// The declaration fields mise interprets itself rather than forwarding to
+/// The declaration fields pakro interprets itself rather than forwarding to
 /// pitchfork: setup steps to run before the daemon, the port already resolved
 /// for this project root, and the hostname components that root contributes.
 pub(crate) struct Extras<'a> {
@@ -817,7 +817,7 @@ pub(crate) fn expand(
     let values = serde_json::to_string(&init_values(port, &ports, &options))?;
     let mut steps = vec![format!(
         "{} daemons __init {} {} --context {}",
-        shell_program(crate::env::MISE_BIN.to_string_lossy()),
+        shell_program(crate::env::PAKRO_BIN.to_string_lossy()),
         shell_quote(preset_name),
         shell_quote(&data),
         shell_quote(values),
@@ -847,14 +847,14 @@ pub(crate) fn expand(
             exports.insert(var, value);
         }
     }
-    table.insert("mise".into(), toml::Value::Boolean(true));
+    table.insert("pakro".into(), toml::Value::Boolean(true));
     // `proxy` and `proxy_tls` were already normalized above, so re-applying the raw
     // override here would undo that. `proxy_idle_timeout` is left in `overrides`:
     // `urls::apply` only validated it, so `extend` re-inserts the same value.
     overrides.remove("proxy");
     overrides.remove("proxy_tls");
     table.extend(overrides);
-    if table.get("mise").and_then(toml::Value::as_bool) != Some(false) {
+    if table.get("pakro").and_then(toml::Value::as_bool) != Some(false) {
         wrap_probe_commands(&mut table);
     }
     Ok(Daemon {
@@ -942,7 +942,7 @@ fn json_to_toml(name: &str, value: &serde_json::Value) -> Result<toml::Value> {
 
 /// Re-validate the values embedded in the generated run command. `__init` is a
 /// separate process invocation, so its input is checked again rather than trusted.
-/// The ports and options a generated run command passes to `mise daemons __init`.
+/// The ports and options a generated run command passes to `pakro daemons __init`.
 struct InitContext {
     port: u16,
     ports: IndexMap<String, u16>,
@@ -1121,7 +1121,7 @@ impl Drop for ServerGuard {
 /// Runs one readiness probe, giving up at `deadline`. A probe that blocks, such as
 /// a client dialing a half-open socket, must not outlive the wait it belongs to.
 /// Start a temporary initialization server. On Windows it gets a process group of
-/// its own, so it can be sent Ctrl+Break without mise receiving it too.
+/// its own, so it can be sent Ctrl+Break without pakro receiving it too.
 fn spawn_server(argv: &[String]) -> Result<ServerGuard> {
     let mut command = Command::new(program(&argv[0]));
     command.args(&argv[1..]).stdin(Stdio::null());
@@ -1385,7 +1385,7 @@ pub fn initialize(
     }
     let init = init_context(&preset, preset_name, values)?;
     let staging = tempfile::Builder::new()
-        .prefix(".mise-init-")
+        .prefix(".pakro-init-")
         .tempdir_in(parent)?;
     let staged_data: PathBuf = staging.path().join("data");
     std::fs::create_dir(&staged_data)?;
@@ -1434,7 +1434,7 @@ mod tests {
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/project/mise.toml"),
+            Path::new("/project/pakro.toml"),
             Path::new("/project"),
         )
         .unwrap()
@@ -1522,8 +1522,8 @@ mod tests {
     fn run_and_probes_suit_the_platform_shell() {
         let daemon = render("postgres", toml::Table::new());
         let run = daemon.table["run"].as_str().unwrap();
-        let mise = shell_program(crate::env::MISE_BIN.to_string_lossy());
-        let init = format!("{mise} daemons __init {} ", shell_quote("postgres"));
+        let pakro = shell_program(crate::env::PAKRO_BIN.to_string_lossy());
+        let init = format!("{pakro} daemons __init {} ", shell_quote("postgres"));
         assert!(run.starts_with(&init), "{run}");
         // `-k ""` is an empty argument to both sh and cmd.exe.
         assert!(run.ends_with(r#" -h 127.0.0.1 -k """#), "{run}");
@@ -1534,8 +1534,10 @@ mod tests {
             assert_eq!(
                 daemon.table["ready_cmd"].as_str(),
                 Some(
-                    format!("{mise} x -- cmd /c ^\"pg_isready -h 127.0.0.1 -p 5432 -U postgres^\"")
-                        .as_str()
+                    format!(
+                        "{pakro} x -- cmd /c ^\"pg_isready -h 127.0.0.1 -p 5432 -U postgres^\""
+                    )
+                    .as_str()
                 )
             );
         } else {
@@ -1555,14 +1557,14 @@ mod tests {
         assert_eq!(cmd_quote("secret%USERNAME%key"), "secret^%USERNAME^%key");
         // The program is found only between real quotes, so a `%` goes outside them.
         assert_eq!(
-            shell_program(r"C:\Users\%TEMP% x\mise.exe"),
+            shell_program(r"C:\Users\%TEMP% x\pakro.exe"),
             if cfg!(windows) {
-                r#""C:\Users\"^%"TEMP"^%" x\mise.exe""#
+                r#""C:\Users\"^%"TEMP"^%" x\pakro.exe""#
             } else {
-                r"'C:\Users\%TEMP% x\mise.exe'"
+                r"'C:\Users\%TEMP% x\pakro.exe'"
             }
         );
-        // A compound probe runs whole inside `mise x`.
+        // A compound probe runs whole inside `pakro x`.
         if cfg!(windows) {
             assert!(in_tool_env("a && b").ends_with(r#" x -- cmd /c ^"a ^&^& b^""#));
         }
@@ -1602,7 +1604,7 @@ mod tests {
                     labels: &labels(),
                     imported: false,
                 },
-                Path::new("/project/mise.toml"),
+                Path::new("/project/pakro.toml"),
                 Path::new("/project"),
             )
             .unwrap_err();
@@ -1634,7 +1636,7 @@ mod tests {
         let unmanaged = render(
             "postgres",
             toml::toml! {
-                mise = false
+                pakro = false
                 ready_cmd = "custom-ready"
             },
         );
@@ -1655,7 +1657,7 @@ mod tests {
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/p/mise.toml"),
+            Path::new("/p/pakro.toml"),
             Path::new("/p"),
         )
         .unwrap();
@@ -1714,7 +1716,7 @@ mod tests {
                     labels: &labels(),
                     imported,
                 },
-                Path::new("/p/mise.toml"),
+                Path::new("/p/pakro.toml"),
                 Path::new("/p"),
             )
             .unwrap()
@@ -1769,7 +1771,7 @@ mod tests {
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/p/mise.toml"),
+            Path::new("/p/pakro.toml"),
             Path::new("/p"),
         )
         .unwrap();
@@ -1808,7 +1810,7 @@ mod tests {
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/p/mise.toml"),
+            Path::new("/p/pakro.toml"),
             Path::new("/p"),
         )
         .unwrap();
@@ -1838,7 +1840,7 @@ mod tests {
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/p/mise.toml"),
+            Path::new("/p/pakro.toml"),
             Path::new("/p"),
         );
         assert!(
@@ -1861,7 +1863,7 @@ mod tests {
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/p/mise.toml"),
+            Path::new("/p/pakro.toml"),
             Path::new("/p"),
         )
         .unwrap();
@@ -1890,7 +1892,7 @@ mod tests {
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/p/mise.toml"),
+            Path::new("/p/pakro.toml"),
             Path::new("/p"),
         )
         .unwrap();
@@ -1913,7 +1915,7 @@ mod tests {
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/p/mise.toml"),
+            Path::new("/p/pakro.toml"),
             Path::new("/p"),
         );
         assert!(
@@ -1937,7 +1939,7 @@ mod tests {
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/p/mise.toml"),
+            Path::new("/p/pakro.toml"),
             Path::new("/p"),
         )
         .unwrap();
@@ -1957,7 +1959,7 @@ mod tests {
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/p/mise.toml"),
+            Path::new("/p/pakro.toml"),
             Path::new("/p"),
         );
         assert!(invalid.unwrap_err().to_string().contains("must match"));
@@ -1972,7 +1974,7 @@ mod tests {
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/p/mise.toml"),
+            Path::new("/p/pakro.toml"),
             Path::new("/p"),
         );
         assert!(
@@ -1996,7 +1998,7 @@ mod tests {
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/p/mise.toml"),
+            Path::new("/p/pakro.toml"),
             Path::new("/p"),
         )
         .unwrap();
@@ -2041,7 +2043,7 @@ mod tests {
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/p/mise.toml"),
+            Path::new("/p/pakro.toml"),
             Path::new("/p"),
         )
         .unwrap();
@@ -2088,7 +2090,7 @@ mod tests {
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/p/mise.toml"),
+            Path::new("/p/pakro.toml"),
             Path::new("/p"),
         )
         .unwrap();
@@ -2124,7 +2126,7 @@ mod tests {
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/p/mise.toml"),
+            Path::new("/p/pakro.toml"),
             Path::new("/p"),
         )
         .unwrap();
@@ -2149,7 +2151,7 @@ mod tests {
                     labels: &labels(),
                     imported: false,
                 },
-                Path::new("/p/mise.toml"),
+                Path::new("/p/pakro.toml"),
                 Path::new("/p"),
             );
             assert!(rejected.is_err(), "accepted {injection}");
@@ -2169,7 +2171,7 @@ mod tests {
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/p/mise.toml"),
+            Path::new("/p/pakro.toml"),
             Path::new("/p"),
         );
         assert!(
@@ -2197,7 +2199,7 @@ mod tests {
                     labels: &labels(),
                     imported: false,
                 },
-                Path::new("/p/mise.toml"),
+                Path::new("/p/pakro.toml"),
                 Path::new("/p"),
             );
             assert!(partial.unwrap_err().to_string().contains("also requires"));
@@ -2213,7 +2215,7 @@ mod tests {
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/p/mise.toml"),
+            Path::new("/p/pakro.toml"),
             Path::new("/p"),
         )
         .unwrap();
@@ -2233,7 +2235,7 @@ mod tests {
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/p/mise.toml"),
+            Path::new("/p/pakro.toml"),
             Path::new("/p"),
         );
         assert!(
@@ -2255,7 +2257,7 @@ mod tests {
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/p/mise.toml"),
+            Path::new("/p/pakro.toml"),
             Path::new("/p"),
         );
         assert!(
@@ -2276,7 +2278,7 @@ mod tests {
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/p/mise.toml"),
+            Path::new("/p/pakro.toml"),
             Path::new("/p"),
         );
         assert!(
@@ -2482,7 +2484,7 @@ run = "sh"
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/p/mise.toml"),
+            Path::new("/p/pakro.toml"),
             Path::new("/p"),
         )
         .unwrap();
@@ -2514,7 +2516,7 @@ run = "sh"
                     labels: &labels(),
                     imported: false,
                 },
-                Path::new("/p/mise.toml"),
+                Path::new("/p/pakro.toml"),
                 Path::new("/p"),
             );
             assert!(
@@ -2537,7 +2539,7 @@ run = "sh"
                     labels: &labels(),
                     imported: false,
                 },
-                Path::new("/p/mise.toml"),
+                Path::new("/p/pakro.toml"),
                 Path::new("/p"),
             )
             .is_ok()
@@ -2554,7 +2556,7 @@ run = "sh"
                 labels: &labels(),
                 imported: false,
             },
-            Path::new("/p/mise.toml"),
+            Path::new("/p/pakro.toml"),
             Path::new("/p"),
         );
         assert!(bad.unwrap_err().to_string().contains("must match"));

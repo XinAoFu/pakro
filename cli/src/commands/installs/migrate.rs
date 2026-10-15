@@ -12,7 +12,7 @@ use crate::toolset::{InstallOptions, ToolRequest, ToolVersion, install_state};
 /// Reinstall legacy installations into the identity install layout
 ///
 /// Installations made before `install_layout = "identity"` was turned on stay in
-/// `installs/<tool>/<version>` and keep working; mise never moves them on its own,
+/// `installs/<tool>/<version>` and keep working; pakro never moves them on its own,
 /// because tools record their own path in shebangs, virtual environments and
 /// package-manager files. This reinstalls each one into its own `<label>-<hash>`
 /// directory, then removes the old directory and puts the version link in its
@@ -27,11 +27,11 @@ use crate::toolset::{InstallOptions, ToolRequest, ToolVersion, install_state};
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     example(
-        r###"mise installs migrate --dry-run"###,
+        r###"pakro installs migrate --dry-run"###,
         help = r###"List the legacy installations that would move"###
     ),
     example(
-        r###"mise installs migrate node python@3.12.1"###,
+        r###"pakro installs migrate node python@3.12.1"###,
         help = r###"Move every installed node, and one python"###
     ),
     verbatim_doc_comment
@@ -56,7 +56,7 @@ impl InstallsMigrate {
         // as interrupted.
         let lock = crate::lock_file::LockFile::at(
             &dirs::INSTALLS
-                .join(".mise")
+                .join(".pakro")
                 .join("locks")
                 .join("migrate.lock"),
         );
@@ -68,8 +68,8 @@ impl InstallsMigrate {
         if migrating.is_some() {
             recover_interrupted(self.dry_run)?;
         } else {
-            miseprintln!(
-                "another `mise installs migrate` is running; what it has moved aside is not listed"
+            pakroprintln!(
+                "another `pakro installs migrate` is running; what it has moved aside is not listed"
             );
         }
         let config = Config::get().await?;
@@ -89,12 +89,12 @@ impl InstallsMigrate {
             }
         }
         if plan.is_empty() {
-            miseprintln!("no legacy installations to migrate");
+            pakroprintln!("no legacy installations to migrate");
             return Ok(());
         }
         if self.dry_run {
             for (tv, target) in &plan {
-                miseprintln!(
+                pakroprintln!(
                     "would migrate {} from {} to {}",
                     tv.style(),
                     display_path(tv.install_path()),
@@ -121,7 +121,7 @@ impl InstallsMigrate {
 
     /// Whether `tv` is one of the tools asked for: `None` when none were named.
     /// A version names the installed version it is, or else, as for
-    /// `mise uninstall node@20`, those it begins up to a `.`, `-` or `+` (`20`
+    /// `pakro uninstall node@20`, those it begins up to a `.`, `-` or `+` (`20`
     /// names `20.11.1`, not `200.1`); `latest` names the newest installed one.
     fn named(&self, tv: &ToolVersion) -> Option<bool> {
         if self.tool.is_empty() {
@@ -160,7 +160,7 @@ fn aside_path(legacy: &Path) -> PathBuf {
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-    legacy.with_file_name(format!(".{name}.mise-migrating"))
+    legacy.with_file_name(format!(".{name}.pakro-migrating"))
 }
 
 /// What a migration records before it touches anything, so that an interrupted
@@ -188,7 +188,7 @@ struct Journal {
 
 impl Journal {
     fn dir() -> PathBuf {
-        dirs::INSTALLS.join(".mise").join("migrations")
+        dirs::INSTALLS.join(".pakro").join("migrations")
     }
 
     fn path_for(legacy: &Path) -> PathBuf {
@@ -303,7 +303,7 @@ fn recover_interrupted(dry_run: bool) -> Result<()> {
     // the old directory it moved aside can still be put back (below).
     for path in unreadable {
         if dry_run {
-            miseprintln!("would remove {}, which cannot be read", display_path(&path));
+            pakroprintln!("would remove {}, which cannot be read", display_path(&path));
         } else {
             warn!(
                 "removing {}, a migration journal that cannot be read",
@@ -336,7 +336,7 @@ fn recover_interrupted(dry_run: bool) -> Result<()> {
                     display_path(legacy)
                 )
             };
-            miseprintln!("{action}");
+            pakroprintln!("{action}");
             continue;
         }
         if journal.finished {
@@ -393,7 +393,7 @@ fn recover_interrupted(dry_run: bool) -> Result<()> {
                 .file_name()
                 .and_then(|n| n.to_str())
                 .and_then(|n| n.strip_prefix('.'))
-                .and_then(|n| n.strip_suffix(".mise-migrating"))
+                .and_then(|n| n.strip_suffix(".pakro-migrating"))
             else {
                 continue;
             };
@@ -404,12 +404,12 @@ fn recover_interrupted(dry_run: bool) -> Result<()> {
             let free = std::fs::symlink_metadata(&legacy).is_err();
             if dry_run {
                 if free {
-                    miseprintln!(
+                    pakroprintln!(
                         "would restore {} from an interrupted migration, then migrate it",
                         display_path(&legacy)
                     );
                 } else {
-                    miseprintln!(
+                    pakroprintln!(
                         "would keep {}, left by a migration whose record is gone, under \
                          another name",
                         display_path(&entry)
@@ -449,12 +449,12 @@ fn keep_aside(aside: &Path) -> Result<PathBuf> {
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-    let base = name.strip_suffix(".mise-migrating").unwrap_or(&name);
-    let mut kept = aside.with_file_name(format!("{base}.mise-kept"));
+    let base = name.strip_suffix(".pakro-migrating").unwrap_or(&name);
+    let mut kept = aside.with_file_name(format!("{base}.pakro-kept"));
     let mut n = 1;
     while std::fs::symlink_metadata(&kept).is_ok() {
         n += 1;
-        kept = aside.with_file_name(format!("{base}.mise-kept-{n}"));
+        kept = aside.with_file_name(format!("{base}.pakro-kept-{n}"));
     }
     file::rename(aside, &kept)?;
     Ok(kept)
@@ -498,7 +498,7 @@ async fn migrate(tv: &ToolVersion) -> Result<()> {
     let aside = aside_path(&legacy);
     if aside.exists() || Journal::path_for(&legacy).exists() {
         eyre::bail!(
-            "an earlier migration of {} did not finish; run `mise installs migrate` again \
+            "an earlier migration of {} did not finish; run `pakro installs migrate` again \
              to finish or undo it",
             display_path(&legacy)
         );
@@ -508,7 +508,7 @@ async fn migrate(tv: &ToolVersion) -> Result<()> {
     // where the old one has to return. The reinstall below is locked by its own
     // installation directory, not by this version, so it does not wait on this.
     let _lock = install_state::lock_tool_version(tv.ba(), &tv.tv_pathname())?;
-    // The plan was made before the lock: something (`mise link`, an install) may
+    // The plan was made before the lock: something (`pakro link`, an install) may
     // have taken the version's place since.
     if !resolver::is_legacy_install(&legacy) {
         eyre::bail!(
@@ -585,7 +585,7 @@ async fn migrate(tv: &ToolVersion) -> Result<()> {
                     display_path(&aside)
                 ),
             }
-            miseprintln!("migrated {} to {}", tv.style(), display_path(&dir));
+            pakroprintln!("migrated {} to {}", tv.style(), display_path(&dir));
             Ok(())
         }
         Err(err) => {
@@ -662,7 +662,7 @@ fn restore(legacy: &Path, aside: &Path) -> Result<()> {
     if file::is_symlink_or_junction(legacy) {
         file::remove_dir_link(legacy)?;
     }
-    // Something else installed a real directory there meanwhile (a mise using
+    // Something else installed a real directory there meanwhile (a pakro using
     // the legacy layout): keep both rather than overwrite either.
     file::rename(aside, legacy).map_err(|err| {
         eyre::eyre!(

@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [env]
 FOO={value="bar", tools=true}
 EOF
-assert_contains "mise hook-env -s bash" "export FOO=bar"
+assert_contains "pakro hook-env -s bash" "export FOO=bar"
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [env]
 WHICH={value="{{ exec(command='which which') }}", tools=true}
 EOF
-assert_contains "mise hook-env -s bash" "export WHICH=$(which which)"
+assert_contains "pakro hook-env -s bash" "export WHICH=$(which which)"
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools]
 tiny = "latest"
 
@@ -20,14 +20,14 @@ tiny = "latest"
 TINY_V = { value = "{{ tools.tiny.version }}", tools = true }
 TINY_P = { value = "{{ tools.tiny.path }}", tools = true }
 EOF
-mise install tiny
-TINY_VERSION=$(mise latest tiny)
-TINY_PATH=$(mise where tiny)
-assert_contains "mise hook-env -s bash" "export TINY_V=$TINY_VERSION"
-assert_contains "mise hook-env -s bash" "export TINY_P=$TINY_PATH"
+pakro install tiny
+TINY_VERSION=$(pakro latest tiny)
+TINY_PATH=$(pakro where tiny)
+assert_contains "pakro hook-env -s bash" "export TINY_V=$TINY_VERSION"
+assert_contains "pakro hook-env -s bash" "export TINY_P=$TINY_PATH"
 
 # test multiple versions of the same tool (array access)
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools]
 tiny = ["3", "2"]
 
@@ -37,10 +37,10 @@ TINY_P0 = { value = "{{ tools.tiny[0].path }}", tools = true }
 TINY_V1 = { value = "{{ tools.tiny[1].version }}", tools = true }
 TINY_P1 = { value = "{{ tools.tiny[1].path }}", tools = true }
 EOF
-mise install tiny@3 tiny@2
-TINY_PATH0=$(mise where tiny@3)
-TINY_PATH1=$(mise where tiny@2)
-assert_contains "mise hook-env -s bash" "export TINY_V0=3"
-assert_contains "mise hook-env -s bash" "export TINY_P0=$TINY_PATH0"
-assert_contains "mise hook-env -s bash" "export TINY_V1=2"
-assert_contains "mise hook-env -s bash" "export TINY_P1=$TINY_PATH1"
+pakro install tiny@3 tiny@2
+TINY_PATH0=$(pakro where tiny@3)
+TINY_PATH1=$(pakro where tiny@2)
+assert_contains "pakro hook-env -s bash" "export TINY_V0=3"
+assert_contains "pakro hook-env -s bash" "export TINY_P0=$TINY_PATH0"
+assert_contains "pakro hook-env -s bash" "export TINY_V1=2"
+assert_contains "pakro hook-env -s bash" "export TINY_P1=$TINY_PATH1"

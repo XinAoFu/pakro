@@ -154,7 +154,7 @@ impl InstallDependencyContext {
                 }
                 bail!(
                     "tool '{}' requires configured install dependency '{}', but its selected version is not installed\n\
-                     hint: Run `mise install {}` before installing '{}'. Remove the dependency from configuration to allow the install hook to rely on system PATH instead.",
+                     hint: Run `pakro install {}` before installing '{}'. Remove the dependency from configuration to allow the install hook to rely on system PATH instead.",
                     request,
                     dependency.request,
                     dependency.request,

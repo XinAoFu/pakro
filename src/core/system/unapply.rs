@@ -8,7 +8,7 @@
 //! declares is therefore never a candidate.
 //!
 //! Removal is conservative. A target that no longer matches the declaration is
-//! left in place unless `--force` is given, in the same way `mise dot unapply`
+//! left in place unless `--force` is given, in the same way `pakro dot unapply`
 //! preserves files it cannot identify as managed.
 
 use std::collections::HashSet;
@@ -123,7 +123,7 @@ pub async fn plan(
             unapply.skipped.push(Skip {
                 kind: "file",
                 name: file.path.to_string_lossy().into_owned(),
-                reason: "its content is not managed by mise, only its permissions".into(),
+                reason: "its content is not managed by pakro, only its permissions".into(),
             });
             continue;
         }
@@ -170,7 +170,7 @@ pub async fn plan(
     }
     // Removal deletes the installed unit, agent, or task by name, so the
     // installed definition has to be compared with the declaration first. One
-    // service mise cannot render or query is reported like any other service it
+    // service pakro cannot render or query is reported like any other service it
     // keeps, rather than stopping the rest of the module from being removed.
     for request in service_candidates {
         let name = request.name.clone();
@@ -525,7 +525,7 @@ fn uncovered_sections(config: &Config, environments: &[String]) -> Vec<Uncovered
         (
             "bootstrap.packages",
             packages,
-            "mise bootstrap packages prune --manager <manager>",
+            "pakro bootstrap packages prune --manager <manager>",
         ),
         ("bootstrap.repos", repos, "remove the checkout"),
         (

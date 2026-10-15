@@ -1,39 +1,39 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2016
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [env]
 ENV_TMPL_EXEC = "{{ exec(command='echo foo') }}"
 EOF
-assert_contains "mise env -s zsh | grep ENV_TMPL_EXEC" "export ENV_TMPL_EXEC=foo"
+assert_contains "pakro env -s zsh | grep ENV_TMPL_EXEC" "export ENV_TMPL_EXEC=foo"
 
 # Inner double quotes in an exec() command must survive to the shell. This is
 # the same run_once path shared with the Windows cmd-verbatim fix; on Unix it
 # guards against a regression in the refactor. `echo "a b"` must resolve to
 # exactly `a b` (echo strips the quotes) — not `"a b"` or a backslash-escaped
 # variant, which a broken refactor could produce.
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [env]
 ENV_TMPL_EXEC_QUOTED = "{{ exec(command='echo \"a b\"') }}"
 EOF
-assert_json_partial_object "mise env --json" "ENV_TMPL_EXEC_QUOTED" '{
+assert_json_partial_object "pakro env --json" "ENV_TMPL_EXEC_QUOTED" '{
   "ENV_TMPL_EXEC_QUOTED": "a b"
 }'
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [env]
 B = "{{ env.A }}"
 EOF
-A=a assert_contains "mise env -s bash | grep B" "export B=a"
+A=a assert_contains "pakro env -s bash | grep B" "export B=a"
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [env]
 A = "a"
 B = "{{ env.A }}"
 EOF
-assert_contains "mise env -s bash | grep B" "export B=a"
+assert_contains "pakro env -s bash | grep B" "export B=a"
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [env]
 FOO = "foo"
 
@@ -47,12 +47,12 @@ echo "{% raw %}{{ env.FOO }}{% endraw %}: {{ env.FOO }}"
 echo "{% raw %}{{ env.BAR }}{% endraw %}: {{ env.BAR }}"
 """
 EOF
-assert "mise run --trace foo" '$FOO: foo
+assert "pakro run --trace foo" '$FOO: foo
 $BAR: bar
 {{ env.FOO }}: foo
 {{ env.BAR }}: bar'
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [env]
 FOO = "foo"
 
@@ -62,9 +62,9 @@ env.BAZ = "{{ env.BAR }}"
 
 run = "printf '\$BAZ: %s\n' \$BAZ"
 EOF
-assert "mise run --trace foo" '$BAZ: foo'
+assert "pakro run --trace foo" '$BAZ: foo'
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [env]
 FOO = "/foo"
 _.source = { path = "env.sh", tools = true }
@@ -74,9 +74,9 @@ cat <<EOF >env.sh
 #!/usr/bin/env bash
 export BAR="\$PATH"
 EOF
-assert_contains "mise env -s bash | grep BAR" "export BAR='/foo:"
+assert_contains "pakro env -s bash | grep BAR" "export BAR='/foo:"
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [vars]
 MY_VAR = "my_var"
 
@@ -84,15 +84,15 @@ MY_VAR = "my_var"
 FOO = "{{vars.MY_VAR}}"
 EOF
 
-assert_json_partial_object "mise env --json" "FOO" '{
+assert_json_partial_object "pakro env --json" "FOO" '{
   "FOO": "my_var"
 }'
 
-cat <<EOF >mise.local.toml
+cat <<EOF >pakro.local.toml
 [vars]
-MY_VAR = "mise.local.toml"
+MY_VAR = "pakro.local.toml"
 EOF
 
-assert_json_partial_object "mise env --json" "FOO" '{
-  "FOO": "mise.local.toml"
+assert_json_partial_object "pakro env --json" "FOO" '{
+  "FOO": "pakro.local.toml"
 }'

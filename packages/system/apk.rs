@@ -107,7 +107,7 @@ impl SystemPackageManager for ApkManager {
         args.push("--".to_string());
         args.extend(pkgs.iter().map(apk_name));
         if opts.dry_run {
-            miseprintln!("{}", sudo::argv("apk", &args).join(" "));
+            pakroprintln!("{}", sudo::argv("apk", &args).join(" "));
             return Ok(());
         }
         sudo::run("apk", &args, &[])
@@ -119,7 +119,7 @@ impl SystemPackageManager for ApkManager {
         args.push("--".to_string());
         args.extend(pkgs.iter().map(apk_name));
         if opts.dry_run {
-            miseprintln!("{}", sudo::argv("apk", &args).join(" "));
+            pakroprintln!("{}", sudo::argv("apk", &args).join(" "));
             return Ok(());
         }
         sudo::run("apk", &args, &[])

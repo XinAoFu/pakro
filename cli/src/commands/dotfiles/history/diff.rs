@@ -147,7 +147,7 @@ impl HistoryDiff {
         )?;
         if result.changed {
             if !result.output.is_empty() {
-                miseprint!("{}", String::from_utf8_lossy(&result.output))?;
+                pakroprint!("{}", String::from_utf8_lossy(&result.output))?;
             }
         } else {
             info!("{label}: no differences");

@@ -5,7 +5,7 @@
 
 assert_fast_path() {
   local output
-  output=$(mise hook-env -s bash "$@")
+  output=$(pakro hook-env -s bash "$@")
   if [[ -z $output ]]; then
     ok "fast path taken for hook-env $*"
   else
@@ -15,8 +15,8 @@ assert_fast_path() {
 
 assert_full_run() {
   local output
-  output=$(mise hook-env -s bash "$@")
-  if [[ $output == *"__MISE_SESSION"* ]]; then
+  output=$(pakro hook-env -s bash "$@")
+  if [[ $output == *"__PAKRO_SESSION"* ]]; then
     ok "full run for hook-env $*"
   else
     fail "expected a full run for hook-env $* but got: '$output'"
@@ -26,30 +26,30 @@ assert_full_run() {
 mkdir chpwd_only ttl
 
 builtin cd chpwd_only
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [settings]
 hook_env.chpwd_only = true
 EOF
-eval "$(mise activate bash)"
-export __MISE_ZSH_PRECMD_RUN=1
+eval "$(pakro activate bash)"
+export __PAKRO_ZSH_PRECMD_RUN=1
 sleep 1
 # The directory changed, but chpwd_only skips that check before a prompt.
 touch new-file
 assert_fast_path --reason precmd
 assert_full_run --reason chpwd
-eval "$(mise hook-env -s bash --reason chpwd)"
+eval "$(pakro hook-env -s bash --reason chpwd)"
 # Turning chpwd_only off applies on the next prompt, without a directory change.
 sleep 1
-printf '[settings]\nhook_env.chpwd_only = false\n' >mise.toml
+printf '[settings]\nhook_env.chpwd_only = false\n' >pakro.toml
 assert_full_run --reason precmd
 
 builtin cd ../ttl
-unset __MISE_SESSION __MISE_ZSH_PRECMD_RUN
-cat >mise.toml <<'EOF'
+unset __PAKRO_SESSION __PAKRO_ZSH_PRECMD_RUN
+cat >pakro.toml <<'EOF'
 [settings]
 hook_env.cache_ttl = "1h"
 EOF
-eval "$(mise activate bash)"
+eval "$(pakro activate bash)"
 sleep 1
 # Within the TTL, the filesystem checks are skipped entirely.
 touch new-file

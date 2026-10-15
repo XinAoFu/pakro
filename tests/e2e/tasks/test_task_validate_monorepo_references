@@ -8,7 +8,7 @@ assert_validation() {
 
 # Root validation must recognize child references without validating child tasks.
 mkdir -p crates/gui crates/tui
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 monorepo_root = true
 [monorepo]
 config_roots = ["crates/gui", "crates/tui"]
@@ -25,36 +25,36 @@ run = "echo setup"
 [tasks.test]
 run = "echo test"
 EOF
-cat >crates/gui/mise.toml <<'EOF'
+cat >crates/gui/pakro.toml <<'EOF'
 [tasks.dev]
 run = "echo gui"
 EOF
-cat >crates/tui/mise.toml <<'EOF'
+cat >crates/tui/pakro.toml <<'EOF'
 [tasks.dev]
 run = "echo tui"
 EOF
 
-assert_validation 6 "mise tasks validate"
-assert_validation 7 "mise -C crates/gui tasks validate"
-assert_validation 1 "mise tasks validate //:dev"
-assert "mise run dev" "gui"
+assert_validation 6 "pakro tasks validate"
+assert_validation 7 "pakro -C crates/gui tasks validate"
+assert_validation 1 "pakro tasks validate //:dev"
+assert "pakro run dev" "gui"
 # Explicit task selection and the scope of --all are unchanged.
-assert_fail "mise tasks validate //crates/gui:dev" "Task '//crates/gui:dev' not found"
-assert_fail "mise tasks --all validate" "task list options cannot be used with subcommands"
+assert_fail "pakro tasks validate //crates/gui:dev" "Task '//crates/gui:dev' not found"
+assert_fail "pakro tasks --all validate" "task list options cannot be used with subcommands"
 
 # Dependency traversal can cross into a sibling without widening validation scope.
-echo 'depends = ["//crates/tui:dev"]' >>crates/gui/mise.toml
-assert_validation 6 "mise tasks validate"
-assert_validation 7 "mise -C crates/gui tasks validate"
-assert "mise run dev" $'tui\ngui'
+echo 'depends = ["//crates/tui:dev"]' >>crates/gui/pakro.toml
+assert_validation 6 "pakro tasks validate"
+assert_validation 7 "pakro -C crates/gui tasks validate"
+assert "pakro run dev" $'tui\ngui'
 
 # Child-only validation issues, aliases and remote files must not enter root checks.
-cat >>mise.toml <<'EOF'
+cat >>pakro.toml <<'EOF'
 [tasks.local]
 alias = "shared"
 run = "echo local"
 EOF
-cat >>crates/tui/mise.toml <<'EOF'
+cat >>crates/tui/pakro.toml <<'EOF'
 [tasks.invalid]
 alias = "shared"
 timeout = "not-a-duration"
@@ -62,10 +62,10 @@ run = "echo invalid"
 [tasks.remote]
 file = "http://127.0.0.1:1/not-fetched.sh"
 EOF
-assert_validation 7 "mise tasks validate"
+assert_validation 7 "pakro tasks validate"
 
 # Each reference form uses the same scoped lookup, including relative paths and aliases.
-cat >>crates/gui/mise.toml <<'EOF'
+cat >>crates/gui/pakro.toml <<'EOF'
 [tasks.target]
 alias = "target-alias"
 run = "echo target"
@@ -76,7 +76,7 @@ for reference in \
   'wait_for = ["//crates/gui:target"]' \
   'run = [{task = "./crates/gui:target"}]' \
   'run = [{tasks = ["//crates/gui:target argument"]}]'; do
-  cat >mise.toml <<EOF
+  cat >pakro.toml <<EOF
 monorepo_root = true
 [monorepo]
 config_roots = ["crates/gui", "crates/tui"]
@@ -85,9 +85,9 @@ $reference
 EOF
   # wait_for does not provide executable content on its own.
   if [[ $reference == wait_for* ]]; then
-    echo 'run = "echo wrapper"' >>mise.toml
+    echo 'run = "echo wrapper"' >>pakro.toml
   fi
-  assert_validation 1 "mise tasks validate"
+  assert_validation 1 "pakro tasks validate"
 done
 
 # Missing references still fail for each form, with the existing diagnostic category.
@@ -99,7 +99,7 @@ for reference in \
   'run = [{tasks = ["//crates/gui:absent argument"]}]' \
   'run = [{task = "target"}]' \
   'run = [{task = "//:target"}]'; do
-  cat >mise.toml <<EOF
+  cat >pakro.toml <<EOF
 monorepo_root = true
 [monorepo]
 config_roots = ["crates/gui", "crates/tui"]
@@ -107,17 +107,17 @@ config_roots = ["crates/gui", "crates/tui"]
 $reference
 EOF
   if [[ $reference == wait_for* ]]; then
-    echo 'run = "echo wrapper"' >>mise.toml
+    echo 'run = "echo wrapper"' >>pakro.toml
   fi
   if [[ $reference == run* ]]; then
-    assert_fail "mise tasks validate" "missing-task-reference"
+    assert_fail "pakro tasks validate" "missing-task-reference"
   else
-    assert_fail "mise tasks validate" "missing-dependency"
+    assert_fail "pakro tasks validate" "missing-dependency"
   fi
 done
 
 # Optional missing references retain their existing semantics.
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 monorepo_root = true
 [monorepo]
 config_roots = ["crates/gui", "crates/tui"]
@@ -125,43 +125,43 @@ config_roots = ["crates/gui", "crates/tui"]
 depends = [{task = "//crates/gui:absent", optional = true}]
 run = "echo wrapper"
 EOF
-assert_validation 1 "mise tasks validate"
+assert_validation 1 "pakro tasks validate"
 
 # A child loading failure must expose its cause instead of reporting a missing task.
 mkdir -p broken/pkg
-cat >broken/mise.toml <<'EOF'
+cat >broken/pakro.toml <<'EOF'
 monorepo_root = true
 [monorepo]
 config_roots = ["pkg"]
 [tasks.wrapper]
 run = [{task = "//pkg:dev"}]
 EOF
-cat >broken/pkg/mise.toml <<'EOF'
+cat >broken/pkg/pakro.toml <<'EOF'
 [tasks.dev]
 extends = "missing-template"
 EOF
-assert_fail "mise -C broken tasks validate" "extends template 'missing-template' which was not found"
-assert_not_contains "mise -C broken tasks validate 2>&1 || true" "missing-task-reference"
+assert_fail "pakro -C broken tasks validate" "extends template 'missing-template' which was not found"
+assert_not_contains "pakro -C broken tasks validate 2>&1 || true" "missing-task-reference"
 
 # Distinct child scopes share one reference load, rather than loading once per scope.
 mkdir -p batched
-cat >batched/mise.toml <<'EOF'
+cat >batched/pakro.toml <<'EOF'
 monorepo_root = true
 [monorepo]
 config_roots = ["projects/*"]
 EOF
 for i in {1..12}; do
   mkdir -p "batched/projects/p$i"
-  cat >"batched/projects/p$i/mise.toml" <<'EOF'
+  cat >"batched/projects/p$i/pakro.toml" <<'EOF'
 [tasks.dev]
 run = "echo child"
 EOF
-  cat >>batched/mise.toml <<EOF
+  cat >>batched/pakro.toml <<EOF
 [tasks.wrapper$i]
 run = [{task = "//projects/p$i:dev"}]
 EOF
 done
-assert_succeed "MISE_TRACE=1 mise -C batched tasks validate --json >validation.json 2>trace.log"
+assert_succeed "PAKRO_TRACE=1 pakro -C batched tasks validate --json >validation.json 2>trace.log"
 assert "jq -c '[.tasks_validated, .errors, .warnings]' validation.json" '[12,0,0]'
 load_count=$(awk '/config::load_all_tasks_with_context start/ {count++} END {print count+0}' trace.log)
 # One default load, one batched reference load, and two dependency-graph discovery loads.

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2016
 
-# `mise generate task-docs --inject` must not touch the output file when the
-# mise-tasks markers are missing. It used to assume the block started at byte 0,
+# `pakro generate task-docs --inject` must not touch the output file when the
+# pakro-tasks markers are missing. It used to assume the block started at byte 0,
 # which truncated marker-less files and panicked on short ones.
 # Discussion: https://github.com/jdx/mise/discussions/4676
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.test]
 run = "echo 'running test task'"
 description = "This is a test task"
@@ -18,7 +18,7 @@ EOF
 assert_inject_leaves_file_alone() {
   local file="$1" expected="$2" out
   cp "$file" "$file.orig"
-  out="$(quiet_assert_fail "mise generate task-docs --inject --output $file")"
+  out="$(quiet_assert_fail "pakro generate task-docs --inject --output $file")"
   assert_contains_text "$out" "$expected"
   assert_not_contains_text "$out" "panicked"
   if cmp -s "$file" "$file.orig"; then
@@ -36,33 +36,33 @@ Important paragraph that must survive.
 
 Another line.
 EOF
-assert_inject_leaves_file_alone no_markers.md "<!-- mise-tasks -->"
+assert_inject_leaves_file_alone no_markers.md "<!-- pakro-tasks -->"
 
 # shorter than the marker: this used to panic with
 # "range start index 19 out of range for slice of length 3"
 echo "hi" >short.md
-assert_inject_leaves_file_alone short.md "<!-- mise-tasks -->"
+assert_inject_leaves_file_alone short.md "<!-- pakro-tasks -->"
 
 # multibyte content, where byte 19 is not a char boundary
 echo "日本語のドキュメント" >multibyte.md
-assert_inject_leaves_file_alone multibyte.md "<!-- mise-tasks -->"
+assert_inject_leaves_file_alone multibyte.md "<!-- pakro-tasks -->"
 
 # start marker but no end marker: everything after it used to be replaced
 cat <<EOF >start_only.md
 # Title
 
-<!-- mise-tasks -->
+<!-- pakro-tasks -->
 
 trailer
 EOF
-assert_inject_leaves_file_alone start_only.md "<!-- /mise-tasks -->"
+assert_inject_leaves_file_alone start_only.md "<!-- /pakro-tasks -->"
 
 # markers in the wrong order
 cat <<EOF >reversed.md
-<!-- /mise-tasks -->
+<!-- /pakro-tasks -->
 
 body
 
-<!-- mise-tasks -->
+<!-- pakro-tasks -->
 EOF
-assert_inject_leaves_file_alone reversed.md "<!-- /mise-tasks -->"
+assert_inject_leaves_file_alone reversed.md "<!-- /pakro-tasks -->"

@@ -26,9 +26,9 @@ use std::sync::Arc;
 /// both report the same requirement.
 pub(crate) const EXPERIMENTAL: &str = "[daemons] requires experimental = true";
 
-/// Set on a daemon that runs a task, so the `mise run` it starts does not start
+/// Set on a daemon that runs a task, so the `pakro run` it starts does not start
 /// daemons of its own and recurse.
-pub(crate) const DAEMON_TASK_MARKER: &str = "MISE_DAEMON_TASK";
+pub(crate) const DAEMON_TASK_MARKER: &str = "PAKRO_DAEMON_TASK";
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
@@ -54,8 +54,8 @@ pub struct DaemonSettings {
 
 impl DaemonSettings {
     /// Overlay a higher-precedence file's table onto this one, key by key. A
-    /// `mise.local.toml` that sets only `namespace_per_worktree` must not drop
-    /// the `namespace` that `mise.toml` established, because other projects
+    /// `pakro.local.toml` that sets only `namespace_per_worktree` must not drop
+    /// the `namespace` that `pakro.toml` established, because other projects
     /// refer to daemons by the qualified ID that namespace produces.
     fn merge(&mut self, other: Self) {
         if other.namespace.is_some() {
@@ -72,7 +72,7 @@ impl DaemonSettings {
 }
 
 /// `[daemon_groups]` entry: a bare list of members or a table with `daemons`.
-/// The table form, matching `additionalProperties: false` in schema/mise.json.
+/// The table form, matching `additionalProperties: false` in schema/pakro.json.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GroupTable {
@@ -170,8 +170,8 @@ pub struct DaemonSet {
     /// Imports that could not be resolved, by local key.
     ///
     /// Daemons load on every command, so a sibling project that is missing or
-    /// not trusted must not take `mise x`, `mise run` or the activation hook
-    /// down with it. The failure is carried here and reported by `mise daemons`,
+    /// not trusted must not take `pakro x`, `pakro run` or the activation hook
+    /// down with it. The failure is carried here and reported by `pakro daemons`,
     /// which is the command that can act on it.
     pub import_errors: IndexMap<(PathBuf, String), String>,
     /// Group names are project scoped, so nested projects may each declare one
@@ -237,7 +237,7 @@ pub fn state_dir(root: &Path) -> PathBuf {
 /// The lock serializing everything that touches one project's daemon state.
 ///
 /// Deliberately a sibling of [`state_dir`] rather than a file inside it.
-/// `mise daemons prune` deletes that directory, and a lock living inside the
+/// `pakro daemons prune` deletes that directory, and a lock living inside the
 /// directory being deleted cannot be held across the deletion: releasing it
 /// first leaves a window for another process to write fresh state into the
 /// doomed directory, and Windows refuses to delete a file whose handle is still
@@ -250,9 +250,9 @@ pub(crate) fn lock_file_for_state_dir(dir: &Path) -> PathBuf {
     dir.with_file_name(format!("{name}.lock"))
 }
 
-/// Where mise versions before the lock moved out of the state directory
+/// Where pakro versions before the lock moved out of the state directory
 /// coordinate. Still taken alongside [`lock_file_for_state_dir`] so that a
-/// daemon start from an older mise and a prune from this one continue to
+/// daemon start from an older pakro and a prune from this one continue to
 /// exclude each other. Removable once no supported version locks this path.
 pub(crate) fn legacy_lock_file_for_state_dir(dir: &Path) -> PathBuf {
     dir.join("project.lock")
@@ -262,7 +262,7 @@ pub(crate) fn legacy_lock_file_for_state_dir(dir: &Path) -> PathBuf {
 ///
 /// Acquired sibling first, then legacy, by everything that takes both, so they
 /// cannot deadlock against each other. Released together, which is what lets
-/// `mise daemons prune` delete state without any window for a `prepare()` to
+/// `pakro daemons prune` delete state without any window for a `prepare()` to
 /// write into it.
 pub struct ProjectLock {
     _sibling: fslock::LockFile,
@@ -305,8 +305,8 @@ impl ProjectLock {
 ///
 /// The claimants are not symmetric. A daemon this project only imported is
 /// registered by the project that declares it, from that project's own
-/// configuration, where nothing collides; mise rewrites that file whole and it
-/// is not this project's to overrule. Mise withdraws every local claimant, so
+/// configuration, where nothing collides; pakro rewrites that file whole and it
+/// is not this project's to overrule. Pakro withdraws every local claimant, so
 /// exactly one imported claimant is left holding the hostname and pitchfork
 /// serves it. Two or more imported claimants leave the proxy a contest it
 /// refuses to settle, and none at all leave it nothing to route.
@@ -468,7 +468,7 @@ pub fn load(files: &ConfigMap) -> Result<DaemonSet> {
             .clone()
     };
     // The proxy cannot route two daemons to one hostname, and pitchfork routes
-    // neither side of a collision rather than choosing, so mise never
+    // neither side of a collision rather than choosing, so pakro never
     // advertises one either. Checked once every daemon is built, because a
     // preset's hostname is resolved on its own path.
     // Gathered per hostname rather than pairwise: three claimants are settled
@@ -514,10 +514,10 @@ pub fn load(files: &ConfigMap) -> Result<DaemonSet> {
             ),
         }
         // Everyone the proxy will not serve, which is every claimant but the
-        // one above. A local claimant is always among them: mise writes the
+        // one above. A local claimant is always among them: pakro writes the
         // file that would claim the hostname, so it simply does not. An
         // imported claimant is there only when nothing is served at all,
-        // because mise cannot stop the project declaring it from registering
+        // because pakro cannot stop the project declaring it from registering
         // it, but it must not advertise a URL that answers for no one either.
         state.withdrawn_hosts.extend(
             keys.iter()
@@ -528,7 +528,7 @@ pub fn load(files: &ConfigMap) -> Result<DaemonSet> {
     }
     // The first claimant of an ambiguous key or hostname kept it while it
     // looked unique; drop it now so neither side is handed the other's
-    // endpoint, and so mise never advertises a hostname the proxy refuses.
+    // endpoint, and so pakro never advertises a hostname the proxy refuses.
     for (key, daemon) in set.daemons.iter_mut() {
         daemon
             .exports
@@ -539,7 +539,7 @@ pub fn load(files: &ConfigMap) -> Result<DaemonSet> {
     }
     // Two daemons in one project can resolve to one port: `auto` derives it
     // from the project root, so two presets of the same kind share a base, and
-    // two explicit ports can simply be equal. Mise pins the number it resolved
+    // two explicit ports can simply be equal. Pakro pins the number it resolved
     // and turns pitchfork's bumping off, so the second daemon would fail to
     // bind at start with nothing naming the first. Checked once every daemon is
     // built, because a preset's port is resolved on its own path.
@@ -736,7 +736,7 @@ fn build(
     } else {
         None
     };
-    // `init`, `task` and `args` are mise concepts; pitchfork never sees them.
+    // `init`, `task` and `args` are pakro concepts; pitchfork never sees them.
     let init = take_init(&mut table, name)?;
     let task = take_string(&mut table, "task")?;
     let args = take_args(&mut table, name)?;
@@ -815,13 +815,13 @@ fn build(
             bail!("[daemons.{name}] task must not be empty");
         }
         let run = task_run(
-            &crate::env::MISE_BIN.to_string_lossy(),
+            &crate::env::PAKRO_BIN.to_string_lossy(),
             task,
             &args.unwrap_or_default(),
             !init.is_empty(),
         );
         table.insert("run".into(), run);
-        // The task runs through `mise run`, which would start this very
+        // The task runs through `pakro run`, which would start this very
         // daemon again. This marker breaks that cycle in `tasks::start`
         // instead of `--skip-deps`, which would also have discarded the
         // task's own `depends`, leaving the daemon to supervise a stale
@@ -835,20 +835,20 @@ fn build(
                 DAEMON_TASK_MARKER.into(),
                 toml::Value::String("1".to_string()),
             );
-        // Preserve an explicit opt-out before inserting the task's own `mise =
+        // Preserve an explicit opt-out before inserting the task's own `pakro =
         // false` default: probes still need the project environment by default.
-        if cfg!(unix) && table.get("mise").and_then(toml::Value::as_bool) != Some(false) {
+        if cfg!(unix) && table.get("pakro").and_then(toml::Value::as_bool) != Some(false) {
             presets::wrap_probe_commands(&mut table);
         }
-        // mise is already the entry point, so pitchfork does not need
-        // to wrap a bare task daemon in `mise x`. With `init` it does:
+        // pakro is already the entry point, so pitchfork does not need
+        // to wrap a bare task daemon in `pakro x`. With `init` it does:
         // the setup steps and the task then share one shell inside the
         // project's tool environment, so a step can export a variable
         // or change directory for the ones after it, exactly as it can
         // for a daemon declared with `run`.
         if init.is_empty() {
             table
-                .entry("mise".to_string())
+                .entry("pakro".to_string())
                 .or_insert(toml::Value::Boolean(false));
         }
     }
@@ -878,7 +878,7 @@ fn build(
         &proxy.tld,
     )?;
     // Without these a custom daemon's endpoint would reach pitchfork and
-    // nothing else: `mise env` would export nothing, and the process
+    // nothing else: `pakro env` would export nothing, and the process
     // could only discover it through pitchfork's own injection.
     // An imported daemon exports into the project that declares it, never into
     // this one, so it must not claim a variable here: doing so would make a
@@ -911,7 +911,7 @@ fn build(
         }
     }
     table
-        .entry("mise".to_string())
+        .entry("pakro".to_string())
         .or_insert(toml::Value::Boolean(true));
     if !init.is_empty() {
         let run = table["run"].as_str().unwrap().to_string();
@@ -988,18 +988,18 @@ pub fn ensure_not_blocked(
 /// A referenced project is later reloaded through its whole configuration
 /// hierarchy when its daemons are prepared, so discovery has to walk the same
 /// ancestors. Reading only the directory itself would miss a daemon or a
-/// `[daemons_settings] namespace` inherited from a parent config, and mise would
+/// `[daemons_settings] namespace` inherited from a parent config, and pakro would
 /// then compute one daemon ID here and register a different one there.
 fn hierarchy_config_paths(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut paths = Vec::new();
     // `all_dirs` yields the directory first and its ancestors after it; reverse
     // so the nearest config is read last and wins.
-    for ancestor in crate::file::all_dirs(dir, &crate::env::MISE_CEILING_PATHS)?
+    for ancestor in crate::file::all_dirs(dir, &crate::env::PAKRO_CEILING_PATHS)?
         .into_iter()
         .rev()
     {
         // Honour the same ignore rules ordinary loading does, so a config the
-        // user has told mise to skip is skipped here too rather than read and
+        // user has told pakro to skip is skipped here too rather than read and
         // reported as an error.
         if crate::config::config_dir_is_ignored(&ancestor, false) {
             continue;
@@ -1024,7 +1024,7 @@ fn hierarchy_config_paths(dir: &Path) -> Result<Vec<PathBuf>> {
 }
 
 /// Pull a daemon definition out of another project so it runs with that
-/// project's root, state, and `mise x` environment rather than this one's.
+/// project's root, state, and `pakro x` environment rather than this one's.
 /// What a `project =` declaration asks for, before anything is read from disk.
 struct Import {
     project: String,
@@ -1092,7 +1092,7 @@ fn import(
     let paths = hierarchy_config_paths(&dir)?;
     if paths.is_empty() {
         bail!(
-            "[daemons.{local_name}].project expects a mise configuration in {}, which has none; add a mise.toml declaring [daemons.{remote_name}] there",
+            "[daemons.{local_name}].project expects a pakro configuration in {}, which has none; add a pakro.toml declaring [daemons.{remote_name}] there",
             dir.display()
         );
     }
@@ -1103,8 +1103,8 @@ fn import(
     let mut available: Vec<String> = Vec::new();
     for path in &paths {
         // Require trust that already exists rather than letting the parse
-        // establish it. `mise x`, `mise run`, `mise install`, `mise watch` and
-        // `mise daemons start` mark the active config implicitly trusted, and
+        // establish it. `pakro x`, `pakro run`, `pakro install`, `pakro watch` and
+        // `pakro daemons start` mark the active config implicitly trusted, and
         // that branch would grant durable trust to whatever directory `project`
         // names, with no prompt, so a later `cd` into it would run its env,
         // hooks and templates. Safe mode makes config inert, so it needs no
@@ -1117,12 +1117,12 @@ fn import(
             // and naming its directory would send the user nowhere.
             let untrusted = crate::config::config_file::config_trust_root(path);
             bail!(
-                "[daemons.{local_name}].project needs {}, which is not trusted; run `mise trust {}` after reviewing it",
+                "[daemons.{local_name}].project needs {}, which is not trusted; run `pakro trust {}` after reviewing it",
                 crate::file::display_path(path),
                 untrusted.display()
             );
         }
-        let cf = crate::config::config_file::mise_toml::MiseToml::from_file(path)?;
+        let cf = crate::config::config_file::pakro_toml::PakroToml::from_file(path)?;
         // Ask the same question `load` asks. `project_root` is the config root
         // narrowed to project scope, and the walk above reaches the home
         // directory, so a global config can appear in a referenced project's
@@ -1292,7 +1292,7 @@ fn env_var_base(name: &str) -> Option<String> {
     )
 }
 
-/// Pitchfork's structured `port`, pinned to the port mise already rendered into
+/// Pitchfork's structured `port`, pinned to the port pakro already rendered into
 /// the daemon's command line and `[env]` exports.
 pub(crate) fn expected_port(port: u16) -> toml::Value {
     expected_ports(&[port])
@@ -1357,7 +1357,7 @@ fn load_groups(
         // configuration, and its members are that project's daemons. A daemon
         // reached with `project` belongs to another project and is registered
         // in that project's configuration under its own namespace, so naming it
-        // here would produce a group mise expands and the registered one does
+        // here would produce a group pakro expands and the registered one does
         // not. Say so rather than silently dropping the member.
         let group_root = groups[&key].root.clone();
         if let Some(member) = daemons
@@ -1460,16 +1460,20 @@ fn take_args(table: &mut toml::Table, name: &str) -> Result<Option<Vec<String>>>
         .transpose()
 }
 
-/// The `run` of a `task` daemon: `mise run <task> [-- args]`. Pitchfork starts an
+/// The `run` of a `task` daemon: `pakro run <task> [-- args]`. Pitchfork starts an
 /// argv without a shell, so it works whatever shell is configured, on Windows too.
 /// `init` steps are shell commands to chain it onto, so with them it is a command line.
-fn task_run(mise: &str, task: &str, args: &[String], after_init: bool) -> toml::Value {
+fn task_run(pakro: &str, task: &str, args: &[String], after_init: bool) -> toml::Value {
     if after_init {
         // pitchfork's shell is cmd.exe by default on Windows.
         if cfg!(windows) {
-            return toml::Value::String(cmd_task_command(mise, task, args));
+            return toml::Value::String(cmd_task_command(pakro, task, args));
         }
-        let mut run = format!("exec {} run {}", presets::quote(mise), presets::quote(task));
+        let mut run = format!(
+            "exec {} run {}",
+            presets::quote(pakro),
+            presets::quote(task)
+        );
         if !args.is_empty() {
             run.push_str(" --");
             for arg in args {
@@ -1479,7 +1483,7 @@ fn task_run(mise: &str, task: &str, args: &[String], after_init: bool) -> toml::
         }
         return toml::Value::String(run);
     }
-    let mut argv = vec![mise.to_string(), "run".to_string(), task.to_string()];
+    let mut argv = vec![pakro.to_string(), "run".to_string(), task.to_string()];
     if !args.is_empty() {
         argv.push("--".to_string());
         argv.extend(args.iter().cloned());
@@ -1487,13 +1491,13 @@ fn task_run(mise: &str, task: &str, args: &[String], after_init: bool) -> toml::
     toml::Value::Array(argv.into_iter().map(toml::Value::String).collect())
 }
 
-/// `mise run <task> [-- args]` as cmd.exe reads it: cmd has no `exec` and does not
+/// `pakro run <task> [-- args]` as cmd.exe reads it: cmd has no `exec` and does not
 /// treat `'` as a quote, so the program path is double-quoted and so is any
 /// argument that needs it.
-fn cmd_task_command(mise: &str, task: &str, args: &[String]) -> String {
+fn cmd_task_command(pakro: &str, task: &str, args: &[String]) -> String {
     let mut run = format!(
         "{} run {}",
-        presets::cmd_program(mise),
+        presets::cmd_program(pakro),
         presets::cmd_quote(task)
     );
     if !args.is_empty() {
@@ -1529,7 +1533,7 @@ impl DaemonSet {
             let ba = crate::args::BackendArg::from(tool.as_str());
             if let Some(existing) = trs.tools.get(&ba) {
                 // Explicit declarations are validated against backend resolution before starting.
-                if existing.iter().all(|tr| tr.source().is_mise_toml_daemon())
+                if existing.iter().all(|tr| tr.source().is_pakro_toml_daemon())
                     && existing.iter().any(|tr| tr.version() != *version)
                 {
                     bail!(
@@ -1539,7 +1543,7 @@ impl DaemonSet {
                 }
                 continue;
             }
-            let source = ToolSource::MiseTomlDaemon(daemon.source.clone());
+            let source = ToolSource::PakroTomlDaemon(daemon.source.clone());
             let request = ToolRequest::new(ba.into(), version, source.clone())?;
             trs.add_version(request, &source);
         }
@@ -1803,7 +1807,7 @@ impl DaemonSet {
     /// Check `task = "..."` references against the loaded task list. Task
     /// loading is asynchronous and reads the filesystem, so this cannot run
     /// while `[daemons]` is parsed. The three paths that register a generated
-    /// pitchfork configuration call it first: `mise daemons start`, a task that
+    /// pitchfork configuration call it first: `pakro daemons start`, a task that
     /// requires daemons, and the shell auto-lifecycle hook.
     pub async fn validate_tasks(&self, config: &Arc<Config>) -> Result<()> {
         if self.daemons.values().all(|d| d.task.is_none()) {
@@ -1823,7 +1827,7 @@ impl DaemonSet {
 
     /// The daemons pitchfork starts when a shell joins this project's session,
     /// together with everything they depend on. `auto` is passed through to the
-    /// generated configuration and pitchfork acts on it, so mise mirrors the
+    /// generated configuration and pitchfork acts on it, so pakro mirrors the
     /// rule here to check a start it is about to hand over.
     pub(crate) fn auto_starting(&self) -> Self {
         let names: Vec<String> = self
@@ -1853,7 +1857,7 @@ impl DaemonSet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::config_file::mise_toml::MiseToml;
+    use crate::config::config_file::pakro_toml::PakroToml;
     use std::sync::Arc;
 
     fn files(entries: &[(&str, &str)]) -> ConfigMap {
@@ -1862,7 +1866,7 @@ mod tests {
             .map(|(path, body)| {
                 let path = PathBuf::from(path);
                 let cf: Arc<dyn crate::config::config_file::ConfigFile> =
-                    Arc::new(MiseToml::from_str(body, &path).unwrap());
+                    Arc::new(PakroToml::from_str(body, &path).unwrap());
                 (path, cf)
             })
             .collect()
@@ -1873,11 +1877,11 @@ mod tests {
         crate::toolset::install_state::init().await.unwrap();
         let config = files(&[
             (
-                "/parent/child/mise.toml",
+                "/parent/child/pakro.toml",
                 "[daemons.postgres]\nrun = 'echo custom'\n",
             ),
             (
-                "/parent/mise.toml",
+                "/parent/pakro.toml",
                 "[daemons]\npostgres = '18'\nredis = '8'\n",
             ),
         ]);
@@ -1899,14 +1903,14 @@ mod tests {
                 .values()
                 .next()
                 .unwrap()
-                .is_mise_toml_daemon()
+                .is_pakro_toml_daemon()
         );
     }
 
     #[tokio::test]
     async fn preset_names_and_version_conflicts_are_reported() {
         crate::toolset::install_state::init().await.unwrap();
-        let config = files(&[("/project/mise.toml", "[daemons]\nunknown = '1'\n")]);
+        let config = files(&[("/project/pakro.toml", "[daemons]\nunknown = '1'\n")]);
         assert!(
             load(&config)
                 .unwrap_err()
@@ -1914,7 +1918,7 @@ mod tests {
                 .contains("available presets")
         );
         let config = files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons]\npostgres = '18'\n[daemons.analytics]\npreset = 'postgres'\nversion = '17'\nport = 5433\n",
         )]);
         // A second instance needs its own port; this is about the tool
@@ -1929,7 +1933,7 @@ mod tests {
     #[test]
     fn preset_run_override_keeps_initialization() {
         let config = files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons.db]\npreset = 'postgres'\nversion = '18'\nrun = 'echo starting && exec postgres -D /data'\n",
         )]);
         let set = load(&config).unwrap();
@@ -1937,7 +1941,7 @@ mod tests {
         assert!(run.contains("daemons __init"));
         assert!(run.ends_with("&& echo starting && exec postgres -D /data"));
         let invalid = files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons.db]\npreset = 'postgres'\nversion = '18'\nrun = 42\n",
         )]);
         assert!(load(&invalid).is_err());
@@ -1946,7 +1950,7 @@ mod tests {
     #[test]
     fn preset_tool_override_is_used_and_not_forwarded() {
         let config = files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons.cache]\npreset = 'redis'\nversion = '8'\ntool = 'github:example/redis'\n",
         )]);
         let set = load(&config).unwrap();
@@ -1956,7 +1960,7 @@ mod tests {
         );
         assert!(!set.daemons["cache"].table.contains_key("tool"));
         let config = files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons.cache]\npreset = 'redis'\nversion = '8'\ntool = 42\n",
         )]);
         assert!(
@@ -1973,9 +1977,9 @@ mod tests {
         for opt_out in [false, true] {
             let source = format!(
                 "[daemons.api]\ntask = 'dev'\nready_cmd = 'echo ready'\nhealth_cmd = {{ run = 'echo {{{{ env.FOO }}}}', interval = '2s' }}\n{}",
-                if opt_out { "mise = false\n" } else { "" }
+                if opt_out { "pakro = false\n" } else { "" }
             );
-            let config = files(&[("/project/mise.toml", &source)]);
+            let config = files(&[("/project/pakro.toml", &source)]);
             let set = load(&config).unwrap();
             let table = &set.daemons["api"].table;
             let expected = if opt_out {
@@ -1995,17 +1999,17 @@ mod tests {
     }
 
     #[test]
-    fn task_daemons_run_mise_without_a_mise_wrapper() {
+    fn task_daemons_run_pakro_without_a_pakro_wrapper() {
         let config = files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons.core]\ntask = 'dev:core'\nargs = ['--port', \"it's 3000\"]\nready_port = 3000\n",
         )]);
         let set = load(&config).unwrap();
         let daemon = &set.daemons["core"];
-        let mise = crate::env::MISE_BIN.to_string_lossy().into_owned();
+        let pakro = crate::env::PAKRO_BIN.to_string_lossy().into_owned();
         let argv = |args: &[&str]| {
             toml::Value::Array(
-                std::iter::once(mise.as_str())
+                std::iter::once(pakro.as_str())
                     .chain(args.iter().copied())
                     .map(|arg| toml::Value::String(arg.into()))
                     .collect(),
@@ -2020,15 +2024,15 @@ mod tests {
         // The task keeps its own `depends`; a marker in the daemon environment
         // is what stops the nested run from starting this daemon again.
         assert_eq!(daemon.table["env"][DAEMON_TASK_MARKER].as_str(), Some("1"));
-        // mise is the entry point already, so pitchfork must not re-enter it.
-        assert_eq!(daemon.table["mise"].as_bool(), Some(false));
+        // pakro is the entry point already, so pitchfork must not re-enter it.
+        assert_eq!(daemon.table["pakro"].as_bool(), Some(false));
         assert_eq!(daemon.task.as_deref(), Some("dev:core"));
-        // Task plumbing stays in mise; pitchfork only sees its own keys.
+        // Task plumbing stays in pakro; pitchfork only sees its own keys.
         assert!(!daemon.table.contains_key("task"));
         assert!(!daemon.table.contains_key("args"));
         assert_eq!(daemon.table["ready_port"].as_integer(), Some(3000));
         // A task daemon with no args does not emit a dangling separator.
-        let config = files(&[("/project/mise.toml", "[daemons.core]\ntask = 'dev'\n")]);
+        let config = files(&[("/project/pakro.toml", "[daemons.core]\ntask = 'dev'\n")]);
         assert_eq!(
             load(&config).unwrap().daemons["core"].table["run"],
             argv(&["run", "dev"])
@@ -2037,27 +2041,27 @@ mod tests {
 
     #[test]
     fn a_task_after_init_is_a_command_line_cmd_can_read() {
-        let mise = r"C:\Program Files\mise\mise.exe";
+        let pakro = r"C:\Program Files\pakro\pakro.exe";
         assert_eq!(
-            cmd_task_command(mise, "dev:core", &[]),
-            r#""C:\Program Files\mise\mise.exe" run dev:core"#
+            cmd_task_command(pakro, "dev:core", &[]),
+            r#""C:\Program Files\pakro\pakro.exe" run dev:core"#
         );
         // Arguments cmd would split or interpret are double-quoted; `'` is not a quote there.
         let args = ["--port".to_string(), "it's 3000".into(), "a&b".into()];
         assert_eq!(
-            cmd_task_command(mise, "dev", &args),
-            r#""C:\Program Files\mise\mise.exe" run dev -- --port ^"it's 3000^" ^"a^&b^""#
+            cmd_task_command(pakro, "dev", &args),
+            r#""C:\Program Files\pakro\pakro.exe" run dev -- --port ^"it's 3000^" ^"a^&b^""#
         );
         // A quote inside an argument must not end cmd's quoting, and `%VAR%` is not expanded.
         let args = [r#"a" & echo x & "b"#.to_string(), "%APPDATA%".into()];
         assert_eq!(
-            cmd_task_command(mise, "dev", &args),
-            r#""C:\Program Files\mise\mise.exe" run dev -- ^"a\^" ^& echo x ^& \^"b^" ^%APPDATA^%"#
+            cmd_task_command(pakro, "dev", &args),
+            r#""C:\Program Files\pakro\pakro.exe" run dev -- ^"a\^" ^& echo x ^& \^"b^" ^%APPDATA^%"#
         );
         // A `%` in the path itself is kept out of cmd's expansion as well.
         assert_eq!(
-            cmd_task_command(r"C:\Users\%TEMP% x\mise.exe", "dev", &[]),
-            r#""C:\Users\"^%"TEMP"^%" x\mise.exe" run dev"#
+            cmd_task_command(r"C:\Users\%TEMP% x\pakro.exe", "dev", &[]),
+            r#""C:\Users\"^%"TEMP"^%" x\pakro.exe" run dev"#
         );
     }
 
@@ -2071,7 +2075,7 @@ mod tests {
             "[daemons.core]\nready_port = 3000\n",
         ] {
             assert!(
-                load(&files(&[("/project/mise.toml", body)])).is_err(),
+                load(&files(&[("/project/pakro.toml", body)])).is_err(),
                 "{body}"
             );
         }
@@ -2082,14 +2086,14 @@ mod tests {
         // `args` without `task` is a different mistake from `preset` with
         // `task`, so the message must not blame a key the user never wrote.
         let err = load(&files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons.db]\npreset = 'postgres'\nversion = '18'\nargs = ['--flag']\n",
         )]))
         .unwrap_err()
         .to_string();
         assert!(err.contains("args requires task"), "{err}");
         let err = load(&files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons.db]\npreset = 'postgres'\nversion = '18'\ntask = 'dev'\n",
         )]))
         .unwrap_err()
@@ -2100,7 +2104,7 @@ mod tests {
     #[test]
     fn init_steps_run_before_the_long_running_process() {
         let config = files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons.api]\ninit = ['npm ci', 'npm run migrate']\nrun = 'exec npm start'\n",
         )]);
         let set = load(&config).unwrap();
@@ -2110,7 +2114,7 @@ mod tests {
         );
         // A single string is the same as a one-entry list.
         let config = files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons.api]\ninit = 'npm ci'\nrun = 'exec npm start'\n",
         )]);
         assert_eq!(
@@ -2119,7 +2123,7 @@ mod tests {
         );
         // Preset initialization still comes first, before user setup.
         let config = files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons.db]\npreset = 'postgres'\nversion = '18'\ninit = 'echo ready'\n",
         )]);
         let run = load(&config).unwrap().daemons["db"].table["run"]
@@ -2135,33 +2139,33 @@ mod tests {
             "&& echo ready && exec "
         };
         assert!(run.contains(server), "{run}");
-        // A task daemon with init keeps pitchfork's `mise x` wrapper, so the
+        // A task daemon with init keeps pitchfork's `pakro x` wrapper, so the
         // steps and the task share one shell that has the project's tools.
         let wrapped = files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons.core]\ntask = 'dev'\ninit = ['npm ci', 'npm run migrate']\n",
         )]);
         let daemon = &load(&wrapped).unwrap().daemons["core"];
         let run = daemon.table["run"].as_str().unwrap().to_string();
-        let mise = crate::env::MISE_BIN.to_string_lossy();
+        let pakro = crate::env::PAKRO_BIN.to_string_lossy();
         // cmd.exe, pitchfork's shell on Windows, has no `exec` and no `'` quoting.
         let task = if cfg!(windows) {
-            format!("\"{mise}\" run dev")
+            format!("\"{pakro}\" run dev")
         } else {
-            format!("exec {} run 'dev'", presets::quote(&mise))
+            format!("exec {} run 'dev'", presets::quote(&pakro))
         };
         assert_eq!(run, format!("npm ci && npm run migrate && {task}"));
-        assert_eq!(daemon.table["mise"].as_bool(), Some(true));
-        // An explicit `mise` value stays the user's call.
+        assert_eq!(daemon.table["pakro"].as_bool(), Some(true));
+        // An explicit `pakro` value stays the user's call.
         let explicit = files(&[(
-            "/project/mise.toml",
-            "[daemons.core]\ntask = 'dev'\ninit = 'npm ci'\nmise = false\n",
+            "/project/pakro.toml",
+            "[daemons.core]\ntask = 'dev'\ninit = 'npm ci'\npakro = false\n",
         )]);
         assert_eq!(
-            load(&explicit).unwrap().daemons["core"].table["mise"].as_bool(),
+            load(&explicit).unwrap().daemons["core"].table["pakro"].as_bool(),
             Some(false)
         );
-        // `init` is consumed by mise and never reaches pitchfork.
+        // `init` is consumed by pakro and never reaches pitchfork.
         assert!(
             !load(&config).unwrap().daemons["db"]
                 .table
@@ -2173,7 +2177,7 @@ mod tests {
             "[daemons.api]\ninit = ' '\nrun = 'server'\n",
         ] {
             assert!(
-                load(&files(&[("/project/mise.toml", body)])).is_err(),
+                load(&files(&[("/project/pakro.toml", body)])).is_err(),
                 "{body}"
             );
         }
@@ -2182,7 +2186,7 @@ mod tests {
     #[test]
     fn custom_daemons_accept_integer_ports() {
         let config = files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons.api]\nrun = 'server'\nport = 3000\n",
         )]);
         let set = load(&config).unwrap();
@@ -2221,7 +2225,7 @@ mod tests {
     /// A referenced project the developer has never trusted.
     fn untrusted_project(dir: &Path, body: &str) -> PathBuf {
         std::fs::create_dir_all(dir).unwrap();
-        let path = dir.join(&*crate::env::MISE_DEFAULT_CONFIG_FILENAME);
+        let path = dir.join(&*crate::env::PAKRO_DEFAULT_CONFIG_FILENAME);
         std::fs::write(&path, body).unwrap();
         path
     }
@@ -2238,7 +2242,7 @@ mod tests {
         let app = tmp.path().join("app");
         std::fs::create_dir_all(&app).unwrap();
         let config = files(&[(
-            app.join("mise.toml").to_str().unwrap(),
+            app.join("pakro.toml").to_str().unwrap(),
             "[daemons.worker]\nproject = '../mirror-pipeline'\n[daemons.api]\nrun = 'exec api'\ndepends = ['worker']\n",
         )]);
         let set = load(&config).unwrap();
@@ -2251,7 +2255,7 @@ mod tests {
             mirror
                 .canonicalize()
                 .unwrap()
-                .join(&*crate::env::MISE_DEFAULT_CONFIG_FILENAME)
+                .join(&*crate::env::PAKRO_DEFAULT_CONFIG_FILENAME)
         );
         // Only the named daemon is imported, and it keeps the referenced
         // project's namespace and root rather than this project's.
@@ -2287,7 +2291,7 @@ mod tests {
         let app = tmp.path().join("app");
         std::fs::create_dir_all(&app).unwrap();
         let config = files(&[(
-            app.join("mise.toml").to_str().unwrap(),
+            app.join("pakro.toml").to_str().unwrap(),
             &format!(
                 "[daemons.pipeline]\nproject = {}\nname = 'worker'\n",
                 toml::Value::String(mirror.to_string_lossy().into_owned())
@@ -2309,12 +2313,12 @@ mod tests {
     fn an_unresolvable_import_does_not_break_other_commands() {
         let _serial = import_lock();
         // Daemons load on every command. A sibling that is not checked out must
-        // leave `mise x`, `mise run` and the activation hook working.
+        // leave `pakro x`, `pakro run` and the activation hook working.
         let tmp = tempfile::tempdir().unwrap();
         let app = tmp.path().join("app");
         std::fs::create_dir_all(&app).unwrap();
         let config = files(&[(
-            app.join("mise.toml").to_str().unwrap(),
+            app.join("pakro.toml").to_str().unwrap(),
             "[daemons.pipeline]\nproject = '../mirror-pipeline'\n[daemons.api]\nrun = 'exec api'\n",
         )]);
         let set = load(&config).unwrap();
@@ -2323,7 +2327,7 @@ mod tests {
         // The local daemon still loads, so env and tool resolution are unaffected.
         assert!(set.daemons.contains_key("api"));
         assert!(!set.daemons.contains_key("pipeline"));
-        // The failure is kept so `mise daemons` can report it with the path.
+        // The failure is kept so `pakro daemons` can report it with the path.
         let err = &failure(&set, "pipeline");
         assert!(err.contains("mirror-pipeline"), "{err}");
         assert!(err.contains("[daemons.pipeline].project"), "{err}");
@@ -2340,7 +2344,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let app = tmp.path().join("app");
         std::fs::create_dir_all(&app).unwrap();
-        let source = app.join("mise.toml");
+        let source = app.join("pakro.toml");
         let config = files(&[(
             source.to_str().unwrap(),
             "[daemons.worker]\nproject = '../mirror-pipeline'\n",
@@ -2355,7 +2359,7 @@ mod tests {
             source.to_str().unwrap(),
             "[daemons.worker]\nproject = '../empty'\n",
         )]);
-        assert!(failure(&load(&config).unwrap(), "worker").contains("mise configuration"));
+        assert!(failure(&load(&config).unwrap(), "worker").contains("pakro configuration"));
 
         referenced_project(
             &tmp.path().join("other"),
@@ -2386,7 +2390,7 @@ mod tests {
         let app = tmp.path().join("app");
         std::fs::create_dir_all(&app).unwrap();
         let config = files(&[(
-            app.join("mise.toml").to_str().unwrap(),
+            app.join("pakro.toml").to_str().unwrap(),
             &format!(
                 "[daemons.worker]\nproject = {}\n",
                 toml::Value::String(mirror.to_string_lossy().into_owned())
@@ -2415,7 +2419,7 @@ mod tests {
                 "[daemons_settings]\nnamespace = 'everything'\n",
             ),
             (
-                tmp.path().join("app").join("mise.toml").to_str().unwrap(),
+                tmp.path().join("app").join("pakro.toml").to_str().unwrap(),
                 "[daemons.api]\nrun = 'exec api'\n",
             ),
         ]);
@@ -2441,7 +2445,7 @@ mod tests {
         let app = tmp.path().join("app");
         std::fs::create_dir_all(&app).unwrap();
         let config = files(&[(
-            app.join("mise.toml").to_str().unwrap(),
+            app.join("pakro.toml").to_str().unwrap(),
             "[daemons.first]\nproject = '../one'\nname = 'worker'\n[daemons.second]\nproject = '../two'\nname = 'worker'\n",
         )]);
         let err = load(&config).unwrap_err().to_string();
@@ -2452,7 +2456,7 @@ mod tests {
     #[test]
     fn depends_entries_must_be_strings() {
         let config = files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons.api]\nrun = 'exec api'\ndepends = ['db', 3]\n",
         )]);
         assert!(
@@ -2466,7 +2470,7 @@ mod tests {
     #[test]
     fn selecting_a_daemon_includes_what_it_depends_on() {
         let config = files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons.api]\nrun = 'exec api'\ndepends = ['cache']\n[daemons.cache]\nrun = 'exec cache'\ndepends = ['db']\n[daemons.db]\nrun = 'exec db'\n[daemons.unrelated]\nrun = 'exec other'\n",
         )]);
         let set = load(&config).unwrap();
@@ -2479,7 +2483,7 @@ mod tests {
     #[test]
     fn qualified_selection_requires_the_daemons_namespace() {
         let config = files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons_settings]\nnamespace = 'app'\n[daemons.worker]\nrun = 'exec worker'\n[daemons.api]\nrun = 'exec api'\n",
         )]);
         let set = load(&config).unwrap();
@@ -2507,7 +2511,7 @@ mod tests {
         let app = tmp.path().join("app");
         std::fs::create_dir_all(&app).unwrap();
         let config = files(&[(
-            app.join("mise.toml").to_str().unwrap(),
+            app.join("pakro.toml").to_str().unwrap(),
             &format!(
                 "[daemons_settings]\nnamespace = 'shared'\n[daemons.worker]\nrun = 'exec local'\n[daemons.pipeline]\nproject = {}\nname = 'worker'\n",
                 toml::Value::String(mirror.to_string_lossy().into_owned())
@@ -2534,14 +2538,14 @@ mod tests {
         let own = files(&[
             (
                 mirror
-                    .join(&*crate::env::MISE_DEFAULT_CONFIG_FILENAME)
+                    .join(&*crate::env::PAKRO_DEFAULT_CONFIG_FILENAME)
                     .to_str()
                     .unwrap(),
                 "[daemons.worker]\nrun = 'exec worker'\n",
             ),
             (
                 group
-                    .join(&*crate::env::MISE_DEFAULT_CONFIG_FILENAME)
+                    .join(&*crate::env::PAKRO_DEFAULT_CONFIG_FILENAME)
                     .to_str()
                     .unwrap(),
                 "[daemons_settings]\nnamespace = 'shared'\n",
@@ -2555,7 +2559,7 @@ mod tests {
         let app = tmp.path().join("app");
         std::fs::create_dir_all(&app).unwrap();
         let config = files(&[(
-            app.join("mise.toml").to_str().unwrap(),
+            app.join("pakro.toml").to_str().unwrap(),
             &format!(
                 "[daemons.worker]\nproject = {}\n",
                 toml::Value::String(mirror.to_string_lossy().into_owned())
@@ -2576,7 +2580,7 @@ mod tests {
         let app = tmp.path().join("app");
         std::fs::create_dir_all(&app).unwrap();
         let config = files(&[(
-            app.join("mise.toml").to_str().unwrap(),
+            app.join("pakro.toml").to_str().unwrap(),
             "[daemons.pipeline]\nproject = '../gone'\n[daemons.api]\nrun = 'exec api'\ndepends = ['pipeline']\n[daemons.web]\nrun = 'exec web'\n",
         )]);
         let set = load(&config).unwrap();
@@ -2608,11 +2612,11 @@ mod tests {
         std::fs::create_dir_all(&child).unwrap();
         let config = files(&[
             (
-                child.join("mise.toml").to_str().unwrap(),
+                child.join("pakro.toml").to_str().unwrap(),
                 "[daemons.api]\nrun = 'exec api'\n[daemon_groups]\nops = ['api']\n",
             ),
             (
-                parent.join("mise.toml").to_str().unwrap(),
+                parent.join("pakro.toml").to_str().unwrap(),
                 "[daemons.ops]\nproject = '../gone'\n",
             ),
         ]);
@@ -2646,11 +2650,11 @@ mod tests {
         std::fs::create_dir_all(&child).unwrap();
         let config = files(&[
             (
-                child.join("mise.toml").to_str().unwrap(),
+                child.join("pakro.toml").to_str().unwrap(),
                 "[daemons.pipeline]\nproject = '../gone'\n",
             ),
             (
-                parent.join("mise.toml").to_str().unwrap(),
+                parent.join("pakro.toml").to_str().unwrap(),
                 &format!(
                     "[daemons.pipeline]\nproject = {}\nname = 'worker'\n",
                     toml::Value::String(mirror.to_string_lossy().into_owned())
@@ -2678,7 +2682,7 @@ mod tests {
         let app = tempfile::tempdir().unwrap();
         let root = app.path().to_path_buf();
         let config = files(&[(
-            root.join("mise.toml").to_str().unwrap(),
+            root.join("pakro.toml").to_str().unwrap(),
             "[daemons.api]\nrun = 'exec api'\nauto = ['start', 'stop']\ndepends = ['pipeline']\n\
              [daemons.manual]\nrun = 'exec manual'\ndepends = ['other']\n\
              [daemons.pipeline]\nproject = '../gone'\n[daemons.other]\nproject = '../gone'\n",
@@ -2694,7 +2698,7 @@ mod tests {
         assert!(err.contains("[daemons.pipeline]"), "{err}");
         // Only the daemon nobody starts is blocked: the hook stays out of it.
         let config = files(&[(
-            root.join("mise.toml").to_str().unwrap(),
+            root.join("pakro.toml").to_str().unwrap(),
             "[daemons.api]\nrun = 'exec api'\nauto = ['start']\n\
              [daemons.manual]\nrun = 'exec manual'\ndepends = ['other']\n\
              [daemons.other]\nproject = '../gone'\n",
@@ -2720,11 +2724,11 @@ mod tests {
         std::fs::create_dir_all(&child).unwrap();
         let config = files(&[
             (
-                child.join("mise.toml").to_str().unwrap(),
+                child.join("pakro.toml").to_str().unwrap(),
                 "[daemons.api]\nrun = 'exec api'\ndepends = ['pipeline', 'absent']\n",
             ),
             (
-                parent.join("mise.toml").to_str().unwrap(),
+                parent.join("pakro.toml").to_str().unwrap(),
                 &format!(
                     "[daemons.pipeline]\nproject = {}\nname = 'worker'\n[daemons.absent]\nproject = '../gone'\n",
                     toml::Value::String(mirror.to_string_lossy().into_owned())
@@ -2762,11 +2766,11 @@ mod tests {
         std::fs::create_dir_all(&child).unwrap();
         let config = files(&[
             (
-                child.join("mise.toml").to_str().unwrap(),
+                child.join("pakro.toml").to_str().unwrap(),
                 "[daemons.api]\nrun = 'exec api'\ndepends = ['pipeline']\n",
             ),
             (
-                parent.join("mise.toml").to_str().unwrap(),
+                parent.join("pakro.toml").to_str().unwrap(),
                 &format!(
                     "[daemons.pipeline]\nproject = {}\nname = 'worker'\n",
                     toml::Value::String(mirror.to_string_lossy().into_owned())
@@ -2796,11 +2800,11 @@ mod tests {
         std::fs::create_dir_all(&child).unwrap();
         let config = files(&[
             (
-                child.join("mise.toml").to_str().unwrap(),
+                child.join("pakro.toml").to_str().unwrap(),
                 "[daemons.api]\nrun = 'exec api'\n[daemon_groups]\nops = ['api']\n",
             ),
             (
-                parent.join("mise.toml").to_str().unwrap(),
+                parent.join("pakro.toml").to_str().unwrap(),
                 &format!(
                     "[daemons.ops]\nproject = {}\nname = 'worker'\n",
                     toml::Value::String(mirror.to_string_lossy().into_owned())
@@ -2825,14 +2829,14 @@ mod tests {
         let _serial = import_lock();
         // A group renders into this project's pitchfork configuration, where an
         // imported daemon has no definition, so accepting the member would
-        // produce a group mise expands and the registered one does not.
+        // produce a group pakro expands and the registered one does not.
         let tmp = tempfile::tempdir().unwrap();
         let mirror = tmp.path().join("mirror");
         referenced_project(&mirror, "[daemons.worker]\nrun = 'exec worker'\n");
         let app = tmp.path().join("app");
         std::fs::create_dir_all(&app).unwrap();
         let config = files(&[(
-            app.join("mise.toml").to_str().unwrap(),
+            app.join("pakro.toml").to_str().unwrap(),
             "[daemons.pipeline]\nproject = '../mirror'\nname = 'worker'\n[daemons.api]\nrun = 'exec api'\n[daemon_groups]\nweb = ['api', 'pipeline']\n",
         )]);
         let err = load(&config).unwrap_err().to_string();
@@ -2841,7 +2845,7 @@ mod tests {
         assert!(err.contains("depends"), "{err}");
         // A group naming only this project's own daemons still loads.
         let config = files(&[(
-            app.join("mise.toml").to_str().unwrap(),
+            app.join("pakro.toml").to_str().unwrap(),
             "[daemons.pipeline]\nproject = '../mirror'\nname = 'worker'\n[daemons.api]\nrun = 'exec api'\n[daemon_groups]\nweb = ['api']\n",
         )]);
         let set = load(&config).unwrap();
@@ -2862,7 +2866,7 @@ mod tests {
         let app = tmp.path().join("app");
         std::fs::create_dir_all(&app).unwrap();
         let config = files(&[(
-            app.join("mise.toml").to_str().unwrap(),
+            app.join("pakro.toml").to_str().unwrap(),
             "[daemons.remote_api]\nproject = '../mirror'\nname = 'api'\n[daemons.api]\nrun = 'exec local api'\n",
         )]);
         let set = load(&config).unwrap();
@@ -2881,8 +2885,8 @@ mod tests {
     #[test]
     fn an_untrusted_referenced_project_is_not_imported() {
         let serial = import_lock();
-        // This exercises the real trust gate. `mise x`, `mise run` and
-        // `mise daemons start` mark the active config implicitly trusted, and
+        // This exercises the real trust gate. `pakro x`, `pakro run` and
+        // `pakro daemons start` mark the active config implicitly trusted, and
         // reading a sibling through that branch would grant it durable trust
         // with no prompt.
         let tmp = tempfile::tempdir().unwrap();
@@ -2891,10 +2895,10 @@ mod tests {
         let app = tmp.path().join("app");
         std::fs::create_dir_all(&app).unwrap();
         let config = files(&[(
-            app.join("mise.toml").to_str().unwrap(),
+            app.join("pakro.toml").to_str().unwrap(),
             "[daemons.worker]\nproject = '../mirror'\n[daemons.api]\nrun = 'exec api'\ndepends = ['worker']\n",
         )]);
-        let config_path = mirror.join(&*crate::env::MISE_DEFAULT_CONFIG_FILENAME);
+        let config_path = mirror.join(&*crate::env::PAKRO_DEFAULT_CONFIG_FILENAME);
         // `is_trusted` trusts everything in unit tests, except in paranoid
         // mode, where trust is bound to file contents and checked first. That is
         // the only way to exercise this gate without the bypass.
@@ -2903,7 +2907,7 @@ mod tests {
         assert!(set.find("worker").is_none());
         let err = &failure(&set, "worker");
         assert!(err.contains("not trusted"), "{err}");
-        assert!(err.contains("mise trust"), "{err}");
+        assert!(err.contains("pakro trust"), "{err}");
         // Trying did not trust it as a side effect, which is the whole point:
         // the commands that reach here mark the active config implicitly
         // trusted, and that branch would have granted it durably.
@@ -2937,19 +2941,19 @@ mod tests {
     fn referenced_projects_with_tool_versions_files_still_import() {
         let _serial = import_lock();
         // `.tool-versions` sits in the same config list but is not TOML; parsing
-        // it would fail before the project's mise config is ever read.
+        // it would fail before the project's pakro config is ever read.
         let tmp = tempfile::tempdir().unwrap();
         let mirror = tmp.path().join("mirror");
         referenced_project(&mirror, "[daemons.worker]\nrun = 'exec worker'\n");
         std::fs::write(
-            mirror.join(&*crate::env::MISE_DEFAULT_TOOL_VERSIONS_FILENAME),
+            mirror.join(&*crate::env::PAKRO_DEFAULT_TOOL_VERSIONS_FILENAME),
             "node 20.0.0\n",
         )
         .unwrap();
         let app = tmp.path().join("app");
         std::fs::create_dir_all(&app).unwrap();
         let config = files(&[(
-            app.join("mise.toml").to_str().unwrap(),
+            app.join("pakro.toml").to_str().unwrap(),
             "[daemons.worker]\nproject = '../mirror'\n",
         )]);
         let set = load(&config).unwrap();
@@ -2964,11 +2968,11 @@ mod tests {
         let root = tmp.path();
         let config = files(&[
             (
-                root.join("mise.local.toml").to_str().unwrap(),
+                root.join("pakro.local.toml").to_str().unwrap(),
                 "[daemons_settings]\nnamespace_per_worktree = false\n",
             ),
             (
-                root.join("mise.toml").to_str().unwrap(),
+                root.join("pakro.toml").to_str().unwrap(),
                 "[daemons_settings]\nnamespace = 'entiredb'\n[daemons.api]\nrun = 'exec api'\n",
             ),
         ]);
@@ -3006,7 +3010,7 @@ mod tests {
         let app = tmp.path().join("app");
         std::fs::create_dir_all(&app).unwrap();
         let config = files(&[(
-            app.join("mise.toml").to_str().unwrap(),
+            app.join("pakro.toml").to_str().unwrap(),
             "[daemons.worker]\nproject = '../middle'\n",
         )]);
         assert!(
@@ -3014,7 +3018,7 @@ mod tests {
                 .contains("reference the project that declares it")
         );
         let config = files(&[(
-            app.join("mise.toml").to_str().unwrap(),
+            app.join("pakro.toml").to_str().unwrap(),
             "[daemons.worker]\nproject = '../far'\nrun = 'exec local'\n",
         )]);
         assert!(
@@ -3035,7 +3039,7 @@ mod tests {
         }
         let tmp = tempfile::tempdir().unwrap();
         let config = files(&[(
-            tmp.path().join("mise.toml").to_str().unwrap(),
+            tmp.path().join("pakro.toml").to_str().unwrap(),
             "[daemons_settings]\nnamespace = 'entire--db'\n[daemons.api]\nrun = 'exec api'\n",
         )]);
         assert!(
@@ -3050,7 +3054,7 @@ mod tests {
     fn explicit_namespace_replaces_the_hashed_default() {
         let tmp = tempfile::tempdir().unwrap();
         let config = files(&[(
-            tmp.path().join("mise.toml").to_str().unwrap(),
+            tmp.path().join("pakro.toml").to_str().unwrap(),
             "[daemons_settings]\nnamespace = 'entiredb'\n[daemons.api]\nrun = 'exec api'\n",
         )]);
         let set = load(&config).unwrap();
@@ -3080,7 +3084,7 @@ mod tests {
 
         let body = "[daemons.db]\npreset = 'postgres'\nversion = '18'\nport = 'auto'\n[daemons.api]\nrun = 'server'\n[daemons.api.port]\nauto = true\nbase = 3000\n";
         let ports = |root: &Path| {
-            let set = load(&files(&[(root.join("mise.toml").to_str().unwrap(), body)])).unwrap();
+            let set = load(&files(&[(root.join("pakro.toml").to_str().unwrap(), body)])).unwrap();
             (
                 set.daemons["db"].port.unwrap().port,
                 set.daemons["api"].port.unwrap().port,
@@ -3095,7 +3099,7 @@ mod tests {
         // Same root, same ports; and the port reaches the exports and the command.
         assert_eq!(ports(&linked), (db, api));
         let set = load(&files(&[(
-            linked.join("mise.toml").to_str().unwrap(),
+            linked.join("pakro.toml").to_str().unwrap(),
             body,
         )]))
         .unwrap();
@@ -3118,8 +3122,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("project");
         std::fs::create_dir_all(root.join(".git")).unwrap();
-        let load_body =
-            |body: &str| load(&files(&[(root.join("mise.toml").to_str().unwrap(), body)])).unwrap();
+        let load_body = |body: &str| {
+            load(&files(&[(root.join("pakro.toml").to_str().unwrap(), body)])).unwrap()
+        };
         let set = load_body(
             "[daemons.crdb]\npreset = 'cockroachdb'\nversion = '26'\nports.http_port = 8081\n\
              [daemons.events]\npreset = 'nats'\nversion = '2'\n",
@@ -3156,7 +3161,7 @@ mod tests {
         let root = tmp.path().join("project");
         std::fs::create_dir_all(root.join(".git")).unwrap();
         let set = load(&files(&[(
-            root.join("mise.toml").to_str().unwrap(),
+            root.join("pakro.toml").to_str().unwrap(),
             "[daemons.api]\nrun = 'server'\nport = 3000\n[daemons.web-ui]\nrun = 'ui'\n[daemons.web-ui.port]\nauto = true\nbase = 4000\n",
         )]))
         .unwrap();
@@ -3166,9 +3171,9 @@ mod tests {
         assert_eq!(set.daemons["web-ui"].exports["WEB_UI_PORT"], "4000");
         // Two names that normalize onto one variable are ambiguous, so
         // neither is exported and both daemons keep working. Failing the load
-        // would take `mise env` down for the whole project over a convenience.
+        // would take `pakro env` down for the whole project over a convenience.
         let set = load(&files(&[(
-            root.join("mise.toml").to_str().unwrap(),
+            root.join("pakro.toml").to_str().unwrap(),
             "[daemons.web-ui]\nrun = 'a'\nport = 3000\n[daemons.web_ui]\nrun = 'b'\nport = 3001\n",
         )]))
         .unwrap();
@@ -3181,7 +3186,7 @@ mod tests {
         // A leading punctuation character becomes an underscore, which a shell
         // accepts, so such a name still gets its variables.
         let set = load(&files(&[(
-            root.join("mise.toml").to_str().unwrap(),
+            root.join("pakro.toml").to_str().unwrap(),
             "[daemons.\".api\"]\nrun = 'a'\nport = 3000\n",
         )]))
         .unwrap();
@@ -3190,7 +3195,7 @@ mod tests {
         // A shell cannot export a name starting with a digit, but that name was
         // legal before this export existed, so it keeps working without one.
         let set = load(&files(&[(
-            root.join("mise.toml").to_str().unwrap(),
+            root.join("pakro.toml").to_str().unwrap(),
             "[daemons.9api]\nrun = 'a'\nport = 3000\n",
         )]))
         .unwrap();
@@ -3204,7 +3209,7 @@ mod tests {
         // Pitchfork routes only a daemon that configures a port, so one
         // without a port gets neither variable.
         let set = load(&files(&[(
-            root.join("mise.toml").to_str().unwrap(),
+            root.join("pakro.toml").to_str().unwrap(),
             "[daemons.api]\nrun = 'server'\n",
         )]))
         .unwrap();
@@ -3212,7 +3217,7 @@ mod tests {
         assert!(set.daemons["api"].host.is_none());
         // Opting out of the proxy leaves only the port.
         let set = load(&files(&[(
-            root.join("mise.toml").to_str().unwrap(),
+            root.join("pakro.toml").to_str().unwrap(),
             "[daemons.api]\nrun = 'server'\nport = 3000\nproxy = false\n",
         )]))
         .unwrap();
@@ -3220,9 +3225,9 @@ mod tests {
             set.daemons["api"].exports.keys().collect::<Vec<_>>(),
             vec!["API_PORT"]
         );
-        // The exports reach the environment mise renders.
+        // The exports reach the environment pakro renders.
         let set = load(&files(&[(
-            root.join("mise.toml").to_str().unwrap(),
+            root.join("pakro.toml").to_str().unwrap(),
             "[daemons.api]\nrun = 'server'\nport = 3000\n",
         )]))
         .unwrap();
@@ -3251,7 +3256,7 @@ mod tests {
         .unwrap();
 
         let body = "[daemons.api]\nrun = 'server'\n[daemons.api.port]\nauto = true\nbase = 3000\n";
-        let cfg = || files(&[(root.join("mise.toml").to_str().unwrap(), body)]);
+        let cfg = || files(&[(root.join("pakro.toml").to_str().unwrap(), body)]);
         let derived = load(&cfg()).unwrap().daemons["api"].port.unwrap();
         assert_ne!(derived.port, 3000, "a worktree is offset");
 
@@ -3289,7 +3294,7 @@ mod tests {
     fn invalid_auto_port_declarations_are_rejected() {
         // A custom daemon has no default port to offset.
         let config = files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons.api]\nrun = 'server'\nport = 'auto'\n",
         )]);
         assert!(
@@ -3300,13 +3305,13 @@ mod tests {
         );
         // Presets do not take pitchfork's structured port.
         let config = files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons.db]\npreset = 'postgres'\nversion = '18'\n[daemons.db.port]\nexpect = [5432]\n",
         )]);
         assert!(load(&config).is_err());
         // Custom daemons still forward it verbatim.
         let config = files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons.api]\nrun = 'server'\n[daemons.api.port]\nexpect = [3000, 3001]\nbump = true\n",
         )]);
         let set = load(&config).unwrap();
@@ -3320,7 +3325,7 @@ mod tests {
     #[test]
     fn groups_expand_members_and_nested_groups() {
         let set = load(&files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             r#"
 [daemons.postgres]
 run = 'postgres'
@@ -3361,7 +3366,7 @@ daemons = ["core", "core2"]
     #[test]
     fn groups_nest_more_than_one_level() {
         let set = load(&files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             r#"
 [daemons.a]
 run = 'a'
@@ -3379,7 +3384,7 @@ three = ["two", "c"]
         assert_eq!(set.group("three").unwrap().daemons, ["a", "b", "c"]);
         // A cycle is still caught through three levels.
         let err = load(&files(&[(
-            "/project/mise.toml",
+            "/project/pakro.toml",
             "[daemons.a]\nrun = 'a'\n[daemon_groups]\none = ['two']\ntwo = ['three']\nthree = ['one']\n",
         )]))
         .unwrap_err()
@@ -3392,7 +3397,7 @@ three = ["two", "c"]
         // Matches `additionalProperties: false` in the schema, and catches a typo
         // that would otherwise leave the group silently empty. Rejection happens
         // when the configuration is parsed, before daemons are loaded.
-        let parse = |body: &str| MiseToml::from_str(body, &PathBuf::from("/project/mise.toml"));
+        let parse = |body: &str| PakroToml::from_str(body, &PathBuf::from("/project/pakro.toml"));
         assert!(parse("[daemon_groups.web]\ndaemons = ['api']\n").is_ok());
         let err = parse("[daemon_groups.web]\ndaemons = ['api']\ndeamons = ['api']\n")
             .unwrap_err()
@@ -3406,11 +3411,11 @@ three = ["two", "c"]
     fn same_group_name_in_two_projects_is_kept() {
         let set = load(&files(&[
             (
-                "/parent/child/mise.toml",
+                "/parent/child/pakro.toml",
                 "[daemons.web]\nrun = 'web'\n[daemon_groups]\ndefault = ['web']\n",
             ),
             (
-                "/parent/mise.toml",
+                "/parent/pakro.toml",
                 "[daemons.api]\nrun = 'api'\n[daemon_groups]\ndefault = ['api']\n",
             ),
         ]))
@@ -3436,11 +3441,11 @@ three = ["two", "c"]
         // configuration has to keep loading.
         let set = load(&files(&[
             (
-                "/parent/child/mise.toml",
+                "/parent/child/pakro.toml",
                 "[daemons.postgres]\nrun = 'child postgres'\n",
             ),
             (
-                "/parent/mise.toml",
+                "/parent/pakro.toml",
                 "[daemons.postgres]\nrun = 'parent postgres'\n[daemons.api]\nrun = 'api'\n[daemon_groups]\ndefault = ['postgres', 'api']\n",
             ),
         ]))
@@ -3467,11 +3472,11 @@ three = ["two", "c"]
         // `shared` exists only in the parent, so the child cannot reference it.
         let err = load(&files(&[
             (
-                "/parent/child/mise.toml",
+                "/parent/child/pakro.toml",
                 "[daemons.web]\nrun = 'web'\n[daemon_groups]\nall = ['web', 'shared']\n",
             ),
             (
-                "/parent/mise.toml",
+                "/parent/pakro.toml",
                 "[daemons.api]\nrun = 'api'\n[daemon_groups]\nshared = ['api']\n",
             ),
         ]))
@@ -3488,10 +3493,10 @@ three = ["two", "c"]
         // A daemon declared by an outer project is not a valid member of an inner group.
         let err = load(&files(&[
             (
-                "/parent/child/mise.toml",
+                "/parent/child/pakro.toml",
                 "[daemons.api]\nrun = 'api'\n[daemon_groups]\nall = ['api', 'outer']\n",
             ),
-            ("/parent/mise.toml", "[daemons.outer]\nrun = 'outer'\n"),
+            ("/parent/pakro.toml", "[daemons.outer]\nrun = 'outer'\n"),
         ]))
         .unwrap_err()
         .to_string();
@@ -3530,7 +3535,7 @@ three = ["two", "c"]
             ),
         ];
         for (body, expected) in cases {
-            let err = load(&files(&[("/project/mise.toml", body)]))
+            let err = load(&files(&[("/project/pakro.toml", body)]))
                 .unwrap_err()
                 .to_string();
             assert!(err.contains(expected), "{body:?} produced {err}");
@@ -3541,7 +3546,7 @@ three = ["two", "c"]
     fn daemon_names_cannot_escape_persistent_data_directory() {
         for name in [".", "..", "../outside", "a/b", "a\\b"] {
             let config = files(&[(
-                "/project/mise.toml",
+                "/project/pakro.toml",
                 &format!(
                     "[daemons.{}]\npreset = 'postgres'\nversion = '18'",
                     toml::Value::String(name.into())
@@ -3577,7 +3582,7 @@ three = ["two", "c"]
         let body =
             "[daemons_settings]\nnamespace = 'shop'\n[daemons.api]\nrun = 'server'\nport = 3000\n";
         let host = |root: &Path| {
-            let set = load(&files(&[(root.join("mise.toml").to_str().unwrap(), body)])).unwrap();
+            let set = load(&files(&[(root.join("pakro.toml").to_str().unwrap(), body)])).unwrap();
             set.daemons["api"].host.clone()
         };
         // The primary checkout's daemons sit directly under the project. A
@@ -3590,7 +3595,7 @@ three = ["two", "c"]
         );
 
         // Pitchfork reads `worktree_label` from the checkout's own pitchfork
-        // configuration, so mise reads it from there too and the two agree.
+        // configuration, so pakro reads it from there too and the two agree.
         std::fs::write(linked.join("pitchfork.toml"), "worktree_label = 'pr-42'\n").unwrap();
         assert_eq!(host(&linked).as_deref(), Some("api.pr-42.shop.localhost"));
 
@@ -3598,7 +3603,7 @@ three = ["two", "c"]
         // checkout's directory, which is the same from either checkout.
         let bare = "[daemons.api]\nrun = 'server'\nport = 3000\n";
         for root in [&primary, &linked] {
-            let set = load(&files(&[(root.join("mise.toml").to_str().unwrap(), bare)])).unwrap();
+            let set = load(&files(&[(root.join("pakro.toml").to_str().unwrap(), bare)])).unwrap();
             assert!(
                 set.daemons["api"]
                     .host
@@ -3616,7 +3621,7 @@ three = ["two", "c"]
         let tmp = tempfile::tempdir().unwrap();
         let (primary, _) = checkout_pair(tmp.path());
         let set = load(&files(&[(
-            primary.join("mise.toml").to_str().unwrap(),
+            primary.join("pakro.toml").to_str().unwrap(),
             "[daemons_settings]\nnamespace = 'shop'\n\
              [daemons.api]\nrun = 'server'\nport = 3000\n\
              [daemons.web]\nrun = 'web'\nport = 5173\nproxy = 'front'\n\
@@ -3637,7 +3642,7 @@ three = ["two", "c"]
         assert_eq!(set.daemons["cache"].exports["CACHE_PORT"], "6380");
         assert!(!set.daemons["cache"].exports.contains_key("CACHE_URL"));
         assert!(set.daemons["cache"].host.is_none());
-        // The URLs reach the environment mise renders.
+        // The URLs reach the environment pakro renders.
         assert!(set.env_entries().iter().any(|(d, _)| matches!(
             d,
             EnvDirective::Val(k, v, _) if k == "API_URL" && v == "https://api.shop.localhost"
@@ -3650,7 +3655,7 @@ three = ["two", "c"]
         let (primary, _) = checkout_pair(tmp.path());
         let load_body = |body: &str| {
             load(&files(&[(
-                primary.join("mise.toml").to_str().unwrap(),
+                primary.join("pakro.toml").to_str().unwrap(),
                 &format!("[daemons_settings]\nnamespace = 'shop'\n{body}"),
             )]))
         };
@@ -3658,7 +3663,7 @@ three = ["two", "c"]
             "[daemons.api]\nrun = 'server'\nport = 3000\nproxy = 'front'\nproxy_tls = 'passthrough'\n",
         )
         .unwrap();
-        // Both keys reach pitchfork, with the label normalized to what mise
+        // Both keys reach pitchfork, with the label normalized to what pakro
         // derived the URL from.
         let table = &set.daemons["api"].table;
         assert_eq!(table["proxy"].as_str(), Some("front"));
@@ -3699,7 +3704,7 @@ three = ["two", "c"]
         let root = tmp.path().join("app");
         std::fs::create_dir_all(root.join(".git")).unwrap();
         let set = load(&files(&[(
-            root.join("mise.toml").to_str().unwrap(),
+            root.join("pakro.toml").to_str().unwrap(),
             &format!(
                 "[daemons_settings]\nnamespace = 'app'\n\
                  [daemons.worker]\nrun = 'exec worker'\nport = 4000\n\
@@ -3726,13 +3731,13 @@ three = ["two", "c"]
         let (primary, _) = checkout_pair(tmp.path());
         let load_body = |body: &str| {
             load(&files(&[(
-                primary.join("mise.toml").to_str().unwrap(),
+                primary.join("pakro.toml").to_str().unwrap(),
                 &format!("[daemons_settings]\nnamespace = 'shop'\n{body}"),
             )]))
         };
 
         // Pitchfork routes neither side of a label collision rather than
-        // choosing, so mise withholds both URLs instead of advertising an
+        // choosing, so pakro withholds both URLs instead of advertising an
         // endpoint the proxy refuses. Both daemons still run on their ports.
         for body in [
             // A declared label landing on another daemon's name.
@@ -3814,7 +3819,7 @@ three = ["two", "c"]
         let root = tmp.path().join("two").join("api");
         std::fs::create_dir_all(root.join(".git")).unwrap();
         let set = load(&files(&[(
-            root.join("mise.toml").to_str().unwrap(),
+            root.join("pakro.toml").to_str().unwrap(),
             &format!(
                 "[daemons.web]\nrun = 'exec web'\nport = 3001\n\
                  [daemons.remote]\nproject = '{}'\nname = 'web'\n",
@@ -3832,7 +3837,7 @@ three = ["two", "c"]
                 .any(|d| d.exports.contains_key("WEB_URL"))
         );
         // The imported one keeps it. Its own project registers it from its own
-        // configuration, where nothing collides, and mise rewrites that file
+        // configuration, where nothing collides, and pakro rewrites that file
         // whole from that project's hierarchy rather than from this view. So
         // the proxy really does serve it, and clearing it here would leave
         // this state contradicting both the warning and the proxy.
@@ -3843,7 +3848,7 @@ three = ["two", "c"]
         assert_eq!(set.daemons["web"].exports["WEB_PORT"], "3001");
     }
 
-    /// Mise pins the port it resolves and turns pitchfork's bumping off, so
+    /// Pakro pins the port it resolves and turns pitchfork's bumping off, so
     /// two daemons handed one number would leave the second failing to bind
     /// with nothing naming the first.
     #[test]
@@ -3852,7 +3857,7 @@ three = ["two", "c"]
         let (primary, _) = checkout_pair(tmp.path());
         let load_body = |body: &str| {
             load(&files(&[(
-                primary.join("mise.toml").to_str().unwrap(),
+                primary.join("pakro.toml").to_str().unwrap(),
                 body,
             )]))
         };
@@ -3879,11 +3884,11 @@ three = ["two", "c"]
             std::os::unix::fs::symlink(&primary, &link).unwrap();
             let err = load(&files(&[
                 (
-                    primary.join("mise.toml").to_str().unwrap(),
+                    primary.join("pakro.toml").to_str().unwrap(),
                     "[daemons.api]\nrun = 'a'\n[daemons.api.port]\nauto = true\nbase = 3000\n",
                 ),
                 (
-                    link.join("mise.local.toml").to_str().unwrap(),
+                    link.join("pakro.local.toml").to_str().unwrap(),
                     "[daemons.web]\nrun = 'b'\n[daemons.web.port]\nauto = true\nbase = 3000\n",
                 ),
             ]))
@@ -3906,7 +3911,7 @@ three = ["two", "c"]
     }
 
     /// A group covers the daemons its project declares. Naming one reached
-    /// with `project` is refused rather than silently dropped, because mise
+    /// with `project` is refused rather than silently dropped, because pakro
     /// would expand a group the registered configuration does not.
     /// A daemon declared nearer claims its own name. An ancestor's group of the
     /// same word must not take it, or the daemon could not be started by the
@@ -3915,11 +3920,11 @@ three = ["two", "c"]
     fn a_nearer_daemon_outranks_an_ancestors_group_of_the_same_name() {
         let set = load(&files(&[
             (
-                "/parent/child/mise.toml",
+                "/parent/child/pakro.toml",
                 "[daemons.web]\nrun = 'child web'\n",
             ),
             (
-                "/parent/mise.toml",
+                "/parent/pakro.toml",
                 "[daemons.api]\nrun = 'api'\n[daemon_groups]\nweb = ['api']\n",
             ),
         ]))
@@ -3958,7 +3963,7 @@ three = ["two", "c"]
         let root = tmp.path().join("app");
         std::fs::create_dir_all(root.join(".git")).unwrap();
         let err = load(&files(&[(
-            root.join("mise.toml").to_str().unwrap(),
+            root.join("pakro.toml").to_str().unwrap(),
             &format!(
                 "[daemons_settings]\nnamespace = 'app'\n\
                  [daemons.api]\nrun = 'exec api'\n\
@@ -3977,7 +3982,7 @@ three = ["two", "c"]
         let tmp = tempfile::tempdir().unwrap();
         let (primary, _) = checkout_pair(tmp.path());
         let set = load(&files(&[(
-            primary.join("mise.toml").to_str().unwrap(),
+            primary.join("pakro.toml").to_str().unwrap(),
             "[daemons_settings]\nnamespace = 'shop'\n\
              [daemons.db]\npreset = 'postgres'\nversion = '18'\n\
              [daemons.database]\nrun = 'gateway'\nport = 8080\n",
@@ -4003,7 +4008,7 @@ three = ["two", "c"]
     /// this project neither sees nor rewrites on its behalf. Saying "pitchfork
     /// routes neither" there would describe a hostname that is in fact served.
     /// Two imported claimants leave pitchfork a contest it will not settle, so
-    /// neither is served. Mise cannot stop either project from registering its
+    /// neither is served. Pakro cannot stop either project from registering its
     /// own, but the project that can see both must not offer a URL for them.
     #[test]
     fn two_imported_claimants_leave_no_url_to_advertise() {
@@ -4020,7 +4025,7 @@ three = ["two", "c"]
         let root = tmp.path().join("app");
         std::fs::create_dir_all(root.join(".git")).unwrap();
         let set = load(&files(&[(
-            root.join("mise.toml").to_str().unwrap(),
+            root.join("pakro.toml").to_str().unwrap(),
             &format!(
                 "[daemons.first]\nproject = '{}'\nname = 'web'\n\
                  [daemons.second]\nproject = '{}'\nname = 'web'\n",
@@ -4080,7 +4085,7 @@ three = ["two", "c"]
         let app = tmp.path().join("app");
         std::fs::create_dir_all(&app).unwrap();
         let set = load(&files(&[(
-            app.join("mise.toml").to_str().unwrap(),
+            app.join("pakro.toml").to_str().unwrap(),
             "[daemons_settings]\nnamespace = 'shop'\n\
              [daemons.store]\nproject = '../owner'\nname = 'db'\n\
              [daemons.database]\nrun = 'gateway'\nport = 8080\n",
@@ -4107,7 +4112,7 @@ three = ["two", "c"]
         let tmp = tempfile::tempdir().unwrap();
         let (primary, _) = checkout_pair(tmp.path());
         let set = load(&files(&[(
-            primary.join("mise.toml").to_str().unwrap(),
+            primary.join("pakro.toml").to_str().unwrap(),
             "[daemons_settings]\nnamespace = 'shop'\n[daemons]\npostgres = '18'\nredis = '8'\n",
         )]))
         .unwrap();
@@ -4124,7 +4129,7 @@ three = ["two", "c"]
             );
         }
         // A preset's own exports still reach the environment, including the one
-        // whose name mise would otherwise have generated.
+        // whose name pakro would otherwise have generated.
         assert!(set.daemons["postgres"].exports.contains_key("DATABASE_URL"));
         assert!(set.daemons["redis"].exports["REDIS_URL"].starts_with("redis://"));
     }

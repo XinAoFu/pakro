@@ -1,4 +1,4 @@
-//! The single place in mise that may elevate privileges.
+//! The single place in pakro that may elevate privileges.
 //!
 //! System package managers and declarative system mutations that require
 //! root use this. Every elevated command logs its full argv before running,
@@ -80,7 +80,7 @@ pub(crate) fn subprocess_mode() -> &'static str {
 /// reaches the user. The progress renderer repaints on its own interval,
 /// though, so without this it overwrites the prompt on the next frame and the
 /// command reads as hung — stdin is connected and typing the password blind
-/// works, but nothing on screen says mise is waiting.
+/// works, but nothing on screen says pakro is waiting.
 ///
 /// Unconditional, and held for the child's whole lifetime rather than just the
 /// prompt. Whether sudo will prompt is not the deciding question: the child has
@@ -288,7 +288,7 @@ pub(crate) fn run_with_input_output(
 }
 
 /// Verify that a subprocess which performs its own sudo elevation can do so
-/// without violating mise's elevation policy or hanging without a TTY.
+/// without violating pakro's elevation policy or hanging without a TTY.
 pub(crate) fn ensure_elevation_available(manual_cmd: &str) -> Result<()> {
     if is_root() {
         return Ok(());

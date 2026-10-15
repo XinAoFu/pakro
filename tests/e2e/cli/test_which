@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-assert "mise use dummy@1.0.0"
-assert "mise which dummy" "$MISE_DATA_DIR/installs/dummy/1.0.0/bin/dummy"
-assert "mise which --plugin dummy" "dummy"
-assert "mise which --version dummy" "1.0.0"
-assert "mise which dummy --tool dummy@1.0.0" "$MISE_DATA_DIR/installs/dummy/1.0.0/bin/dummy"
+assert "pakro use dummy@1.0.0"
+assert "pakro which dummy" "$PAKRO_DATA_DIR/installs/dummy/1.0.0/bin/dummy"
+assert "pakro which --plugin dummy" "dummy"
+assert "pakro which --version dummy" "1.0.0"
+assert "pakro which dummy --tool dummy@1.0.0" "$PAKRO_DATA_DIR/installs/dummy/1.0.0/bin/dummy"

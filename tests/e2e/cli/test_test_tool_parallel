@@ -3,7 +3,7 @@
 set -euo pipefail
 
 summary="${TMPDIR:-/tmp}/test-tool-summary.md"
-GITHUB_STEP_SUMMARY="$summary" mise test-tool --jobs=2 shellcheck shfmt
+GITHUB_STEP_SUMMARY="$summary" pakro test-tool --jobs=2 shellcheck shfmt
 
 cat "$summary"
 

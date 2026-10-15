@@ -14,14 +14,14 @@ use itertools::Itertools;
 
 /// Mark a config file as trusted
 ///
-/// This means mise is allowed to parse the file when it needs to read config
-/// that may execute code or affect the environment. Without trust, mise may
+/// This means pakro is allowed to parse the file when it needs to read config
+/// that may execute code or affect the environment. Without trust, pakro may
 /// prompt, skip the config in some discovery paths, or fail with an
 /// untrusted-config error when it cannot prompt.
 ///
-/// In normal mode, commands that execute project-defined behavior (`mise run`,
-/// naked task invocations such as `mise <TASK>`, `mise install`, `mise exec`,
-/// and `mise watch`) automatically trust their active config. Paranoid mode
+/// In normal mode, commands that execute project-defined behavior (`pakro run`,
+/// naked task invocations such as `pakro <TASK>`, `pakro install`, `pakro exec`,
+/// and `pakro watch`) automatically trust their active config. Paranoid mode
 /// requires explicit, content-bound trust for every non-global config.
 ///
 /// In normal mode, safe config files do not require trust: files that only contain
@@ -36,12 +36,12 @@ use itertools::Itertools;
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise trust ~/some_dir/mise.toml"###,
-        help = r###"trusts ~/some_dir/mise.toml"###
+        r###"pakro trust ~/some_dir/pakro.toml"###,
+        help = r###"trusts ~/some_dir/pakro.toml"###
     ),
     example(
-        r###"mise trust"###,
-        help = r###"trusts mise.toml in the current or parent directory"###
+        r###"pakro trust"###,
+        help = r###"trusts pakro.toml in the current or parent directory"###
     )
 )]
 pub(crate) struct Trust {
@@ -100,11 +100,11 @@ impl Trust {
 
     /// Remove the entries whose target is gone.
     ///
-    /// Resolve first. Asking whether the *entry* exists answers the wrong question: mise records
-    /// these as symlinks on unix and, since Windows symlinks need a privilege mise does not
+    /// Resolve first. Asking whether the *entry* exists answers the wrong question: pakro records
+    /// these as symlinks on unix and, since Windows symlinks need a privilege pakro does not
     /// require, as plain files holding the path there (`file::make_symlink_or_file`). A plain file
     /// always exists no matter what it records, so on Windows this pruned nothing at all — while
-    /// `mise prune --configs` says it removes "tracked and trusted configuration links that point
+    /// `pakro prune --configs` says it removes "tracked and trusted configuration links that point
     /// to nonexistent configurations".
     ///
     /// `Tracker::clean_in` is the same shape, one line above the call to this in
@@ -193,7 +193,7 @@ pub(super) fn untrust_config_file(config_file: Option<PathBuf>) -> Result<()> {
         && config_file::is_trusted(&main_path)
     {
         warn!(
-            "{} is a git worktree of {} which is trusted, so it will still be trusted. Untrust that path or use `mise trust --ignore`.",
+            "{} is a git worktree of {} which is trusted, so it will still be trusted. Untrust that path or use `pakro trust --ignore`.",
             display_path(&cfr),
             display_path(&main_path)
         );
@@ -206,12 +206,12 @@ pub(super) fn untrust_config_file(config_file: Option<PathBuf>) -> Result<()> {
 ///
 /// The path has to exist. Trusting is not done against the path as typed: it is resolved to a
 /// trust root first, and `config_root` does that by counting path components, never by looking at
-/// the filesystem. A path that is not there therefore used to resolve to its *parent*, and mise
+/// the filesystem. A path that is not there therefore used to resolve to its *parent*, and pakro
 /// would trust or untrust that instead — exit 0, `trusted <parent>`, and a typo silently granting
 /// trust to a directory nobody named.
 ///
 /// Existence is the whole check. A directory with no config file in it yet still resolves, since
-/// its trust root is the directory itself and trusting a project before writing its `mise.toml`
+/// its trust root is the directory itself and trusting a project before writing its `pakro.toml`
 /// is a real thing to want.
 pub(super) fn resolve_config_file(config_file: Option<&PathBuf>) -> Result<Option<PathBuf>> {
     let Some(config_file) = config_file else {
@@ -220,7 +220,7 @@ pub(super) fn resolve_config_file(config_file: Option<&PathBuf>) -> Result<Optio
     if !config_file.exists() {
         bail!(
             "Path does not exist: {}\n\
-             mise resolves this to a trust root before recording anything, and that resolution is \
+             pakro resolves this to a trust root before recording anything, and that resolution is \
              lexical — a path that is not there would act on its parent directory instead.",
             display_path(config_file)
         );
@@ -229,7 +229,7 @@ pub(super) fn resolve_config_file(config_file: Option<&PathBuf>) -> Result<Optio
         config_files_in_dir(config_file)
             .last()
             .cloned()
-            .unwrap_or(config_file.join(&*env::MISE_DEFAULT_CONFIG_FILENAME))
+            .unwrap_or(config_file.join(&*env::PAKRO_DEFAULT_CONFIG_FILENAME))
     } else {
         config_file.clone()
     }))
@@ -382,9 +382,9 @@ impl Trust {
         }
         for (dp, trusted) in trusted {
             if trusted {
-                miseprintln!("{dp}: trusted");
+                pakroprintln!("{dp}: trusted");
             } else {
-                miseprintln!("{dp}: untrusted");
+                pakroprintln!("{dp}: untrusted");
             }
         }
         Ok(())
@@ -398,7 +398,7 @@ mod tests {
     #[test]
     fn a_path_that_does_not_exist_is_refused_and_named() {
         let dir = tempfile::tempdir().unwrap();
-        let existing = dir.path().join("mise.toml");
+        let existing = dir.path().join("pakro.toml");
         std::fs::write(&existing, "").unwrap();
 
         // Control: the same call resolves rather than erroring when the path is there, so the
@@ -411,7 +411,7 @@ mod tests {
         let missing = dir.path().join("nope");
         let err = resolve_config_file(Some(&missing)).unwrap_err().to_string();
         // The path is the whole point of the message: what used to happen instead was that this
-        // resolved to `dir` and mise trusted that, reporting success.
+        // resolved to `dir` and pakro trusted that, reporting success.
         assert!(
             err.contains("nope"),
             "the message has to name the path: {err}"
@@ -420,7 +420,7 @@ mod tests {
 
     #[test]
     fn a_directory_with_no_config_in_it_yet_still_resolves() {
-        // The case the existence check must not break. Trusting a project before its `mise.toml`
+        // The case the existence check must not break. Trusting a project before its `pakro.toml`
         // exists is a real thing to want, and it works because the trust root is the directory —
         // which is exactly why "the path must exist" cannot be tightened to "the file must exist".
         let dir = tempfile::tempdir().unwrap();
@@ -432,7 +432,7 @@ mod tests {
 
     #[test]
     fn no_argument_is_still_no_argument() {
-        // `mise trust` with no path falls back to config discovery further up; this must stay a
+        // `pakro trust` with no path falls back to config discovery further up; this must stay a
         // `None` rather than becoming an error.
         assert_eq!(resolve_config_file(None).unwrap(), None);
     }
@@ -481,7 +481,7 @@ mod tests {
         );
     }
 
-    /// A trust root is a directory — `mise trust ./mise.toml` records the directory that contains
+    /// A trust root is a directory — `pakro trust ./pakro.toml` records the directory that contains
     /// it. Reusing `Tracker::clean_in`'s `is_file()` here would therefore delete every entry, so
     /// the difference is pinned rather than left to a comment.
     #[test]
@@ -507,7 +507,7 @@ mod tests {
     /// A trust entry can have two files beside it: `.hash`, the content-bound trust paranoid mode
     /// records, and `.monorepo`, the marker that lets descendants inherit trust. Neither holds a
     /// path — one holds a checksum and the other is empty — so resolving them as if they were
-    /// entries made every `mise prune --configs` delete them while the project was still there.
+    /// entries made every `pakro prune --configs` delete them while the project was still there.
     #[test]
     fn metadata_beside_a_live_entry_is_not_mistaken_for_one() {
         let tmp = tempfile::tempdir().unwrap();

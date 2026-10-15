@@ -29,14 +29,14 @@ impl Shell for Zsh {
         // much of this is from direnv
         // https://github.com/direnv/direnv/blob/cb5222442cb9804b1574954999f6073cc636eff0/internal/cmd/shell_zsh.go#L10-L22
         out.push_str(&formatdoc! {r#"
-            export MISE_SHELL=zsh
-            if [ -z "${{__MISE_ORIG_PATH:-}}" ]; then
-              export __MISE_ORIG_PATH="$PATH"
+            export PAKRO_SHELL=zsh
+            if [ -z "${{__PAKRO_ORIG_PATH:-}}" ]; then
+              export __PAKRO_ORIG_PATH="$PATH"
             fi
-            export __MISE_ZSH_PRECMD_RUN=0
-            export __MISE_ZSH_CHPWD_RAN=0
+            export __PAKRO_ZSH_PRECMD_RUN=0
+            export __PAKRO_ZSH_CHPWD_RAN=0
 
-            mise() {{
+            pakro() {{
               local command
               command="${{1:-}}"
               if [ "$#" = 0 ]; then
@@ -62,72 +62,72 @@ impl Shell for Zsh {
             out.push_str(&formatdoc! {r#"
 
             autoload -Uz add-zsh-hook
-            _mise_hook() {{
+            _pakro_hook() {{
               eval "$({exe} hook-env{flags} --shell-pid $$ -s zsh "$@")";
             }}
-            _mise_hook_env_state() {{
-              # enumerate MISE_* vars with the typeset builtin rather than
+            _pakro_hook_env_state() {{
+              # enumerate PAKRO_* vars with the typeset builtin rather than
               # ${{parameters}}: referencing that special array autoloads the
               # zsh/parameter module via dlopen, which can deadlock under
               # Rosetta in login shells (https://github.com/jdx/mise/discussions/11187)
-              local -a keys=(${{(o)${{(f)"$(typeset +m 'MISE_*' 2>/dev/null)"}}##* }})
+              local -a keys=(${{(o)${{(f)"$(typeset +m 'PAKRO_*' 2>/dev/null)"}}##* }})
               if (( ${{#keys}} > 0 )); then
                 typeset -p "${{keys[@]}}" 2>/dev/null
               fi
             }}
-            _mise_hook_precmd() {{
-              if [[ "${{__MISE_ZSH_CHPWD_RAN:-0}}" == "1" ]]; then
-                export __MISE_ZSH_CHPWD_RAN=0
-                unset __MISE_ZSH_ACTIVATE_PATH
-                unset __MISE_ZSH_ACTIVATE_ENV
+            _pakro_hook_precmd() {{
+              if [[ "${{__PAKRO_ZSH_CHPWD_RAN:-0}}" == "1" ]]; then
+                export __PAKRO_ZSH_CHPWD_RAN=0
+                unset __PAKRO_ZSH_ACTIVATE_PATH
+                unset __PAKRO_ZSH_ACTIVATE_ENV
                 return
               fi
-              if [[ "${{__MISE_ZSH_PRECMD_RUN:-0}}" == "0" &&
-                    "$PATH" == "${{__MISE_ZSH_ACTIVATE_PATH:-}}" &&
-                    "$(_mise_hook_env_state)" == "${{__MISE_ZSH_ACTIVATE_ENV:-}}" ]]; then
-                export __MISE_ZSH_PRECMD_RUN=1
-                unset __MISE_ZSH_ACTIVATE_PATH
-                unset __MISE_ZSH_ACTIVATE_ENV
+              if [[ "${{__PAKRO_ZSH_PRECMD_RUN:-0}}" == "0" &&
+                    "$PATH" == "${{__PAKRO_ZSH_ACTIVATE_PATH:-}}" &&
+                    "$(_pakro_hook_env_state)" == "${{__PAKRO_ZSH_ACTIVATE_ENV:-}}" ]]; then
+                export __PAKRO_ZSH_PRECMD_RUN=1
+                unset __PAKRO_ZSH_ACTIVATE_PATH
+                unset __PAKRO_ZSH_ACTIVATE_ENV
                 return
               fi
-              unset __MISE_ZSH_ACTIVATE_PATH
-              unset __MISE_ZSH_ACTIVATE_ENV
-              _mise_hook --reason precmd
+              unset __PAKRO_ZSH_ACTIVATE_PATH
+              unset __PAKRO_ZSH_ACTIVATE_ENV
+              _pakro_hook --reason precmd
             }}
-            _mise_hook_chpwd() {{
-              export __MISE_ZSH_CHPWD_RAN=1
-              _mise_hook --reason chpwd
+            _pakro_hook_chpwd() {{
+              export __PAKRO_ZSH_CHPWD_RAN=1
+              _pakro_hook --reason chpwd
             }}
-            add-zsh-hook precmd _mise_hook_precmd
-            add-zsh-hook chpwd _mise_hook_chpwd
+            add-zsh-hook precmd _pakro_hook_precmd
+            add-zsh-hook chpwd _pakro_hook_chpwd
 
-            _mise_hook --force
-            export __MISE_ZSH_ACTIVATE_PATH="$PATH"
-            export __MISE_ZSH_ACTIVATE_ENV="$(_mise_hook_env_state)"
+            _pakro_hook --force
+            export __PAKRO_ZSH_ACTIVATE_PATH="$PATH"
+            export __PAKRO_ZSH_ACTIVATE_ENV="$(_pakro_hook_env_state)"
             "#});
         }
         if Settings::get().not_found_auto_install {
             out.push_str(&formatdoc! {r#"
-            if [ -z "${{_mise_cmd_not_found:-}}" ]; then
-                _mise_cmd_not_found=1
+            if [ -z "${{_pakro_cmd_not_found:-}}" ]; then
+                _pakro_cmd_not_found=1
                 [ -n "$(declare -f command_not_found_handler)" ] && eval "${{$(declare -f command_not_found_handler)/command_not_found_handler/_command_not_found_handler}}"
 
                 function command_not_found_handler() {{
-                    if [[ "$1" != "mise" && "$1" != "mise-"* ]] && {exe} hook-not-found -s zsh -- "$1"; then
-                      # Refresh inline rather than through `_mise_hook`: `--no-hook-env` omits
+                    if [[ "$1" != "pakro" && "$1" != "pakro-"* ]] && {exe} hook-not-found -s zsh -- "$1"; then
+                      # Refresh inline rather than through `_pakro_hook`: `--no-hook-env` omits
                       # that definition while still emitting this handler, and without a refresh
                       # "$@" runs before the tool just installed is on PATH. Called with no
-                      # arguments `_mise_hook` is this same eval, so one inline call -- fish's
+                      # arguments `_pakro_hook` is this same eval, so one inline call -- fish's
                       # shape -- covers both modes and leaves nothing to keep in sync.
                       #
-                      # MISE_SHELL is the gate `deactivate` turns off: it unsets the variable but
+                      # PAKRO_SHELL is the gate `deactivate` turns off: it unsets the variable but
                       # leaves this handler registered, and a shell the user deactivated must not
-                      # have mise's environment applied back to it.
+                      # have pakro's environment applied back to it.
                       #
                       # `--force` because an install just happened: with `hook_env.cache_ttl` set
-                      # and an inherited `__MISE_SESSION`, the TTL fast path returns before the
+                      # and an inherited `__PAKRO_SESSION`, the TTL fast path returns before the
                       # check that would notice it, and "$@" would fail exactly as before.
-                      if [ -n "${{MISE_SHELL:-}}" ]; then
+                      if [ -n "${{PAKRO_SHELL:-}}" ]; then
                         eval "$({exe} hook-env{flags} --shell-pid $$ --force -s zsh)"
                       fi
                       "$@"
@@ -148,20 +148,20 @@ impl Shell for Zsh {
     fn deactivate(&self) -> String {
         formatdoc! {r#"
         autoload -Uz add-zsh-hook
-        add-zsh-hook -d precmd _mise_hook_precmd 2>/dev/null
-        add-zsh-hook -d chpwd _mise_hook_chpwd 2>/dev/null
-        (( $+functions[_mise_hook_precmd] )) && unset -f _mise_hook_precmd
-        (( $+functions[_mise_hook_chpwd] )) && unset -f _mise_hook_chpwd
-        (( $+functions[_mise_hook] )) && unset -f _mise_hook
-        (( $+functions[_mise_hook_env_state] )) && unset -f _mise_hook_env_state
-        (( $+functions[mise] )) && unset -f mise
-        unset MISE_SHELL
-        unset __MISE_DIFF
-        unset __MISE_SESSION
-        unset __MISE_ZSH_PRECMD_RUN
-        unset __MISE_ZSH_CHPWD_RAN
-        unset __MISE_ZSH_ACTIVATE_PATH
-        unset __MISE_ZSH_ACTIVATE_ENV
+        add-zsh-hook -d precmd _pakro_hook_precmd 2>/dev/null
+        add-zsh-hook -d chpwd _pakro_hook_chpwd 2>/dev/null
+        (( $+functions[_pakro_hook_precmd] )) && unset -f _pakro_hook_precmd
+        (( $+functions[_pakro_hook_chpwd] )) && unset -f _pakro_hook_chpwd
+        (( $+functions[_pakro_hook] )) && unset -f _pakro_hook
+        (( $+functions[_pakro_hook_env_state] )) && unset -f _pakro_hook_env_state
+        (( $+functions[pakro] )) && unset -f pakro
+        unset PAKRO_SHELL
+        unset __PAKRO_DIFF
+        unset __PAKRO_SESSION
+        unset __PAKRO_ZSH_PRECMD_RUN
+        unset __PAKRO_ZSH_CHPWD_RAN
+        unset __PAKRO_ZSH_ACTIVATE_PATH
+        unset __PAKRO_ZSH_ACTIVATE_ENV
         "#}
     }
 
@@ -204,14 +204,14 @@ mod tests {
 
     #[test]
     fn test_activate() {
-        // Unset __MISE_ORIG_PATH to avoid PATH restoration logic in output
+        // Unset __PAKRO_ORIG_PATH to avoid PATH restoration logic in output
         unsafe {
-            std::env::remove_var("__MISE_ORIG_PATH");
-            std::env::remove_var("__MISE_DIFF");
+            std::env::remove_var("__PAKRO_ORIG_PATH");
+            std::env::remove_var("__PAKRO_DIFF");
         }
 
         let zsh = Zsh::default();
-        let exe = Path::new("/some/dir/mise");
+        let exe = Path::new("/some/dir/pakro");
         let opts = ActivateOptions {
             exe: exe.to_path_buf(),
             flags: " --status".into(),
@@ -229,35 +229,35 @@ mod tests {
         &script[start..]
     }
 
-    /// `--no-hook-env` drops the `_mise_hook` definition but still emits
+    /// `--no-hook-env` drops the `_pakro_hook` definition but still emits
     /// `command_not_found_handler`, so the handler has to refresh the environment on its
     /// own — otherwise `"$@"` runs before the tool it just installed is on PATH.
     #[test]
     fn test_activate_no_hook_env_refreshes_after_auto_install() {
         let opts = ActivateOptions {
-            exe: Path::new("/some/dir/mise").to_path_buf(),
+            exe: Path::new("/some/dir/pakro").to_path_buf(),
             flags: " --status".into(),
             no_hook_env: true,
             prelude: vec![],
         };
         let script = Zsh::default().activate(opts);
 
-        assert!(!script.contains("_mise_hook() {"));
+        assert!(!script.contains("_pakro_hook() {"));
         assert!(script.contains("hook-not-found -s zsh"));
         // With the definition gone, the only `hook-env` left in the script is this refresh.
-        // `--force` so an inherited `__MISE_SESSION` plus `hook_env.cache_ttl` cannot make it
+        // `--force` so an inherited `__PAKRO_SESSION` plus `hook_env.cache_ttl` cannot make it
         // exit early on the one call that follows a fresh install.
         assert!(script.contains("hook-env --status --shell-pid $$ --force -s zsh"));
     }
 
-    /// `deactivate` unsets `MISE_SHELL` but leaves this handler registered, so an
-    /// ungated refresh would re-apply mise's environment in a shell the user had
-    /// deactivated. It is the same gate `_mise_hook` carries in the other shells.
+    /// `deactivate` unsets `PAKRO_SHELL` but leaves this handler registered, so an
+    /// ungated refresh would re-apply pakro's environment in a shell the user had
+    /// deactivated. It is the same gate `_pakro_hook` carries in the other shells.
     #[test]
-    fn test_activate_command_not_found_refresh_is_gated_on_mise_shell() {
+    fn test_activate_command_not_found_refresh_is_gated_on_pakro_shell() {
         for no_hook_env in [false, true] {
             let opts = ActivateOptions {
-                exe: Path::new("/some/dir/mise").to_path_buf(),
+                exe: Path::new("/some/dir/pakro").to_path_buf(),
                 flags: " --status".into(),
                 no_hook_env,
                 prelude: vec![],
@@ -266,8 +266,8 @@ mod tests {
             let handler = command_not_found_handler(&script);
 
             let gate = handler
-                .find(r#"if [ -n "${MISE_SHELL:-}" ]; then"#)
-                .expect("the refresh should be gated on MISE_SHELL");
+                .find(r#"if [ -n "${PAKRO_SHELL:-}" ]; then"#)
+                .expect("the refresh should be gated on PAKRO_SHELL");
             let refresh = handler
                 .find("hook-env --status --shell-pid $$ --force -s zsh")
                 .expect("the handler should refresh the environment after an install");
@@ -276,13 +276,13 @@ mod tests {
     }
 
     /// Referencing a `zsh/parameter` special autoloads the module via dlopen, which can
-    /// deadlock under Rosetta in login shells (jdx/mise#11187). `_mise_hook_env_state` was
+    /// deadlock under Rosetta in login shells (jdx/mise#11187). `_pakro_hook_env_state` was
     /// rewritten to avoid exactly that; the handler must not reintroduce it, and under
     /// `--no-hook-env` nothing else in the script would have loaded the module first.
     #[test]
     fn test_activate_command_not_found_avoids_zsh_parameter_module() {
         let opts = ActivateOptions {
-            exe: Path::new("/some/dir/mise").to_path_buf(),
+            exe: Path::new("/some/dir/pakro").to_path_buf(),
             flags: " --status".into(),
             no_hook_env: true,
             prelude: vec![],

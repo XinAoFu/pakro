@@ -12,9 +12,22 @@ on: # zizmor: ignore[dangerous-triggers] reads metadata only; never checks out P
     - cron: "15,30,45 20,21 * * *"
   workflow_dispatch:
 
+env:
+  PAKRO_ENABLE_RELEASE: ${{ vars.PAKRO_ENABLE_RELEASE || 'false' }}
+  PAKRO_RELEASE_REPOSITORY: ${{ github.repository }}
+  PAKRO_DOWNLOAD_BASE_URL: ${{ vars.PAKRO_DOWNLOAD_BASE_URL }}
+  PAKRO_R2_ENDPOINT_URL: ${{ vars.PAKRO_R2_ENDPOINT_URL }}
+  PAKRO_RELEASE_BUCKET: ${{ vars.PAKRO_RELEASE_BUCKET }}
+  PAKRO_CLOUDFLARE_ACCOUNT_ID: ${{ vars.PAKRO_CLOUDFLARE_ACCOUNT_ID }}
+  PAKRO_CLOUDFLARE_WORKER_NAME: ${{ vars.PAKRO_CLOUDFLARE_WORKER_NAME }}
+  PAKRO_CLOUDFLARE_ZONES: ${{ vars.PAKRO_CLOUDFLARE_ZONES }}
+  PAKRO_GPG_SIGNING_KEY: ${{ vars.PAKRO_GPG_SIGNING_KEY }}
+  PAKRO_RELEASE_NAME: ${{ vars.PAKRO_RELEASE_NAME }}
+  PAKRO_RELEASE_EMAIL: ${{ vars.PAKRO_RELEASE_EMAIL }}
+
 jobs:
   merge:
-    if: github.repository == 'jdx/mise'
+    if: ${{ vars.PAKRO_ENABLE_RELEASE == 'true' && github.repository != 'jdx/mise' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -31,19 +44,19 @@ jobs:
 
           # Match this repository's release branch only; a fork may also have a
           # branch named release, but it must never be armed by this workflow.
-          PR_NUMBER=$(gh api "repos/jdx/mise/pulls?head=jdx:release&base=main&state=open" \
+          PR_NUMBER=$(gh api "repos/$GITHUB_REPOSITORY/pulls?head=$GITHUB_REPOSITORY_OWNER:release&base=main&state=open" \
             --jq '.[0].number // empty')
           if [ -z "$PR_NUMBER" ]; then
-            echo "No open PR from jdx:release to main"
+            echo "No open PR from the release branch to main"
             exit 0
           fi
 
-          read -r DRAFT AUTO_MERGE HEAD_SHA RELEASE_NOW < <(gh pr view "$PR_NUMBER" -R jdx/mise \
+          read -r DRAFT AUTO_MERGE HEAD_SHA RELEASE_NOW < <(gh pr view "$PR_NUMBER" -R "$GITHUB_REPOSITORY" \
             --json isDraft,autoMergeRequest,headRefOid,labels \
             --jq '[.isDraft, (.autoMergeRequest != null), .headRefOid, any(.labels[]; .name == "release-now")] | @tsv')
           if [ "$DRAFT" = true ]; then
             if [ "$AUTO_MERGE" = true ]; then
-              gh pr merge "$PR_NUMBER" -R jdx/mise --disable-auto
+              gh pr merge "$PR_NUMBER" -R "$GITHUB_REPOSITORY" --disable-auto
               echo "Disabled auto-merge for draft release PR #$PR_NUMBER"
             else
               echo "Release PR #$PR_NUMBER is a draft; it is not armed"
@@ -70,7 +83,7 @@ jobs:
             else
               # The required status prevents a delayed run from arming while the
               # 15:00 cutoff is still reported as successful.
-              RELEASE_WINDOW=$(gh api "repos/jdx/mise/commits/$HEAD_SHA/status" \
+              RELEASE_WINDOW=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/status" \
                 --jq '[.statuses[] | select(.context == "release-window")][0].state // empty')
               if [ "$RELEASE_WINDOW" != pending ]; then
                 echo "release-window is ${RELEASE_WINDOW:-unset}; not arming release PR #$PR_NUMBER"
@@ -100,7 +113,7 @@ jobs:
             echo "Manual dispatch; skipping release cadence guards"
           fi
 
-          BODY=$(gh pr view "$PR_NUMBER" -R jdx/mise --json body --jq '.body // ""')
+          BODY=$(gh pr view "$PR_NUMBER" -R "$GITHUB_REPOSITORY" --json body --jq '.body // ""')
           TRIMMED_BODY=$(echo "$BODY" | tr -d '[:space:]')
           if [ -z "$TRIMMED_BODY" ]; then
             echo "PR #$PR_NUMBER has no description, never merging"
@@ -109,12 +122,12 @@ jobs:
 
           # Recheck the mutable state after the cadence work before enabling
           # auto-merge. A draft or new head must wait for the next schedule.
-          read -r DRAFT AUTO_MERGE CURRENT_HEAD CURRENT_RELEASE_NOW < <(gh pr view "$PR_NUMBER" -R jdx/mise \
+          read -r DRAFT AUTO_MERGE CURRENT_HEAD CURRENT_RELEASE_NOW < <(gh pr view "$PR_NUMBER" -R "$GITHUB_REPOSITORY" \
             --json isDraft,autoMergeRequest,headRefOid,labels \
             --jq '[.isDraft, (.autoMergeRequest != null), .headRefOid, any(.labels[]; .name == "release-now")] | @tsv')
           if [ "$DRAFT" = true ]; then
             if [ "$AUTO_MERGE" = true ]; then
-              gh pr merge "$PR_NUMBER" -R jdx/mise --disable-auto
+              gh pr merge "$PR_NUMBER" -R "$GITHUB_REPOSITORY" --disable-auto
             fi
             echo "Release PR #$PR_NUMBER became a draft; it is not armed"
             exit 0
@@ -124,7 +137,7 @@ jobs:
             exit 0
           fi
           if [ "${GITHUB_EVENT_NAME:-}" = "schedule" ] && [ "$CURRENT_RELEASE_NOW" != true ]; then
-            RELEASE_WINDOW=$(gh api "repos/jdx/mise/commits/$CURRENT_HEAD/status" \
+            RELEASE_WINDOW=$(gh api "repos/$GITHUB_REPOSITORY/commits/$CURRENT_HEAD/status" \
               --jq '[.statuses[] | select(.context == "release-window")][0].state // empty')
             if [ "$RELEASE_WINDOW" != pending ]; then
               echo "release-window is ${RELEASE_WINDOW:-unset}; not arming release PR #$PR_NUMBER"
@@ -138,9 +151,9 @@ jobs:
 
           echo "PR #$PR_NUMBER is ready for the next 03:00 Central release window"
 
-          gh pr merge "$PR_NUMBER" -R jdx/mise --squash --auto || {
+          gh pr merge "$PR_NUMBER" -R "$GITHUB_REPOSITORY" --squash --auto || {
             echo "Merge failed or PR not ready, will retry on the next run"
             exit 0
           }
         env:
-          GH_TOKEN: ${{ secrets.MISE_GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.PAKRO_GH_TOKEN }}

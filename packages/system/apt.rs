@@ -96,7 +96,7 @@ impl AptManager {
     fn update(&self, opts: &InstallOpts) -> Result<()> {
         let args = vec!["update".to_string()];
         if opts.dry_run {
-            miseprintln!(
+            pakroprintln!(
                 "{}",
                 sudo::argv_with_env("apt-get", &args, &debian_frontend()).join(" ")
             );
@@ -275,7 +275,7 @@ impl SystemPackageManager for AptManager {
             self.update(opts)?;
         }
         if opts.dry_run {
-            miseprintln!(
+            pakroprintln!(
                 "{}",
                 sudo::argv_with_env("apt-get", &args, &debian_frontend()).join(" ")
             );
@@ -300,7 +300,7 @@ impl SystemPackageManager for AptManager {
             None => p.name.clone(),
         }));
         if opts.dry_run {
-            miseprintln!(
+            pakroprintln!(
                 "{}",
                 sudo::argv_with_env("apt-get", &args, &debian_frontend()).join(" ")
             );
@@ -337,7 +337,7 @@ mod tests {
         if !mgr.is_available() || crate::file::which("apt-cache").is_none() {
             return;
         }
-        let names = vec!["bash".to_string(), "mise-nonexistent-pkg-xyz".to_string()];
+        let names = vec!["bash".to_string(), "pakro-nonexistent-pkg-xyz".to_string()];
         let available = mgr.available(&names).await.unwrap();
         assert_eq!(available, vec![true, false]);
 
@@ -345,7 +345,7 @@ mod tests {
         // a bare candidate for the same package is installable in the same
         // batch: apt heads both stanzas with the bare name, so a batched result
         // cannot tell them apart.
-        let names = vec!["bash:mise-not-an-arch".to_string(), "bash".to_string()];
+        let names = vec!["bash:pakro-not-an-arch".to_string(), "bash".to_string()];
         let available = mgr.available(&names).await.unwrap();
         assert_eq!(available, vec![false, true]);
     }
@@ -365,10 +365,13 @@ mod tests {
         };
         assert!(!mgr.install_would_fail(&install(&["bash"])).await);
         assert!(
-            mgr.install_would_fail(&install(&["bash", "mise-nonexistent-pkg-xyz"]))
+            mgr.install_would_fail(&install(&["bash", "pakro-nonexistent-pkg-xyz"]))
                 .await
         );
-        assert!(mgr.install_would_fail(&install(&["bash=0.0.0-mise"])).await);
+        assert!(
+            mgr.install_would_fail(&install(&["bash=0.0.0-pakro"]))
+                .await
+        );
     }
 
     #[test]

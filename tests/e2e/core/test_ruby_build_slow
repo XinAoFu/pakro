@@ -2,7 +2,7 @@
 # Install and build ruby using ruby-build
 
 # tested in test_gem_slow
-#export MISE_RUBY_COMPILE=true
-#export MISE_RUBY_INSTALL=0
-#latest=$(mise latest ruby)
-#assert_contains "mise x ruby@$latest -- ruby --version" "ruby $latest"
+#export PAKRO_RUBY_COMPILE=true
+#export PAKRO_RUBY_INSTALL=0
+#latest=$(pakro latest ruby)
+#assert_contains "pakro x ruby@$latest -- ruby --version" "ruby $latest"

@@ -5,13 +5,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use eyre::{Result, bail, ensure};
-use mise_index::{
+use pakro_index::{
     ArtifactDescriptor, ArtifactKind, Index, PackageMetadata, PythonMarkerContext,
     PythonMarkerContextBuilder, RuntimeInfo, wheel_matches,
 };
-use mise_resolver::solve::{Pep440, VersionAdapter};
-use mise_resolver::{DependencyRequest, MetadataSource};
-use mise_store::Platform;
+use pakro_resolver::solve::{Pep440, VersionAdapter};
+use pakro_resolver::{DependencyRequest, MetadataSource};
+use pakro_store::Platform;
 use tokio::runtime::Handle;
 use tokio::task::block_in_place;
 
@@ -76,7 +76,7 @@ pub(crate) fn validate_metadata(
     context: &PythonMarkerContext,
 ) -> Result<()> {
     if let Some(specifier) = &metadata.requires_python
-        && !mise_index::python_requires_matches_for_context(specifier, context)?
+        && !pakro_index::python_requires_matches_for_context(specifier, context)?
     {
         bail!(
             "{} {} requires Python {specifier}; observed language version is {}",
@@ -117,7 +117,7 @@ pub(crate) fn select_python_artifact<'a>(
 }
 
 /// Uses the same explicit context for candidate listing and dependencies.
-/// The synchronous resolver is run on mise's multi-thread Tokio runtime.
+/// The synchronous resolver is run on pakro's multi-thread Tokio runtime.
 pub(crate) struct PythonSource {
     pub index: Arc<Index>,
     pub context: PythonMarkerContext,
@@ -203,7 +203,7 @@ pub async fn latest_python_package(
             .metadata_for_context(name, &version, &runtime.context)
             .await?;
         if let Some(specifier) = &metadata.requires_python
-            && !mise_index::python_requires_matches_for_context(specifier, &runtime.context)?
+            && !pakro_index::python_requires_matches_for_context(specifier, &runtime.context)?
         {
             continue;
         }
@@ -223,8 +223,8 @@ mod tests {
     use crate::packages::lockfile::{LOCKFILE_NAME, PackageLock};
     use crate::toolset::{ToolRequest, ToolSource};
     use base64::Engine as _;
-    use mise_resolver::{ResolvedGraph, ResolvedNode};
-    use mise_store::Digest;
+    use pakro_resolver::{ResolvedGraph, ResolvedNode};
+    use pakro_store::Digest;
     use serde_json::{Value, json};
     use sha2::Digest as _;
     use std::io::Write;
@@ -279,7 +279,7 @@ mod tests {
             filename: filename.into(),
             url: "http://fixture/unused".into(),
             digest: Some(format!("sha256-{}", "a".repeat(64))),
-            kind: mise_index::parse_wheel_filename(filename)
+            kind: pakro_index::parse_wheel_filename(filename)
                 .map(|wheel| ArtifactKind::Wheel(wheel.tags))
                 .unwrap_or(ArtifactKind::Sdist),
         }
@@ -383,7 +383,8 @@ mod tests {
             "http://fixture/demo.whl",
             &"a".repeat(64),
         );
-        let parsed = mise_index::parse_pypi_response_for_context(&value, &runtime.context).unwrap();
+        let parsed =
+            pakro_index::parse_pypi_response_for_context(&value, &runtime.context).unwrap();
         assert_eq!(
             parsed
                 .deps
@@ -564,7 +565,7 @@ mod tests {
         );
         assert!(!locs.store_root.exists());
         assert!(!locs.index_cache.exists());
-        assert!(!root.path().join(".mise/venvs").exists());
+        assert!(!root.path().join(".pakro/venvs").exists());
         assert_eq!(std::fs::read_to_string(lock).unwrap(), before);
         no_metadata.assert_async().await;
     }
@@ -663,7 +664,7 @@ mod tests {
                 .iter()
                 .all(|node| node.digest.as_deref() != Some(old_digest.as_str()))
         );
-        let venv = root.path().join(".mise/venvs/python-pbs-build-opaque");
+        let venv = root.path().join(".pakro/venvs/python-pbs-build-opaque");
         assert_eq!(
             std::fs::read_link(venv.join("bin/python")).unwrap(),
             actual
@@ -814,11 +815,11 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[ignore = "requires PAK_TEST_PYTHON pointing to an existing absolute CPython executable"]
+    #[ignore = "requires PAKRO_TEST_PYTHON pointing to an existing absolute CPython executable"]
     async fn host_cpython_materialized_prefix_imports_pure_wheel() {
         let executable = std::path::PathBuf::from(
-            std::env::var_os("PAK_TEST_PYTHON")
-                .expect("set PAK_TEST_PYTHON to an existing absolute CPython"),
+            std::env::var_os("PAKRO_TEST_PYTHON")
+                .expect("set PAKRO_TEST_PYTHON to an existing absolute CPython"),
         );
         assert!(executable.is_absolute());
         let executable = executable.canonicalize().unwrap();
@@ -890,7 +891,7 @@ mod tests {
             install_packages(&invocation, &locs, index).await.unwrap(),
             1
         );
-        let venv = root.path().join(".mise/venvs/python-host-observed");
+        let venv = root.path().join(".pakro/venvs/python-host-observed");
         let output = std::process::Command::new(venv.join("bin/python"))
             .env_clear()
             .args([

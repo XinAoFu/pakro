@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
-# Test the `mise tasks ls --usage` functionality (display_usage)
+# Test the `pakro tasks ls --usage` functionality (display_usage)
 
 # Test 1: Basic usage output with simple tasks
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.simple]
 run = 'echo "simple task"'
 description = "A simple task with no arguments"
@@ -18,12 +18,12 @@ description = "Task with flags"
 EOF
 
 # Test basic usage output format contains expected tasks
-assert_contains "mise tasks ls --usage" 'cmd simple help="A simple task with no arguments"'
-assert_contains "mise tasks ls --usage" 'cmd with-args help="Task with arguments"'
-assert_contains "mise tasks ls --usage" 'cmd with-flags help="Task with flags"'
+assert_contains "pakro tasks ls --usage" 'cmd simple help="A simple task with no arguments"'
+assert_contains "pakro tasks ls --usage" 'cmd with-args help="Task with arguments"'
+assert_contains "pakro tasks ls --usage" 'cmd with-flags help="Task with flags"'
 
 # Test 2: Tasks with aliases and dependencies
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.parent]
 run = 'echo "parent"'
 description = "Parent task"
@@ -35,44 +35,44 @@ alias = "c"
 depends = ["parent"]
 EOF
 
-assert_contains "mise tasks ls --usage" 'cmd parent help="Parent task"'
-assert_contains "mise tasks ls --usage" 'cmd child help="Child task"'
-assert_contains "mise tasks ls --usage" 'alias c'
+assert_contains "pakro tasks ls --usage" 'cmd parent help="Parent task"'
+assert_contains "pakro tasks ls --usage" 'cmd child help="Child task"'
+assert_contains "pakro tasks ls --usage" 'alias c'
 
 # Test 3: File-based tasks
-mkdir -p mise-tasks
-cat <<'EOF' >mise-tasks/file-task
+mkdir -p pakro-tasks
+cat <<'EOF' >pakro-tasks/file-task
 #!/usr/bin/env bash
-#MISE description="A file-based task"
+#PAKRO description="A file-based task"
 echo "file task"
 EOF
-chmod +x mise-tasks/file-task
+chmod +x pakro-tasks/file-task
 
-assert_contains "mise tasks ls --usage" 'cmd file-task help="A file-based task"'
+assert_contains "pakro tasks ls --usage" 'cmd file-task help="A file-based task"'
 
 # Test 3b: File-based tasks can mount generated usage specs
-cat <<'EOF' >mise-tasks/mounted-task
+cat <<'EOF' >pakro-tasks/mounted-task
 #!/usr/bin/env bash
 #USAGE mount "mounted --usage-spec"
 exec mounted "$@"
 EOF
-chmod +x mise-tasks/mounted-task
+chmod +x pakro-tasks/mounted-task
 
-assert_contains "mise tasks ls --usage" 'cmd mounted-task'
-assert_contains "mise tasks ls --usage" 'mount run="mounted --usage-spec"'
+assert_contains "pakro tasks ls --usage" 'cmd mounted-task'
+assert_contains "pakro tasks ls --usage" 'mount run="mounted --usage-spec"'
 
-cat <<'EOF' >mise-tasks/mise-mounted-task
+cat <<'EOF' >pakro-tasks/pakro-mounted-task
 #!/usr/bin/env bash
-#MISE mount "mise-mounted --usage-spec"
-exec mise-mounted "$@"
+#PAKRO mount "pakro-mounted --usage-spec"
+exec pakro-mounted "$@"
 EOF
-chmod +x mise-tasks/mise-mounted-task
+chmod +x pakro-tasks/pakro-mounted-task
 
-assert_contains "mise tasks ls --usage" 'cmd mise-mounted-task'
-assert_contains "mise tasks ls --usage" 'mount run="mise-mounted --usage-spec"'
+assert_contains "pakro tasks ls --usage" 'cmd pakro-mounted-task'
+assert_contains "pakro tasks ls --usage" 'mount run="pakro-mounted --usage-spec"'
 
 # Test 4: Hidden tasks should not appear
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.visible]
 run = 'echo "visible"'
 description = "Visible task"
@@ -83,19 +83,19 @@ description = "Hidden task"
 hide = true
 EOF
 
-assert_contains "mise tasks ls --usage" 'cmd visible help="Visible task"'
-assert_not_contains "mise tasks ls --usage" 'cmd hidden help="Hidden task"'
+assert_contains "pakro tasks ls --usage" 'cmd visible help="Visible task"'
+assert_not_contains "pakro tasks ls --usage" 'cmd hidden help="Hidden task"'
 
 # Test 5: Task with no description
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.no-desc]
 run = 'echo "no description"'
 EOF
 
-assert_contains "mise tasks ls --usage" 'cmd no-desc'
+assert_contains "pakro tasks ls --usage" 'cmd no-desc'
 
 # Test 6: Performance test - should be fast even with complex environment
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.complex-env]
 run = 'echo "arg={{arg(name="test_arg")}}"'
 description = "Task with complex environment"
@@ -108,6 +108,6 @@ node = "latest"
 EOF
 
 # This should complete quickly (within 5 seconds)
-timeout 5 mise tasks ls --usage >/dev/null || fail "Usage generation took too long"
+timeout 5 pakro tasks ls --usage >/dev/null || fail "Usage generation took too long"
 
 echo "All usage display tests passed!"

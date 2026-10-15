@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [settings]
 experimental = true
 
@@ -32,22 +32,22 @@ printf 'stdin\n' >stdin.txt
 
 # A corrupt current manifest is a cache miss, so the task executes instead of
 # reporting a successful no-work hit without replaying output.
-mise run build
-manifest="$(find "$MISE_CACHE_DIR/task-artifacts/v2" -type f -name '*.json' -print -quit)"
+pakro run build
+manifest="$(find "$PAKRO_CACHE_DIR/task-artifacts/v2" -type f -name '*.json' -print -quit)"
 printf 'invalid manifest\n' >"$manifest"
-assert_contains "mise run build 2>&1" "cache miss: cache entry was corrupt"
+assert_contains "pakro run build 2>&1" "cache miss: cache entry was corrupt"
 assert "wc -l < runs.txt | tr -d ' '" "2"
 
 # Archive integrity is verified independently of the cache lookup key. Appended
 # bytes may still be accepted by the compression decoder, but never by the
 # artifact checksum.
 rm -rf dist
-manifest="$(find "$MISE_CACHE_DIR/task-artifacts/v2" -type f -name '*.json' -print -quit)"
+manifest="$(find "$PAKRO_CACHE_DIR/task-artifacts/v2" -type f -name '*.json' -print -quit)"
 archive="${manifest%.json}.tar.zst"
 printf 'trailing corruption\n' >>"$archive"
-assert_contains "mise run build 2>&1" "task cache artifact checksum mismatch"
+assert_contains "pakro run build 2>&1" "task cache artifact checksum mismatch"
 assert "wc -l < runs.txt | tr -d ' '" "3"
 
 # Capturing output for a cacheable interleave task must not disconnect stdin.
-printf 'from-stdin\n' | mise run stdin
+printf 'from-stdin\n' | pakro run stdin
 assert "cat stdin-dist/result.txt" "from-stdin"

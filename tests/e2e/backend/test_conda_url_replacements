@@ -72,7 +72,7 @@ PY
 UPSTREAM="http://conda.invalid/upstream"
 MIRROR="http://127.0.0.1:$HTTP_PORT/mirror"
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [settings]
 lockfile = true
 
@@ -83,18 +83,18 @@ lockfile = true
 "conda:url-replacement-fixture" = { version = "1.0.0", channel = "$UPSTREAM" }
 EOF
 
-assert_contains "mise ls-remote conda:url-replacement-fixture" "1.0.0"
-mise install
-assert "mise exec -- url-replacement-fixture" "conda-url-replacement-ok"
+assert_contains "pakro ls-remote conda:url-replacement-fixture" "1.0.0"
+pakro install
+assert "pakro exec -- url-replacement-fixture" "conda-url-replacement-ok"
 assert_succeed "grep -q '/mirror/noarch/repodata.json' '$REQUEST_LOG'"
 assert_succeed "grep -q '/mirror/noarch/url-replacement-fixture-1.0.0-0.tar.bz2' '$REQUEST_LOG'"
-assert_succeed "grep -q '$UPSTREAM/noarch/url-replacement-fixture-1.0.0-0.tar.bz2' mise.lock"
-assert_fail "grep -q '127.0.0.1' mise.lock"
+assert_succeed "grep -q '$UPSTREAM/noarch/url-replacement-fixture-1.0.0-0.tar.bz2' pakro.lock"
+assert_fail "grep -q '127.0.0.1' pakro.lock"
 
 # Locked installs retain the logical upstream URL and rewrite it again at transport time.
-mise uninstall -a conda:url-replacement-fixture
-rm -rf "$MISE_DATA_DIR/conda-packages"
+pakro uninstall -a conda:url-replacement-fixture
+rm -rf "$PAKRO_DATA_DIR/conda-packages"
 : >"$REQUEST_LOG"
-mise install
-assert "mise exec -- url-replacement-fixture" "conda-url-replacement-ok"
+pakro install
+assert "pakro exec -- url-replacement-fixture" "conda-url-replacement-ok"
 assert_succeed "grep -q '/mirror/noarch/url-replacement-fixture-1.0.0-0.tar.bz2' '$REQUEST_LOG'"

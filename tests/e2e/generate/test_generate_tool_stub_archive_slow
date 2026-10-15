@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2103
 
-# Test mise generate tool-stub command with archive downloads and extraction
+# Test pakro generate tool-stub command with archive downloads and extraction
 
 # Enable experimental features for http backend
-export MISE_EXPERIMENTAL=true
+export PAKRO_EXPERIMENTAL=true
 
 # Test 1: Tool stub generation with real Node.js tar.gz archive
 echo "Testing tool-stub generation with Node.js tar.gz archive..."
-assert_succeed "mise generate tool-stub ./bin/node-test --bin 'bin/node' --platform-url 'macos-arm64:https://nodejs.org/dist/v22.17.1/node-v22.17.1-darwin-arm64.tar.gz' --platform-url 'linux-x64:https://nodejs.org/dist/v22.17.1/node-v22.17.1-linux-x64.tar.gz'"
+assert_succeed "pakro generate tool-stub ./bin/node-test --bin 'bin/node' --platform-url 'macos-arm64:https://nodejs.org/dist/v22.17.1/node-v22.17.1-darwin-arm64.tar.gz' --platform-url 'linux-x64:https://nodejs.org/dist/v22.17.1/node-v22.17.1-linux-x64.tar.gz'"
 
 # Verify the generated stub exists and is executable
 assert_succeed "test -x ./bin/node-test"
 
 # Verify the generated stub contains expected content
-assert_contains "cat ./bin/node-test" "#!/usr/bin/env -S mise tool-stub"
+assert_contains "cat ./bin/node-test" "#!/usr/bin/env -S pakro tool-stub"
 assert_contains "cat ./bin/node-test" '[platforms.macos-arm64]'
 assert_contains "cat ./bin/node-test" 'url = "https://nodejs.org/dist/v22.17.1/node-v22.17.1-darwin-arm64.tar.gz"'
 assert_contains "cat ./bin/node-test" '[platforms.linux-x64]'
@@ -38,7 +38,7 @@ assert "./bin/node-test --version" "v22.17.1"
 
 # Test 2: Tool stub generation with different platforms (should produce common bin)
 echo "Testing tool-stub generation with cross-platform URLs..."
-assert_succeed "mise generate tool-stub ./bin/cross-platform-tool --bin 'bin/node' --platform-url 'macos-arm64:https://nodejs.org/dist/v22.17.1/node-v22.17.1-darwin-arm64.tar.gz' --platform-url 'linux-x64:https://nodejs.org/dist/v22.17.1/node-v22.17.1-linux-x64.tar.gz'"
+assert_succeed "pakro generate tool-stub ./bin/cross-platform-tool --bin 'bin/node' --platform-url 'macos-arm64:https://nodejs.org/dist/v22.17.1/node-v22.17.1-darwin-arm64.tar.gz' --platform-url 'linux-x64:https://nodejs.org/dist/v22.17.1/node-v22.17.1-linux-x64.tar.gz'"
 
 # Since we explicitly specified the bin, should have global bin field
 assert_contains "cat ./bin/cross-platform-tool" 'bin = "bin/node"'

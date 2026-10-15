@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Test that multiple depends_post entries work correctly without hanging
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.bar]
 run = "echo bar"
 
@@ -15,7 +15,7 @@ EOF
 
 # Test that task dependencies are resolved correctly
 # With depends_post, the dependencies appear as children in the tree
-assert "mise tasks deps" "bar
+assert "pakro tasks deps" "bar
 baz
 foo
 foo (post)
@@ -24,10 +24,10 @@ bar (post)
 └── baz"
 
 # Test that the task runs successfully (just check it doesn't hang)
-assert "mise run baz"
+assert "pakro run baz"
 
 # Test with three post dependencies
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.one]
 run = "echo one"
 
@@ -42,7 +42,7 @@ run = "echo main"
 depends_post = ["one", "two", "three"]
 EOF
 
-assert "mise tasks deps" "main
+assert "pakro tasks deps" "main
 one
 three
 two
@@ -53,10 +53,10 @@ two (post)
 three (post)
 └── main"
 
-assert "mise run main"
+assert "pakro run main"
 
 # A shared post occurrence waits for every selected parent and runs once.
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.parent-a]
 run = 'sleep 0.1; echo parent-a >> "$ORDER_FILE"'
 depends_post = ["cleanup"]
@@ -69,7 +69,7 @@ depends_post = ["cleanup"]
 run = 'echo cleanup >> "$ORDER_FILE"'
 EOF
 order_file="$TMPDIR/shared-depends-post-order"
-ORDER_FILE="$order_file" mise run --jobs 4 parent-a ::: parent-b
+ORDER_FILE="$order_file" pakro run --jobs 4 parent-a ::: parent-b
 assert "tail -n 1 '$order_file'" "cleanup"
 assert "grep -c '^cleanup$' '$order_file'" "1"
 assert "grep -c '^parent-' '$order_file'" "2"

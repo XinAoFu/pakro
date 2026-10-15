@@ -8,7 +8,7 @@ use crate::config::{Settings, SettingsExt};
 use crate::dirs;
 use crate::toolset::env_cache::CachedEnv;
 
-pub use mise_util::cache::*;
+pub use pakro_util::cache::*;
 
 /// Register this build's identity as the base of every cache key. Runs in
 /// `main` and in the test harness before anything opens a cache.
@@ -32,7 +32,7 @@ pub fn cache_dirs() -> Result<Vec<PathBuf>> {
 }
 
 /// Adds an external task cache to the global cache roots without double-scanning
-/// task caches already stored beneath `MISE_CACHE_DIR`.
+/// task caches already stored beneath `PAKRO_CACHE_DIR`.
 fn cache_dirs_with_task_cache(task_cache_dir: PathBuf) -> Result<Vec<PathBuf>> {
     let cache_root = dirs::CACHE.absolutize()?.to_path_buf();
     let task_cache_dir = task_cache_dir.absolutize()?.to_path_buf();
@@ -46,7 +46,7 @@ fn cache_dirs_with_task_cache(task_cache_dir: PathBuf) -> Result<Vec<PathBuf>> {
 /// Opportunistically removes stale files from each active cache root.
 ///
 /// Each external root keeps its own marker so one project's task cache cannot
-/// suppress automatic pruning for another project that shares `MISE_CACHE_DIR`.
+/// suppress automatic pruning for another project that shares `PAKRO_CACHE_DIR`.
 pub fn auto_prune() -> Result<()> {
     if !rand::random::<u8>().is_multiple_of(100) {
         return Ok(()); // only prune 1% of the time
@@ -68,7 +68,7 @@ pub fn auto_prune() -> Result<()> {
     for (index, cache_dir) in cache_dirs.into_iter().enumerate() {
         if prepare_auto_prune_root(&cache_dir, age)? {
             debug!(
-                "pruning old cache files, this behavior can be modified with the MISE_CACHE_PRUNE_AGE setting"
+                "pruning old cache files, this behavior can be modified with the PAKRO_CACHE_PRUNE_AGE setting"
             );
             prune(&cache_dir, &opts)?;
             if index == 0 {

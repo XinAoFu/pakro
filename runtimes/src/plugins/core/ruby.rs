@@ -28,8 +28,8 @@ use crate::{file, hash, plugins, timeout};
 
 const RUBY_INDEX_URL: &str = "https://cache.ruby-lang.org/pub/ruby/index.txt";
 const DEFAULT_RUBY_PRECOMPILED_URL: &str = "jdx/ruby";
-const ATTESTATION_HELP: &str = "To disable attestation verification, set MISE_RUBY_GITHUB_ATTESTATIONS=false\n\
-    or add `ruby.github_attestations = false` under [settings] in mise.toml";
+const ATTESTATION_HELP: &str = "To disable attestation verification, set PAKRO_RUBY_GITHUB_ATTESTATIONS=false\n\
+    or add `ruby.github_attestations = false` under [settings] in pakro.toml";
 
 #[derive(Debug)]
 pub(super) struct RubyPlugin {
@@ -92,7 +92,7 @@ impl RubyPlugin {
         );
         let settings = Settings::get();
         let tmp = self
-            .prepare_source_in_tmp(&settings.ruby.ruby_build_repo, pr, "mise-ruby-build")
+            .prepare_source_in_tmp(&settings.ruby.ruby_build_repo, pr, "pakro-ruby-build")
             .await?;
 
         cmd!("sh", "install.sh")
@@ -132,7 +132,7 @@ impl RubyPlugin {
         );
         let settings = Settings::get();
         let tmp = self
-            .prepare_source_in_tmp(&settings.ruby.ruby_install_repo, pr, "mise-ruby-install")
+            .prepare_source_in_tmp(&settings.ruby.ruby_install_repo, pr, "pakro-ruby-install")
             .await?;
         cmd!("make", "install")
             .env("PREFIX", self.ruby_install_path())
@@ -305,7 +305,7 @@ impl RubyPlugin {
                 .stdin_string(self.fetch_patches().await?)
         };
         // Only with declared `depends`: the dependency env rebuilds PATH without
-        // mise install dirs, which would change plain source builds.
+        // pakro install dirs, which would change plain source builds.
         let dependency_env = if ctx
             .dependency_context(&tv.request)
             .await?
@@ -637,11 +637,11 @@ impl RubyPlugin {
         let Some(platform) = self.precompiled_platform() else {
             bail!(
                 "no precompiled ruby is available for this platform\n\
-                 To compile ruby from source, run: mise settings ruby.compile=true"
+                 To compile ruby from source, run: pakro settings ruby.compile=true"
             );
         };
         // Only the releases `list_releases` returns are considered. Without
-        // MISE_LIST_ALL_VERSIONS that is the most recent page, which is where the
+        // PAKRO_LIST_ALL_VERSIONS that is the most recent page, which is where the
         // precompiled builds live.
         let releases = github::list_releases(source).await?;
         let available = Self::precompiled_versions_from_releases(
@@ -664,7 +664,7 @@ impl RubyPlugin {
         locked_build_revision: Option<&str>,
     ) -> Result<Option<(String, Option<String>)>> {
         let requires_build_revision = Self::source_requires_build_revision(repo);
-        // The default precompiled repo is explicitly allowlisted by mise-versions.
+        // The default precompiled repo is explicitly allowlisted by pakro-versions.
         // Custom repositories must fetch their release metadata directly from GitHub.
         let use_versions_host = Self::use_versions_host_for_precompiled_source(repo);
         let release = if let Some(tag) = locked_build_revision {
@@ -1085,7 +1085,7 @@ impl Backend for RubyPlugin {
                     "ruby_precompiled",
                     "installing precompiled ruby from jdx/ruby\n\
                     if you experience issues, switch to ruby-build by running",
-                    "mise settings ruby.compile=true"
+                    "pakro settings ruby.compile=true"
                 );
                 self.install_rubygems_hook(&installed_tv)?;
                 if let Err(err) = self
@@ -1102,7 +1102,7 @@ impl Backend for RubyPlugin {
                 hint!(
                     "ruby_compile",
                     "To compile ruby from source, run",
-                    "mise settings ruby.compile=true"
+                    "pakro settings ruby.compile=true"
                 );
                 match self.precompiled_platform() {
                     Some(platform) => bail!("no precompiled ruby found for {tv} on {platform}"),

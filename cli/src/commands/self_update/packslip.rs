@@ -1,5 +1,5 @@
-//! Extra verification for mise's own release artifacts. The archive signature
-//! remains mandatory too; mirrors only supply bytes, never a new trust root.
+//! Offline verification of original upstream release fixtures. These identities
+//! are retained as test evidence and never authorize pakro release downloads.
 
 use std::path::Path;
 
@@ -13,7 +13,7 @@ const PROJECT: &str = "github.com/jdx/mise";
 const REPOSITORY_ID: &str = "586920414";
 
 pub(super) fn required(version: &str) -> Result<bool> {
-    Ok(crate::cli::version::mise_release_key(version)? >= (2026, 9, 3))
+    Ok(crate::cli::version::pakro_release_key(version)? >= (2026, 9, 3))
 }
 
 fn expected(pin: &ForgePin) -> Expected<'_> {
@@ -80,7 +80,7 @@ fn check_release(
     if let Some(before) = before {
         ensure!(
             logged <= before,
-            "mise {version} was recorded in the transparency log at {logged}, after the minimum release age cutoff {before}; wait or explicitly select a version"
+            "pakro {version} was recorded in the transparency log at {logged}, after the minimum release age cutoff {before}; wait or explicitly select a version"
         );
     }
     Ok(())
@@ -101,7 +101,7 @@ pub(super) fn verify(
 mod tests {
     use super::*;
     const BUNDLE: &str = include_str!(
-        "../../../../tests/support/fixtures/self-update/mise-v2026.9.16.sigstore.json"
+        "../../../../tests/support/fixtures/self-update/pakro-v2026.9.16.sigstore.json"
     );
 
     #[test]
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn a_release_workflow_dispatched_from_main_is_supported() {
         let bundle = include_str!(
-            "../../../../tests/support/fixtures/self-update/mise-v2026.9.3.sigstore.json"
+            "../../../../tests/support/fixtures/self-update/pakro-v2026.9.3.sigstore.json"
         );
         let mut verified = verify_manifest(bundle, &[]).unwrap();
         check_release(&verified, "2026.9.3", None).unwrap();
@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn changed_archive_and_manifest_are_rejected() {
         let dir = tempfile::tempdir().unwrap();
-        let archive = dir.path().join("mise-v2026.9.16-macos-arm64.tar.gz");
+        let archive = dir.path().join("pakro-v2026.9.16-macos-arm64.tar.gz");
         std::fs::write(&archive, b"not the signed release").unwrap();
         assert!(verify(BUNDLE, "2026.9.16", &archive, None).is_err());
         let mut bundle: serde_json::Value = serde_json::from_str(BUNDLE).unwrap();
@@ -153,7 +153,7 @@ mod tests {
         for project in [
             PROJECT,
             "github.com/jdx/renamed",
-            "github.com/mise-org/mise",
+            "github.com/pakro-org/pakro",
         ] {
             let mut source = ::packslip::sigstore::source_repository(BUNDLE)
                 .unwrap()

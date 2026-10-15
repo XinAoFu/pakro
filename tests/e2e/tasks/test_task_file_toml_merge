@@ -5,28 +5,28 @@
 # name. Previously the file task silently won and the TOML block was discarded.
 # See jdx/mise#8673 (comment by calebhearth).
 
-mkdir -p .mise/tasks
+mkdir -p .pakro/tasks
 
-cat <<'SCRIPT' >.mise/tasks/echo-env
+cat <<'SCRIPT' >.pakro/tasks/echo-env
 #!/usr/bin/env bash
 echo "TASK_VAR=${TASK_VAR:-<unset>}"
 echo "FROM_DOTENV=${FROM_DOTENV:-<unset>}"
 SCRIPT
-chmod +x .mise/tasks/echo-env
+chmod +x .pakro/tasks/echo-env
 
-cat <<'SCRIPT' >.mise/tasks/cached
+cat <<'SCRIPT' >.pakro/tasks/cached
 #!/usr/bin/env bash
 echo run >>cached-runs
 touch cached-output
 SCRIPT
-chmod +x .mise/tasks/cached
+chmod +x .pakro/tasks/cached
 touch cached-input
 
 cat <<'EOF' >.env
 FROM_DOTENV=hello-from-dotenv
 EOF
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.echo-env]
 description = "Echo the configured TASK_VAR"
 env = { TASK_VAR = "from-toml", _.file = ".env" }
@@ -37,88 +37,88 @@ outputs = ["cached-output"]
 EOF
 
 # TOML env merges into the file task.
-assert_contains "mise run echo-env" "TASK_VAR=from-toml"
+assert_contains "pakro run echo-env" "TASK_VAR=from-toml"
 
 # Path-based directives (like `_.file`) from the overlay must resolve
 # relative to the TOML file, not the file task's script path.
-assert_contains "mise run echo-env" "FROM_DOTENV=hello-from-dotenv"
+assert_contains "pakro run echo-env" "FROM_DOTENV=hello-from-dotenv"
 
 # TOML description merges in and is surfaced through `tasks ls`.
-assert_contains "mise tasks ls" "Echo the configured TASK_VAR"
+assert_contains "pakro tasks ls" "Echo the configured TASK_VAR"
 
 # And through `tasks ls --json` with the expected env directive.
-assert_contains "mise tasks ls --json" '"description": "Echo the configured TASK_VAR"'
-assert_contains "mise tasks ls --json" '"TASK_VAR=from-toml"'
-assert_json "mise tasks ls --json | jq '.[] | select(.name == \"echo-env\") | .config_sources'" \
-  '["'"$PWD"'/.mise/tasks/echo-env", "'"$PWD"'/mise.toml"]'
-assert_contains "mise tasks -x ls" "./.mise/tasks/echo-env, ./mise.toml"
+assert_contains "pakro tasks ls --json" '"description": "Echo the configured TASK_VAR"'
+assert_contains "pakro tasks ls --json" '"TASK_VAR=from-toml"'
+assert_json "pakro tasks ls --json | jq '.[] | select(.name == \"echo-env\") | .config_sources'" \
+  '["'"$PWD"'/.pakro/tasks/echo-env", "'"$PWD"'/pakro.toml"]'
+assert_contains "pakro tasks -x ls" "./.pakro/tasks/echo-env, ./pakro.toml"
 
 # Task info reports both files that contributed to the merged definition.
-assert_contains "mise tasks info echo-env" \
-  "Source: ~/workdir/.mise/tasks/echo-env, ~/workdir/mise.toml"
-assert_json_partial_object "mise tasks info echo-env --json" \
+assert_contains "pakro tasks info echo-env" \
+  "Source: ~/workdir/.pakro/tasks/echo-env, ~/workdir/pakro.toml"
+assert_json_partial_object "pakro tasks info echo-env --json" \
   "source,config_sources,sources" \
   '{
-    "source": "'"$PWD"'/.mise/tasks/echo-env",
+    "source": "'"$PWD"'/.pakro/tasks/echo-env",
     "config_sources": [
-      "'"$PWD"'/.mise/tasks/echo-env",
-      "'"$PWD"'/mise.toml"
+      "'"$PWD"'/.pakro/tasks/echo-env",
+      "'"$PWD"'/pakro.toml"
     ],
     "sources": []
   }'
-assert_contains "mise run echo-env --help" \
-  "Source: ~/workdir/.mise/tasks/echo-env, ~/workdir/mise.toml"
+assert_contains "pakro run echo-env --help" \
+  "Source: ~/workdir/.pakro/tasks/echo-env, ~/workdir/pakro.toml"
 
 # Changing a TOML overlay invalidates source freshness just like changing the
 # primary file task definition.
-mise run cached >/dev/null
-mise run cached >/dev/null
+pakro run cached >/dev/null
+pakro run cached >/dev/null
 assert "wc -l <cached-runs" "1"
 sleep 1
-touch mise.toml
-mise run cached >/dev/null
+touch pakro.toml
+pakro run cached >/dev/null
 assert "wc -l <cached-runs" "2"
 
 # Overlay deps (including usage-arg refs) survive re-rendering. The overlay
 # adds a `depends` with a `{{usage.app}}` template that must resolve when
 # the parent task receives `--app=demo` from the CLI.
-cat <<'SCRIPT' >.mise/tasks/parent
+cat <<'SCRIPT' >.pakro/tasks/parent
 #!/usr/bin/env bash
 #USAGE flag "--app <app>"
 echo "parent app=$usage_app"
 SCRIPT
-chmod +x .mise/tasks/parent
+chmod +x .pakro/tasks/parent
 
-cat <<'SCRIPT' >.mise/tasks/child
+cat <<'SCRIPT' >.pakro/tasks/child
 #!/usr/bin/env bash
 echo "child got: $*"
 SCRIPT
-chmod +x .mise/tasks/child
+chmod +x .pakro/tasks/child
 
-cat <<'EOF' >>mise.toml
+cat <<'EOF' >>pakro.toml
 
 [tasks.parent]
 depends = ["child {{usage.app}}"]
 EOF
 
-assert_contains "mise run parent --app demo" "child got: demo"
-assert_contains "mise run parent --app demo" "parent app=demo"
+assert_contains "pakro run parent --app demo" "child got: demo"
+assert_contains "pakro run parent --app demo" "parent app=demo"
 
 # Explicit false values in TOML override true values from the script header.
 # Omitted values continue to preserve the header metadata.
-cat <<'SCRIPT' >.mise/tasks/bool-overrides
+cat <<'SCRIPT' >.pakro/tasks/bool-overrides
 #!/usr/bin/env bash
-#MISE hide=true
-#MISE raw=true
-#MISE raw_args=true
-#MISE interactive=true
-#MISE quiet=true
-#MISE silent=true
+#PAKRO hide=true
+#PAKRO raw=true
+#PAKRO raw_args=true
+#PAKRO interactive=true
+#PAKRO quiet=true
+#PAKRO silent=true
 echo bool-overrides
 SCRIPT
-chmod +x .mise/tasks/bool-overrides
+chmod +x .pakro/tasks/bool-overrides
 
-cat <<'EOF' >>mise.toml
+cat <<'EOF' >>pakro.toml
 
 [tasks.bool-overrides]
 hide = false
@@ -129,5 +129,5 @@ quiet = false
 silent = false
 EOF
 
-assert "mise tasks ls --json | jq -c '.[] | select(.name == \"bool-overrides\") | {hide, raw, interactive, quiet, silent}'" '{"hide":false,"raw":false,"interactive":false,"quiet":false,"silent":false}'
-assert_contains "mise run bool-overrides --help" "Source: ~/workdir/.mise/tasks/bool-overrides, ~/workdir/mise.toml"
+assert "pakro tasks ls --json | jq -c '.[] | select(.name == \"bool-overrides\") | {hide, raw, interactive, quiet, silent}'" '{"hide":false,"raw":false,"interactive":false,"quiet":false,"silent":false}'
+assert_contains "pakro run bool-overrides --help" "Source: ~/workdir/.pakro/tasks/bool-overrides, ~/workdir/pakro.toml"

@@ -1,13 +1,13 @@
 //! `[dotfiles]` — declarative config files (dotfiles) applied by
-//! `mise dot apply` or `mise bootstrap`, and removed by
-//! `mise dot unapply`.
+//! `pakro dot apply` or `pakro bootstrap`, and removed by
+//! `pakro dot unapply`.
 //!
 //! Entries are keyed by target path and point at a source file or directory,
 //! resolved relative to the config file that declares them:
 //!
 //! ```toml
 //! [dotfiles]
-//! "~/.config/mise/config.toml" = { source = "config.toml", mode = "symlink" }
+//! "~/.config/pakro/config.toml" = { source = "config.toml", mode = "symlink" }
 //! "~/.zshrc" = { mode = "symlink" }                      # implied source
 //! "~/.gitconfig" = "dotfiles/gitconfig"                  # explicit source
 //! "~/.config/foo.toml" = { mode = "copy" }               # implied source
@@ -46,15 +46,15 @@ pub enum FileMode {
     Symlink,
     /// source is a directory: recreate its directory structure under the
     /// target and symlink each file individually, so the target directory
-    /// can also hold files mise doesn't manage
+    /// can also hold files pakro doesn't manage
     SymlinkEach,
     /// copy the source file (or directory, recursively)
     Copy,
-    /// render the source through the mise template engine and write the
+    /// render the source through the pakro template engine and write the
     /// result (permissions are taken from the source file unless the entry
     /// sets `permissions`)
     Template,
-    /// write literal content declared directly in mise.toml
+    /// write literal content declared directly in pakro.toml
     Content,
     /// the live file stays where it is; history protects (and shares) it
     Track,
@@ -209,14 +209,14 @@ pub struct InvalidDeclaration {
 /// **Two reasons to ignore a declaration, and only one of them is a
 /// problem with the declaration.**
 ///
-/// A rewrite has to tell them apart: replacing something mise could not
+/// A rewrite has to tell them apart: replacing something pakro could not
 /// read would discard configuration nobody can see, while replacing
 /// nothing — a `mode = "track"` entry in project configuration, which is
 /// ignored by policy and always was — loses nothing at all.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Ignored {
-    /// mise could not read it: a pattern that is not a glob, a mode it
+    /// pakro could not read it: a pattern that is not a glob, a mode it
     /// does not know, an encryption declaration that cannot hold.
     Unreadable,
     /// It reads fine and does not apply here.
@@ -375,7 +375,7 @@ fn variant_target_is_absolute(target: &str) -> bool {
             && matches!(bytes[2], b'/' | b'\\'))
 }
 
-/// One `[dotfiles]` whole-file entry as written in mise.toml.
+/// One `[dotfiles]` whole-file entry as written in pakro.toml.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub(crate) enum FileTomlEntry {
@@ -383,7 +383,7 @@ pub(crate) enum FileTomlEntry {
     Source(String),
     /// `"~/.gitconfig" = { source = "...", mode = "..." }` — every field is
     /// optional so `{}` can mean implied source/default mode. Mode stays a
-    /// string here so configs using modes from newer mise versions still
+    /// string here so configs using modes from newer pakro versions still
     /// parse (they warn and are skipped, like unknown package managers)
     Table {
         #[serde(default)]
@@ -564,22 +564,22 @@ enum LoadedSymlinkEachState {
 
 const TARGET_STATE_VERSION: u8 = 1;
 
-/// What mise knows about a single-file target it wrote, keyed by the target
-/// path and kept under `$MISE_STATE_DIR/dotfiles/targets/`. It is the
-/// ownership evidence for removing a target mise no longer wants: a file is
-/// only removed without `--force` when it still holds what mise last wrote.
-/// New fields must default, so a record written by an older mise still
+/// What pakro knows about a single-file target it wrote, keyed by the target
+/// path and kept under `$PAKRO_STATE_DIR/dotfiles/targets/`. It is the
+/// ownership evidence for removing a target pakro no longer wants: a file is
+/// only removed without `--force` when it still holds what pakro last wrote.
+/// New fields must default, so a record written by an older pakro still
 /// loads; bump the version only for an incompatible change.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 struct TargetState {
     version: u8,
     target: PathBuf,
-    /// sha256 of the content mise last wrote to the target
+    /// sha256 of the content pakro last wrote to the target
     content_digest: Option<String>,
-    /// directories mise created to hold the target. Only these are removed
+    /// directories pakro created to hold the target. Only these are removed
     /// with the target, and only once they are empty; a record without them
-    /// (or from an older mise) removes none.
+    /// (or from an older pakro) removes none.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     created_dirs: Vec<PathBuf>,
 }
@@ -589,7 +589,7 @@ struct TargetState {
 enum EmptyRenderTarget {
     /// nothing there: already converged
     Absent,
-    /// an empty file, or the content mise last wrote: safe to remove
+    /// an empty file, or the content pakro last wrote: safe to remove
     Owned,
     /// anything else needs `--force`; the reason is human-readable
     Conflict(&'static str),
@@ -1136,7 +1136,7 @@ pub(crate) fn validate_incoming_files(config_files: &ConfigMap) -> Result<()> {
                     );
                 }
                 // Both selection lists, not just one: an incoming
-                // `include` this mise cannot compile must fail preflight
+                // `include` this pakro cannot compile must fail preflight
                 // rather than be dropped, or the entry silently selects
                 // the whole tree on the machine that receives it.
                 for pattern in exclude
@@ -1614,7 +1614,7 @@ fn merge_file_entry(
             (Ok(exclude), Ok(include)) => (exclude.unwrap_or_default(), include),
             // both lists are reported when both are wrong: naming one and
             // dropping the other sends the user back for a second round
-            // over a mistake mise had already seen
+            // over a mistake pakro had already seen
             (exclude, include) => {
                 let reasons = [exclude.err(), include.err()]
                     .into_iter()
@@ -2329,7 +2329,7 @@ where
 ///
 /// Note: computing a template entry's state requires rendering it, so this
 /// runs the template engine — including `exec()` — from
-/// `mise dot status`. That's the same trust model as `[env]`
+/// `pakro dot status`. That's the same trust model as `[env]`
 /// templates (which run on
 /// every command in a trusted config); only `--dry-run` promises to execute
 /// nothing and therefore skips template checks entirely.
@@ -2493,7 +2493,7 @@ const PERMISSIONS_THROUGH_LINK: &str =
     "exists but is a symlink; permissions are not set through links";
 
 /// Why a permissions-only entry cannot act on its target right now, if it
-/// cannot: the target is missing, or it is a symlink mise must not follow.
+/// cannot: the target is missing, or it is a symlink pakro must not follow.
 fn permissions_target_unavailable(req: &FileRequest) -> Result<Option<String>> {
     match std::fs::symlink_metadata(&req.target) {
         Ok(metadata) if metadata.file_type().is_symlink() => Ok(Some(format!(
@@ -3015,7 +3015,7 @@ fn load_target_state(req: &FileRequest) -> Option<TargetState> {
     }
 }
 
-/// Record `content` as what mise last wrote to `req`'s target. A record that
+/// Record `content` as what pakro last wrote to `req`'s target. A record that
 /// cannot be written only costs a later `--force`, so it warns.
 fn save_target_state(req: &FileRequest, content: &str) {
     update_target_state(req, |state| {
@@ -3023,7 +3023,7 @@ fn save_target_state(req: &FileRequest, content: &str) {
     });
 }
 
-/// Add `created` to the directories recorded as mise's for `req`'s target,
+/// Add `created` to the directories recorded as pakro's for `req`'s target,
 /// keeping those recorded by earlier applies. A record that cannot be written
 /// only leaves the directories in place later, so it warns.
 fn record_created_dirs(req: &FileRequest, created: &[PathBuf]) {
@@ -3065,7 +3065,7 @@ fn remove_target_state(req: &FileRequest) -> Result<()> {
     Ok(())
 }
 
-/// Whether mise records the directories it creates for `req`: entries whose
+/// Whether pakro records the directories it creates for `req`: entries whose
 /// target is a single file or link. Entries that walk a source directory
 /// share their target with unmanaged files, permissions-only entries never
 /// create or remove theirs, and absent entries create nothing (they prune
@@ -3085,7 +3085,7 @@ fn records_created_dirs(req: &FileRequest) -> bool {
 /// over it. Only directories strictly inside `home` qualify: `home` itself,
 /// everything above it, and everything outside it (such as `/opt/app` for a
 /// target `/opt/app/file`) may be shared with other software, so they stay
-/// even when mise created them.
+/// even when pakro created them.
 fn created_dirs_to_prune(target: &Path, created: &[PathBuf], home: &Path) -> Vec<PathBuf> {
     let mut chain = vec![];
     for dir in target.ancestors().skip(1) {
@@ -3107,7 +3107,7 @@ fn created_dirs_to_prune(target: &Path, created: &[PathBuf], home: &Path) -> Vec
 /// over. The chain is checked against `home` by path only, so a symlinked
 /// ancestor (`~/.config -> /opt/config`) can put a directory physically
 /// outside home: the walk stops there and gives the directory up, since
-/// mise will never remove it. Returns what was removed or given up, which
+/// pakro will never remove it. Returns what was removed or given up, which
 /// the records drop.
 fn remove_created_dirs(chain: &[PathBuf], claimed: &HashSet<PathBuf>, home: &Path) -> Vec<PathBuf> {
     use std::io::ErrorKind;
@@ -3210,7 +3210,7 @@ fn removal_created_dirs(req: &FileRequest) -> Vec<PathBuf> {
 }
 
 /// Whether the record for `req`'s already-removed target still lists a
-/// directory mise created that is there to prune.
+/// directory pakro created that is there to prune.
 fn has_leftover_created_dirs(req: &FileRequest) -> bool {
     created_dirs_to_prune(&req.target, &removal_created_dirs(req), &dirs::HOME)
         .iter()
@@ -3241,7 +3241,7 @@ fn apply_removes_target(req: &FileRequest, rendered: Option<&str>) -> bool {
     req.mode == FileMode::Absent || removes_target(req, rendered)
 }
 
-/// Remove the directories mise created for targets it has just removed,
+/// Remove the directories pakro created for targets it has just removed,
 /// each paired with its recorded directories. This runs once every target
 /// of the batch is gone, and each walk counts the directories recorded by
 /// any of them: only the first entry written into a new directory records
@@ -3363,7 +3363,7 @@ pub(crate) fn removes_target(req: &FileRequest, rendered: Option<&str>) -> bool 
 }
 
 /// Classify the target of a template that rendered empty. Only an empty file
-/// or one still holding exactly what mise last wrote is mise's to remove;
+/// or one still holding exactly what pakro last wrote is pakro's to remove;
 /// anything else may hold a user's edits.
 fn empty_render_target(req: &FileRequest) -> Result<EmptyRenderTarget> {
     let target = &req.target;
@@ -3380,18 +3380,18 @@ fn empty_render_target(req: &FileRequest) -> Result<EmptyRenderTarget> {
     // written with `permissions = "0200"`, say), so only --force removes it
     let Ok(current) = file::read(target) else {
         return Ok(EmptyRenderTarget::Conflict(
-            "it cannot be read to confirm mise wrote it",
+            "it cannot be read to confirm pakro wrote it",
         ));
     };
     let owned = match str::from_utf8(&current) {
         Ok(current) => renders_empty(current) || target_state_matches(req, current),
-        // mise only writes rendered text, so non-UTF-8 content is not its own
+        // pakro only writes rendered text, so non-UTF-8 content is not its own
         Err(_) => false,
     };
     Ok(if owned {
         EmptyRenderTarget::Owned
     } else {
-        EmptyRenderTarget::Conflict("it changed since mise last wrote it")
+        EmptyRenderTarget::Conflict("it changed since pakro last wrote it")
     })
 }
 
@@ -3639,7 +3639,7 @@ pub(crate) fn rooted_pattern(pattern: &str) -> Option<&str> {
 
 /// Whether a source-relative (or entry-relative) path is dropped by the
 /// entry's `exclude` patterns. A pattern without `/` matches any single
-/// path component, so `exclude = ["mise.toml"]` drops that file wherever
+/// path component, so `exclude = ["pakro.toml"]` drops that file wherever
 /// it sits in the tree and `["*.md"]` drops every markdown file; a pattern
 /// containing `/` is anchored to the source root, and a leading `/` only
 /// says so explicitly (see [`rooted_pattern`]). Either kind matching a
@@ -4003,7 +4003,7 @@ pub struct ApplyPlan<'a> {
     /// the content to record
     record_templates: Vec<(&'a FileRequest, String)>,
     /// converged entries whose target is already gone but whose record
-    /// still lists directories mise created that are there: an earlier
+    /// still lists directories pakro created that are there: an earlier
     /// prune could not remove them, so this run retries. Not a file change,
     /// so never shown as one.
     prune_leftovers: Vec<&'a FileRequest>,
@@ -4065,14 +4065,14 @@ pub fn execute_apply(
     }
     if opts.dry_run {
         for link in &plan.reconciliation.stale_links {
-            miseprintln!("rm {}", link.target.display_user());
+            pakroprintln!("rm {}", link.target.display_user());
         }
         for (req, rendered) in &plan.todo {
             // template state wasn't computed (no rendering on dry runs), so
             // the entry may already be converged
             let conditional = req.mode == FileMode::Template && rendered.is_none();
             let suffix = if conditional { " (if changed)" } else { "" };
-            miseprintln!("{}{suffix}", describe(req)?);
+            pakroprintln!("{}{suffix}", describe(req)?);
             if opts.verbose && !conditional {
                 print_diff(config, req, rendered.as_deref())?;
             }
@@ -4155,7 +4155,7 @@ pub fn execute_apply(
         // what the entries before the failure wrote is a group's all the
         // same. Only those, and entries that needed no change, are
         // recorded: a target still waiting to be written may hold the
-        // user's edits, which must not be recorded as mise's
+        // user's edits, which must not be recorded as pakro's
         crate::system::dotfile_groups::record_applied(plan.requests.iter().filter(|req| {
             done.iter().any(|d| std::ptr::eq(*d, *req))
                 || !plan.todo.iter().any(|(todo, _)| std::ptr::eq(*todo, *req))
@@ -4392,7 +4392,7 @@ fn recheck_removal(req: &FileRequest, rendered: Option<&str>, force: bool) -> Re
 
 /// The ownership-record change a converged template needs, if any. Recording
 /// every template, not just `remove_empty` ones, means turning `remove_empty`
-/// on later still finds the evidence that the current file is mise's.
+/// on later still finds the evidence that the current file is pakro's.
 fn template_state_update(req: &FileRequest, rendered: Option<String>) -> Option<String> {
     if req.mode != FileMode::Template {
         return None;
@@ -4569,16 +4569,16 @@ pub fn execute_unapply(
                 } else {
                     ""
                 };
-                miseprintln!("rm {}{suffix}", path.display_user());
+                pakroprintln!("rm {}{suffix}", path.display_user());
             }
             for dir in prunable_created_dirs(plan.req) {
-                miseprintln!("rmdir {} (if empty)", dir.display_user());
+                pakroprintln!("rmdir {} (if empty)", dir.display_user());
             }
             if plan.cleanup_empty_dirs {
-                miseprintln!("rmdir {} (if empty)", plan.req.target.display_user());
+                pakroprintln!("rmdir {} (if empty)", plan.req.target.display_user());
             }
             if opts.verbose && plan.cleanup_empty_dirs {
-                miseprintln!(
+                pakroprintln!(
                     "  preserve unmanaged files under {}",
                     plan.req.target.display_user()
                 );
@@ -4598,13 +4598,13 @@ pub fn execute_unapply(
     }
     // The records go with their targets, so they are read up front. A plan
     // with no paths only clears the record of a target that is already gone;
-    // the directories mise created for it may still be there and empty.
+    // the directories pakro created for it may still be there and empty.
     let removals = todo
         .iter()
         .map(|plan| (plan.req, recorded_created_dirs(plan.req)))
         .filter(|(_, dirs)| !dirs.is_empty())
         .collect::<Vec<_>>();
-    // Directories mise created go only when no entry that stays needs them.
+    // Directories pakro created go only when no entry that stays needs them.
     // Loaded before anything changes, so a config that cannot be read fails
     // the unapply rather than leaving it half done.
     let claimed = if !removals.is_empty() {
@@ -4676,7 +4676,7 @@ fn plan_unapply_one<'a>(
     if records_created_dirs(req) && !req.target.exists() && !req.target.is_symlink() {
         // Nothing to remove, but a record left by an earlier removal (a
         // `remove_empty` apply, or the user deleting the file) still claims
-        // the path and the directories mise created for it; execute clears
+        // the path and the directories pakro created for it; execute clears
         // the record and prunes those directories with the (empty) plan.
         return Ok(target_state_path(req).exists().then_some(UnapplyPlan {
             req,
@@ -4749,16 +4749,16 @@ fn plan_unapply_one<'a>(
             }
             plan_single_file(req, opts, &mut paths)?;
         }
-        // a tracked file was never written by mise: stop tracking it with
-        // `mise dot untrack`, the file itself stays
+        // a tracked file was never written by pakro: stop tracking it with
+        // `pakro dot untrack`, the file itself stays
         FileMode::Track => {
             info!(
-                "files: {} is tracked in place; nothing to remove (use `mise dot untrack` to stop tracking it)",
+                "files: {} is tracked in place; nothing to remove (use `pakro dot untrack` to stop tracking it)",
                 req.target.display_user()
             );
             return Ok(None);
         }
-        // undoing an absence would mean recreating a file mise never wrote
+        // undoing an absence would mean recreating a file pakro never wrote
         FileMode::Absent => {
             debug!(
                 "files: {} is declared absent; nothing to unapply",
@@ -4766,7 +4766,7 @@ fn plan_unapply_one<'a>(
             );
             return Ok(None);
         }
-        // mise only changed the permissions of a file it does not own, so
+        // pakro only changed the permissions of a file it does not own, so
         // unapplying never removes it, not even with --force
         FileMode::Permissions => {
             debug!(
@@ -4978,9 +4978,9 @@ fn unapply_one(plan: &UnapplyPlan<'_>) -> Result<()> {
 
 /// existing paths this entry would have to delete or replace — not counting
 /// content overwrites by copy/template (those are the declared intent) or
-/// re-pointing symlinks (always mise-owned territory)
+/// re-pointing symlinks (always pakro-owned territory)
 fn find_conflicts(req: &FileRequest) -> Result<Vec<PathBuf>> {
-    // A symlink at the target is one mise made, so it is re-pointable. Anything else that is
+    // A symlink at the target is one pakro made, so it is re-pointable. Anything else that is
     // there — a regular file or a directory — belongs to someone else and needs `--force`.
     //
     // Windows used to exempt regular files here, on the grounds that a file link becomes a copy
@@ -5084,7 +5084,7 @@ fn print_diff(config: &Config, req: &FileRequest, rendered: Option<&str>) -> Res
         match empty_render_target(req)? {
             EmptyRenderTarget::Absent => {}
             EmptyRenderTarget::Owned => {
-                miseprintln!(
+                pakroprintln!(
                     "  template renders empty: remove {}",
                     req.target.display_user()
                 );
@@ -5095,7 +5095,7 @@ fn print_diff(config: &Config, req: &FileRequest, rendered: Option<&str>) -> Res
                 }
             }
             // apply refuses these without --force, so they are not removals
-            EmptyRenderTarget::Conflict(reason) => miseprintln!(
+            EmptyRenderTarget::Conflict(reason) => pakroprintln!(
                 "  template renders empty, but {reason}: {} is kept unless applied with --force",
                 req.target.display_user()
             ),
@@ -5107,43 +5107,43 @@ fn print_diff(config: &Config, req: &FileRequest, rendered: Option<&str>) -> Res
         FileMode::Absent => {
             if req.target.is_symlink() {
                 let dest = std::fs::read_link(&req.target)?;
-                miseprintln!(
+                pakroprintln!(
                     "  current symlink: {} -> {}",
                     req.target.display_user(),
                     dest.display_user()
                 );
             } else {
-                miseprintln!("  current: {} exists", req.target.display_user());
+                pakroprintln!("  current: {} exists", req.target.display_user());
             }
-            miseprintln!("  desired: {} absent", req.target.display_user());
+            pakroprintln!("  desired: {} absent", req.target.display_user());
         }
         FileMode::Symlink => {
             if req.target.is_symlink() {
                 let dest = std::fs::read_link(&req.target)?;
-                miseprintln!(
+                pakroprintln!(
                     "  current symlink: {} -> {}",
                     req.target.display_user(),
                     dest.display_user()
                 );
             } else if req.target.exists() {
-                miseprintln!("  current: {} exists", req.target.display_user());
+                pakroprintln!("  current: {} exists", req.target.display_user());
             } else {
-                miseprintln!("  current: {} missing", req.target.display_user());
+                pakroprintln!("  current: {} missing", req.target.display_user());
             }
-            miseprintln!(
+            pakroprintln!(
                 "  desired symlink: {} -> {}",
                 req.target.display_user(),
                 req.source.display_user()
             );
         }
         FileMode::SymlinkEach => {
-            miseprintln!(
+            pakroprintln!(
                 "  desired symlink-each: {} files from {}",
                 walk_source_files(req)?.len(),
                 req.source.display_user()
             );
             for path in stale_links(req)? {
-                miseprintln!("  stale link to remove: {}", path.display_user());
+                pakroprintln!("  stale link to remove: {}", path.display_user());
             }
         }
         FileMode::Copy | FileMode::Template if req.source.is_file() => {
@@ -5159,7 +5159,7 @@ fn print_diff(config: &Config, req: &FileRequest, rendered: Option<&str>) -> Res
             print_permissions_diff(req)?;
         }
         FileMode::Copy | FileMode::Template => {
-            miseprintln!(
+            pakroprintln!(
                 "  desired directory contents: {} -> {}",
                 req.source.display_user(),
                 req.target.display_user()
@@ -5175,7 +5175,7 @@ fn print_diff(config: &Config, req: &FileRequest, rendered: Option<&str>) -> Res
             print_permissions_diff(req)?;
         }
         FileMode::Permissions => match permissions_target_unavailable(req)? {
-            Some(reason) => miseprintln!("  current: {reason}"),
+            Some(reason) => pakroprintln!("  current: {reason}"),
             None => print_permissions_diff(req)?,
         },
     }
@@ -5192,7 +5192,7 @@ fn print_permissions_diff(req: &FileRequest) -> Result<()> {
     {
         let current = permission_bits(&std::fs::symlink_metadata(&req.target)?);
         if current != desired {
-            miseprintln!(
+            pakroprintln!(
                 "  permissions differ: {current:04o} (current) -> {desired:04o} (desired)"
             );
         }
@@ -5207,7 +5207,7 @@ fn print_permissions_diff(req: &FileRequest) -> Result<()> {
 fn current_regular_file_for_diff(req: &FileRequest) -> Result<Option<Vec<u8>>> {
     if req.target.is_symlink() {
         let dest = std::fs::read_link(&req.target)?;
-        miseprintln!(
+        pakroprintln!(
             "  file type differs: current symlink {} -> {}; desired regular file",
             req.target.display_user(),
             dest.display_user()
@@ -5219,20 +5219,20 @@ fn current_regular_file_for_diff(req: &FileRequest) -> Result<Option<Vec<u8>>> {
             Ok(current) => Ok(Some(current)),
             // a mode such as 0200 can deny even the owner read access
             Err(err) if is_permission_denied(&err) => {
-                miseprintln!("  current: {} is not readable", req.target.display_user());
+                pakroprintln!("  current: {} is not readable", req.target.display_user());
                 Ok(None)
             }
             Err(err) => Err(err),
         };
     }
     if req.target.exists() {
-        miseprintln!(
+        pakroprintln!(
             "  file type differs: current directory {}; desired regular file",
             req.target.display_user()
         );
         return Ok(None);
     }
-    miseprintln!("  current: {} missing", req.target.display_user());
+    pakroprintln!("  current: {} missing", req.target.display_user());
     Ok(Some(vec![]))
 }
 
@@ -5246,7 +5246,7 @@ fn print_content_diff(
         FileMode::Content => "inline".to_string(),
         _ => req.source.display_user(),
     };
-    miseprintln!(
+    pakroprintln!(
         "  content differs: {} -> {}",
         source,
         req.target.display_user()
@@ -5262,9 +5262,9 @@ fn print_content_diff(
             let current = config.redact(current);
             let desired = config.redact(desired);
             let patch = opts.create_patch(&current, &desired);
-            miseprint!("{}", diffy::PatchFormatter::new().fmt_patch(&patch))?;
+            pakroprint!("{}", diffy::PatchFormatter::new().fmt_patch(&patch))?;
         }
-        _ => miseprintln!("  binary content differs"),
+        _ => pakroprintln!("  binary content differs"),
     }
     Ok(())
 }
@@ -5284,7 +5284,7 @@ pub fn print_diffs(
             continue;
         }
         if req.mode.has_source() && !req.source.exists() {
-            miseprintln!("{}: source missing", req.target_raw);
+            pakroprintln!("{}: source missing", req.target_raw);
             changed = true;
             continue;
         }
@@ -5307,7 +5307,7 @@ pub fn print_diffs(
             }
         }
         changed = true;
-        miseprintln!("dotfile differs: {}", req.target.display_user());
+        pakroprintln!("dotfile differs: {}", req.target.display_user());
         if let Err(err) = print_diff(config, req, rendered.as_deref()) {
             problems.push(format!("  \"{}\": {err}", req.target_raw));
         }
@@ -5487,8 +5487,8 @@ fn apply_one(req: &FileRequest, rendered: Option<&str>, written: &mut Vec<PathBu
         if remove_existing(&req.target)? {
             written.push(req.target.clone());
         }
-        // The record keeps what mise last wrote, so a file brought back by
-        // `mise dot undo` is still recognised as mise's own.
+        // The record keeps what pakro last wrote, so a file brought back by
+        // `pakro dot undo` is still recognised as pakro's own.
         return Ok(());
     }
     debug!("files: {}", describe(req)?);
@@ -5508,7 +5508,7 @@ fn apply_one(req: &FileRequest, rendered: Option<&str>, written: &mut Vec<PathBu
         }
         return Ok(());
     }
-    // what is missing now is what mise creates, and so may remove again
+    // what is missing now is what pakro creates, and so may remove again
     let created_dirs = if records_created_dirs(req) {
         missing_ancestors(&req.target)
     } else {
@@ -5562,7 +5562,7 @@ fn apply_one(req: &FileRequest, rendered: Option<&str>, written: &mut Vec<PathBu
         }
         FileMode::Copy => {
             if req.source.is_dir() {
-                // additive: overwrite matching files, leave files mise
+                // additive: overwrite matching files, leave files pakro
                 // doesn't manage in place — only a type mismatch (vetted
                 // as a conflict) removes the target
                 if req.target.exists() && !req.target.is_dir() && remove_existing(&req.target)? {
@@ -5668,7 +5668,7 @@ fn set_mode(path: &Path, mode: u32) -> Result<()> {
     Ok(())
 }
 
-/// Set the mode of a file mise does not own without ever following a symlink
+/// Set the mode of a file pakro does not own without ever following a symlink
 /// at `path`: the check and the chmod act on one descriptor, so a link
 /// swapped in after planning is refused instead of redirecting the change.
 #[cfg(unix)]
@@ -5982,10 +5982,10 @@ mod tests {
 
     #[test]
     fn destination_variants_survive_incoming_config_preflight() -> Result<()> {
-        use crate::config::config_file::mise_toml::MiseToml;
+        use crate::config::config_file::pakro_toml::PakroToml;
         use std::sync::Arc;
 
-        let path = dirs::HOME.join(".config/mise/config.toml");
+        let path = dirs::HOME.join(".config/pakro/config.toml");
         let body = r#"
 [dotfiles."vscode/settings.json"]
 mode = "copy"
@@ -5998,7 +5998,7 @@ variants = [
         let mut configs = ConfigMap::new();
         configs.insert(
             path.clone(),
-            Arc::new(MiseToml::for_history_preflight(body, &path)?),
+            Arc::new(PakroToml::for_history_preflight(body, &path)?),
         );
         validate_incoming_files(&configs)?;
 
@@ -6009,7 +6009,7 @@ variants = [
         );
         configs.insert(
             path.clone(),
-            Arc::new(MiseToml::for_history_preflight(&invalid, &path)?),
+            Arc::new(PakroToml::for_history_preflight(&invalid, &path)?),
         );
         assert!(validate_incoming_files(&configs).is_err());
         Ok(())
@@ -6153,7 +6153,7 @@ variants = [{{ {field} = "linux" }}]"#
 
     #[test]
     fn configuration_reload_discards_old_declaration_diagnostics() {
-        let target = "~/.mise-diagnostic-reset-test";
+        let target = "~/.pakro-diagnostic-reset-test";
         record_invalid(target, Path::new("diagnostic-reset.toml"), "invalid mode");
         assert!(
             invalid_declarations()
@@ -6193,7 +6193,7 @@ variants = [{{ {field} = "linux" }}]"#
             permissions: None,
             base: PathBuf::from("/"),
             origin: ResourceOrigin {
-                config: PathBuf::from("/mise.toml"),
+                config: PathBuf::from("/pakro.toml"),
                 config_root: PathBuf::from("/"),
                 environment: vec![],
                 source: None,
@@ -6209,14 +6209,14 @@ variants = [{{ {field} = "linux" }}]"#
     }
 
     fn validate_incoming_body(body: &str) -> Result<()> {
-        use crate::config::config_file::mise_toml::MiseToml;
+        use crate::config::config_file::pakro_toml::PakroToml;
         use std::sync::Arc;
 
-        let path = dirs::HOME.join(".config/mise/config.toml");
+        let path = dirs::HOME.join(".config/pakro/config.toml");
         let mut configs = ConfigMap::new();
         configs.insert(
             path.clone(),
-            Arc::new(MiseToml::for_history_preflight(body, &path)?),
+            Arc::new(PakroToml::for_history_preflight(body, &path)?),
         );
         validate_incoming_files(&configs)
     }
@@ -6467,7 +6467,7 @@ source = "oldrc""#,
             let value: toml::Value =
                 toml::from_str(&format!("mode = \"absent\"\n{extra}")).expect("toml");
             assert!(
-                parse_file_entry("~/.oldrc", value, Path::new("/mise.toml")).is_none(),
+                parse_file_entry("~/.oldrc", value, Path::new("/pakro.toml")).is_none(),
                 "{extra}"
             );
         }
@@ -6509,7 +6509,7 @@ source = "oldrc""#,
                 position: LinePosition::Append,
             },
             base: PathBuf::from("/"),
-            config_path: PathBuf::from("/mise.toml"),
+            config_path: PathBuf::from("/pakro.toml"),
             origin: origin.clone(),
         };
         let err =
@@ -6548,7 +6548,7 @@ source = "oldrc""#,
             .collect()
     }
 
-    /// A list mise cannot read in full is an error naming the entry and
+    /// A list pakro cannot read in full is an error naming the entry and
     /// the pattern, never a shorter list. A shorter `exclude` captures
     /// files the user asked to leave out; a shorter — or empty —
     /// `include` captures the whole tree they asked to narrow.
@@ -6573,10 +6573,10 @@ source = "oldrc""#,
 
     #[test]
     fn test_exclude_bare_pattern_matches_any_component() {
-        let pats = patterns(&["mise.toml"]);
-        assert!(is_excluded(Path::new("mise.toml"), &pats));
-        assert!(is_excluded(Path::new("nested/mise.toml"), &pats));
-        assert!(!is_excluded(Path::new("mise.toml.bak"), &pats));
+        let pats = patterns(&["pakro.toml"]);
+        assert!(is_excluded(Path::new("pakro.toml"), &pats));
+        assert!(is_excluded(Path::new("nested/pakro.toml"), &pats));
+        assert!(!is_excluded(Path::new("pakro.toml.bak"), &pats));
         assert!(!is_excluded(Path::new("other.toml"), &pats));
     }
 
@@ -6690,7 +6690,7 @@ source = "oldrc""#,
 
     #[test]
     fn test_exclude_empty_matches_nothing() {
-        assert!(!is_excluded(Path::new("mise.toml"), &[]));
+        assert!(!is_excluded(Path::new("pakro.toml"), &[]));
     }
 
     #[test]
@@ -6710,8 +6710,8 @@ source = "oldrc""#,
             permissions: None,
             base: PathBuf::from("/home/test"),
             origin: crate::system::resources::ResourceOrigin {
-                config: PathBuf::from("/home/test/.config/mise/config.toml"),
-                config_root: PathBuf::from("/home/test/.config/mise"),
+                config: PathBuf::from("/home/test/.config/pakro/config.toml"),
+                config_root: PathBuf::from("/home/test/.config/pakro"),
                 environment: vec![],
                 source: None,
             },
@@ -6836,7 +6836,7 @@ source = "oldrc""#,
             permissions: None,
             base: source.parent().expect("source parent").to_path_buf(),
             origin: ResourceOrigin {
-                config: PathBuf::from("/mise.toml"),
+                config: PathBuf::from("/pakro.toml"),
                 config_root: PathBuf::from("/"),
                 environment: vec![],
                 source: Some(source.to_path_buf()),
@@ -7455,7 +7455,7 @@ source = "oldrc""#,
         Ok(())
     }
 
-    /// The fix: a file the user wrote is not mise's to replace. This used to pass on Windows,
+    /// The fix: a file the user wrote is not pakro's to replace. This used to pass on Windows,
     /// where the entry applied and overwrote it with no `--force` and no message.
     #[test]
     fn an_unmanaged_file_at_the_target_is_a_conflict() -> Result<()> {
@@ -7473,7 +7473,7 @@ source = "oldrc""#,
     }
 
     /// The control for the test above: the two cases that must *not* start blocking. A symlink
-    /// is one mise made, so re-pointing it is the normal path and would be a regression to
+    /// is one pakro made, so re-pointing it is the normal path and would be a regression to
     /// refuse; a missing target has nothing to protect.
     #[test]
     fn a_managed_symlink_and_a_missing_target_are_not_conflicts() -> Result<()> {
@@ -7501,7 +7501,7 @@ source = "oldrc""#,
     }
 
     /// `symlink-each` shares the predicate, so it gains the same protection: a file the user
-    /// wrote inside the target directory is not mise's to replace either. Asserted separately
+    /// wrote inside the target directory is not pakro's to replace either. Asserted separately
     /// because it reaches `file_link_conflicts` through `walk_source_files` rather than
     /// directly, and the mode is the half of this change most likely to be overlooked.
     #[test]
@@ -7701,7 +7701,7 @@ source = "oldrc""#,
 
     /// Read from the configured spelling, `../dotfiles/foo` in `~/.config`
     /// names `~/dotfiles/foo`, but physically it leads somewhere else. That
-    /// link is not mise's to remove.
+    /// link is not pakro's to remove.
     #[cfg(unix)]
     #[test]
     fn relative_link_matching_only_as_text_is_not_owned() -> Result<()> {
@@ -7775,14 +7775,14 @@ source = "oldrc""#,
     }
 
     fn incoming(body: &str) -> Result<()> {
-        use crate::config::config_file::mise_toml::MiseToml;
+        use crate::config::config_file::pakro_toml::PakroToml;
         use std::sync::Arc;
 
-        let path = dirs::HOME.join(".config/mise/config.toml");
+        let path = dirs::HOME.join(".config/pakro/config.toml");
         let mut configs = ConfigMap::new();
         configs.insert(
             path.clone(),
-            Arc::new(MiseToml::for_history_preflight(body, &path)?),
+            Arc::new(PakroToml::for_history_preflight(body, &path)?),
         );
         validate_incoming_files(&configs)
     }
@@ -7895,7 +7895,7 @@ source = "oldrc""#,
         assert_eq!(file::read_to_string(&target)?, "user content");
         assert_eq!(check_rendered(&req, None)?, FileState::Applied);
 
-        // unapply never removes a file mise only chmods, even with --force
+        // unapply never removes a file pakro only chmods, even with --force
         let opts = UnapplyOpts {
             dry_run: false,
             verbose: false,
@@ -8178,16 +8178,16 @@ source = "oldrc""#,
 
     #[test]
     fn relative_is_rejected_outside_symlink_modes() -> Result<()> {
-        use crate::config::config_file::mise_toml::MiseToml;
+        use crate::config::config_file::pakro_toml::PakroToml;
         use std::sync::Arc;
 
-        let path = dirs::HOME.join(".config/mise/config.toml");
+        let path = dirs::HOME.join(".config/pakro/config.toml");
         let validate = |entry: &str| -> Result<()> {
             let body = format!("[dotfiles]\n\"~/.relative-test\" = {entry}\n");
             let mut configs = ConfigMap::new();
             configs.insert(
                 path.clone(),
-                Arc::new(MiseToml::for_history_preflight(&body, &path)?),
+                Arc::new(PakroToml::for_history_preflight(&body, &path)?),
             );
             validate_incoming_files(&configs)
         };
@@ -8211,16 +8211,16 @@ source = "oldrc""#,
 
     #[test]
     fn remove_empty_is_rejected_outside_template_mode() -> Result<()> {
-        use crate::config::config_file::mise_toml::MiseToml;
+        use crate::config::config_file::pakro_toml::PakroToml;
         use std::sync::Arc;
 
-        let path = dirs::HOME.join(".config/mise/config.toml");
+        let path = dirs::HOME.join(".config/pakro/config.toml");
         let validate = |entry: &str| -> Result<()> {
             let body = format!("[dotfiles]\n\"~/.remove-empty-test\" = {entry}\n");
             let mut configs = ConfigMap::new();
             configs.insert(
                 path.clone(),
-                Arc::new(MiseToml::for_history_preflight(&body, &path)?),
+                Arc::new(PakroToml::for_history_preflight(&body, &path)?),
             );
             validate_incoming_files(&configs)
         };
@@ -8240,7 +8240,7 @@ source = "oldrc""#,
         }
 
         let origin = ResourceOrigin {
-            config: PathBuf::from("/mise.toml"),
+            config: PathBuf::from("/pakro.toml"),
             config_root: PathBuf::from("/"),
             environment: vec![],
             source: None,
@@ -8268,16 +8268,16 @@ source = "oldrc""#,
 
     #[test]
     fn dot_prefix_is_rejected_outside_directory_walking_modes() -> Result<()> {
-        use crate::config::config_file::mise_toml::MiseToml;
+        use crate::config::config_file::pakro_toml::PakroToml;
         use std::sync::Arc;
 
-        let path = dirs::HOME.join(".config/mise/config.toml");
+        let path = dirs::HOME.join(".config/pakro/config.toml");
         let validate = |entry: &str| -> Result<()> {
             let body = format!("[dotfiles]\n\"~/.dot-prefix-test\" = {entry}\n");
             let mut configs = ConfigMap::new();
             configs.insert(
                 path.clone(),
-                Arc::new(MiseToml::for_history_preflight(&body, &path)?),
+                Arc::new(PakroToml::for_history_preflight(&body, &path)?),
             );
             validate_incoming_files(&configs)
         };
@@ -8312,7 +8312,7 @@ source = "oldrc""#,
         );
 
         let origin = ResourceOrigin {
-            config: PathBuf::from("/mise.toml"),
+            config: PathBuf::from("/pakro.toml"),
             config_root: PathBuf::from("/"),
             environment: vec![],
             source: None,
@@ -8482,7 +8482,7 @@ source = "oldrc""#,
             FileState::Differs(reason) if reason.contains("--force")
         ));
 
-        // what mise last wrote is its own to remove
+        // what pakro last wrote is its own to remove
         save_target_state(&req, "work = true\n");
         assert_eq!(empty_render_target(&req)?, EmptyRenderTarget::Owned);
         assert!(matches!(
@@ -8573,7 +8573,7 @@ source = "oldrc""#,
         Ok(())
     }
 
-    /// `home/.config` exists; `newapp/sub` under it is what mise created.
+    /// `home/.config` exists; `newapp/sub` under it is what pakro created.
     fn created_dirs_fixture(home: &Path) -> Result<(PathBuf, Vec<PathBuf>)> {
         let newapp = home.join(".config/newapp");
         let sub = newapp.join("sub");
@@ -9057,7 +9057,7 @@ source = "oldrc""#,
         if std::fs::read(&req.target).is_err() {
             assert_eq!(
                 empty_render_target(&req)?,
-                EmptyRenderTarget::Conflict("it cannot be read to confirm mise wrote it")
+                EmptyRenderTarget::Conflict("it cannot be read to confirm pakro wrote it")
             );
             assert!(matches!(
                 check_rendered(&req, Some(""))?,

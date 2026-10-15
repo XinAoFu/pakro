@@ -10,7 +10,7 @@ use crate::ui::table;
 ///
 /// Aliases can be defined in user config or provided by plugins via `bin/list-aliases`.
 ///
-/// In user config, aliases are defined like the following in `~/.config/mise/config.toml`:
+/// In user config, aliases are defined like the following in `~/.config/pakro/config.toml`:
 ///
 ///     [tool_alias.node.versions]
 ///     project = "20"
@@ -18,7 +18,7 @@ use crate::ui::table;
 #[usage(
     visible_alias = "list",
     example(
-        r###"mise tool-alias ls
+        r###"pakro tool-alias ls
 node  lts-jod      22"###
     ),
     verbatim_doc_comment

@@ -9,7 +9,7 @@ use xx::regex;
 
 const RUBYINSTALLER_REPO: &str = "oneclick/rubyinstaller2";
 
-/// Build revision assumed when the release list cannot be consulted. mise used
+/// Build revision assumed when the release list cannot be consulted. pakro used
 /// this unconditionally before, so falling back to it keeps offline and
 /// API-failure behavior unchanged.
 const FALLBACK_BUILD_REVISION: u32 = 1;
@@ -33,7 +33,7 @@ pub(super) fn rubyinstaller_tag(version: &str, revision: u32) -> String {
 
 /// Build the RubyInstaller2 asset filename for a version and build revision.
 pub(super) fn rubyinstaller_asset_name(version: &str, revision: u32) -> String {
-    // RubyInstaller2 publishes arm and x86 archives too, but mise only installs x64.
+    // RubyInstaller2 publishes arm and x86 archives too, but pakro only installs x64.
     format!("rubyinstaller-{version}-{revision}-x64.7z")
 }
 
@@ -406,20 +406,20 @@ mod tests {
     }
 
     #[test]
-    fn parse_gemfile_file_option_reads_tool_versions_and_mise_toml() {
+    fn parse_gemfile_file_option_reads_tool_versions_and_pakro_toml() {
         let dir = tempfile::tempdir().unwrap();
         file::write(
             dir.path().join(".tool-versions"),
             "nodejs 20\nruby 3.3.6 # comment\n",
         )
         .unwrap();
-        file::write(dir.path().join("mise.toml"), "[tools]\nruby = \"4.0.6\"\n").unwrap();
+        file::write(dir.path().join("pakro.toml"), "[tools]\nruby = \"4.0.6\"\n").unwrap();
 
         let gemfile = dir.path().join("Gemfile");
         file::write(&gemfile, "ruby file: \".tool-versions\"\n").unwrap();
         assert_eq!(parse_gemfile(&gemfile).unwrap(), "3.3.6");
 
-        file::write(&gemfile, "ruby file: \"mise.toml\"\n").unwrap();
+        file::write(&gemfile, "ruby file: \"pakro.toml\"\n").unwrap();
         assert_eq!(parse_gemfile(&gemfile).unwrap(), "4.0.6");
     }
 

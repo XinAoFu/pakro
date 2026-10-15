@@ -1,4 +1,4 @@
-//! Network operations against the setup repository, run from mise's own
+//! Network operations against the setup repository, run from pakro's own
 //! bare repository with the user's normal git configuration (credential
 //! helpers, ssh, URL rewrites). Only explicit refspecs are ever pushed:
 //! never `--mirror`, never `--all`.

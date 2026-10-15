@@ -1,55 +1,55 @@
 #!/usr/bin/env bash
 
 # Pinning prefers an exact remote release over a more-specific installed match.
-ln -s "$ROOT/tests/support/data/plugins/tiny" "$MISE_DATA_DIR/plugins/tiny-pin"
-mkdir -p "$MISE_DATA_DIR/installs/tiny-pin/1.0.0.1"
+ln -s "$ROOT/tests/support/data/plugins/tiny" "$PAKRO_DATA_DIR/plugins/tiny-pin"
+mkdir -p "$PAKRO_DATA_DIR/installs/tiny-pin/1.0.0.1"
 assert_contains \
-  "mise use --pin --dry-run --path pin.toml tiny-pin@1.0.0 2>&1" \
+  "pakro use --pin --dry-run --path pin.toml tiny-pin@1.0.0 2>&1" \
   "tiny-pin@1.0.0 ⇢ would install"
 
 # An absent exact release, normal fuzzy requests, and explicit prefixes retain
 # the existing installed-version fast path.
 assert_contains \
-  "mise use --pin --dry-run --path pin.toml tiny-pin@1.0 2>&1" \
+  "pakro use --pin --dry-run --path pin.toml tiny-pin@1.0 2>&1" \
   "tiny-pin@1.0.0.1 ⇢ already installed"
 assert_contains \
-  "mise use --dry-run --path pin.toml tiny-pin@1.0.0 2>&1" \
+  "pakro use --dry-run --path pin.toml tiny-pin@1.0.0 2>&1" \
   "tiny-pin@1.0.0.1 ⇢ already installed"
 assert_contains \
-  "mise use --pin --dry-run --path pin.toml tiny-pin@prefix:1.0.0 2>&1" \
+  "pakro use --pin --dry-run --path pin.toml tiny-pin@prefix:1.0.0 2>&1" \
   "tiny-pin@1.0.0.1 ⇢ already installed"
 
 # Settings-based pinning uses the same behavior, while --fuzzy overrides it.
 assert_contains \
-  "MISE_PIN=1 mise use --dry-run --path pin.toml tiny-pin@1.0.0 2>&1" \
+  "PAKRO_PIN=1 pakro use --dry-run --path pin.toml tiny-pin@1.0.0 2>&1" \
   "tiny-pin@1.0.0 ⇢ would install"
 assert_contains \
-  "MISE_ASDF_COMPAT=1 mise use --dry-run --path pin.toml tiny-pin@1.0.0 2>&1" \
+  "PAKRO_ASDF_COMPAT=1 pakro use --dry-run --path pin.toml tiny-pin@1.0.0 2>&1" \
   "tiny-pin@1.0.0 ⇢ would install"
 assert_contains \
-  "MISE_PIN=1 mise use --fuzzy --dry-run --path pin.toml tiny-pin@1.0.0 2>&1" \
+  "PAKRO_PIN=1 pakro use --fuzzy --dry-run --path pin.toml tiny-pin@1.0.0 2>&1" \
   "tiny-pin@1.0.0.1 ⇢ already installed"
 
 # Explicit offline mode cannot verify remote releases and keeps local resolution.
 assert_contains \
-  "MISE_OFFLINE=1 mise use --pin --dry-run --path pin.toml tiny-pin@1.0.0 2>&1" \
+  "PAKRO_OFFLINE=1 pakro use --pin --dry-run --path pin.toml tiny-pin@1.0.0 2>&1" \
   "tiny-pin@1.0.0.1 ⇢ already installed"
 
-mise use --pin --path pin.toml tiny-pin@1.0.0
+pakro use --pin --path pin.toml tiny-pin@1.0.0
 assert "cat pin.toml" '[tools]
 tiny-pin = "1.0.0"'
 
 # An exact installed version does not need a remote lookup.
-ln -s "$ROOT/tests/support/data/plugins/tiny" "$MISE_DATA_DIR/plugins/tiny-pin-installed"
-mkdir -p "$MISE_DATA_DIR/installs/tiny-pin-installed/1.0.0"
+ln -s "$ROOT/tests/support/data/plugins/tiny" "$PAKRO_DATA_DIR/plugins/tiny-pin-installed"
+mkdir -p "$PAKRO_DATA_DIR/installs/tiny-pin-installed/1.0.0"
 assert_contains \
-  "RTX_TINY_LIST_ALL_FAIL=1 mise use --pin --dry-run --path installed.toml tiny-pin-installed@1.0.0 2>&1" \
+  "RTX_TINY_LIST_ALL_FAIL=1 pakro use --pin --dry-run --path installed.toml tiny-pin-installed@1.0.0 2>&1" \
   "tiny-pin-installed@1.0.0 ⇢ already installed"
 
 # Online exact-match lookup failures must not silently pin a fuzzy installed version.
-ln -s "$ROOT/tests/support/data/plugins/tiny" "$MISE_DATA_DIR/plugins/tiny-pin-fail"
-mkdir -p "$MISE_DATA_DIR/installs/tiny-pin-fail/1.0.0.1"
+ln -s "$ROOT/tests/support/data/plugins/tiny" "$PAKRO_DATA_DIR/plugins/tiny-pin-fail"
+mkdir -p "$PAKRO_DATA_DIR/installs/tiny-pin-fail/1.0.0.1"
 assert_fail \
-  "RTX_TINY_LIST_ALL_FAIL=1 mise use --pin --path pin-fail.toml tiny-pin-fail@1.0.0" \
+  "RTX_TINY_LIST_ALL_FAIL=1 pakro use --pin --path pin-fail.toml tiny-pin-fail@1.0.0" \
   "error running list-all"
 assert_fail "test -f pin-fail.toml"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools.test-edit]
 version = "1.2.0"
 asset_pattern = "edit-1.2.0-aarch64-linux-gnu.tar.zst"
@@ -8,7 +8,7 @@ asset_pattern = "edit-1.2.0-aarch64-linux-gnu.tar.zst"
 [tool_alias]
 test-edit = "github:microsoft/edit"
 EOF
-assert "mise install test-edit"
+assert "pakro install test-edit"
 
 # Test that the alias works and test-edit command can be executed
-assert "mise which edit" ~/.local/share/mise/installs/test-edit/1.2.0/edit
+assert "pakro which edit" ~/.local/share/pakro/installs/test-edit/1.2.0/edit

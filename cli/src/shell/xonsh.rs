@@ -51,14 +51,14 @@ impl Shell for Xonsh {
         out.push_str(&formatdoc! {r#"
             from xonsh.built_ins import XSH
 
-            def _mise(args):
+            def _pakro(args):
               if args and args[0] in ('deactivate', 'shell', 'sh'):
-                execx($(mise @(args)))
+                execx($(pakro @(args)))
               else:
-                mise @(args)
+                pakro @(args)
 
-            XSH.env['MISE_SHELL'] = 'xonsh'
-            XSH.aliases['mise'] = _mise
+            XSH.env['PAKRO_SHELL'] = 'xonsh'
+            XSH.aliases['pakro'] = _pakro
         "#});
 
         if !opts.no_hook_env {
@@ -67,7 +67,7 @@ impl Shell for Xonsh {
                 import subprocess
 
                 extra_args = shlex.split('{flags}')
-                def mise_hook(**kwargs): # Hook Events
+                def pakro_hook(**kwargs): # Hook Events
                     script = subprocess.run(
                         ['{exe}', 'hook-env', *extra_args, '-s', 'xonsh'],
                         env=XSH.env.detype(),
@@ -75,8 +75,8 @@ impl Shell for Xonsh {
                     ).stdout.decode()
                     execx(script)
 
-                XSH.builtins.events.on_pre_prompt(mise_hook) # Activate hook: before showing the prompt
-                XSH.builtins.events.on_chdir(mise_hook) # Activate hook: when the working directory changes
+                XSH.builtins.events.on_pre_prompt(pakro_hook) # Activate hook: before showing the prompt
+                XSH.builtins.events.on_chdir(pakro_hook) # Activate hook: when the working directory changes
             "#});
         }
         out
@@ -88,8 +88,8 @@ impl Shell for Xonsh {
             from xonsh.built_ins import XSH
 
             hooks = {{
-              'on_pre_prompt' : ['mise_hook'],
-              'on_chdir': ['mise_hook'],
+              'on_pre_prompt' : ['pakro_hook'],
+              'on_chdir': ['pakro_hook'],
             }}
             for hook_type, hook_fns in hooks.items():
               for hook_fn in hook_fns:
@@ -99,10 +99,10 @@ impl Shell for Xonsh {
                     hndl.remove(fn)
                     break
 
-            XSH.aliases.pop('mise', None)
-            XSH.env.pop('MISE_SHELL', None)
-            XSH.env.pop('__MISE_DIFF', None)
-            XSH.env.pop('__MISE_SESSION', None)
+            XSH.aliases.pop('pakro', None)
+            XSH.env.pop('PAKRO_SHELL', None)
+            XSH.env.pop('__PAKRO_DIFF', None)
+            XSH.env.pop('__PAKRO_SESSION', None)
             "#}
     }
 
@@ -158,7 +158,7 @@ mod tests {
     #[test]
     fn test_hook_init() {
         let xonsh = Xonsh::default();
-        let exe = Path::new("/some/dir/mise");
+        let exe = Path::new("/some/dir/pakro");
         let opts = ActivateOptions {
             exe: exe.to_path_buf(),
             flags: " --status".into(),

@@ -5,7 +5,7 @@
 # the hash baseline — the next invocation sees a matching hash and existing
 # outputs and incorrectly skips the task.
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.build]
 run = 'if [ -f poison ]; then exit 1; fi; touch out.txt && echo built'
 sources = ['src.txt']
@@ -15,10 +15,10 @@ EOF
 echo "hello" >src.txt
 
 # First run: no stored hash, no output → stale → succeeds
-assert "mise run -q build" "built"
+assert "pakro run -q build" "built"
 
 # Nothing changed → fresh
-assert_empty "mise run -q build"
+assert_empty "pakro run -q build"
 
 # Modify src so the hash changes (content + size differ)
 echo "modified content" >src.txt
@@ -27,7 +27,7 @@ echo "modified content" >src.txt
 touch poison
 
 # Hash mismatch detected → task runs → fails
-assert_fail "mise run build 2>&1"
+assert_fail "pakro run build 2>&1"
 
 # Simulate outputs being newer than sources (e.g. a pre-existing artifact).
 # This is the condition that lets the mtime check say "fresh" on the next run,
@@ -42,4 +42,4 @@ rm poison
 # Without fix: hash was written before the task ran → matches current src →
 #              out.txt newer than src → mtime also says fresh → task skipped (wrong).
 # With fix:    hash was not written → mismatch still detected → task re-runs → "built".
-assert "mise run -q build" "built"
+assert "pakro run -q build" "built"

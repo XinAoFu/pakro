@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# `kill -INT <mise pid>` reaches mise alone, even when mise is in the
-# terminal's foreground process group. mise must pass it on to its tasks
+# `kill -INT <pakro pid>` reaches pakro alone, even when pakro is in the
+# terminal's foreground process group. pakro must pass it on to its tasks
 # instead of assuming the terminal already did. Only Linux reports whether a
 # SIGINT came from the terminal or from a process; macOS can't tell them apart.
 if [[ "$(uname)" != "Linux" ]]; then
@@ -10,7 +10,7 @@ if [[ "$(uname)" != "Linux" ]]; then
   exit 0
 fi
 
-cat <<'TOML' >mise.toml
+cat <<'TOML' >pakro.toml
 [tasks.wait]
 run = """
 trap 'touch "$HOME/task-interrupted"; exit 0' INT
@@ -44,7 +44,7 @@ if pid == 0:
         os.dup2(slave, fd)
     os.close(master)
     os.close(slave)
-    os.execvp("mise", ["mise", "run", "wait"])
+    os.execvp("pakro", ["pakro", "run", "wait"])
     os._exit(127)
 
 os.close(slave)
@@ -76,7 +76,7 @@ def wait_for(predicate, what, timeout=15.0):
 exited = []
 
 
-def mise_exited():
+def pakro_exited():
     if not exited and os.waitpid(pid, os.WNOHANG)[0] == pid:
         exited.append(True)
     return bool(exited)
@@ -85,10 +85,10 @@ def mise_exited():
 try:
     wait_for(lambda: os.path.exists(ready), "the task to start")
     os.kill(pid, signal.SIGINT)
-    wait_for(mise_exited, "mise to exit after kill -INT")
+    wait_for(pakro_exited, "pakro to exit after kill -INT")
     if not os.path.exists(interrupted):
         raise SystemExit(
-            "mise did not pass kill -INT on to its task: "
+            "pakro did not pass kill -INT on to its task: "
             + output.decode(errors="replace")
         )
 finally:
@@ -97,5 +97,5 @@ finally:
     except (ProcessLookupError, PermissionError):
         pass
 
-print("task got the SIGINT sent to mise")
+print("task got the SIGINT sent to pakro")
 PY

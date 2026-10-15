@@ -1,4 +1,4 @@
-# Taplo configuration for mise
+# Taplo configuration for pakro
 
 
 [formatting]
@@ -11,7 +11,7 @@ reorder_keys = false
 
 [[rule]]
 include = ["runtimes/registry/*.toml"]
-schema.path = "./src/schema/mise-registry-tool.json"
+schema.path = "./src/schema/pakro-registry-tool.json"
 
 [rule.formatting]
 reorder_keys = true
@@ -19,7 +19,7 @@ reorder_arrays = false
 
 [[rule]]
 include = [".config/settings.toml"]
-schema.path = "./src/schema/mise-settings.json"
+schema.path = "./src/schema/pakro-settings.json"
 
 [rule.formatting]
 reorder_keys = true
@@ -27,4 +27,4 @@ reorder_arrays = false
 
 [[rule]]
 include = ["runtimes/registry/daemon-presets/*.toml"]
-schema.path = "./src/schema/mise-daemon-preset.json"
+schema.path = "./src/schema/pakro-daemon-preset.json"

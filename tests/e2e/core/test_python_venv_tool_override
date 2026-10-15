@@ -6,9 +6,9 @@
 # the first `[tools] python` entry and then silently run every task under that interpreter.
 # https://github.com/jdx/mise/discussions/5281
 
-export MISE_PYTHON_GITHUB_ATTESTATIONS=0
+export PAKRO_PYTHON_GITHUB_ATTESTATIONS=0
 
-cat >.mise.toml <<EOF
+cat >.pakro.toml <<EOF
 [tools]
 python = ["3.13.14", "3.12.13"]
 [env._.python]
@@ -17,12 +17,12 @@ venv = {path = "{{env.HOME}}/my_venv", create=true}
 version = "python --version"
 EOF
 
-mise i
+pakro i
 
 # no override: the first [tools] entry, unchanged
-assert_contains "mise run version" "Python 3.13.14"
+assert_contains "pakro run version" "Python 3.13.14"
 
 # the override decides which interpreter the venv is built from. A venv cannot be retargeted after
 # creation, so remove it first — that is the same thing a per-version venv path would achieve.
 rm -rf "$HOME/my_venv"
-assert_contains "mise run --tool python@3.12.13 version" "Python 3.12.13"
+assert_contains "pakro run --tool python@3.12.13 version" "Python 3.12.13"

@@ -66,7 +66,6 @@ footer = """
 # remove the leading and trailing whitespace from the template
 trim = true
 postprocessors = [
-  { pattern = '\$REPO', replace = "https://github.com/jdx/mise" },
   { pattern = '\(gitlab:([^/\)]+/[^\)]+)\)', replace = "([gitlab:$1](https://gitlab.com/$1))" },
   { pattern = '\((aqua|github|ubi):([^/\)]+/[^\)]+)\)', replace = "([$1:$2](https://github.com/$2))" },
 ]
@@ -127,6 +126,5 @@ sort_commits = "oldest"
 features_always_bump_minor = false
 breaking_always_bump_major = false
 
-[remote.github]
-owner = "jdx"
-repo = "mise"
+# Set the pakro GitHub repository with git-cliff's --github-repo option
+# when publishing release notes.

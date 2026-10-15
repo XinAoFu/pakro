@@ -7,8 +7,8 @@ use strum::IntoEnumIterator;
 #[usage(
     visible_alias = "list",
     example(
-        r###"mise backends ls
-mise plugins ls"###,
+        r###"pakro backends ls
+pakro plugins ls"###,
         help = r###"Installed plugin availability and built-in backends are separate lists"###
     ),
     verbatim_doc_comment
@@ -21,7 +21,7 @@ impl BackendsLs {
         backends.retain(|f| !matches!(f, BackendType::Unknown));
 
         for backend in backends {
-            miseprintln!("{}", backend);
+            pakroprintln!("{}", backend);
         }
         Ok(())
     }

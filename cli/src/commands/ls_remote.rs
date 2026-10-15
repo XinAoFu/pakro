@@ -27,14 +27,14 @@ struct VersionOutputAll {
 
 /// List tool versions available to install
 ///
-/// Results may be cached; run `mise cache clear TOOL` to refresh one tool
+/// Results may be cached; run `pakro cache clear TOOL` to refresh one tool
 /// before querying it again. Version formats and ordering are backend-specific.
 #[derive(Debug, usage_rs::Args)]
-#[usage(verbatim_doc_comment, example(r###"mise ls-remote node
-mise ls-remote node@20
-mise ls-remote node 20
-mise ls-remote node --minimum-release-age 30d
-mise ls-remote github:cli/cli --json"###), aliases = ["list-all", "list-remote"]
+#[usage(verbatim_doc_comment, example(r###"pakro ls-remote node
+pakro ls-remote node@20
+pakro ls-remote node 20
+pakro ls-remote node --minimum-release-age 30d
+pakro ls-remote github:cli/cli --json"###), aliases = ["list-all", "list-remote"]
 )]
 pub(crate) struct LsRemote {
     /// Tool to get versions for
@@ -46,7 +46,7 @@ pub(crate) struct LsRemote {
     #[usage(verbatim_doc_comment)]
     pub prefix: Option<String>,
 
-    /// List available versions for every backend/tool currently known to mise
+    /// List available versions for every backend/tool currently known to pakro
     #[usage(long, verbatim_doc_comment, conflicts = ["plugin", "prefix"])]
     pub all: bool,
 
@@ -65,13 +65,13 @@ pub(crate) struct LsRemote {
     #[usage(short = 'J', long, verbatim_doc_comment)]
     pub json: bool,
 
-    /// Disable checking the mise-versions host
+    /// Disable checking the pakro-versions host
     #[usage(long, verbatim_doc_comment)]
     pub no_versions_host: bool,
 
     /// Include pre-release versions in the output for backends that report
     /// upstream prerelease metadata or opt in to regex-based prerelease
-    /// detection. Equivalent to setting `MISE_PRERELEASES=1` or the
+    /// detection. Equivalent to setting `PAKRO_PRERELEASES=1` or the
     /// `prereleases` setting for the duration of this command.
     #[usage(long, verbatim_doc_comment)]
     pub prerelease: bool,
@@ -164,10 +164,10 @@ impl LsRemote {
         let versions = filter_versions_by_date(versions_matching_prefix, before_date);
 
         if self.json {
-            miseprintln!("{}", serde_json::to_string(&versions)?);
+            pakroprintln!("{}", serde_json::to_string(&versions)?);
         } else {
             for v in versions {
-                miseprintln!("{}", v.version);
+                pakroprintln!("{}", v.version);
             }
             warn_if_versions_hidden_by_minimum_release_age(plugin.id(), hidden_versions);
         }
@@ -197,10 +197,10 @@ impl LsRemote {
         versions.sort_by(|a, b| a.tool.cmp(&b.tool));
 
         if self.json {
-            miseprintln!("{}", serde_json::to_string(&versions)?);
+            pakroprintln!("{}", serde_json::to_string(&versions)?);
         } else {
             for v in versions {
-                miseprintln!("{}@{}", v.tool, v.version);
+                pakroprintln!("{}@{}", v.tool, v.version);
             }
             warn_if_versions_hidden_by_minimum_release_age("tools", hidden_versions);
         }

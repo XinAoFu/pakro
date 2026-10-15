@@ -2,8 +2,8 @@
 /dist/
 /node_modules/
 package-lock.json
-.mise.lock
-/mise.local.toml
+.pakro.lock
+/pakro.local.toml
 
 *.log
 *.profraw
@@ -32,9 +32,9 @@ megalinter-reports/
 
 .vscode/
 testResults.xml
-.mise/*
-# mise lock writes npm dependency graphs here; mise.lock references them.
-!.mise/locks/
+.pakro/*
+# pakro lock writes npm dependency graphs here; pakro.lock references them.
+!.pakro/locks/
 comment.md
 
 

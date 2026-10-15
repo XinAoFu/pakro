@@ -8,7 +8,7 @@ set -eu
 # output as empty — failing tests whose subject had actually passed.
 #
 # This test is the harness checking itself. It touches one call per site the fix changed,
-# and it deliberately calls no mise command, so a failure here means the helpers and
+# and it deliberately calls no pakro command, so a failure here means the helpers and
 # nothing else.
 
 # quiet_assert_succeed — reached through assert, assert_contains and assert_succeed

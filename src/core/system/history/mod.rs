@@ -2,7 +2,7 @@
 //! operations that change them, and the recovery they make possible.
 //!
 //! - [`store`] — the on-disk layout, the checkpoint record, and the index.
-//! - [`shadow`] — the bare repository mise owns.
+//! - [`shadow`] — the bare repository pakro owns.
 //! - [`tracked`] — what a capture covers and under which policies.
 //! - [`checkpoint`] — the one entry point every capture goes through.
 //! - [`scope`] — the operation a mutating command records into.

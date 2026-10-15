@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Test env attribute for args in TOML tasks
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.toml-task-arg-env]
 usage = '''
 arg "<input>" env="MY_INPUT" help="Input file"
@@ -14,27 +14,27 @@ echo "output=$usage_output"
 EOF
 
 # Test with CLI args (highest priority)
-assert "mise run toml-task-arg-env foo bar" "input=foo
+assert "pakro run toml-task-arg-env foo bar" "input=foo
 output=bar"
 
 # Test with env vars (middle priority)
-assert "MY_INPUT=env-input MY_OUTPUT=env-output mise run toml-task-arg-env" "input=env-input
+assert "MY_INPUT=env-input MY_OUTPUT=env-output pakro run toml-task-arg-env" "input=env-input
 output=env-output"
 
 # Test with default (lowest priority)
-assert "MY_INPUT=env-input mise run toml-task-arg-env" "input=env-input
+assert "MY_INPUT=env-input pakro run toml-task-arg-env" "input=env-input
 output=out.txt"
 
 # Test CLI overrides env var
-assert "MY_INPUT=env-input mise run toml-task-arg-env cli-input" "input=cli-input
+assert "MY_INPUT=env-input pakro run toml-task-arg-env cli-input" "input=cli-input
 output=out.txt"
 
 # Test CLI overrides both env var and default
-assert "MY_INPUT=env-input MY_OUTPUT=env-output mise run toml-task-arg-env cli-input cli-output" "input=cli-input
+assert "MY_INPUT=env-input MY_OUTPUT=env-output pakro run toml-task-arg-env cli-input cli-output" "input=cli-input
 output=cli-output"
 
 # Test env attribute for flags in TOML tasks
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.toml-task-flag-env]
 usage = '''
 flag "-u --user <user>" env="MY_USER" help="User to run as"
@@ -47,35 +47,35 @@ echo "port=$usage_port"
 EOF
 
 # Test with CLI flags (highest priority)
-assert "mise run toml-task-flag-env --user=cli-user --port=3000" "user=cli-user
+assert "pakro run toml-task-flag-env --user=cli-user --port=3000" "user=cli-user
 port=3000"
 
 # Test with env vars (middle priority)
-assert "MY_USER=env-user MY_PORT=9000 mise run toml-task-flag-env" "user=env-user
+assert "MY_USER=env-user MY_PORT=9000 pakro run toml-task-flag-env" "user=env-user
 port=9000"
 
 # Test with default (lowest priority)
-assert "MY_USER=env-user mise run toml-task-flag-env" "user=env-user
+assert "MY_USER=env-user pakro run toml-task-flag-env" "user=env-user
 port=8080"
 
 # Test CLI overrides env var
-assert "MY_USER=env-user mise run toml-task-flag-env --user=cli-user" "user=cli-user
+assert "MY_USER=env-user pakro run toml-task-flag-env --user=cli-user" "user=cli-user
 port=8080"
 
 # Test CLI overrides both env var and default
-assert "MY_USER=env-user MY_PORT=9000 mise run toml-task-flag-env --user=cli-user --port=3000" "user=cli-user
+assert "MY_USER=env-user MY_PORT=9000 pakro run toml-task-flag-env --user=cli-user --port=3000" "user=cli-user
 port=3000"
 
 # Test short flags
-assert "MY_USER=env-user mise run toml-task-flag-env -u cli-user" "user=cli-user
+assert "MY_USER=env-user pakro run toml-task-flag-env -u cli-user" "user=cli-user
 port=8080"
 
 # Test env attribute shows in help
-assert_contains "mise run toml-task-flag-env --help 2>&1 || true" "[env: MY_USER]"
-assert_contains "mise run toml-task-flag-env --help 2>&1 || true" "[env: MY_PORT]"
+assert_contains "pakro run toml-task-flag-env --help 2>&1 || true" "[env: MY_USER]"
+assert_contains "pakro run toml-task-flag-env --help 2>&1 || true" "[env: MY_PORT]"
 
 # Test with required arg and env var satisfies requirement
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.toml-required-env]
 usage = '''
 arg "<input>" env="MY_REQUIRED_INPUT" help="Required input"
@@ -84,10 +84,10 @@ run = 'echo "input=$usage_input"'
 EOF
 
 # Should fail without env var or CLI arg
-assert_fail "mise run toml-required-env"
+assert_fail "pakro run toml-required-env"
 
 # Should succeed with env var
-assert "MY_REQUIRED_INPUT=from-env mise run toml-required-env" "input=from-env"
+assert "MY_REQUIRED_INPUT=from-env pakro run toml-required-env" "input=from-env"
 
 # Should succeed with CLI arg
-assert "mise run toml-required-env from-cli" "input=from-cli"
+assert "pakro run toml-required-env from-cli" "input=from-cli"

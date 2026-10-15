@@ -5,7 +5,7 @@ echo sourced >>source-count
 export SOURCE_VALUE=from-source
 EOF
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.dependency]
 run = 'echo dependency >> basic-runs'
 
@@ -133,72 +133,72 @@ run = 'echo "$usage_name" >> fresh-runs; touch output'
 EOF
 
 # Invalid root arguments are rejected before any dependency command starts.
-assert_fail_contains "mise run parent" "Missing required arg: <name>"
+assert_fail_contains "pakro run parent" "Missing required arg: <name>"
 test ! -e basic-runs
 
 # A valid invocation retains the normal dependency ordering and argument parsing.
-mise run parent accepted
+pakro run parent accepted
 assert "cat basic-runs" "dependency
 parent:accepted"
 
 # A usage error in a transitive dependency prevents its own prerequisites too.
-assert_fail_contains "mise run transitive-root" "Missing required arg: <name>"
+assert_fail_contains "pakro run transitive-root" "Missing required arg: <name>"
 test ! -e transitive-runs
 
 # Deterministic syntax errors in dynamic usage are rejected before dependencies.
-assert_fail_contains "mise run dynamic-syntax-invalid" "invalid usage template"
+assert_fail_contains "pakro run dynamic-syntax-invalid" "invalid usage template"
 test ! -e dynamic-syntax-runs
 
 # A dynamic usage template may produce a different valid spec once task env is
 # available. Its syntax is checked preflight, but argument validation is safely
 # deferred until the runtime context is available.
-mise run dynamic-env accepted
+pakro run dynamic-env accepted
 assert "cat dynamic-env-runs" "dependency
 task:accepted"
 
 # One invalid root prevents every root in the same invocation from starting.
-assert_fail_contains "mise run valid-root ::: invalid-root" "Missing required arg: <name>"
+assert_fail_contains "pakro run valid-root ::: invalid-root" "Missing required arg: <name>"
 test ! -e multi-root-runs
 
 # Post dependencies and wait_for-linked scheduled occurrences are part of the
 # same preflight. wait_for does not schedule its target by itself, so wait-root
 # introduces both occurrences without making the invalid task a CLI root.
-assert_fail_contains "mise run post-parent" "Missing required arg: <name>"
+assert_fail_contains "pakro run post-parent" "Missing required arg: <name>"
 test ! -e post-runs
-assert_fail_contains "mise run wait-root" "Missing required arg: <name>"
+assert_fail_contains "pakro run wait-root" "Missing required arg: <name>"
 test ! -e wait-runs
 
 # Usage errors are invocation errors, not runtime failures handled by
 # --continue-on-error.
-assert_fail_contains "mise run --continue-on-error valid-root ::: invalid-root" \
+assert_fail_contains "pakro run --continue-on-error valid-root ::: invalid-root" \
   "Missing required arg: <name>"
 test ! -e multi-root-runs
 
 # Task-level env is available while validating env= usage arguments.
-assert "mise run env-arg" "configured"
+assert "pakro run env-arg" "configured"
 
 # Environment inputs produced by dependencies are resolved only after those
 # dependencies run, and source directives execute only once at runtime.
-assert "mise run file-env" "from-dependency"
+assert "pakro run file-env" "from-dependency"
 
 # An unavailable env-backed input does not suppress an independent CLI error.
-assert_fail_contains "mise run mixed-env-invalid value extra" "unexpected word: extra"
+assert_fail_contains "pakro run mixed-env-invalid value extra" "unexpected word: extra"
 test ! -e mixed.env
 test ! -e mixed-runs
 
-assert "mise run source-env" "from-source"
+assert "pakro run source-env" "from-source"
 assert "cat source-count" "sourced"
 
 # Compatibility escape hatches continue to bypass the usage parser.
-mise run raw --anything
+pakro run raw --anything
 assert "cat raw-runs" "dependency
 raw: --anything"
-mise run help-passthrough -- --help
+pakro run help-passthrough -- --help
 assert "cat help-runs" "dependency
 help: --help"
 
 # Fresh tasks are still invalid invocations when required arguments are absent.
 touch source
-mise run fresh accepted
-assert_fail_contains "mise run fresh" "Missing required arg: <name>"
+pakro run fresh accepted
+assert_fail_contains "pakro run fresh" "Missing required arg: <name>"
 assert "cat fresh-runs" "accepted"

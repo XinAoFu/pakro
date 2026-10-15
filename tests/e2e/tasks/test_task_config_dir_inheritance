@@ -18,7 +18,7 @@ SCRIPT
 chmod +x tasks/c
 
 # Create main config with task_config.dir and an inline task
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [task_config]
 dir = "{{config_root}}/mywork"
 includes = ["tasks/included.toml", "tasks"]
@@ -28,15 +28,15 @@ run = "pwd"
 EOF
 
 # Inline task should use task_config.dir
-assert "mise run a" "$(pwd)/mywork"
+assert "pakro run a" "$(pwd)/mywork"
 
 # Included TOML task should inherit task_config.dir
-assert "mise run b" "$(pwd)/mywork"
+assert "pakro run b" "$(pwd)/mywork"
 
 # File task should inherit task_config.dir
-assert "mise run c" "$(pwd)/mywork"
+assert "pakro run c" "$(pwd)/mywork"
 
 # tasks ls --json should report the resolved dir for all inherited tasks
 # Check file task specifically to ensure template is rendered, not stored raw
-assert_not_contains "mise tasks ls --json" "{{config_root}}"
-assert_contains "mise tasks ls --json" "$(pwd)/mywork"
+assert_not_contains "pakro tasks ls --json" "{{config_root}}"
+assert_contains "pakro tasks ls --json" "$(pwd)/mywork"

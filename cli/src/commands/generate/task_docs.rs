@@ -3,8 +3,8 @@ use crate::{dirs, file};
 use color_eyre::eyre::bail;
 use std::path::{Path, PathBuf};
 
-const TASK_PLACEHOLDER_START: &str = "<!-- mise-tasks -->";
-const TASK_PLACEHOLDER_END: &str = "<!-- /mise-tasks -->";
+const TASK_PLACEHOLDER_START: &str = "<!-- pakro-tasks -->";
+const TASK_PLACEHOLDER_END: &str = "<!-- /pakro-tasks -->";
 
 /// Generate Markdown documentation for project tasks
 ///
@@ -14,21 +14,21 @@ const TASK_PLACEHOLDER_END: &str = "<!-- /mise-tasks -->";
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise generate task-docs --style detailed
-mise generate task-docs --output TASKS.md"###
+        r###"pakro generate task-docs --style detailed
+pakro generate task-docs --output TASKS.md"###
     ),
     example(
-        r###"mise generate task-docs --inject --output README.md"###,
-        help = r###"README.md must already contain both mise-tasks marker comments"###
+        r###"pakro generate task-docs --inject --output README.md"###,
+        help = r###"README.md must already contain both pakro-tasks marker comments"###
     )
 )]
 pub(super) struct TaskDocs {
     /// Insert the documentation into an existing file
     ///
-    /// This will look for a special comment, `<!-- mise-tasks -->`, and replace it with the generated documentation.
-    /// It will replace everything between the comment and the next comment, `<!-- /mise-tasks -->` so it can be
+    /// This will look for a special comment, `<!-- pakro-tasks -->`, and replace it with the generated documentation.
+    /// It will replace everything between the comment and the next comment, `<!-- /pakro-tasks -->` so it can be
     /// run multiple times on the same file to update the documentation.
-    /// The file must already contain both comments; mise errors instead of modifying the file if they are missing.
+    /// The file must already contain both comments; pakro errors instead of modifying the file if they are missing.
     #[usage(long, short, verbatim_doc_comment)]
     inject: bool,
     /// Write only an index of tasks, intended for use with `--multi`
@@ -75,7 +75,7 @@ impl TaskDocs {
                         let filename = format!("{}.md", task.name.replace([':', '/'], "-"));
                         let path = output.join(&filename);
                         file::write(&path, &task.render_markdown(&config).await?)?;
-                        miseprintln!("Wrote to {}", file::display_path(&path));
+                        pakroprintln!("Wrote to {}", file::display_path(&path));
                         if let Some(index) = &mut index {
                             let desc = if task.description.is_empty() {
                                 String::new()
@@ -94,7 +94,7 @@ impl TaskDocs {
                         }
                         let path = output.join("index.md");
                         file::write(&path, &index)?;
-                        miseprintln!("Wrote to {}", file::display_path(&path));
+                        pakroprintln!("Wrote to {}", file::display_path(&path));
                     }
                 } else {
                     return Err(eyre::eyre!(
@@ -116,11 +116,11 @@ impl TaskDocs {
                     let contents = file::read_to_string(output)?;
                     let contents = inject_task_docs(&contents, &doc, output)?;
                     file::write(output, &contents)?;
-                    miseprintln!("Wrote to {}", file::display_path(output));
+                    pakroprintln!("Wrote to {}", file::display_path(output));
                 } else {
                     doc = format!("{}\n", doc.trim());
                     file::write(output, &doc)?;
-                    miseprintln!("Wrote to {}", file::display_path(output));
+                    pakroprintln!("Wrote to {}", file::display_path(output));
                 }
             }
         } else {
@@ -128,13 +128,13 @@ impl TaskDocs {
             for task in &visible_tasks {
                 out.push(task.render_markdown(&config).await?);
             }
-            miseprintln!("{}", out.join("\n\n").trim());
+            pakroprintln!("{}", out.join("\n\n").trim());
         }
         Ok(())
     }
 }
 
-/// Replace everything between the mise-tasks markers in `contents` with `doc`.
+/// Replace everything between the pakro-tasks markers in `contents` with `doc`.
 ///
 /// Both markers must be present, with the end marker after the start marker. When
 /// a marker is missing this errors instead of writing anything: falling back to

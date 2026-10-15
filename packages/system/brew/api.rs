@@ -9,7 +9,7 @@ use serde::Deserialize;
 use crate::http::HTTP_FETCH;
 use crate::result::Result;
 
-pub(super) use mise_brew_metadata::*;
+pub(super) use pakro_brew_metadata::*;
 
 const API_BASE: &str = "https://formulae.brew.sh/api";
 
@@ -168,7 +168,7 @@ pub(super) async fn formula_with_tap_name(
     let Some(url) = tap_formula_api_url(owner, tap, formula_name, tap_url) else {
         bail!(
             "brew: tapped formula '{name}' needs a GitHub tap URL in [bootstrap.brew.taps] \
-             so mise can fetch metadata directly without the brew CLI"
+             so pakro can fetch metadata directly without the brew CLI"
         );
     };
     match HTTP_FETCH.json_cached::<Formula, _>(url).await {
@@ -179,7 +179,7 @@ pub(super) async fn formula_with_tap_name(
                 .wrap_err_with(|| {
                     format!(
                         "failed to resolve Homebrew tap formula '{name}'; published API metadata \
-                     was unavailable ({api_err}) and mise could not evaluate its tap definition"
+                     was unavailable ({api_err}) and pakro could not evaluate its tap definition"
                     )
                 })
         }

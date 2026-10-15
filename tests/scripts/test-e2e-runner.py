@@ -22,7 +22,7 @@ class E2ERunnerTests(unittest.TestCase):
         task_args=None,
         jobs="2",
     ):
-        """Run tests/e2e/run_all_tests, or the `mise run test:e2e` task script when
+        """Run tests/e2e/run_all_tests, or the `pakro run test:e2e` task script when
         task_args is given. Records the executed test order in self.order."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -70,11 +70,11 @@ exit "$status"
             env = {
                 key: value
                 for key, value in os.environ.items()
-                if not key.startswith(("E2E_", "TEST_", "GITHUB_", "MISE_E2E_"))
+                if not key.startswith(("E2E_", "TEST_", "GITHUB_", "PAKRO_E2E_"))
             }
             env.update(
                 COUNTS=str(counts),
-                MISE_E2E_BIN="/unused",
+                PAKRO_E2E_BIN="/unused",
                 E2E_RETRY_WAIT_SECONDS="0",
                 GITHUB_ACTIONS="true",
                 GITHUB_STEP_SUMMARY=str(summary),

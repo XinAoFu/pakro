@@ -1,4 +1,4 @@
-pub use mise_util::path_env::*;
+pub use pakro_util::path_env::*;
 
 #[cfg(unix)]
 #[cfg(test)]
@@ -37,7 +37,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_path_env_no_mise() {
+    async fn test_path_env_no_pakro() {
         let _config = Config::get().await.unwrap();
         let mut path_env = PathEnv::from_iter(
             [

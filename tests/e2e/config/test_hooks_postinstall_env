@@ -2,8 +2,8 @@
 
 # Test that postinstall hooks have access to pre_tools environment variables
 
-# Create a mise.toml with env vars that should be available before tools
-cat <<EOF >mise.toml
+# Create a pakro.toml with env vars that should be available before tools
+cat <<EOF >pakro.toml
 [env]
 # Environment variable without tools=true (should be available in postinstall)
 PRE_TOOLS_VAR = "available_before_tools"
@@ -19,10 +19,10 @@ dummy = { version = "latest", install_env = { INSTALL_ENV_VAR = "available_durin
 EOF
 
 # Remove any existing dummy installation to force reinstall
-rm -rf ~/.mise/installs/dummy
+rm -rf ~/.pakro/installs/dummy
 
 # Run install and capture output
-output=$(INSTALL_ENV_REMOVE=inherited mise install dummy 2>&1)
+output=$(INSTALL_ENV_REMOVE=inherited pakro install dummy 2>&1)
 
 # Check that pre_tools environment variables are available in postinstall
 if [[ $output == *"PRE_TOOLS_VAR=available_before_tools"* ]]; then
@@ -90,7 +90,7 @@ tar czf "$FIXTURES/demo.tar.gz" -C "$FIXTURES" demo
 
 start_http_server --dir "$FIXTURES"
 
-cat <<TOMLEOF >mise.toml
+cat <<TOMLEOF >pakro.toml
 [env]
 PRE_TOOLS_VAR = "available_before_tools"
 POST_TOOLS_VAR = { value = "available_after_tools", tools = true }
@@ -102,7 +102,7 @@ bin_path = "demo/bin"
 postinstall = "echo HTTP_PRE_TOOLS_VAR=\$PRE_TOOLS_VAR; echo HTTP_POST_TOOLS_VAR=\$POST_TOOLS_VAR"
 TOMLEOF
 
-http_output=$(mise install 2>&1)
+http_output=$(pakro install 2>&1)
 assert_contains_text "$http_output" "HTTP_PRE_TOOLS_VAR=available_before_tools"
 assert_not_contains_text "$http_output" "HTTP_POST_TOOLS_VAR=available_after_tools"
 
@@ -112,15 +112,15 @@ assert_not_contains_text "$http_output" "HTTP_POST_TOOLS_VAR=available_after_too
 # hook got that snapshot. A hook ordered after another must see what it did.
 echo "STATE=before" >state.env
 
-cat <<ORDEREOF >mise.toml
+cat <<ORDEREOF >pakro.toml
 [env]
 _.file = "state.env"
 
 [tools]
-"http:first" = { version = "1.0.0", url = "http://127.0.0.1:$HTTP_PORT/demo.tar.gz", bin_path = "demo/bin", postinstall = "echo FIRST_STATE=\$STATE; echo STATE=after > \$MISE_CONFIG_ROOT/state.env" }
+"http:first" = { version = "1.0.0", url = "http://127.0.0.1:$HTTP_PORT/demo.tar.gz", bin_path = "demo/bin", postinstall = "echo FIRST_STATE=\$STATE; echo STATE=after > \$PAKRO_CONFIG_ROOT/state.env" }
 "http:second" = { version = "1.0.0", url = "http://127.0.0.1:$HTTP_PORT/demo.tar.gz", bin_path = "demo/bin", depends = ["http:first"], postinstall = "echo SECOND_STATE=\$STATE" }
 ORDEREOF
 
-ordered_output=$(mise install 2>&1)
+ordered_output=$(pakro install 2>&1)
 assert_contains_text "$ordered_output" "FIRST_STATE=before"
 assert_contains_text "$ordered_output" "SECOND_STATE=after"

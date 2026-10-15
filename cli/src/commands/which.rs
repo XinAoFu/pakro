@@ -15,15 +15,15 @@ use itertools::Itertools;
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise which node
-/home/username/.local/share/mise/installs/node/20.0.0/bin/node"###
+        r###"pakro which node
+/home/username/.local/share/pakro/installs/node/20.0.0/bin/node"###
     ),
     example(
-        r###"mise which node --plugin
+        r###"pakro which node --plugin
 node"###
     ),
     example(
-        r###"mise which node --version
+        r###"pakro which node --version
 20.0.0"###
     )
 )]
@@ -33,7 +33,7 @@ pub(crate) struct Which {
     pub bin_name: Option<String>,
 
     /// Use a specific tool@version
-    /// e.g.: `mise which npm --tool=node@20`
+    /// e.g.: `pakro which npm --tool=node@20`
     #[usage(short, long, value_name = "TOOL@VERSION", verbatim_doc_comment)]
     pub tool: Option<ToolArg>,
 
@@ -61,12 +61,12 @@ impl Which {
         match ts.which(&config, &bin_name).await {
             Some((p, tv)) => {
                 if self.version {
-                    miseprintln!("{}", tv.version);
+                    pakroprintln!("{}", tv.version);
                 } else if self.plugin {
-                    miseprintln!("{p}");
+                    pakroprintln!("{p}");
                 } else {
                     let path = p.which(&config, &tv, &bin_name).await?;
-                    miseprintln!("{}", path.unwrap().display());
+                    pakroprintln!("{}", path.unwrap().display());
                 }
                 Ok(())
             }
@@ -81,10 +81,10 @@ impl Which {
                 }
                 if self.has_shim(&bin_name) {
                     bail!(
-                        "{bin_name} is a mise bin however it is not currently active. Use `mise use` to activate it in this directory."
+                        "{bin_name} is a pakro bin however it is not currently active. Use `pakro use` to activate it in this directory."
                     )
                 } else {
-                    bail!("{bin_name} is not a mise bin. Perhaps you need to install it first.",)
+                    bail!("{bin_name} is not a pakro bin. Perhaps you need to install it first.",)
                 }
             }
         }
@@ -101,7 +101,7 @@ impl Which {
             .sorted()
             .collect_vec();
         for bin in bins {
-            miseprintln!("{bin}");
+            pakroprintln!("{bin}");
         }
         Ok(())
     }
@@ -135,7 +135,7 @@ impl Which {
         };
         Some(format!(
             "{}@{requested} is not installed{resolved}\n\
-             hint: run `mise install {}@{requested}`, or `mise ls {}` to see installed versions",
+             hint: run `pakro install {}@{requested}`, or `pakro ls {}` to see installed versions",
             tool.short, tool.short, tool.short
         ))
     }

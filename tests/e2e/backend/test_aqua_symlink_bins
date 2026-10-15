@@ -6,62 +6,62 @@
 # Note: On macOS, aws-cli uses .pkg format which requires special extraction tools
 # not available in isolated test environments, so we skip the full test there.
 
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 
 # Verify aws-cli registry entry exists with aqua backend
-assert_contains "mise registry aws-cli" "aqua:aws/aws-cli"
+assert_contains "pakro registry aws-cli" "aqua:aws/aws-cli"
 
 # Full installation test only on Linux (aws-cli uses zip format there)
 if [[ "$(uname -s)" == "Linux" ]]; then
   # Install aws-cli (uses symlink_bins=true by default from registry)
-  mise install aws-cli@2.32.6
+  pakro install aws-cli@2.32.6
 
   # Verify aws-cli is installed and working
-  assert_contains "mise x aws-cli@2.32.6 -- aws --version" "aws-cli/2.32.6"
+  assert_contains "pakro x aws-cli@2.32.6 -- aws --version" "aws-cli/2.32.6"
 
-  # Get the bin path for aws-cli - should be .mise-bins directory
-  bin_path="$(mise where aws-cli@2.32.6)/.mise-bins"
+  # Get the bin path for aws-cli - should be .pakro-bins directory
+  bin_path="$(pakro where aws-cli@2.32.6)/.pakro-bins"
   assert_directory_exists "$bin_path"
 
-  # List binaries in the .mise-bins directory - should only have aws and aws_completer
+  # List binaries in the .pakro-bins directory - should only have aws and aws_completer
   bins=$(find "$bin_path" -maxdepth 1 \( -type l -o -type f \) -print0 | xargs -0 -n1 basename | sort | tr '\n' ' ')
   assert_contains "echo '$bins'" "aws"
   assert_contains "echo '$bins'" "aws_completer"
 
-  # Verify Python is NOT in the .mise-bins directory
+  # Verify Python is NOT in the .pakro-bins directory
   assert_not_contains "echo '$bins'" "Python"
   assert_not_contains "echo '$bins'" "python"
 fi
 
 # Test that symlink_bins=true still exposes the main binary when the aqua registry entry has an empty `files` field.
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools]
 "aqua:casey/just" = { version = "1.46.0", symlink_bins = true }
 EOF
 
-assert "mise install"
+assert "pakro install"
 
-just_root="$(mise where aqua:casey/just@1.46.0)"
-assert_directory_exists "$just_root/.mise-bins"
-assert "mise which just" "$just_root/.mise-bins/just"
-assert_contains "mise x -- just --version" "just 1.46.0"
+just_root="$(pakro where aqua:casey/just@1.46.0)"
+assert_directory_exists "$just_root/.pakro-bins"
+assert "pakro which just" "$just_root/.pakro-bins/just"
+assert_contains "pakro x -- just --version" "just 1.46.0"
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools]
 "aqua:casey/just" = { version = "1.46", symlink_bins = true }
 EOF
 
-assert "mise bin-paths" "$MISE_DATA_DIR/installs/aqua-casey-just/1.46/.mise-bins"
-assert "mise which just" "$MISE_DATA_DIR/installs/aqua-casey-just/1.46/.mise-bins/just"
+assert "pakro bin-paths" "$PAKRO_DATA_DIR/installs/aqua-casey-just/1.46/.pakro-bins"
+assert "pakro which just" "$PAKRO_DATA_DIR/installs/aqua-casey-just/1.46/.pakro-bins/just"
 
-# Registry files listed by name only (no `src`) must still be linked into .mise-bins.
-cat <<EOF >mise.toml
+# Registry files listed by name only (no `src`) must still be linked into .pakro-bins.
+cat <<EOF >pakro.toml
 [tools]
 "aqua:mvdan/sh" = { version = "3.12.0", symlink_bins = true }
 EOF
 
-assert "mise install"
+assert "pakro install"
 
-shfmt_root="$(mise where aqua:mvdan/sh@3.12.0)"
-assert "mise which shfmt" "$shfmt_root/.mise-bins/shfmt"
-assert "mise x -- shfmt --version" "v3.12.0"
+shfmt_root="$(pakro where aqua:mvdan/sh@3.12.0)"
+assert "pakro which shfmt" "$shfmt_root/.pakro-bins/shfmt"
+assert "pakro x -- shfmt --version" "v3.12.0"

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-export MISE_LOCKFILE=1
+export PAKRO_LOCKFILE=1
 
 detect_platform
-PLATFORM="$MISE_PLATFORM"
+PLATFORM="$PAKRO_PLATFORM"
 
 echo "=== Testing SLSA without signer identity is omitted on every platform ==="
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools]
 sops = "3.12.1"
 EOF
@@ -18,22 +18,22 @@ else
   CROSS_PLATFORM="macos-arm64"
 fi
 
-mise lock --platform "$PLATFORM,$CROSS_PLATFORM"
-assert "test -f mise.lock"
+pakro lock --platform "$PLATFORM,$CROSS_PLATFORM"
+assert "test -f pakro.lock"
 
 # Both platform entries still have artifact URLs and no unsupported SLSA lock.
-assert_contains "cat mise.lock" "\"platforms.$PLATFORM\""
-assert_contains "cat mise.lock" "\"platforms.$CROSS_PLATFORM\""
-assert_contains "cat mise.lock" 'url = "https://'
-assert_not_contains "cat mise.lock" 'provenance.slsa'
-assert_not_contains "cat mise.lock" 'provenance = "slsa"'
+assert_contains "cat pakro.lock" "\"platforms.$PLATFORM\""
+assert_contains "cat pakro.lock" "\"platforms.$CROSS_PLATFORM\""
+assert_contains "cat pakro.lock" 'url = "https://'
+assert_not_contains "cat pakro.lock" 'provenance.slsa'
+assert_not_contains "cat pakro.lock" 'provenance = "slsa"'
 
 echo "=== Testing lockfile is deterministic across runs ==="
-cp mise.lock mise.lock.first
+cp pakro.lock pakro.lock.first
 
-mise lock --platform "$PLATFORM,$CROSS_PLATFORM"
+pakro lock --platform "$PLATFORM,$CROSS_PLATFORM"
 
 # Second run should produce identical output
-assert "diff mise.lock mise.lock.first"
+assert "diff pakro.lock pakro.lock.first"
 
-echo "mise lockfile provenance determinism tests passed!"
+echo "pakro lockfile provenance determinism tests passed!"

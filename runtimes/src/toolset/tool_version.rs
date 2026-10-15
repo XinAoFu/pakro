@@ -255,7 +255,7 @@ impl ToolVersion {
     }
 
     /// Whether the request named this exact release, e.g. `hk = "2.0.1"` in
-    /// `mise.toml` or `mise install hk@2.0.1`. Release-age policy governs which
+    /// `pakro.toml` or `pakro install hk@2.0.1`. Release-age policy governs which
     /// version a fuzzy request may select; naming one release is that selection,
     /// so callers use this to avoid re-applying the cutoff to a choice the user
     /// already made.
@@ -447,7 +447,7 @@ impl ToolVersion {
             ToolRequest::Path { path: p, .. } => format!("path-{}", hash_to_str(p)),
             ToolRequest::System { .. } => {
                 // Compatibility version files define `system` as a native value, so only
-                // warn when the request came from a mise-owned source.
+                // warn when the request came from a pakro-owned source.
                 if !matches!(
                     self.request.source(),
                     crate::toolset::ToolSource::ToolVersions(_)
@@ -455,7 +455,7 @@ impl ToolVersion {
                 ) {
                     deprecated!(
                         "system_tool_version",
-                        "@system is deprecated, use MISE_DISABLE_TOOLS instead"
+                        "@system is deprecated, use PAKRO_DISABLE_TOOLS instead"
                     );
                 }
                 "system".to_string()
@@ -519,9 +519,9 @@ impl ToolVersion {
                 .is_some()
         {
             let hint = if tool_config_locked && !invocation_locked {
-                "Run `mise lock` to update the lockfile, or disable `tool_config.locked`"
+                "Run `pakro lock` to update the lockfile, or disable `tool_config.locked`"
             } else {
-                "Run `mise install` without --locked to update the lockfile"
+                "Run `pakro install` without --locked to update the lockfile"
             };
             return Err(crate::errors::Error::NotInLockfile {
                 tool: request.ba().short.clone(),
@@ -605,7 +605,7 @@ impl ToolVersion {
             && !is_offline
             && !prefer_offline;
         // Rolling release channels (e.g. zig's "master") are moving pointers that
-        // mise must resolve before the plugin-installed shortcut can preserve their
+        // pakro must resolve before the plugin-installed shortcut can preserve their
         // symbolic name as an install identity.
         if backend.is_rolling_channel(&v) {
             if !opts.latest_versions
@@ -687,7 +687,7 @@ impl ToolVersion {
             }
             // Prune-style offline (opts.offline) wants a non-erroring no-op
             // when nothing is installed — the literal "latest" can't match
-            // any installed pathname so it's safe. Global MISE_OFFLINE keeps
+            // any installed pathname so it's safe. Global PAKRO_OFFLINE keeps
             // the original error to avoid surprising upgrade/outdated callers.
             if opts.offline {
                 return build(v);
@@ -937,7 +937,7 @@ impl ToolVersion {
 /// `base` may be `latest` or an alias such as `lts`, neither of which
 /// `tool_request::version_sub` can subtract from — it needs a concrete version. Every
 /// command that accepts `sub-N:` must go through here; skipping this step is what made
-/// `mise ls-remote <tool>@sub-2:lts` panic.
+/// `pakro ls-remote <tool>@sub-2:lts` panic.
 pub async fn resolve_sub_base(
     config: &Arc<Config>,
     backend: &ABackend,
@@ -1027,13 +1027,13 @@ pub struct ResolveOptions {
     /// Apply `latest_versions` to every request in a toolset, not only
     /// `latest` and rolling channels, so a selector such as `6` resolves to
     /// the newest remote match instead of the newest installed one.
-    /// `mise lock --bump` needs this; `mise x node@20 npm@latest` must not
+    /// `pakro lock --bump` needs this; `pakro x node@20 npm@latest` must not
     /// look up newer Node releases.
     pub latest_versions_for_all_requests: bool,
     /// Apply `latest_versions` and `use_locked_version = false` only to tools
     /// named as command-line arguments. Configured tools keep resolving
-    /// against installed versions and the lockfile, so `mise x tool@latest`
-    /// does not bump every `latest` tool in mise.toml past what is installed.
+    /// against installed versions and the lockfile, so `pakro x tool@latest`
+    /// does not bump every `latest` tool in pakro.toml past what is installed.
     pub latest_versions_for_arguments_only: bool,
     pub use_locked_version: bool,
     /// Resolve rolling channels to their current concrete version even when
@@ -1124,9 +1124,9 @@ impl ResolveOptions {
     }
 }
 
-/// Check if a tool has any user-linked versions (created by `mise link`).
+/// Check if a tool has any user-linked versions (created by `pakro link`).
 /// A linked version is an installed version whose path is a symlink to an external
-/// absolute path, as opposed to runtime symlinks or mise-managed install/cache links.
+/// absolute path, as opposed to runtime symlinks or pakro-managed install/cache links.
 fn has_linked_version(ba: &BackendArg) -> bool {
     if install_state::get_tool_full(&ba.short)
         .is_some_and(|installed| installed != ba.full_without_opts())
@@ -1143,7 +1143,7 @@ fn has_linked_version(ba: &BackendArg) -> bool {
             // Runtime symlinks start with "./" (e.g., latest -> ./1.35.0)
             // User-linked symlinks point to absolute paths (e.g., brew -> /opt/homebrew/opt/hk)
             if target.is_absolute()
-                && !is_mise_managed_symlink_target(&target)
+                && !is_pakro_managed_symlink_target(&target)
                 && !is_rustup_install(ba, &path, &target)
             {
                 return true;
@@ -1154,9 +1154,9 @@ fn has_linked_version(ba: &BackendArg) -> bool {
 }
 
 /// core:rust installs are symlinks to rustup's `$CARGO_HOME/bin`, which sits
-/// outside mise's directories. They are named after the rustup toolchain they
+/// outside pakro's directories. They are named after the rustup toolchain they
 /// stand for (`1.99.0`, `stable`, `nightly-2026-10-01`), so a link to that
-/// directory under any other name is a user's `mise link`.
+/// directory under any other name is a user's `pakro link`.
 fn is_rustup_install(ba: &BackendArg, link: &Path, target: &Path) -> bool {
     let rustup = if cfg!(windows) {
         "rustup.exe"
@@ -1180,7 +1180,7 @@ fn is_rustup_toolchain_spec(name: &str) -> bool {
                 .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())))
 }
 
-fn is_mise_managed_symlink_target(target: &Path) -> bool {
+fn is_pakro_managed_symlink_target(target: &Path) -> bool {
     debug_assert!(target.is_absolute(), "caller filters relative targets");
     let target = normalize_path_components(target);
 
@@ -1355,7 +1355,7 @@ mod tests {
         let mut request =
             ToolRequest::new_with_options(backend, "latest", options, ToolSource::Argument)
                 .unwrap();
-        let owner = ToolSource::MiseToml("/project/mise.toml".into());
+        let owner = ToolSource::PakroToml("/project/pakro.toml".into());
         request.set_lockfile_scope(crate::toolset::tool_request::LockfileScope::Source(
             owner.clone(),
         ));
@@ -1464,7 +1464,7 @@ mod tests {
     }
 
     #[test]
-    fn rustup_toolchain_spec_matches_mise_created_names() {
+    fn rustup_toolchain_spec_matches_pakro_created_names() {
         for name in [
             "1.99.0",
             "1.99",
@@ -1505,7 +1505,7 @@ mod tests {
     }
 
     #[test]
-    fn has_linked_version_ignores_mise_managed_absolute_targets() -> Result<()> {
+    fn has_linked_version_ignores_pakro_managed_absolute_targets() -> Result<()> {
         let temp_dir = tempfile::tempdir()?;
         let backend = test_backend(temp_dir.path().join("installs").join("dummy"));
         fs::create_dir_all(backend.installs_path())?;
@@ -1616,7 +1616,7 @@ mod tests {
         let install_path = backend.installs_path().join("3.14.6");
         fs::create_dir_all(install_path.join("bin"))?;
 
-        // Reproduce the stale state during `mise up` (#10347): the fuzzy runtime
+        // Reproduce the stale state during `pakro up` (#10347): the fuzzy runtime
         // symlink installs/dummy/3 still points at a previous version (3.13.9) while
         // 3.14.6 is the version just installed -- runtime symlinks are only rebuilt
         // after all installs finish. is_runtime_symlink() requires a "./" target; on

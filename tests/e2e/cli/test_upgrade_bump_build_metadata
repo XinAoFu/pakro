@@ -4,7 +4,7 @@
 # pin of 1.36.4+k3s1 was rewritten to 1.37.0 -- a tag that does not exist.
 # Regression test for https://github.com/jdx/mise/discussions/13244
 
-PLUGIN_DIR="$MISE_DATA_DIR/plugins/metatest"
+PLUGIN_DIR="$PAKRO_DATA_DIR/plugins/metatest"
 mkdir -p "$PLUGIN_DIR/bin"
 
 cat <<'LISTALL' >"$PLUGIN_DIR/bin/list-all"
@@ -22,16 +22,16 @@ chmod +x "$ASDF_INSTALL_PATH/bin/metatest"
 INSTALL
 chmod +x "$PLUGIN_DIR/bin/install"
 
-cat <<'CONFIG' >mise.toml
+cat <<'CONFIG' >pakro.toml
 [tools]
 metatest = "1.36.4+k3s1"
 CONFIG
-mise install
+pakro install
 
 # The bump has to name the same version the install does.
-assert_contains "mise upgrade --bump --dry-run" "Would install metatest@1.37.0+k3s1"
-assert_contains "mise upgrade --bump --dry-run" "Would bump metatest@1.37.0+k3s1"
+assert_contains "pakro upgrade --bump --dry-run" "Would install metatest@1.37.0+k3s1"
+assert_contains "pakro upgrade --bump --dry-run" "Would bump metatest@1.37.0+k3s1"
 
-mise upgrade --bump
-assert_contains "cat mise.toml" 'metatest = "1.37.0+k3s1"'
-assert_contains "mise x -- metatest" "metatest 1.37.0+k3s1"
+pakro upgrade --bump
+assert_contains "cat pakro.toml" 'metatest = "1.37.0+k3s1"'
+assert_contains "pakro x -- metatest" "metatest 1.37.0+k3s1"

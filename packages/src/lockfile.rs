@@ -1,17 +1,17 @@
-//! The package-graph lockfile (`mise.packages.lock`), a sidecar next to
-//! `mise.lock`. The main lockfile has a hand-rolled TOML reader/writer and a
-//! revision-merge machinery that this must not disturb; mise already keeps
+//! The package-graph lockfile (`pakro.packages.lock`), a sidecar next to
+//! `pakro.lock`. The main lockfile has a hand-rolled TOML reader/writer and a
+//! revision-merge machinery that this must not disturb; pakro already keeps
 //! native dependency graphs (aube, uv) in sidecars, so this follows the
 //! established pattern. Format is plain serde TOML so it can merge back into
-//! `mise.lock` later once stabilized.
+//! `pakro.lock` later once stabilized.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use eyre::Context;
-use mise_resolver::{DependencyRequest, ResolvedGraph, ResolvedNode};
+use pakro_resolver::{DependencyRequest, ResolvedGraph, ResolvedNode};
 
-pub(crate) const LOCKFILE_NAME: &str = "mise.packages.lock";
+pub(crate) const LOCKFILE_NAME: &str = "pakro.packages.lock";
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct PackageLock {

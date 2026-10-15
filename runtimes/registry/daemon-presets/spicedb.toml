@@ -18,7 +18,7 @@ datastore_engine = { type = "string", default = "memory", pattern = '^[a-z0-9-]+
 datastore_uri = { type = "string", default = "", requires = [
   "datastore_engine",
 ] }
-preshared_key = { type = "string", default = "mise-dev-key", pattern = '^\S+$' }
+preshared_key = { type = "string", default = "pakro-dev-key", pattern = '^\S+$' }
 # Name of the daemon hosting the datastore, so SpiceDB starts after it is ready.
 datastore_daemon = { type = "string", default = "", pattern = '^[A-Za-z0-9_.-]+$' }
 

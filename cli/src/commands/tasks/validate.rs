@@ -21,10 +21,10 @@ use serde::Serialize;
 /// Validate tasks for common errors and issues
 #[derive(Debug, usage_rs::Args)]
 #[usage(verbatim_doc_comment, after_long_help = AFTER_LONG_HELP,
-    example(r###"mise tasks validate"###, help = r###"Validate all tasks"###),
-    example(r###"mise tasks validate build test"###, help = r###"Validate specific tasks"###),
-    example(r###"mise tasks validate --json"###, help = r###"Output results as JSON"###),
-    example(r###"mise tasks validate --errors-only"###, help = r###"Only show errors (skip warnings)"###))]
+    example(r###"pakro tasks validate"###, help = r###"Validate all tasks"###),
+    example(r###"pakro tasks validate build test"###, help = r###"Validate specific tasks"###),
+    example(r###"pakro tasks validate --json"###, help = r###"Output results as JSON"###),
+    example(r###"pakro tasks validate --errors-only"###, help = r###"Only show errors (skip warnings)"###))]
 pub(super) struct TasksValidate {
     /// Tasks to validate
     /// If not specified, validates all tasks
@@ -73,7 +73,7 @@ impl TasksValidate {
         // so we can properly validate remote tasks and circular dependencies
         let mut resolved_tasks: Vec<Task> = config.tasks().await?.values().cloned().collect();
         // always no_cache=false as the command doesn't take no-cache argument
-        // MISE_TASK_REMOTE_NO_CACHE env var is still respected if set
+        // PAKRO_TASK_REMOTE_NO_CACHE env var is still respected if set
         TaskFetcher::new(false)
             .fetch_tasks(&config, &mut resolved_tasks)
             .await?;
@@ -793,13 +793,13 @@ impl TasksValidate {
 
     fn output_json(&self, results: &ValidationResults) -> Result<()> {
         let json = serde_json::to_string_pretty(results)?;
-        miseprintln!("{}", json);
+        pakroprintln!("{}", json);
         Ok(())
     }
 
     fn output_human(&self, results: &ValidationResults) -> Result<()> {
         if results.issues.is_empty() {
-            miseprintln!(
+            pakroprintln!(
                 "{}",
                 console_style(format!(
                     "✓ All {} task(s) validated successfully",
@@ -820,14 +820,14 @@ impl TasksValidate {
         }
 
         // Print summary
-        miseprintln!(
+        pakroprintln!(
             "\n{} task(s) validated with {} issue(s):\n",
             console_style(results.tasks_validated).bold(),
             console_style(results.errors + results.warnings).bold()
         );
 
         if results.errors > 0 {
-            miseprintln!(
+            pakroprintln!(
                 "  {} {}",
                 console_style("✗").red().bold(),
                 console_style(format!("{} error(s)", results.errors))
@@ -836,7 +836,7 @@ impl TasksValidate {
             );
         }
         if results.warnings > 0 {
-            miseprintln!(
+            pakroprintln!(
                 "  {} {}",
                 console_style("⚠").yellow().bold(),
                 console_style(format!("{} warning(s)", results.warnings))
@@ -845,11 +845,11 @@ impl TasksValidate {
             );
         }
 
-        miseprintln!();
+        pakroprintln!();
 
         // Print issues grouped by task
         for (task_name, task_issues) in issues_by_task {
-            miseprintln!(
+            pakroprintln!(
                 "{} {}",
                 console_style("Task:").bold(),
                 console_style(&task_name).cyan()
@@ -861,7 +861,7 @@ impl TasksValidate {
                     Severity::Warning => console_style("⚠").yellow().bold(),
                 };
 
-                miseprintln!(
+                pakroprintln!(
                     "  {} {} [{}]",
                     severity_icon,
                     console_style(&issue.message).bold(),
@@ -870,12 +870,12 @@ impl TasksValidate {
 
                 if let Some(ref details) = issue.details {
                     for line in details.lines() {
-                        miseprintln!("      {}", console_style(line).dim());
+                        pakroprintln!("      {}", console_style(line).dim());
                     }
                 }
             }
 
-            miseprintln!();
+            pakroprintln!();
         }
 
         Ok(())

@@ -19,10 +19,10 @@ git -C "$plugin_repo" tag -a v2 -m v2
 echo main >"$plugin_repo/version"
 git -C "$plugin_repo" commit -q -am "advance main"
 
-mise plugin install annotated-ref "file://$plugin_repo#v1"
-installed_sha="$(git -C "$MISE_DATA_DIR/plugins/annotated-ref" rev-parse HEAD)"
+pakro plugin install annotated-ref "file://$plugin_repo#v1"
+installed_sha="$(git -C "$PAKRO_DATA_DIR/plugins/annotated-ref" rev-parse HEAD)"
 [[ $installed_sha == "$v1_sha" ]] || fail "annotated v1 install resolved $installed_sha, expected $v1_sha"
 
-mise plugins update annotated-ref#v2
-updated_sha="$(git -C "$MISE_DATA_DIR/plugins/annotated-ref" rev-parse HEAD)"
+pakro plugins update annotated-ref#v2
+updated_sha="$(git -C "$PAKRO_DATA_DIR/plugins/annotated-ref" rev-parse HEAD)"
 [[ $updated_sha == "$v2_sha" ]] || fail "annotated v2 update resolved $updated_sha, expected $v2_sha"

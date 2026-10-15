@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-unset CARGO_HOME RUSTUP_HOME MISE_CARGO_HOME MISE_RUSTUP_HOME
+unset CARGO_HOME RUSTUP_HOME PAKRO_CARGO_HOME PAKRO_RUSTUP_HOME
 
 ROOT=$PWD
 ORIGINAL_PATH=$PATH
@@ -112,7 +112,7 @@ run_case() {
   for command in rustup cargo rustc; do
     cat >"$shims/$command" <<'SHIM'
 #!/usr/bin/env bash
-echo "mise shim must not be selected as an external Rust provider" >&2
+echo "pakro shim must not be selected as an external Rust provider" >&2
 exit 77
 SHIM
     chmod +x "$shims/$command"
@@ -144,7 +144,7 @@ WRAPPER
     ln -s rustup-init "$bin/rustc"
   fi
 
-  cat >"$project/mise.toml" <<EOF
+  cat >"$project/pakro.toml" <<EOF
 [tools]
 rust = { version = "$version", components = ["rustfmt"], targets = ["wasm32-unknown-unknown"] }
 EOF
@@ -153,32 +153,32 @@ EOF
     cd "$project"
     export HOME="$home"
     export PATH="$shims:$direct:$bin:$ORIGINAL_PATH"
-    export MISE_DATA_DIR="$case_root/data"
-    export MISE_CACHE_DIR="$case_root/cache"
-    export MISE_STATE_DIR="$case_root/state"
-    export MISE_OFFLINE=1
+    export PAKRO_DATA_DIR="$case_root/data"
+    export PAKRO_CACHE_DIR="$case_root/cache"
+    export PAKRO_STATE_DIR="$case_root/state"
+    export PAKRO_OFFLINE=1
 
-    mise install
-    assert_contains "mise exec -- rustc -V" "rustc $version (external provider)"
-    assert_contains "mise exec -- cargo -V" "cargo $version (external provider)"
+    pakro install
+    assert_contains "pakro exec -- rustc -V" "rustc $version (external provider)"
+    assert_contains "pakro exec -- cargo -V" "cargo $version (external provider)"
     assert_contains "readlink '$case_root/data/installs/rust/$version'" "$bin"
     assert_contains "grep -c '^toolchain install' '$prefix/state/rustup.log'" "1"
 
     # Initializing the default Rust homes later must not take ownership away
-    # from the external provider recorded by the mise install symlink.
+    # from the external provider recorded by the pakro install symlink.
     mkdir -p "$home/.cargo/bin" "$home/.rustup"
     touch "$home/.cargo/bin/cargo" "$home/.rustup/settings.toml"
-    mise install
+    pakro install
     assert_contains "grep -c '^toolchain install' '$prefix/state/rustup.log'" "1"
-    assert_contains "mise exec -- sh -c 'command -v rustc'" "$bin/rustc"
-    assert_contains "mise exec -- rustc -V" "rustc $version (external provider)"
+    assert_contains "pakro exec -- sh -c 'command -v rustc'" "$bin/rustc"
+    assert_contains "pakro exec -- rustc -V" "rustc $version (external provider)"
 
     for command in rustup cargo rustc; do
       write_proxy "$alternate_bin/$command"
     done
     export PATH="$alternate_bin:$PATH"
 
-    mise install
+    pakro install
     assert_contains "grep -c '^toolchain install' '$prefix/state/rustup.log'" "1"
     assert "test ! -e '$alternate/state/toolchains/$version'"
 
@@ -189,7 +189,7 @@ EOF
       write_proxy "$explicit_bin/$command"
     done
     touch "$explicit_rustup/settings.toml"
-    cat >mise.toml <<EOF
+    cat >pakro.toml <<EOF
 [env]
 CARGO_HOME = "$explicit_cargo"
 RUSTUP_HOME = "$explicit_rustup"
@@ -198,13 +198,13 @@ RUSTUP_HOME = "$explicit_rustup"
 rust = { version = "$version", components = ["rustfmt"], targets = ["wasm32-unknown-unknown"] }
 EOF
 
-    mise install
+    pakro install
     assert_contains "readlink '$case_root/data/installs/rust/$version'" "$explicit_bin"
     assert_contains "grep -c '^toolchain install' '$explicit_cargo/state/rustup.log'" "1"
-    assert_contains "mise exec -- sh -c 'command -v rustc'" "$explicit_bin/rustc"
-    assert_contains "mise exec -- rustc -V" "rustc $version (external provider)"
+    assert_contains "pakro exec -- sh -c 'command -v rustc'" "$explicit_bin/rustc"
+    assert_contains "pakro exec -- rustc -V" "rustc $version (external provider)"
 
-    mise uninstall --yes "rust@$version"
+    pakro uninstall --yes "rust@$version"
     assert_contains "tail -1 '$explicit_cargo/state/rustup.log'" "toolchain uninstall $version"
     assert "! grep -q '^toolchain uninstall' '$prefix/state/rustup.log'"
     assert "test ! -f '$alternate/state/rustup.log' || ! grep -q '^toolchain uninstall' '$alternate/state/rustup.log'"

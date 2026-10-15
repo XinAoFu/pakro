@@ -101,7 +101,7 @@ impl IntoIterator for RawBackendOptions {
     }
 }
 
-/// User-specified tool options split into mise-owned core control-plane options
+/// User-specified tool options split into pakro-owned core control-plane options
 /// and raw backend options. `ToolVersionOptions` remains as a compatibility
 /// alias while call sites move to the clearer names.
 #[derive(Debug, Default, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -427,7 +427,7 @@ impl ToolOptions {
         Ok(())
     }
 
-    /// Returns true for keys owned by mise's option parser. A few install-time
+    /// Returns true for keys owned by pakro's option parser. A few install-time
     /// scalar keys are still stored in raw opts after validation because
     /// downstream install code reads them from that map.
     fn insert_core_option(&mut self, key: &str, value: &toml::Value) -> Result<bool, String> {

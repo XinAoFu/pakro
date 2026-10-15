@@ -947,7 +947,7 @@ mod tests {
         );
     }
 
-    /// `mise upgrade --bump` queries with just the vendor prefix, which has to
+    /// `pakro upgrade --bump` queries with just the vendor prefix, which has to
     /// match versions whose next character is a digit. See discussion #7328.
     #[test]
     fn vendor_prefix_query_matches_versions_starting_with_a_digit() {

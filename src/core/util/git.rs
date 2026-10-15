@@ -1,4 +1,4 @@
-pub use mise_util::git::*;
+pub use pakro_util::git::*;
 
 #[cfg(test)]
 mod tests {

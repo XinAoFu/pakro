@@ -14,22 +14,22 @@ esac
 # an assertion fails mid-test — otherwise a failed run masks later ones
 trap 'rm -rf /home/linuxbrew' EXIT
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [bootstrap.packages]
 "brew:xz" = "latest"
 "brew:unzip" = "latest"
 EOF
 
-assert_contains "mise bootstrap packages status" "missing"
+assert_contains "pakro bootstrap packages status" "missing"
 
-mise bootstrap packages apply --yes
-assert_contains "mise bootstrap packages status" "installed"
+pakro bootstrap packages apply --yes
+assert_contains "pakro bootstrap packages status" "installed"
 assert_succeed "test -L /home/linuxbrew/.linuxbrew/var/homebrew/linked/xz"
 
-# unzip is keg-only upstream only because macOS provides it; on Linux mise
+# unzip is keg-only upstream only because macOS provides it; on Linux pakro
 # links it into the prefix like brew does, without a keg-only marker
 assert_succeed "test -L /home/linuxbrew/.linuxbrew/bin/unzip"
-assert_fail "test -e \"$(readlink -f /home/linuxbrew/.linuxbrew/opt/unzip)/.mise-keg-only\""
+assert_fail "test -e \"$(readlink -f /home/linuxbrew/.linuxbrew/opt/unzip)/.pakro-keg-only\""
 assert_contains "/home/linuxbrew/.linuxbrew/bin/unzip -v" "UnZip"
 assert_succeed "test \"$(readlink -f /home/linuxbrew/.linuxbrew/opt/xz)\" = \"$(readlink -f /home/linuxbrew/.linuxbrew/var/homebrew/linked/xz)\""
 
@@ -42,36 +42,36 @@ receipt_mtime="$(stat -c %y "$keg/INSTALL_RECEIPT.json")"
 keg_inode="$(stat -c %i "$keg")"
 public_link_inode="$(stat -c %i /home/linuxbrew/.linuxbrew/bin/xz)"
 rm /home/linuxbrew/.linuxbrew/var/homebrew/linked/xz
-assert_contains "mise bootstrap packages status" "needs repair"
-mise bootstrap packages apply --yes
+assert_contains "pakro bootstrap packages status" "needs repair"
+pakro bootstrap packages apply --yes
 assert_succeed "test \"$(readlink -f /home/linuxbrew/.linuxbrew/var/homebrew/linked/xz)\" = \"$keg\""
 assert_succeed "test \"$(stat -c %y "$keg/INSTALL_RECEIPT.json")\" = \"$receipt_mtime\""
 assert_succeed "test \"$(stat -c %i "$keg")\" = \"$keg_inode\""
 assert_succeed "test \"$(stat -c %i /home/linuxbrew/.linuxbrew/bin/xz)\" = \"$public_link_inode\""
 
 rm /home/linuxbrew/.linuxbrew/opt/xz
-assert_contains "mise bootstrap packages status" "needs repair"
-mise bootstrap packages apply --yes
+assert_contains "pakro bootstrap packages status" "needs repair"
+pakro bootstrap packages apply --yes
 assert_succeed "test \"$(readlink -f /home/linuxbrew/.linuxbrew/opt/xz)\" = \"$keg\""
 assert_succeed "test \"$(stat -c %i "$keg")\" = \"$keg_inode\""
 assert_succeed "test \"$(stat -c %i /home/linuxbrew/.linuxbrew/bin/xz)\" = \"$public_link_inode\""
 
 # idempotent
-assert_contains "mise bootstrap packages apply --yes 2>&1" "already"
+assert_contains "pakro bootstrap packages apply --yes 2>&1" "already"
 
 # import previews and writes the currently installed requested formula
-assert_contains "mise bootstrap packages import --manager brew --dry-run --path imported.toml" '"brew:xz" = "latest"'
-mise bootstrap packages import --manager brew --path imported.toml
+assert_contains "pakro bootstrap packages import --manager brew --dry-run --path imported.toml" '"brew:xz" = "latest"'
+pakro bootstrap packages import --manager brew --path imported.toml
 assert_contains "cat imported.toml" '"brew:xz" = "latest"'
 
 # prune is a no-op while the formula is still configured
-assert_contains "mise bootstrap packages prune --manager brew --dry-run 2>&1" "nothing to prune"
+assert_contains "pakro bootstrap packages prune --manager brew --dry-run 2>&1" "nothing to prune"
 
 # after removing it from config, prune previews and removes the linked formula
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [bootstrap.packages]
 EOF
-assert_contains "mise bootstrap packages prune --manager brew --dry-run" "remove brew:xz"
-mise bootstrap packages prune --manager brew --yes
+assert_contains "pakro bootstrap packages prune --manager brew --dry-run" "remove brew:xz"
+pakro bootstrap packages prune --manager brew --yes
 assert_fail "test -e /home/linuxbrew/.linuxbrew/opt/xz"
 assert_fail "test -L /home/linuxbrew/.linuxbrew/var/homebrew/linked/xz"

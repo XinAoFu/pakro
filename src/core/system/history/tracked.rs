@@ -1,11 +1,11 @@
 //! The effective tracked set: which paths a capture covers, under which
 //! policies, and how they map onto the snapshot tree.
 //!
-//! mise's own walker decides what is captured — never git's ignore rules —
+//! pakro's own walker decides what is captured — never git's ignore rules —
 //! and hands the repository literal file pathspecs. Every file belongs to
 //! exactly one entry, the most specific one covering it, whose policies
-//! apply. Hard exclusions are only mise's internals: the history store, the
-//! mise state/cache/data/installs/downloads/plugins directories, and `.git`
+//! apply. Hard exclusions are only pakro's internals: the history store, the
+//! pakro state/cache/data/installs/downloads/plugins directories, and `.git`
 //! directories (a nested repository is captured as a gitlink).
 //!
 //! Only explicit `mode = "track"` declarations enroll paths. Deployment
@@ -190,8 +190,8 @@ impl TrackedEntry {
     /// Why a capture leaves `path` out under this entry, if it does,
     /// with rule 4 applied.
     ///
-    /// The one place rule 4 is decided. The walk, `mise dot save <path>`,
-    /// `mise dot track`'s preflight and its dry run all ask here, so none
+    /// The one place rule 4 is decided. The walk, `pakro dot save <path>`,
+    /// `pakro dot track`'s preflight and its dry run all ask here, so none
     /// of them can promise something the others will not do.
     pub fn capture_exclusion(&self, path: &Path) -> Option<&'static str> {
         let reason = capture_exclusion(path, &self.policy)?;
@@ -387,7 +387,7 @@ impl TrackedSet {
                 };
             let Some(path) = portable.filter(|path| super::sync::layout::is_safe_branch_path(path))
             else {
-                set.invalid.push(PathReason { path: display_path(&target), reason: "tracking requires a portable path under home or the mise configuration directory".into() });
+                set.invalid.push(PathReason { path: display_path(&target), reason: "tracking requires a portable path under home or the pakro configuration directory".into() });
                 continue;
             };
             if let Err(error) = select::validate(&request.variants) {
@@ -499,7 +499,7 @@ impl TrackedSet {
     /// compile and remembers the ones it could not, so every reader
     /// carries on with a list that is missing exactly the paths a rule
     /// was written to leave out. Reading that way is fine and is the
-    /// point: `mise dot paths`, `mise dot status`, a dry-run preview and
+    /// point: `pakro dot paths`, `pakro dot status`, a dry-run preview and
     /// the watch set the watcher builds at startup all keep working and
     /// report the rule, because the command the diagnostic sends the user
     /// to must not fail for the reason it is diagnosing.
@@ -522,7 +522,7 @@ impl TrackedSet {
     }
 
     /// Whether a capture of this set would include `path`: under an entry,
-    /// not excluded, not inside mise's own directories or a `.git`.
+    /// not excluded, not inside pakro's own directories or a `.git`.
     pub fn would_capture(&self, path: &Path) -> Result<bool> {
         if !self.would_retain(path)? {
             return Ok(false);
@@ -608,7 +608,7 @@ impl TrackedSet {
     ///   it is selected, although no pattern ever selects the directory
     ///   itself: an anchored list like `rules/**` does not name `rules`.
     ///   Asking `is_included` of a directory reported a tracked tree as
-    ///   uncaptured, so `mise dot track` warned about a symlink whose
+    ///   uncaptured, so `pakro dot track` warned about a symlink whose
     ///   source it was capturing, and a rollback skipped the empty
     ///   subdirectories a capture still walks.
     /// - A path with **no kind** — removed or renamed — is where the
@@ -694,7 +694,7 @@ impl TrackedSet {
     /// present, so a target nested under an existing entry — or an
     /// existing entry nested under the target — is attributed the way a
     /// capture would attribute it. It does not need the other entries
-    /// walked: `mise dot track --dry-run` on one directory would
+    /// walked: `pakro dot track --dry-run` on one directory would
     /// otherwise re-walk and re-stat every directory already tracked on
     /// the machine, which is the opposite of cheap.
     pub fn walk_selected(&self, selected: &[usize]) -> Result<Walk> {
@@ -713,7 +713,7 @@ impl TrackedSet {
         walk.manifest.exclude = set.exclude.clone();
         // the rule cannot narrow this walk, so say what the listing now
         // holds that it was written to leave out. Refusing here would
-        // break `mise dot paths`, the watch set, and the previews — the
+        // break `pakro dot paths`, the watch set, and the previews — the
         // very commands that let someone see and fix the rule.
         if let Some(report) = unusable_exclusions(&exclude) {
             walk.warnings.push(format!(
@@ -758,7 +758,7 @@ impl TrackedSet {
         });
         // a credential-named file saved because an entry named it exactly
         // is worth saying out loud on every capture, not only in
-        // `mise dot paths`: it goes to any connected origin as plaintext
+        // `pakro dot paths`: it goes to any connected origin as plaintext
         for plaintext in &walk.plaintext {
             walk.capture_warnings.push(format!(
                 "{}: {}; this credential-like file may be shared with an origin; `encrypt = true` saves it encrypted instead",
@@ -862,7 +862,7 @@ fn walk_entry(
     if hard.iter().any(|dir| entry.path.starts_with(dir)) {
         walk.omitted.push(PathReason {
             path: display,
-            reason: "mise internal directory".into(),
+            reason: "pakro internal directory".into(),
         });
         return;
     }
@@ -1146,7 +1146,7 @@ pub fn is_builtin_credential(path: &Path, name: &str) -> bool {
 }
 
 /// How many omissions a capture report lists one by one before it
-/// summarizes them and points at `mise dot paths`.
+/// summarizes them and points at `pakro dot paths`.
 pub(crate) const OMISSION_LINES: usize = 10;
 
 /// An entry-relative path as its patterns see it.
@@ -1247,7 +1247,7 @@ fn display_separators(path: &str) -> String {
 }
 
 /// A tree this large is worth a second look before it is tracked: more
-/// files than this, or more bytes, and `mise dot track` warns.
+/// files than this, or more bytes, and `pakro dot track` warns.
 pub(crate) const LARGE_TREE_FILES: usize = 5_000;
 pub(crate) const LARGE_TREE_BYTES: u64 = 256 * 1024 * 1024;
 
@@ -1368,7 +1368,7 @@ pub fn with_separators(n: usize) -> String {
 }
 
 /// The set tracking `path` alone would capture, under the `[history]`
-/// exclusions: what `mise dot paths --preview` lists and what `mise dot
+/// exclusions: what `pakro dot paths --preview` lists and what `pakro dot
 /// track` sizes up before it writes a declaration.
 pub fn preview_set(path: &Path, policy: Policy) -> Result<TrackedSet> {
     Ok(preview_set_with(
@@ -1439,10 +1439,10 @@ pub fn omission_summary(omitted: &[PathReason], nested: &[PathReason]) -> String
             }
         ));
     }
-    format!("{}; `mise dot paths` lists them", parts.join("; "))
+    format!("{}; `pakro dot paths` lists them", parts.join("; "))
 }
 
-/// Credential stores mise itself knows by name; they mean something only
+/// Credential stores pakro itself knows by name; they mean something only
 /// under the global configuration directory.
 fn credential_names() -> GlobSet {
     glob_set(CREDENTIAL_NAMES)
@@ -1495,7 +1495,7 @@ impl ExcludeSet {
     /// Because a descendant is excluded by its own ancestor's match,
     /// pruning an excluded directory out of the walk can only ever be a
     /// speed-up: every file under it would have been excluded one by one
-    /// anyway, and the walk and the callers that never walk — `mise dot
+    /// anyway, and the walk and the callers that never walk — `pakro dot
     /// save <path>`, the watcher — cannot disagree.
     ///
     /// Ancestors stop at the tracked root. A pattern is about what the
@@ -1666,7 +1666,7 @@ pub(crate) enum Asked {
 /// captures, or a pattern naming the live `~/…` location silently misses
 /// whenever an ancestor is a symlink. `\` counts as a separator on
 /// Windows because that is what `display_path` writes, so a path copied
-/// out of mise's own output would otherwise be read back as a file-name
+/// out of pakro's own output would otherwise be read back as a file-name
 /// glob. A relative pattern is neither resolved nor left to fail:
 /// resolving it would bind `**/*.log` to whichever directory the command
 /// ran in, and matching it as written against an absolute path would
@@ -1881,7 +1881,7 @@ fn reaches_into(pattern: &str, components: &[String]) -> bool {
 /// question, so they go through the same builder.** A path glob is
 /// gitignore-like: `*` stops at a separator, `**` crosses them. A name
 /// glob matches one component, so there is no separator in it to stop
-/// at. Building a candidate any other way would let `mise dot exclude`
+/// at. Building a candidate any other way would let `pakro dot exclude`
 /// accept a pattern that [`PatternRule::compile`] then drops with a
 /// warning — the exclusion the user asked for silently doing nothing.
 fn build_glob(glob: &str, anchor: Anchor) -> std::result::Result<Glob, globset::Error> {
@@ -1908,7 +1908,7 @@ fn anchor_of(body: &str) -> Anchor {
 
 /// Why this matcher cannot use a pattern, if it cannot.
 ///
-/// Shared with `mise dot exclude`, which refuses such a pattern rather
+/// Shared with `pakro dot exclude`, which refuses such a pattern rather
 /// than writing it, so the message a user sees when they type one is the
 /// message the loader would have warned about later.
 pub fn unusable_pattern(body: &str) -> Option<String> {
@@ -2035,13 +2035,13 @@ impl PatternList {
             // **A rule this matcher cannot use is recorded, not dropped
             // quietly.** Building the matcher still never fails: a list
             // lives in configuration that was written against an older
-            // mise, and a matcher that refuses to build takes the
+            // pakro, and a matcher that refuses to build takes the
             // watcher down with it. What must not happen is the capture
             // going ahead without the rule, which is the one case where
             // dropping it broadens the snapshot to exactly the files
             // the rule existed to leave out. So the rule is kept here
             // and [`ExcludeSet::unusable`] hands it to the capture,
-            // which refuses. `mise dot exclude` refuses such a pattern
+            // which refuses. `pakro dot exclude` refuses such a pattern
             // at the point the user writes it, so nothing new gets in.
             if let Some(reason) = unusable_pattern(body) {
                 unusable.push((pattern.clone(), reason));
@@ -2171,7 +2171,7 @@ pub(crate) fn matcher_reads_alike(matcher: Option<u32>, include: Option<&[String
     }
 }
 
-/// Directories mise owns that are never captured.
+/// Directories pakro owns that are never captured.
 pub(crate) fn hard_exclusions() -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = [
         *dirs::STATE,
@@ -2186,7 +2186,7 @@ pub(crate) fn hard_exclusions() -> Vec<PathBuf> {
     .map(normalize)
     .collect();
     dirs.push(normalize(&super::store::store_dir_in(&dirs::STATE)));
-    dirs.push(normalize(&global_config_dir()).join(".mise-history"));
+    dirs.push(normalize(&global_config_dir()).join(".pakro-history"));
     dirs.extend(
         crate::agecrypt::identity_paths()
             .iter()
@@ -2199,7 +2199,7 @@ pub(crate) fn hard_exclusions() -> Vec<PathBuf> {
 
 /// The global config directory (where `--adopt` checks out).
 pub fn global_config_dir() -> PathBuf {
-    crate::env::MISE_GLOBAL_CONFIG_FILE
+    crate::env::PAKRO_GLOBAL_CONFIG_FILE
         .as_deref()
         .map(|path| {
             path.parent()
@@ -2291,7 +2291,7 @@ pub fn tree_path_to_display(tree_path: &str) -> String {
 /// destination on another machine. The leaf itself may still be a symlink.
 /// The entry that owns `path`: the most specific one it lies under.
 ///
-/// One rule, one place. Capture, `mise dot save <path>`, the watcher and
+/// One rule, one place. Capture, `pakro dot save <path>`, the watcher and
 /// a replay all have to agree about which entry owns a file, because
 /// each reads that entry's own lists and uses its path as the root the
 /// global patterns are measured against. Ranking by byte length instead
@@ -2335,7 +2335,7 @@ pub(crate) fn owning_display<'a, T: 'a>(
         .filter(|item| display_under(path, key(item)))
         // **Normalized once, then used for everything after.** A
         // recorded display path keeps the separator of the host that
-        // wrote it, so `~\.config\mise` counted as components on a unix
+        // wrote it, so `~\.config\pakro` counted as components on a unix
         // reader is one component, not three — and the most specific
         // entry would lose to a shallower one. The comparison above
         // already reads both spellings as the same path; the ranking has
@@ -2422,7 +2422,7 @@ pub fn ensure_portable_ancestors(path: &Path) -> Result<()> {
         .max_by_key(|(base, _)| base.components().count())
     else {
         eyre::bail!(
-            "tracking requires a portable path under home or the mise configuration directory"
+            "tracking requires a portable path under home or the pakro configuration directory"
         );
     };
     let mut ancestor = base.clone();
@@ -2475,7 +2475,7 @@ pub fn display_to_tree_path(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     /// Tracked root for the matcher tests: ancestors stop here.
-    const ROOT: &str = "/nonexistent-mise-test";
+    const ROOT: &str = "/nonexistent-pakro-test";
     use super::*;
 
     #[cfg(unix)]
@@ -2782,7 +2782,7 @@ mod tests {
     /// A pattern is compiled from more than one glob when it is
     /// anchored, and the refusal has to cover all of them: a form that
     /// only `PatternRule::compile` rejects is dropped with a warning long
-    /// after `mise dot exclude` accepted the pattern.
+    /// after `pakro dot exclude` accepted the pattern.
     #[cfg(unix)]
     #[test]
     fn a_pattern_is_refused_when_any_form_it_compiles_to_is_unusable() {
@@ -2815,32 +2815,32 @@ mod tests {
         struct Recorded(&'static str);
         for (entries, path, expected) in [
             (
-                vec![Recorded("~/.config"), Recorded("~/.config/mise")],
-                "~/.config/mise/config.toml",
-                "~/.config/mise",
+                vec![Recorded("~/.config"), Recorded("~/.config/pakro")],
+                "~/.config/pakro/config.toml",
+                "~/.config/pakro",
             ),
             // the same set spelled the way `display_path` writes it on
             // Windows, where both characters separate and the two
             // spellings mix within one host
             #[cfg(windows)]
             (
-                vec![Recorded("~\\.config"), Recorded("~\\.config\\mise")],
-                "~\\.config\\mise\\config.toml",
-                "~\\.config\\mise",
+                vec![Recorded("~\\.config"), Recorded("~\\.config\\pakro")],
+                "~\\.config\\pakro\\config.toml",
+                "~\\.config\\pakro",
             ),
             #[cfg(windows)]
             (
-                vec![Recorded("~/.config"), Recorded("~\\.config\\mise")],
-                "~/.config/mise/config.toml",
-                "~\\.config\\mise",
+                vec![Recorded("~/.config"), Recorded("~\\.config\\pakro")],
+                "~/.config/pakro/config.toml",
+                "~\\.config\\pakro",
             ),
             // on unix a backslash is part of a name, so this entry is one
-            // directory called `.config\mise` and owns nothing under
+            // directory called `.config\pakro` and owns nothing under
             // `~/.config`
             #[cfg(unix)]
             (
-                vec![Recorded("~/.config"), Recorded("~/.config\\mise")],
-                "~/.config/mise/config.toml",
+                vec![Recorded("~/.config"), Recorded("~/.config\\pakro")],
+                "~/.config/pakro/config.toml",
                 "~/.config",
             ),
         ] {
@@ -2958,7 +2958,7 @@ mod tests {
     /// **A directory is covered when something beneath it is, although
     /// no pattern ever selects a directory.** Asking a directory "are
     /// you selected" made every reader call a tracked tree uncaptured:
-    /// `mise dot track` warned that a symlink's source was not in
+    /// `pakro dot track` warned that a symlink's source was not in
     /// history while the capture was saving its files, and a rollback
     /// called the subdirectories a capture still walks uncovered.
     #[test]
@@ -3534,7 +3534,7 @@ mod tests {
     #[test]
     fn the_credential_guard_matches_by_name_alone() {
         let policy = Policy::for_mode(FileMode::Track);
-        let dir = Path::new("/nonexistent-mise-test/.ssh");
+        let dir = Path::new("/nonexistent-pakro-test/.ssh");
         // conservative by name: a public half or a recipient list is
         // protected like the private half; un-protecting is the user's call
         for name in [
@@ -3595,39 +3595,39 @@ mod tests {
     fn a_name_glob_excludes_any_path_component() {
         let set = ExcludeSet::new(&["cache".to_string()]).unwrap();
         assert!(set.is_match(
-            Path::new("/nonexistent-mise-test/.codex/cache"),
+            Path::new("/nonexistent-pakro-test/.codex/cache"),
             Path::new(ROOT)
         ));
         assert!(set.is_match(
-            Path::new("/nonexistent-mise-test/.codex/cache/index"),
+            Path::new("/nonexistent-pakro-test/.codex/cache/index"),
             Path::new(ROOT)
         ));
         assert!(set.is_match(
-            Path::new("/nonexistent-mise-test/cache/deep/index"),
+            Path::new("/nonexistent-pakro-test/cache/deep/index"),
             Path::new(ROOT)
         ));
         assert!(!set.is_match(
-            Path::new("/nonexistent-mise-test/.codex/config.toml"),
+            Path::new("/nonexistent-pakro-test/.codex/config.toml"),
             Path::new(ROOT)
         ));
         assert!(!set.is_match(
-            Path::new("/nonexistent-mise-test/.codex/cached"),
+            Path::new("/nonexistent-pakro-test/.codex/cached"),
             Path::new(ROOT)
         ));
         let set = ExcludeSet::new(&["*.log".to_string()]).unwrap();
         assert!(set.is_match(
-            Path::new("/nonexistent-mise-test/a/b/run.log"),
+            Path::new("/nonexistent-pakro-test/a/b/run.log"),
             Path::new(ROOT)
         ));
         // the last matching pattern decides, and `!` re-includes
         let set = ExcludeSet::new(&["cache".to_string(), "!cache".to_string()]).unwrap();
         assert!(!set.is_match(
-            Path::new("/nonexistent-mise-test/.codex/cache"),
+            Path::new("/nonexistent-pakro-test/.codex/cache"),
             Path::new(ROOT)
         ));
         // the guard asks a different question and keeps reading names only
         assert!(!is_builtin_credential(
-            Path::new("/nonexistent-mise-test/oauth/notes.txt"),
+            Path::new("/nonexistent-pakro-test/oauth/notes.txt"),
             "notes.txt"
         ));
     }
@@ -3713,7 +3713,7 @@ mod tests {
         let cwd = std::env::current_dir().unwrap();
         let log = ExcludeSet::new(&["**/*.log".to_string()]).unwrap();
         assert!(log.is_match(
-            Path::new("/nonexistent-mise-test/a/b/c.log"),
+            Path::new("/nonexistent-pakro-test/a/b/c.log"),
             Path::new(ROOT)
         ));
         // the same rule under a different tracked root: a relative
@@ -3721,7 +3721,7 @@ mod tests {
         // only place it is ever asked about
         assert!(log.is_match(&cwd.join("a/b/c.log"), &cwd));
         assert!(!log.is_match(
-            Path::new("/nonexistent-mise-test/a/b/c.txt"),
+            Path::new("/nonexistent-pakro-test/a/b/c.txt"),
             Path::new(ROOT)
         ));
 
@@ -3730,7 +3730,7 @@ mod tests {
         // `./` says nothing extra and must not break the pattern
         for pattern in ["sessions/**", "./sessions/**"] {
             let sessions = ExcludeSet::new(&[pattern.to_string()]).unwrap();
-            for root in [Path::new("/nonexistent-mise-test/.codex"), cwd.as_path()] {
+            for root in [Path::new("/nonexistent-pakro-test/.codex"), cwd.as_path()] {
                 assert!(
                     sessions.is_match(&root.join("sessions/one.jsonl"), root),
                     "{pattern} under {}",
@@ -3741,34 +3741,34 @@ mod tests {
             // business, whatever the pattern would say about its name
             assert!(!sessions.is_match(
                 Path::new("/somewhere/else/sessions/one.jsonl"),
-                Path::new("/nonexistent-mise-test/.codex")
+                Path::new("/nonexistent-pakro-test/.codex")
             ));
             assert!(!sessions.is_match(
-                Path::new("/nonexistent-mise-test/.codex/config.toml"),
-                Path::new("/nonexistent-mise-test/.codex")
+                Path::new("/nonexistent-pakro-test/.codex/config.toml"),
+                Path::new("/nonexistent-pakro-test/.codex")
             ));
         }
         // `~` is expanded, so a pattern written with it is absolute and
         // anchored, not a relative one matching at any depth
-        let home_pattern = ExcludeSet::new(&["~/.mise-test-tilde/**".to_string()]).unwrap();
+        let home_pattern = ExcludeSet::new(&["~/.pakro-test-tilde/**".to_string()]).unwrap();
         let home = crate::dirs::HOME.to_path_buf();
-        assert!(home_pattern.is_match(&home.join(".mise-test-tilde/x"), &home));
+        assert!(home_pattern.is_match(&home.join(".pakro-test-tilde/x"), &home));
         assert!(!home_pattern.is_match(
-            Path::new("/nonexistent-mise-test/a/.mise-test-tilde/x"),
-            Path::new("/nonexistent-mise-test")
+            Path::new("/nonexistent-pakro-test/a/.pakro-test-tilde/x"),
+            Path::new("/nonexistent-pakro-test")
         ));
 
         // a relative pattern is relative to the tracked root: a
         // `sessions` directory in the path above the root must not make
         // `sessions/**` swallow the whole tracked tree
         let above = ExcludeSet::new(&["sessions/**".to_string()]).unwrap();
-        let nested_root = Path::new("/nonexistent-mise-test/sessions/.codex");
+        let nested_root = Path::new("/nonexistent-pakro-test/sessions/.codex");
         assert!(!above.is_match(&nested_root.join("config.toml"), nested_root));
         assert!(above.is_match(&nested_root.join("sessions/one.jsonl"), nested_root));
 
         let keys = ExcludeSet::new(&["./keys/**".to_string()]).unwrap();
         assert!(keys.is_match(
-            Path::new("/nonexistent-mise-test/.config/app/keys/id"),
+            Path::new("/nonexistent-pakro-test/.config/app/keys/id"),
             Path::new(ROOT)
         ));
     }
@@ -4018,7 +4018,7 @@ mod tests {
         // `Absent` only when the record positively says so. Each other
         // input gets the answer that fits it — a repository the record
         // says was skipped reads as `Omitted` carrying the record's own
-        // explanation, a record this mise cannot interpret reads as
+        // explanation, a record this pakro cannot interpret reads as
         // `Unevaluable` — and none of them deletes.
         let display = display_path(outer.join("outer.toml"));
         for (name, broken, omitted_as) in [
@@ -4112,12 +4112,12 @@ mod tests {
         let mut unusable = coverage.clone();
         unusable
             .exclude
-            .push("$MISE_TEST_UNSUPPORTED/**".to_string());
+            .push("$PAKRO_TEST_UNSUPPORTED/**".to_string());
         let state = classify_coverage(&unusable, &display);
         assert!(matches!(state, PathState::Unevaluable(_)));
         assert!(state.skip_reason("0123456789").is_some());
 
-        // a record this mise can read answers normally
+        // a record this pakro can read answers normally
         let mut plain = coverage.clone();
         plain.exclude.clear();
         assert!(!matches!(
@@ -4436,7 +4436,7 @@ mod tests {
         assert_eq!(
             many,
             vec![format!(
-                "{} files omitted from capture (credential store); `mise dot paths` lists them",
+                "{} files omitted from capture (credential store); `pakro dot paths` lists them",
                 OMISSION_LINES + 1
             )]
         );
@@ -4447,7 +4447,7 @@ mod tests {
         });
         assert_eq!(
             omission_summary(&mixed, &[]),
-            "2 files omitted from capture (1 credential store); `mise dot paths` lists them"
+            "2 files omitted from capture (1 credential store); `pakro dot paths` lists them"
         );
         let nested = vec![PathReason {
             path: "~/.hammerspoon/Spoons/Sky.spoon".into(),
@@ -4461,7 +4461,7 @@ mod tests {
         );
         assert_eq!(
             omission_summary(&omitted(1), &nested),
-            "1 files omitted from capture (credential store); 1 nested repository skipped; `mise dot paths` lists them"
+            "1 files omitted from capture (credential store); 1 nested repository skipped; `pakro dot paths` lists them"
         );
     }
 
@@ -4639,10 +4639,10 @@ mod tests {
         use crate::system::files::FileRequest;
         use crate::system::resources::ResourceOrigin;
         let home = normalize(&dirs::HOME);
-        let target = home.join(".mise-test-entry-exclude");
+        let target = home.join(".pakro-test-entry-exclude");
         let mut set = TrackedSet::default();
         set.add_requests([FileRequest {
-            target_raw: "~/.mise-test-entry-exclude".into(),
+            target_raw: "~/.pakro-test-entry-exclude".into(),
             target: target.clone(),
             source: PathBuf::new(),
             content: None,
@@ -4653,8 +4653,8 @@ mod tests {
             permissions: None,
             base: home.clone(),
             origin: ResourceOrigin {
-                config: home.join(".config/mise/config.toml"),
-                config_root: home.join(".config/mise"),
+                config: home.join(".config/pakro/config.toml"),
+                config_root: home.join(".config/pakro"),
                 environment: vec![],
                 source: None,
             },
@@ -4693,12 +4693,12 @@ mod tests {
         // a path that exists is canonicalized first (`/etc` is a link on
         // macOS), so the round trip uses one that does not
         assert_eq!(
-            tree_path_to_display("fs/nonexistent-mise-test/hosts"),
-            "/nonexistent-mise-test/hosts"
+            tree_path_to_display("fs/nonexistent-pakro-test/hosts"),
+            "/nonexistent-pakro-test/hosts"
         );
         assert_eq!(
-            display_to_tree_path("/nonexistent-mise-test/hosts"),
-            "fs/nonexistent-mise-test/hosts"
+            display_to_tree_path("/nonexistent-pakro-test/hosts"),
+            "fs/nonexistent-pakro-test/hosts"
         );
     }
 

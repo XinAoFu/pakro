@@ -6,9 +6,9 @@ use crate::{config, file};
 
 /// Clear a setting
 ///
-/// This modifies ~/.config/mise/config.toml by default, or the local config with `--local`.
+/// This modifies ~/.config/pakro/config.toml by default, or the local config with `--local`.
 #[derive(Debug, usage_rs::Args)]
-#[usage(visible_aliases = ["rm", "remove", "delete", "del"], example(r###"mise settings unset jobs"###), verbatim_doc_comment)]
+#[usage(visible_aliases = ["rm", "remove", "delete", "del"], example(r###"pakro settings unset jobs"###), verbatim_doc_comment)]
 pub(super) struct SettingsUnset {
     /// The setting to remove
     pub key: String,
@@ -27,7 +27,7 @@ impl SettingsUnset {
 pub(super) fn unset(key: &str, local: bool) -> Result<()> {
     let paths = if local {
         vec![config::local_toml_config_path()]
-    } else if key == "history.sync" && crate::env::MISE_GLOBAL_CONFIG_FILE.is_none() {
+    } else if key == "history.sync" && crate::env::PAKRO_GLOBAL_CONFIG_FILE.is_none() {
         vec![
             config::global_config_path(),
             crate::cli::dotfiles::track::declaration_file(true)?,

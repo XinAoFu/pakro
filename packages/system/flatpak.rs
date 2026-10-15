@@ -155,7 +155,7 @@ impl SystemPackageManager for FlatpakManager {
         ];
         args.extend(pkgs.iter().map(|pkg| pkg.name.clone()));
         if opts.dry_run {
-            miseprintln!("flatpak {}", args.join(" "));
+            pakroprintln!("flatpak {}", args.join(" "));
             return Ok(());
         }
         run_flatpak(&args, "install").await
@@ -175,7 +175,7 @@ impl SystemPackageManager for FlatpakManager {
         ];
         args.extend(pkgs.iter().map(|pkg| pkg.name.clone()));
         if opts.dry_run {
-            miseprintln!("flatpak {}", args.join(" "));
+            pakroprintln!("flatpak {}", args.join(" "));
             return Ok(());
         }
         run_flatpak(&args, "update").await

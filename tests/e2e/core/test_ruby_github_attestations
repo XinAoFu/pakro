@@ -3,15 +3,15 @@
 
 set -euo pipefail
 
-export MISE_RUBY_COMPILE=false
-export MISE_RUBY_GITHUB_ATTESTATIONS=true
+export PAKRO_RUBY_COMPILE=false
+export PAKRO_RUBY_GITHUB_ATTESTATIONS=true
 
 echo "=== Testing Ruby GitHub Artifact Attestations Verification ==="
 
 # Test: Install Ruby with GitHub artifact attestations verification enabled
 echo "Installing Ruby with GitHub artifact attestations verification enabled..."
 
-output=$(mise install --verbose ruby@3.4.8 2>&1) || true
+output=$(pakro install --verbose ruby@3.4.8 2>&1) || true
 echo "$output"
 
 # Check if attestation verification was attempted
@@ -23,7 +23,7 @@ else
 fi
 
 # Cleanup
-mise uninstall ruby@3.4.8 2>/dev/null || true
+pakro uninstall ruby@3.4.8 2>/dev/null || true
 
 echo ""
 echo "=== Ruby GitHub Artifact Attestations Test Passed ✓ ==="

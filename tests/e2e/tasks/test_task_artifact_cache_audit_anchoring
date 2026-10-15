@@ -43,7 +43,7 @@ EOF
 chmod +x bin/strace
 
 write_config() {
-  cat <<EOF >mise.toml
+  cat <<EOF >pakro.toml
 [settings]
 experimental = true
 
@@ -63,11 +63,11 @@ printf 'package dep\n' >pkg/node_modules/dep.js
 # Both files are named node_modules/dep.js; only the one inside the task
 # directory is declared, so the report must distinguish them.
 write_config '"node_modules/**"'
-output=$(PATH="$PWD/bin:$PATH" mise run --force build 2>&1)
+output=$(PATH="$PWD/bin:$PATH" pakro run --force build 2>&1)
 assert_contains "echo \"$output\"" "cache audit detected undeclared read: ../node_modules/dep.js"
 assert_not_contains "echo \"$output\"" "undeclared read: node_modules/dep.js"
 
 # The reported path is a usable sources entry: declaring it silences the audit.
 write_config '"node_modules/**", "../node_modules/**"'
-output=$(PATH="$PWD/bin:$PATH" mise run --force build 2>&1)
+output=$(PATH="$PWD/bin:$PATH" pakro run --force build 2>&1)
 assert_not_contains "echo \"$output\"" "cache audit detected undeclared read"

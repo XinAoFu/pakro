@@ -19,13 +19,13 @@ use crate::args::{BackendArg, split_bracketed_opts};
 use crate::backend::ABackend;
 use crate::config::config_file::idiomatic_version::IdiomaticVersionFile;
 use crate::config::config_file::min_version::MinVersionSpec;
-use crate::config::config_file::mise_toml::{MiseToml, MonorepoConfig, Tasks};
+use crate::config::config_file::pakro_toml::{MonorepoConfig, PakroToml, Tasks};
 use crate::config::config_file::{
     ConfigFile, TaskConfig, config_trust_root, is_path_trusted, trust_check,
 };
 use crate::config::env_directive::{EnvDirective, EnvResolveOptions, EnvResults, ToolsFilter};
 use crate::config::tracking::Tracker;
-use crate::env::{MISE_DEFAULT_CONFIG_FILENAME, MISE_DEFAULT_TOOL_VERSIONS_FILENAME};
+use crate::env::{PAKRO_DEFAULT_CONFIG_FILENAME, PAKRO_DEFAULT_TOOL_VERSIONS_FILENAME};
 use crate::file::display_path;
 use crate::remote_source::RemoteSource;
 use crate::shorthands::{Shorthands, get_shorthands};
@@ -52,7 +52,7 @@ pub mod config_file;
 pub mod doctor;
 pub mod edit;
 pub mod env_directive;
-pub mod miserc;
+pub mod pakrorc;
 pub(crate) mod provenance;
 mod remote_include;
 pub mod settings;
@@ -181,7 +181,7 @@ pub struct Alias {
 }
 
 static _CONFIG: RwLock<Option<Arc<Config>>> = RwLock::new(None);
-use mise_util::redactions::GLOBAL_REDACTOR as _REDACTOR;
+use pakro_util::redactions::GLOBAL_REDACTOR as _REDACTOR;
 const BOOTSTRAP_CONFIG_ROOTS_WARN_AT: &str = "2026.9.3";
 const BOOTSTRAP_CONFIG_ROOTS_REMOVE_AT: &str = "2027.3.3";
 const MONOREPO_LOCKFILE_WARN_AT: &str = "2026.12.0";
@@ -218,7 +218,7 @@ impl Config {
     /// lockfile enforcement. Non-config sources remain governed only by the
     /// invocation-wide `locked` setting/flag.
     pub(crate) fn tool_config_locked(&self, source: &ToolSource) -> bool {
-        let (ToolSource::MiseToml(path) | ToolSource::MiseTomlDaemon(path)) = source else {
+        let (ToolSource::PakroToml(path) | ToolSource::PakroTomlDaemon(path)) = source else {
             return false;
         };
         let Some(root) = self.config_files.get(path).map(|cf| cf.config_root()) else {
@@ -470,7 +470,7 @@ impl Config {
     /// Build the config view that remains when `environments` are deselected.
     ///
     /// Comparing the desired state with and without an environment is what lets
-    /// `mise bootstrap unapply` remove a module's resources without recording
+    /// `pakro bootstrap unapply` remove a module's resources without recording
     /// what an earlier run applied, and keeps a resource the base configuration
     /// or another selected environment still declares.
     pub(crate) fn without_environments(&self, environments: &[String]) -> Result<Arc<Self>> {
@@ -976,7 +976,7 @@ impl Config {
 
     /// Returns true when lockfile creation is enabled by a TOML settings file.
     ///
-    /// `MISE_LOCKFILE=1` predates automatic creation and continues to mean
+    /// `PAKRO_LOCKFILE=1` predates automatic creation and continues to mean
     /// "read and maintain existing lockfiles" for backwards compatibility.
     pub fn lockfile_creation_enabled(&self) -> bool {
         Settings::get().lockfile_creation_enabled()
@@ -1020,7 +1020,7 @@ impl Config {
     /// config root, so a sibling's request for a short shadows the monorepo
     /// root's own request for it. Treating the union as the set of live
     /// requests for the root lockfile would then drop the root's request:
-    /// `mise lock --upgrade` migrated a v0 monorepo lockfile without binding
+    /// `pakro lock --upgrade` migrated a v0 monorepo lockfile without binding
     /// the root's request and pruned its locked version.
     pub async fn monorepo_lockfile_union(self: &Arc<Self>) -> Result<MonorepoUnion> {
         self.monorepo_union_with_root_toolset(true).await
@@ -1429,7 +1429,7 @@ impl Config {
                 }
             };
             // Pre-check trust for config files that require it so tracked
-            // config loading (e.g., during `mise upgrade`) never prompts.
+            // config loading (e.g., during `pakro upgrade`) never prompts.
             // Plain .tool-versions and idiomatic version files are safe to
             // parse without trust and must still protect their tool versions.
             if config_file::detection_requires_trust(&path, &detection)
@@ -1464,14 +1464,14 @@ impl Config {
         Ok(config_files)
     }
 
-    pub fn global_config(&self) -> Result<MiseToml> {
+    pub fn global_config(&self) -> Result<PakroToml> {
         let settings_path = global_config_path();
         match settings_path.exists() {
             false => {
                 trace!("settings does not exist {:?}", settings_path);
-                Ok(MiseToml::init(&settings_path))
+                Ok(PakroToml::init(&settings_path))
             }
-            true => MiseToml::from_file(&settings_path)
+            true => PakroToml::from_file(&settings_path)
                 .wrap_err_with(|| eyre!("Error parsing {}", display_path(&settings_path))),
         }
     }
@@ -1495,12 +1495,12 @@ impl Config {
         if let Some(required) = spec.hard_violation(cur) {
             let min = style::eyellow(required);
             let cur = style::eyellow(cur);
-            let msg = format!("mise version {min} is required, but you are using {cur}");
+            let msg = format!("pakro version {min} is required, but you are using {cur}");
             bail!(crate::upgrade_hint::append_self_update_instructions(msg));
         } else if let Some(recommended) = spec.soft_violation(cur) {
             let min = style::eyellow(recommended);
             let cur = style::eyellow(cur);
-            let msg = format!("mise version {min} is recommended, but you are using {cur}");
+            let msg = format!("pakro version {min} is recommended, but you are using {cur}");
             warn!(
                 "{}",
                 crate::upgrade_hint::append_self_update_instructions(msg)
@@ -1521,7 +1521,7 @@ impl Config {
             return Ok(EnvResults::default());
         }
         time!("load_env start");
-        // `mise oci` lets `[oci.env]` satisfy `required`, so what it resolves must not
+        // `pakro oci` lets `[oci.env]` satisfy `required`, so what it resolves must not
         // be cached for a command that enforces it.
         // `{{ vars.X }}` renders vars into the env, so a var that is decrypted or redacted
         // (see `EnvResults::has_uncacheable`) taints every env value that may use it. Vars
@@ -1641,8 +1641,11 @@ impl Config {
                         Ok(content) => {
                             // Keep the assignments that precede a syntax error, like a
                             // line-by-line loader would, and name the file cut short.
-                            let (items, err) =
-                                mise_dotenv::parse_partial(&content, true, crate::env::vars_safe());
+                            let (items, err) = pakro_dotenv::parse_partial(
+                                &content,
+                                true,
+                                crate::env::vars_safe(),
+                            );
                             for (k, v) in items {
                                 env_results.env.insert(k, (v, env_file.clone()));
                             }
@@ -1699,7 +1702,7 @@ impl Config {
                 watch_files,
                 watch_file_mtimes,
                 created_at: now,
-                mise_version: env!("CARGO_PKG_VERSION").to_string(),
+                pakro_version: env!("CARGO_PKG_VERSION").to_string(),
                 cache_key_debug: cache_key.clone(),
             };
             if let Err(e) = cached.save(&cache_key) {
@@ -1768,10 +1771,10 @@ impl Config {
             .map(|(p, cf)| {
                 let mut watch_files: Vec<WatchFilePattern> = vec![p.as_path().into()];
                 if let Some(parent) = p.parent() {
-                    let lockfile = parent.join("mise.lock");
+                    let lockfile = parent.join("pakro.lock");
 
                     // Only watch lockfiles that currently exist to prevent missing optional
-                    // mise.lock files from keeping hook-env from stabilizing. If one is created
+                    // pakro.lock files from keeping hook-env from stabilizing. If one is created
                     // later, should_exit_early_fast() will notice the parent directory mtime
                     // change, force a slow-path run, and this watch set will then include the new
                     // lockfile on that recomputation.
@@ -1811,7 +1814,7 @@ impl Config {
     /// Register values that must never reach a log line.
     ///
     /// Every log record is redacted through this (see `src/logger.rs`), so a
-    /// secret registered here is scrubbed from the terminal, `MISE_LOG_FILE`,
+    /// secret registered here is scrubbed from the terminal, `PAKRO_LOG_FILE`,
     /// and the command lines `CmdLineRunner` debug-logs, without each call site
     /// having to remember.
     ///
@@ -2031,7 +2034,7 @@ pub(crate) fn monorepo_lockfile_root_from_dir(dir: &Path) -> Option<PathBuf> {
             let Ok(body) = file::read_to_string(&path) else {
                 continue;
             };
-            if let Ok(cf) = MiseToml::for_monorepo_inspection(&body, &path) {
+            if let Ok(cf) = PakroToml::for_monorepo_inspection(&body, &path) {
                 config_files.insert(path, Arc::new(cf));
             }
         }
@@ -2122,7 +2125,7 @@ async fn load_bootstrap_config_maps(config: &Config) -> Result<Vec<BootstrapConf
         BOOTSTRAP_CONFIG_ROOTS_WARN_AT,
         BOOTSTRAP_CONFIG_ROOTS_REMOVE_AT,
         "bootstrap.config_roots",
-        "`[bootstrap].config_roots` in {} is deprecated. Move each selected root into a conf.d folder instead (or symlink it): bundles/git becomes mise/conf.d/git in the same project, or {} when config_roots is set in global config. A conf.d folder reads only mise.toml, mise.local.toml, mise.<env>.toml, and mise.<env>.local.toml (rename other config filenames) and is their config root, so relative paths and `{{{{ config_root }}}}` still resolve inside it. See https://mise.jdx.dev/configuration.html#conf-d-folders for details.",
+        "`[bootstrap].config_roots` in {} is deprecated. Move each selected root into a conf.d folder instead (or symlink it): bundles/git becomes pakro/conf.d/git in the same project, or {} when config_roots is set in global config. A conf.d folder reads only pakro.toml, pakro.local.toml, pakro.<env>.toml, and pakro.<env>.local.toml (rename other config filenames) and is their config root, so relative paths and `{{{{ config_root }}}}` still resolve inside it. See https://mise.jdx.dev/configuration.html#conf-d-folders for details.",
         display_path(declaring_config),
         display_path(dirs::CONFIG.join("conf.d").join("git"))
     );
@@ -2281,52 +2284,52 @@ async fn idiomatic_filenames_for_root(
 
 static LOCAL_CONFIG_FILENAMES: Lazy<IndexSet<&'static str>> = Lazy::new(|| {
     let mut paths: IndexSet<&'static str> = IndexSet::new();
-    if let Some(o) = &*env::MISE_OVERRIDE_TOOL_VERSIONS_FILENAMES {
+    if let Some(o) = &*env::PAKRO_OVERRIDE_TOOL_VERSIONS_FILENAMES {
         paths.extend(o.iter().map(|s| s.as_str()));
     } else {
         paths.extend([
             ".tool-versions",
-            &*env::MISE_DEFAULT_TOOL_VERSIONS_FILENAME, // .tool-versions
+            &*env::PAKRO_DEFAULT_TOOL_VERSIONS_FILENAME, // .tool-versions
         ]);
     }
-    if !env::MISE_OVERRIDE_CONFIG_FILENAMES.is_empty() {
+    if !env::PAKRO_OVERRIDE_CONFIG_FILENAMES.is_empty() {
         paths.extend(
-            env::MISE_OVERRIDE_CONFIG_FILENAMES
+            env::PAKRO_OVERRIDE_CONFIG_FILENAMES
                 .iter()
                 .map(|s| s.as_str()),
         )
     } else {
         paths.extend([
-            ".config/mise/conf.d/*.toml",
-            ".config/mise/conf.d/*/mise.toml",
-            ".config/mise/conf.d/*/mise.local.toml",
-            ".config/mise/config.toml",
-            ".config/mise/mise.toml",
-            ".config/mise.toml",
-            ".mise/conf.d/*.toml",
-            ".mise/conf.d/*/mise.toml",
-            ".mise/conf.d/*/mise.local.toml",
-            ".mise/config.toml",
-            "mise/conf.d/*.toml",
-            "mise/conf.d/*/mise.toml",
-            "mise/conf.d/*/mise.local.toml",
-            "mise/config.toml",
-            "mise.toml",
-            &*env::MISE_DEFAULT_CONFIG_FILENAME, // mise.toml
-            ".mise.toml",
-            ".config/mise/config.local.toml",
-            ".config/mise/mise.local.toml",
-            ".config/mise.local.toml",
-            ".mise/config.local.toml",
-            "mise/config.local.toml",
-            "mise.local.toml",
-            ".mise.local.toml",
+            ".config/pakro/conf.d/*.toml",
+            ".config/pakro/conf.d/*/pakro.toml",
+            ".config/pakro/conf.d/*/pakro.local.toml",
+            ".config/pakro/config.toml",
+            ".config/pakro/pakro.toml",
+            ".config/pakro.toml",
+            ".pakro/conf.d/*.toml",
+            ".pakro/conf.d/*/pakro.toml",
+            ".pakro/conf.d/*/pakro.local.toml",
+            ".pakro/config.toml",
+            "pakro/conf.d/*.toml",
+            "pakro/conf.d/*/pakro.toml",
+            "pakro/conf.d/*/pakro.local.toml",
+            "pakro/config.toml",
+            "pakro.toml",
+            &*env::PAKRO_DEFAULT_CONFIG_FILENAME, // pakro.toml
+            ".pakro.toml",
+            ".config/pakro/config.local.toml",
+            ".config/pakro/pakro.local.toml",
+            ".config/pakro.local.toml",
+            ".pakro/config.local.toml",
+            "pakro/config.local.toml",
+            "pakro.local.toml",
+            ".pakro.local.toml",
         ]);
     }
 
     paths
 });
-/// Config filename patterns for a single MISE_ENV environment, in precedence order
+/// Config filename patterns for a single PAKRO_ENV environment, in precedence order
 /// (later wins, matching LOCAL_CONFIG_FILENAMES ordering)
 fn env_config_patterns(env: &str) -> Vec<String> {
     env_config_patterns_with_conf_d(env, env::env_conf_d())
@@ -2338,52 +2341,52 @@ fn env_config_patterns_with_conf_d(env: &str, env_conf_d: bool) -> Vec<String> {
     let env = glob::Pattern::escape(env);
     let mut patterns = vec![];
     if env_conf_d {
-        patterns.push(format!(".config/mise/conf.d/*.{env}.toml"));
+        patterns.push(format!(".config/pakro/conf.d/*.{env}.toml"));
     }
-    patterns.push(format!(".config/mise/conf.d/*/mise.{env}.toml"));
+    patterns.push(format!(".config/pakro/conf.d/*/pakro.{env}.toml"));
     patterns.extend([
-        format!(".config/mise/config.{env}.toml"),
-        format!(".config/mise.{env}.toml"),
+        format!(".config/pakro/config.{env}.toml"),
+        format!(".config/pakro.{env}.toml"),
     ]);
     if env_conf_d {
-        patterns.push(format!("mise/conf.d/*.{env}.toml"));
+        patterns.push(format!("pakro/conf.d/*.{env}.toml"));
     }
-    patterns.push(format!("mise/conf.d/*/mise.{env}.toml"));
+    patterns.push(format!("pakro/conf.d/*/pakro.{env}.toml"));
     patterns.extend([
-        format!("mise/config.{env}.toml"),
-        format!("mise.{env}.toml"),
+        format!("pakro/config.{env}.toml"),
+        format!("pakro.{env}.toml"),
     ]);
     if env_conf_d {
-        patterns.push(format!(".mise/conf.d/*.{env}.toml"));
+        patterns.push(format!(".pakro/conf.d/*.{env}.toml"));
     }
-    patterns.push(format!(".mise/conf.d/*/mise.{env}.toml"));
+    patterns.push(format!(".pakro/conf.d/*/pakro.{env}.toml"));
     patterns.extend([
-        format!(".mise/config.{env}.toml"),
-        format!(".mise.{env}.toml"),
+        format!(".pakro/config.{env}.toml"),
+        format!(".pakro.{env}.toml"),
     ]);
     if env_conf_d {
-        patterns.push(format!(".config/mise/conf.d/*.{env}.local.toml"));
+        patterns.push(format!(".config/pakro/conf.d/*.{env}.local.toml"));
     }
-    patterns.push(format!(".config/mise/conf.d/*/mise.{env}.local.toml"));
+    patterns.push(format!(".config/pakro/conf.d/*/pakro.{env}.local.toml"));
     patterns.extend([
-        format!(".config/mise/config.{env}.local.toml"),
-        format!(".config/mise.{env}.local.toml"),
+        format!(".config/pakro/config.{env}.local.toml"),
+        format!(".config/pakro.{env}.local.toml"),
     ]);
     if env_conf_d {
-        patterns.push(format!("mise/conf.d/*.{env}.local.toml"));
+        patterns.push(format!("pakro/conf.d/*.{env}.local.toml"));
     }
-    patterns.push(format!("mise/conf.d/*/mise.{env}.local.toml"));
+    patterns.push(format!("pakro/conf.d/*/pakro.{env}.local.toml"));
     patterns.extend([
-        format!("mise/config.{env}.local.toml"),
-        format!("mise.{env}.local.toml"),
+        format!("pakro/config.{env}.local.toml"),
+        format!("pakro.{env}.local.toml"),
     ]);
     if env_conf_d {
-        patterns.push(format!(".mise/conf.d/*.{env}.local.toml"));
+        patterns.push(format!(".pakro/conf.d/*.{env}.local.toml"));
     }
-    patterns.push(format!(".mise/conf.d/*/mise.{env}.local.toml"));
+    patterns.push(format!(".pakro/conf.d/*/pakro.{env}.local.toml"));
     patterns.extend([
-        format!(".mise/config.{env}.local.toml"),
-        format!(".mise.{env}.local.toml"),
+        format!(".pakro/config.{env}.local.toml"),
+        format!(".pakro.{env}.local.toml"),
     ]);
     patterns
 }
@@ -2393,7 +2396,7 @@ pub static DEFAULT_CONFIG_FILENAMES: Lazy<Vec<String>> = Lazy::new(|| {
         .iter()
         .map(|f| f.to_string())
         .collect_vec();
-    for env in &*env::MISE_ENV_WITH_AUTO {
+    for env in &*env::PAKRO_ENV_WITH_AUTO {
         filenames.extend(env_config_patterns(env));
     }
     filenames
@@ -2551,7 +2554,7 @@ fn warn_on_dotted_conf_d_file(path: &Path) {
             "2026.8.10",
             "2027.8.10",
             "dotted_conf_d_filename",
-            "dots in unconditional conf.d filenames are deprecated because the suffix will become an environment selector; rename fragments such as `node.tools.toml` to `node-tools.toml`, or set `env_conf_d = true` in a miserc.toml file to opt in now"
+            "dots in unconditional conf.d filenames are deprecated because the suffix will become an environment selector; rename fragments such as `node.tools.toml` to `node-tools.toml`, or set `env_conf_d = true` in a pakrorc.toml file to opt in now"
         );
     }
 }
@@ -2570,7 +2573,9 @@ fn load_config_glob(dir: &Path, pattern: &str) -> Vec<PathBuf> {
             if is_unconditional_conf_d_pattern(pattern) {
                 !is_environment_conf_d_file(path)
             } else if let Some((environment, _)) = conf_d_file_environment(path) {
-                env::MISE_ENV_WITH_AUTO.iter().any(|env| env == environment)
+                env::PAKRO_ENV_WITH_AUTO
+                    .iter()
+                    .any(|env| env == environment)
             } else {
                 true
             }
@@ -2590,16 +2595,16 @@ pub fn config_paths_in_dir(dir: &Path) -> Vec<PathBuf> {
 }
 
 /// Return the active configuration environment encoded in a loaded config
-/// filename. A vector matches the ordered MISE_ENV model and leaves room for
+/// filename. A vector matches the ordered PAKRO_ENV model and leaves room for
 /// future config forms that represent more than one environment.
 pub fn environments_for_config_path(path: &Path) -> Vec<String> {
     let Some(filename) = path.file_name().and_then(|name| name.to_str()) else {
         return vec![];
     };
-    env::MISE_ENV_WITH_AUTO
+    env::PAKRO_ENV_WITH_AUTO
         .iter()
         .filter(|environment| {
-            ["config", "mise", ".mise"].into_iter().any(|prefix| {
+            ["config", "pakro", ".pakro"].into_iter().any(|prefix| {
                 filename == format!("{prefix}.{environment}.toml")
                     || filename == format!("{prefix}.{environment}.local.toml")
             }) || (env::env_conf_d()
@@ -2632,12 +2637,12 @@ fn config_paths_in_dir_with_filenames(dir: &Path, filenames: &[String]) -> Vec<P
 }
 
 fn all_dirs() -> Result<Vec<PathBuf>> {
-    file::all_dirs(env::current_dir()?, &env::MISE_CEILING_PATHS)
+    file::all_dirs(env::current_dir()?, &env::PAKRO_CEILING_PATHS)
 }
 
 /// Get all directories in the hierarchy from a starting directory up to ceiling paths
 fn all_dirs_from(start_dir: &Path) -> Result<Vec<PathBuf>> {
-    file::all_dirs(start_dir, &env::MISE_CEILING_PATHS)
+    file::all_dirs(start_dir, &env::PAKRO_CEILING_PATHS)
 }
 
 /// Returns true if a path is a .tool-versions file (lower priority for writes)
@@ -2647,8 +2652,8 @@ pub(crate) fn is_tool_versions_file(p: &Path) -> bool {
 }
 
 /// Get the first (lowest precedence) config file, but skip .tool-versions unless
-/// it's the only option. This ensures commands like `mise use` write to mise.toml
-/// instead of mise.local.toml or .tool-versions when multiple configs exist.
+/// it's the only option. This ensures commands like `pakro use` write to pakro.toml
+/// instead of pakro.local.toml or .tool-versions when multiple configs exist.
 /// See: https://github.com/jdx/mise/discussions/6475
 ///
 /// The two exclusions are not the same kind. `.tool-versions` is a *preference*: it is passed
@@ -2677,21 +2682,21 @@ fn is_conf_d_file(p: &Path) -> bool {
         .is_some_and(|d| d.file_name().is_some_and(|n| n == "conf.d"))
 }
 
-/// A config file inside a `conf.d` folder fragment, such as `conf.d/git/mise.toml`
-/// or `conf.d/git/mise.linux.toml`. The folder is the file's config root, so
+/// A config file inside a `conf.d` folder fragment, such as `conf.d/git/pakro.toml`
+/// or `conf.d/git/pakro.linux.toml`. The folder is the file's config root, so
 /// fragments keep their own sources and helpers next to their config.
 ///
-/// Only `conf.d` directories mise reads count: a project that merely lives at
-/// `nginx/conf.d/site/mise.toml` is an ordinary project.
+/// Only `conf.d` directories pakro reads count: a project that merely lives at
+/// `nginx/conf.d/site/pakro.toml` is an ordinary project.
 pub(crate) fn is_conf_d_folder_file(p: &Path) -> bool {
-    let is_mise_filename = p
+    let is_pakro_filename = p
         .file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| name.starts_with("mise.") && name.ends_with(".toml"));
+        .is_some_and(|name| name.starts_with("pakro.") && name.ends_with(".toml"));
     let Some(folder) = p.parent() else {
         return false;
     };
-    if !is_mise_filename
+    if !is_pakro_filename
         || !is_conf_d_file(folder)
         || folder
             .file_name()
@@ -2702,7 +2707,7 @@ pub(crate) fn is_conf_d_folder_file(p: &Path) -> bool {
     folder.parent().and_then(Path::parent).is_some_and(|owner| {
         owner
             .file_name()
-            .is_some_and(|name| name == "mise" || name == ".mise")
+            .is_some_and(|name| name == "pakro" || name == ".pakro")
             || owner == *dirs::CONFIG
             || owner == *dirs::SYSTEM_CONFIG
     })
@@ -2711,8 +2716,8 @@ pub(crate) fn is_conf_d_folder_file(p: &Path) -> bool {
 /// The config files in `dir` that config loading would actually read, with the same
 /// exclusions `load_config_paths` applies.
 ///
-/// [`config_files_in_dir`] deliberately does **not** filter — `mise trust` has to see a
-/// file in order to un-ignore it, and `mise fmt` and task discovery want everything on
+/// [`config_files_in_dir`] deliberately does **not** filter — `pakro trust` has to see a
+/// file in order to un-ignore it, and `pakro fmt` and task discovery want everything on
 /// disk. Choosing a file to *write* to is the one case that must not.
 fn loadable_config_files_in_dir(dir: &Path, filenames: &[String]) -> IndexSet<PathBuf> {
     if config_dir_is_ignored(dir, false) {
@@ -2729,13 +2734,13 @@ fn loadable_config_files_in_dir(dir: &Path, filenames: &[String]) -> IndexSet<Pa
 /// The config file to write to **inside `dir` itself**, or where one should be created.
 ///
 /// `--path`/`--file` name a specific directory, so the answer has to be inside it: "if a directory
-/// is specified, it will look for a config file in that directory" (`mise use --help`). This
+/// is specified, it will look for a config file in that directory" (`pakro use --help`). This
 /// deliberately does not walk up. [`config_file_from_dir`] is the walking one, and it is only ever
 /// asked about the cwd.
 ///
 /// Candidates that config loading skips are skipped here too: writing into one produces a
-/// file mise will never read back. When nothing in `dir` is loadable the default name is
-/// still returned — the directory was named explicitly, so mise creates what was asked for
+/// file pakro will never read back. When nothing in `dir` is loadable the default name is
+/// still returned — the directory was named explicitly, so pakro creates what was asked for
 /// — but the caller is warned that it will not be read.
 pub fn config_file_in_dir(dir: &Path) -> PathBuf {
     let files = loadable_config_files_in_dir(dir, &DEFAULT_CONFIG_FILENAMES);
@@ -2745,12 +2750,12 @@ pub fn config_file_in_dir(dir: &Path) -> PathBuf {
         return cf.clone();
     }
     let fallback = match Settings::get().asdf_compat {
-        true => dir.join(&*MISE_DEFAULT_TOOL_VERSIONS_FILENAME),
-        false => dir.join(&*MISE_DEFAULT_CONFIG_FILENAME),
+        true => dir.join(&*PAKRO_DEFAULT_TOOL_VERSIONS_FILENAME),
+        false => dir.join(&*PAKRO_DEFAULT_CONFIG_FILENAME),
     };
     if config_dir_is_ignored(dir, false) || config_path_is_ignored(&fallback, false) {
         warn_once!(
-            "{p} is excluded from config loading, so mise will not read back what it writes there",
+            "{p} is excluded from config loading, so pakro will not read back what it writes there",
             p = display_path(&fallback)
         );
     }
@@ -2763,8 +2768,8 @@ pub fn config_file_in_dir(dir: &Path) -> PathBuf {
 /// Both write-target resolvers share this. They were separate implementations of the same
 /// rule, and only one of them was kept current — the ignore filter added for
 /// <https://github.com/jdx/mise/discussions/7015> reached `local_toml_config_path_from_dir`
-/// and not `config_file_from_dir`, so `mise use` picked a file that config loading
-/// deliberately skips and wrote a tool into it that mise would never read back.
+/// and not `config_file_from_dir`, so `pakro use` picked a file that config loading
+/// deliberately skips and wrote a tool into it that pakro would never read back.
 fn nearest_local_config_file(start: &Path, filenames: &[String]) -> Option<PathBuf> {
     if Settings::no_config() {
         return None;
@@ -2800,8 +2805,8 @@ pub(crate) fn config_file_from_dir(p: &Path) -> PathBuf {
         return cf;
     }
     match Settings::get().asdf_compat {
-        true => p.join(&*MISE_DEFAULT_TOOL_VERSIONS_FILENAME),
-        false => p.join(&*MISE_DEFAULT_CONFIG_FILENAME),
+        true => p.join(&*PAKRO_DEFAULT_TOOL_VERSIONS_FILENAME),
+        false => p.join(&*PAKRO_DEFAULT_CONFIG_FILENAME),
     }
 }
 
@@ -2860,7 +2865,7 @@ pub fn load_config_paths(config_filenames: &[String], include_ignored: bool) -> 
 
 /// Whether to emit the phase-2 auto_env rollout warning. Pure for unit testing.
 /// Warns only when the user hasn't decided (setting unset), auto envs aren't
-/// already active, and the mise version is in the warning window that precedes
+/// already active, and the pakro version is in the warning window that precedes
 /// the 2027.6.0 default flip.
 fn should_warn_auto_env(
     version: &versions::Versioning,
@@ -2888,7 +2893,7 @@ fn monorepo_lockfile_enabled_for_version(
 
 /// Whether to emit the phase-2 monorepo lockfile rollout warning. Pure for unit testing.
 /// Warns only when the user has not explicitly chosen `lockfile = true` or `false`
-/// and the mise version is in the warning window before the default flip.
+/// and the pakro version is in the warning window before the default flip.
 fn should_warn_monorepo_lockfile_default(
     version: &versions::Versioning,
     setting: Option<bool>,
@@ -2923,7 +2928,7 @@ fn warn_if_monorepo_lockfile_default_changes(config: &Config) {
     }
 
     warn_once!(
-        "Monorepo lockfiles will default to a single root lockfile starting in mise {MONOREPO_LOCKFILE_DEFAULT_AT}. \
+        "Monorepo lockfiles will default to a single root lockfile starting in pakro {MONOREPO_LOCKFILE_DEFAULT_AT}. \
         Set `[monorepo] lockfile = true` in {} to opt in now, or `lockfile = false` to keep per-subproject lockfiles and silence this warning.",
         display_path(monorepo_config.monorepo_source.get_path())
     );
@@ -2934,7 +2939,7 @@ fn monorepo_lockfiles_exist(config: &Config, monorepo_config: &ResolvedMonorepoC
     let mut lockfile_paths = IndexSet::new();
 
     for (config_path, cf) in &config.config_files {
-        if !config_path.starts_with(monorepo_root) || !cf.source().is_mise_toml() {
+        if !config_path.starts_with(monorepo_root) || !cf.source().is_pakro_toml() {
             continue;
         }
         lockfile_paths.insert(lockfile::lockfile_path_for_config(config_path, None).0);
@@ -2964,7 +2969,7 @@ fn monorepo_lockfiles_exist(config: &Config, monorepo_config: &ResolvedMonorepoC
 }
 
 /// Phase-2 rollout warning for auto_env: starting with 2026.12.0, tell users about
-/// platform-specific config files (e.g. mise.windows.toml) that mise will begin
+/// platform-specific config files (e.g. pakro.windows.toml) that pakro will begin
 /// loading automatically when auto_env defaults to true in 2027.6.0.
 fn warn_if_auto_env_files_exist() {
     // dead code once the default flips on: the files load, so there is nothing to warn about
@@ -2997,8 +3002,8 @@ fn warn_if_auto_env_files_exist() {
     let found = detect_auto_env_candidate_files();
     if !found.is_empty() {
         warn_once!(
-            "Found platform-specific config file(s) that mise will load automatically starting in 2027.6.0: {}. \
-            Set MISE_AUTO_ENV=true (or `auto_env = true` in .miserc.toml) to enable this now, \
+            "Found platform-specific config file(s) that pakro will load automatically starting in 2027.6.0: {}. \
+            Set PAKRO_AUTO_ENV=true (or `auto_env = true` in .pakrorc.toml) to enable this now, \
             or `auto_env = false` to keep the current behavior and silence this warning. \
             See https://mise.jdx.dev/configuration/environments.html#platform-environments",
             found.iter().map(display_path).join(", ")
@@ -3007,14 +3012,14 @@ fn warn_if_auto_env_files_exist() {
 }
 
 /// Config files that exist on disk and would be loaded if auto_env were enabled,
-/// but are not loaded today because their platform env is not in MISE_ENV.
+/// but are not loaded today because their platform env is not in PAKRO_ENV.
 fn detect_auto_env_candidate_files() -> Vec<PathBuf> {
     let candidate_envs = env::platform_env_names()
         .into_iter()
-        .filter(|name| !env::MISE_ENV.contains(name))
+        .filter(|name| !env::PAKRO_ENV.contains(name))
         .collect_vec();
     // IndexSet: the all_dirs() walk and the global/system dir checks can find the
-    // same file (e.g. ~/.config/mise/config.{env}.toml when cwd is under $HOME)
+    // same file (e.g. ~/.config/pakro/config.{env}.toml when cwd is under $HOME)
     let mut found = IndexSet::new();
     for dir in all_dirs().unwrap_or_default() {
         if config_file::is_ignored_via_setting(&dir) {
@@ -3045,7 +3050,7 @@ fn detect_auto_env_candidate_files() -> Vec<PathBuf> {
                     glob(
                         dir,
                         &format!(
-                            "conf.d/*/mise.{}{local}.toml",
+                            "conf.d/*/pakro.{}{local}.toml",
                             glob::Pattern::escape(env_name)
                         ),
                     )
@@ -3056,9 +3061,9 @@ fn detect_auto_env_candidate_files() -> Vec<PathBuf> {
             }
             for filename in [
                 format!("config.{env_name}.toml"),
-                format!("mise.{env_name}.toml"),
+                format!("pakro.{env_name}.toml"),
                 format!("config.{env_name}.local.toml"),
-                format!("mise.{env_name}.local.toml"),
+                format!("pakro.{env_name}.local.toml"),
             ] {
                 let p = dir.join(filename);
                 if p.is_file() {
@@ -3077,7 +3082,7 @@ fn detect_auto_env_candidate_files() -> Vec<PathBuf> {
 
 /// Load config hierarchy from a specific directory (for monorepo tasks)
 /// This loads all config files from start_dir up through parent directories,
-/// including MISE_ENV-specific configs and idiomatic version files.
+/// including PAKRO_ENV-specific configs and idiomatic version files.
 /// Returns (paths, idiomatic_filenames) so callers can pass the map to
 /// load_config_files_from_paths without a redundant second computation.
 ///
@@ -3217,14 +3222,14 @@ fn tasks_have_same_source(left: &Task, right: &Task) -> bool {
             .is_some_and(|(left, right)| file::same_file(&left, &right))
 }
 
-/// Returns true if the path should be filtered out due to MISE_CONFIG_DIR override.
-/// When MISE_CONFIG_DIR is set to a non-default location, this filters out configs
-/// found under the default location (~/.config/mise) during traversal.
+/// Returns true if the path should be filtered out due to PAKRO_CONFIG_DIR override.
+/// When PAKRO_CONFIG_DIR is set to a non-default location, this filters out configs
+/// found under the default location (~/.config/pakro) during traversal.
 /// See: https://github.com/jdx/mise/discussions/7015
 fn is_default_config_dir_override_filtered(path: &Path) -> bool {
-    *env::MISE_CONFIG_DIR_OVERRIDDEN
+    *env::PAKRO_CONFIG_DIR_OVERRIDDEN
         && !config_set_contains(&global_config_files(), path)
-        && path.starts_with(&*env::MISE_DEFAULT_CONFIG_DIR)
+        && path.starts_with(&*env::PAKRO_DEFAULT_CONFIG_DIR)
 }
 
 pub(crate) fn config_dir_is_ignored(dir: &Path, include_ignored: bool) -> bool {
@@ -3243,7 +3248,7 @@ pub(crate) fn config_path_is_ignored(path: &Path, include_ignored: bool) -> bool
     if config_file::is_ignored_via_setting(&ctr) || config_file::is_ignored_via_setting(path) {
         return true;
     }
-    // The persisted ignore list (dismissed prompt / `mise trust --ignore`) is
+    // The persisted ignore list (dismissed prompt / `pakro trust --ignore`) is
     // overridden by `trusted_config_paths`, matching is_trusted's precedence so
     // a settings-trusted config is still discovered and loaded.
     if config_file::is_persisted_ignored(&ctr) || config_file::is_persisted_ignored(path) {
@@ -3260,14 +3265,14 @@ pub(crate) fn global_config_files() -> IndexSet<PathBuf> {
     if let Some(g) = &*g {
         return g.clone();
     }
-    if let Some(global_config_file) = &*env::MISE_GLOBAL_CONFIG_FILE {
+    if let Some(global_config_file) = &*env::PAKRO_GLOBAL_CONFIG_FILE {
         return vec![global_config_file.clone()].into_iter().collect();
     }
     let mut config_files: IndexSet<PathBuf> = config_files_from_dir(&dirs::CONFIG);
-    if !*env::MISE_USE_TOML {
-        // only add ~/.tool-versions if MISE_CONFIG_FILE is not set
+    if !*env::PAKRO_USE_TOML {
+        // only add ~/.tool-versions if PAKRO_CONFIG_FILE is not set
         // because that's how the user overrides the default
-        config_files.insert(dirs::HOME.join(env::MISE_DEFAULT_TOOL_VERSIONS_FILENAME.as_str()));
+        config_files.insert(dirs::HOME.join(env::PAKRO_DEFAULT_TOOL_VERSIONS_FILENAME.as_str()));
     };
     *g = Some(config_files.clone());
     config_files
@@ -3278,7 +3283,7 @@ pub(crate) fn system_config_files() -> IndexSet<PathBuf> {
     if let Some(s) = &*s {
         return s.clone();
     }
-    if let Some(p) = &*env::MISE_SYSTEM_CONFIG_FILE {
+    if let Some(p) = &*env::PAKRO_SYSTEM_CONFIG_FILE {
         return vec![p.clone()].into_iter().collect();
     }
     let config_files = config_files_from_dir(&dirs::SYSTEM_CONFIG);
@@ -3287,7 +3292,7 @@ pub(crate) fn system_config_files() -> IndexSet<PathBuf> {
 }
 
 /// Config files in a global/system config dir, lowest precedence first: `conf.d`,
-/// then `config.toml`/`mise.toml`, then the `.local` variants.
+/// then `config.toml`/`pakro.toml`, then the `.local` variants.
 fn config_files_from_dir(dir: &Path) -> IndexSet<PathBuf> {
     config_files_with_incoming(dir, &Default::default())
 }
@@ -3310,7 +3315,7 @@ pub(crate) fn config_files_with_incoming(
                 .cloned(),
         )
         .collect();
-    // Folder fragments (`conf.d/<name>/mise.toml`) are found by their folder, so an
+    // Folder fragments (`conf.d/<name>/pakro.toml`) are found by their folder, so an
     // incoming batch can introduce one through any of its files.
     let conf_folders: std::collections::BTreeSet<PathBuf> = conf_files
         .iter()
@@ -3345,10 +3350,10 @@ pub(crate) fn config_files_with_incoming(
             files.insert(p.clone());
         }
     }
-    files.extend(conf_folder_files("mise.toml"));
-    files.extend(conf_folder_files("mise.local.toml"));
-    files.extend([dir.join("config.toml"), dir.join("mise.toml")]);
-    for environment in &*env::MISE_ENV_WITH_AUTO {
+    files.extend(conf_folder_files("pakro.toml"));
+    files.extend(conf_folder_files("pakro.local.toml"));
+    files.extend([dir.join("config.toml"), dir.join("pakro.toml")]);
+    for environment in &*env::PAKRO_ENV_WITH_AUTO {
         if env::env_conf_d() {
             files.extend(conf_d_environment_candidates(
                 &conf_files,
@@ -3356,14 +3361,14 @@ pub(crate) fn config_files_with_incoming(
                 false,
             ));
         }
-        files.extend(conf_folder_files(&format!("mise.{environment}.toml")));
+        files.extend(conf_folder_files(&format!("pakro.{environment}.toml")));
         files.extend([
             dir.join(format!("config.{environment}.toml")),
-            dir.join(format!("mise.{environment}.toml")),
+            dir.join(format!("pakro.{environment}.toml")),
         ]);
     }
-    files.extend([dir.join("config.local.toml"), dir.join("mise.local.toml")]);
-    for environment in &*env::MISE_ENV_WITH_AUTO {
+    files.extend([dir.join("config.local.toml"), dir.join("pakro.local.toml")]);
+    for environment in &*env::PAKRO_ENV_WITH_AUTO {
         if env::env_conf_d() {
             files.extend(conf_d_environment_candidates(
                 &conf_files,
@@ -3371,10 +3376,12 @@ pub(crate) fn config_files_with_incoming(
                 true,
             ));
         }
-        files.extend(conf_folder_files(&format!("mise.{environment}.local.toml")));
+        files.extend(conf_folder_files(&format!(
+            "pakro.{environment}.local.toml"
+        )));
         files.extend([
             dir.join(format!("config.{environment}.local.toml")),
-            dir.join(format!("mise.{environment}.local.toml")),
+            dir.join(format!("pakro.{environment}.local.toml")),
         ]);
     }
     files
@@ -3413,19 +3420,19 @@ fn conf_d_environment_candidates(
 
 /// the preferred global config file to write to, or the path where it should be created.
 /// Uses first_config_file() to pick the lowest-precedence non-local TOML (i.e., config.toml
-/// rather than config.local.toml) so that `mise use -g` writes to config.toml.
+/// rather than config.local.toml) so that `pakro use -g` writes to config.toml.
 /// See: https://github.com/jdx/mise/discussions/8236
 pub fn global_config_path() -> PathBuf {
     let files = global_config_files();
     first_config_file(&files)
         .cloned()
-        .or_else(|| env::MISE_GLOBAL_CONFIG_FILE.clone())
+        .or_else(|| env::PAKRO_GLOBAL_CONFIG_FILE.clone())
         .unwrap_or_else(|| dirs::CONFIG.join("config.toml"))
 }
 
 /// The shared global config file: where declarations meant for every
-/// machine go. `MISE_GLOBAL_CONFIG_FILE`, else the global TOML file that
-/// already exists (`mise.toml` when that is what the user keeps), else
+/// machine go. `PAKRO_GLOBAL_CONFIG_FILE`, else the global TOML file that
+/// already exists (`pakro.toml` when that is what the user keeps), else
 /// `config.toml`. An explicitly selected global file is honored even when
 /// it is `.local.toml`; implicit selection prefers a shared file.
 pub fn global_shared_config_path() -> PathBuf {
@@ -3433,10 +3440,10 @@ pub fn global_shared_config_path() -> PathBuf {
         path.file_name()
             .is_some_and(|name| name.to_string_lossy().ends_with(".local.toml"))
     };
-    // an explicit global file is the one mise loads: declarations go there
+    // an explicit global file is the one pakro loads: declarations go there
     // (writing TOML into a file that is not TOML fails, rather than landing
     // in a file that is never read)
-    if let Some(path) = env::MISE_GLOBAL_CONFIG_FILE.clone() {
+    if let Some(path) = env::PAKRO_GLOBAL_CONFIG_FILE.clone() {
         return path;
     }
     let files = global_config_files();
@@ -3451,11 +3458,11 @@ pub fn system_config_path() -> PathBuf {
     let files = system_config_files();
     first_config_file(&files)
         .cloned()
-        .or_else(|| env::MISE_SYSTEM_CONFIG_FILE.clone())
+        .or_else(|| env::PAKRO_SYSTEM_CONFIG_FILE.clone())
         .unwrap_or_else(|| dirs::SYSTEM_CONFIG.join("config.toml"))
 }
 
-/// the top-most mise.toml (local or global)
+/// the top-most pakro.toml (local or global)
 pub fn top_toml_config() -> Option<PathBuf> {
     load_config_paths(&TOML_CONFIG_FILENAMES, false)
         .iter()
@@ -3482,7 +3489,7 @@ pub fn local_toml_config_path() -> PathBuf {
 /// directory first, then the lowest-precedence file inside that directory.
 pub(crate) fn local_toml_config_path_from_dir(cwd: &Path) -> PathBuf {
     nearest_local_config_file(cwd, &TOML_CONFIG_FILENAMES)
-        .unwrap_or_else(|| cwd.join(&*env::MISE_DEFAULT_CONFIG_FILENAME))
+        .unwrap_or_else(|| cwd.join(&*env::PAKRO_DEFAULT_CONFIG_FILENAME))
 }
 
 /// Options for resolving target config file path
@@ -3496,7 +3503,7 @@ pub struct ConfigPathOptions {
     pub prevent_home_local: bool,
 }
 
-/// Unified config file path resolution for both `mise use` and `mise set`
+/// Unified config file path resolution for both `pakro use` and `pakro set`
 ///
 /// This function centralizes the logic for determining which config file to target
 /// based on various options, ensuring consistent behavior between commands.
@@ -3518,7 +3525,7 @@ pub fn resolve_target_config_path(opts: ConfigPathOptions) -> Result<PathBuf> {
             let resolved = config_file_in_dir(&path);
             if opts.prefer_toml && !resolved.to_string_lossy().ends_with(".toml") {
                 // For TOML-only commands, ensure we get a TOML file in the specified directory
-                return Ok(path.join(&*env::MISE_DEFAULT_CONFIG_FILENAME));
+                return Ok(path.join(&*env::PAKRO_DEFAULT_CONFIG_FILENAME));
             }
             return Ok(resolved);
         } else {
@@ -3534,11 +3541,11 @@ pub fn resolve_target_config_path(opts: ConfigPathOptions) -> Result<PathBuf> {
 
     // If env-specific config is requested
     if let Some(ref env_name) = opts.env {
-        let dotfile_path = cwd.join(format!(".mise.{}.toml", env_name));
+        let dotfile_path = cwd.join(format!(".pakro.{}.toml", env_name));
         if dotfile_path.exists() {
             return Ok(dotfile_path);
         } else {
-            return Ok(cwd.join(format!("mise.{}.toml", env_name)));
+            return Ok(cwd.join(format!("pakro.{}.toml", env_name)));
         }
     }
 
@@ -3553,7 +3560,7 @@ pub fn resolve_target_config_path(opts: ConfigPathOptions) -> Result<PathBuf> {
         // to its lowest-precedence TOML file.
         Ok(local_toml_config_path_from_dir(&cwd))
     } else {
-        // For mise use, use existing config_file_from_dir logic which respects ASDF compat
+        // For pakro use, use existing config_file_from_dir logic which respects ASDF compat
         Ok(config_file_from_dir(&cwd))
     }
 }
@@ -4474,11 +4481,11 @@ async fn apply_task_config_inputs(
 
 fn default_task_includes() -> Vec<String> {
     vec![
-        "mise-tasks".to_string(),
-        ".mise-tasks".to_string(),
-        ".mise/tasks".to_string(),
-        ".config/mise/tasks".to_string(),
-        "mise/tasks".to_string(),
+        "pakro-tasks".to_string(),
+        ".pakro-tasks".to_string(),
+        ".pakro/tasks".to_string(),
+        ".config/pakro/tasks".to_string(),
+        "pakro/tasks".to_string(),
     ]
 }
 
@@ -4792,7 +4799,7 @@ async fn load_local_tasks_with_context(
         .map(|root| enclosing_monorepo_roots(&config.config_files, root))
         .unwrap_or_default();
     for d in all_dirs()? {
-        if mise_util::testing::in_tests() && !d.starts_with(*dirs::HOME) {
+        if pakro_util::testing::in_tests() && !d.starts_with(*dirs::HOME) {
             continue;
         }
         if let Some(ref monorepo_root) = monorepo_root
@@ -4839,7 +4846,7 @@ async fn load_local_tasks_with_context(
         // Load tasks from subdirectories in parallel
         let subdir_tasks_futures: Vec<_> = subdirs
             .into_iter()
-            .filter(|subdir| !mise_util::testing::in_tests() || subdir.starts_with(*dirs::HOME))
+            .filter(|subdir| !pakro_util::testing::in_tests() || subdir.starts_with(*dirs::HOME))
             .map(|subdir| {
                 let config = config.clone();
                 let monorepo_root = monorepo_root.clone();
@@ -4982,7 +4989,7 @@ fn expand_config_roots_inner(
     expand_config_roots_inner_for("monorepo", root, patterns, ctx, filenames, false)
 }
 
-/// Expands bootstrap root patterns using the normal mise config filenames.
+/// Expands bootstrap root patterns using the normal pakro config filenames.
 fn expand_bootstrap_config_roots(root: &Path, patterns: &[String]) -> Result<Vec<PathBuf>> {
     expand_config_roots_inner_for(
         "bootstrap",
@@ -5066,7 +5073,7 @@ fn expand_config_roots_inner_for(
                                 }
                                 if canonical.is_dir()
                                     && filenames.is_none_or(|filenames| {
-                                        has_mise_config_with_filenames(&canonical, filenames)
+                                        has_pakro_config_with_filenames(&canonical, filenames)
                                     })
                                 {
                                     subdirs.push(if canonicalize_results {
@@ -5105,7 +5112,7 @@ fn expand_config_roots_inner_for(
             }
             if canonical.is_dir() {
                 if filenames
-                    .is_none_or(|filenames| has_mise_config_with_filenames(&canonical, filenames))
+                    .is_none_or(|filenames| has_pakro_config_with_filenames(&canonical, filenames))
                 {
                     subdirs.push(if canonicalize_results {
                         canonical
@@ -5114,7 +5121,7 @@ fn expand_config_roots_inner_for(
                     });
                 } else {
                     warn!(
-                        "[{section}].config_roots: '{}' has no mise config file",
+                        "[{section}].config_roots: '{}' has no pakro config file",
                         pattern
                     );
                 }
@@ -5139,10 +5146,10 @@ fn expand_config_roots_inner_for(
     Ok(subdirs)
 }
 
-fn has_mise_config_with_filenames(dir: &Path, filenames: &[String]) -> bool {
+fn has_pakro_config_with_filenames(dir: &Path, filenames: &[String]) -> bool {
     has_config_file_with_filenames(dir, filenames)
-        || dir.join(".mise/tasks").is_dir()
-        || dir.join("mise-tasks").is_dir()
+        || dir.join(".pakro/tasks").is_dir()
+        || dir.join("pakro-tasks").is_dir()
 }
 
 fn has_config_file_with_filenames(dir: &Path, filenames: &[String]) -> bool {
@@ -5171,7 +5178,7 @@ fn discover_monorepo_subdirs(
     deprecated!(
         "monorepo_auto_discovery",
         "Automatic monorepo discovery is deprecated. \
-         Please define [monorepo].config_roots in your root mise.toml. \
+         Please define [monorepo].config_roots in your root pakro.toml. \
          See https://mise.jdx.dev/tasks/monorepo.html#explicit-config-roots"
     );
     const DEFAULT_IGNORED_DIRS: &[&str] = &["node_modules", "target", "dist", "build"];
@@ -5226,7 +5233,7 @@ fn discover_monorepo_subdirs(
                     continue;
                 }
 
-                // Check if this directory has a mise config file
+                // Check if this directory has a pakro config file
                 let has_config = has_config_file_with_filenames(dir, &DEFAULT_CONFIG_FILENAMES);
                 let has_task_includes = has_task_includes(dir);
                 if has_config || has_task_includes {
@@ -5261,7 +5268,7 @@ fn discover_monorepo_subdirs(
             let entry = entry?;
             if entry.file_type().is_dir() {
                 let dir = entry.path();
-                // Check if this directory has a mise config file
+                // Check if this directory has a pakro config file
                 let has_config = has_config_file_with_filenames(dir, &DEFAULT_CONFIG_FILENAMES);
                 let has_task_includes = has_task_includes(dir);
                 if has_config || has_task_includes {
@@ -5322,7 +5329,7 @@ async fn load_global_tasks(config: &Arc<Config>, templates: &TaskDefinitions) ->
     for configs in config_groups {
         let scope_tasks = load_tasks_from_configs_and_folders(
             config,
-            &env::MISE_GLOBAL_CONFIG_ROOT,
+            &env::PAKRO_GLOBAL_CONFIG_ROOT,
             configs,
             templates,
             false,
@@ -5346,18 +5353,18 @@ async fn load_global_tasks(config: &Arc<Config>, templates: &TaskDefinitions) ->
 /// with no command, the script stays as the base and the TOML block is overlaid
 /// via [`Task::merge_toml_overlay`]. An inline block replaces a same-named task
 /// from an included TOML file. When the same name appears in multiple inline blocks
-/// (e.g. `mise.toml` and `mise.local.toml`), the highest-precedence block wins.
+/// (e.g. `pakro.toml` and `pakro.local.toml`), the highest-precedence block wins.
 /// If that block has no command, it overlays the nearest lower-precedence
 /// command-bearing block; definitions below that selected base are skipped.
 /// When the same name appears in more than one file task (e.g. a local
-/// `.mise/tasks` script and a same-named task from a `git::` include), the last
+/// `.pakro/tasks` script and a same-named task from a `git::` include), the last
 /// one wins. Callers load `file_tasks` in declared `task_config.includes`
 /// order, so the later include in the list takes precedence — see
 /// `load_tasks_in_dir`.
 ///
 /// An executable file task's name keeps the script's extension (`hello.sh`), so
 /// a block naming the extension-stripped form (`[tasks.hello]` for
-/// `mise-tasks/hello.sh`) has no exact match. When such a block carries no
+/// `pakro-tasks/hello.sh`) has no exact match. When such a block carries no
 /// command and no dependencies of its own, it overlays the file task it names
 /// rather than becoming a separate task — see `stripped_name_overlay_targets`.
 ///
@@ -5452,7 +5459,7 @@ fn merge_file_and_config_tasks(file_tasks: Vec<Task>, config_tasks: Vec<Task>) -
             // rule and what `[tasks.x] depends` on top of a `[tasks.x] run` in
             // a lower config relies on. When no such block exists it is the
             // base instead: a dependency group runs, so dropping it here left
-            // the name a commandless task that `mise run` matched and exited 0.
+            // the name a commandless task that `pakro run` matched and exited 0.
             let has_command = !t.run.is_empty() || !t.run_windows.is_empty() || t.file.is_some();
             let is_base = has_command
                 || (task_has_executable_content(&t)
@@ -5496,7 +5503,7 @@ fn merge_file_and_config_tasks(file_tasks: Vec<Task>, config_tasks: Vec<Task>) -
             // The command could not outrank the scripts its stem reaches, so it
             // decorates them, exactly as one written with a script's full name
             // does. Standing up a task here would shadow them under
-            // `mise run <stem>` and undo the refusal.
+            // `pakro run <stem>` and undo the refusal.
             for name in stripped_name_overlay_targets(&by_name, &t.name) {
                 file_task_overlays.entry(name).or_insert_with(|| t.clone());
             }
@@ -5524,7 +5531,7 @@ fn merge_file_and_config_tasks(file_tasks: Vec<Task>, config_tasks: Vec<Task>) -
 
 /// Whether a task carries anything that makes it run.
 ///
-/// The same rule `mise tasks validate` reports a task for lacking, so a task
+/// The same rule `pakro tasks validate` reports a task for lacking, so a task
 /// without it is the "no executable content" shape rather than one a metadata
 /// overlay should defer to. `depends` and `depends_post` count because they put
 /// their targets in the run; `wait_for` does not, since it only orders tasks
@@ -5546,8 +5553,8 @@ fn task_has_executable_content(task: &Task) -> bool {
 /// what `<name>` runs, so the discovered scripts that name reaches stop being
 /// tasks of their own: `hello.sh` for `[tasks."hello.sh"]`, and every script
 /// whose extension-stripped name is `hello` for `[tasks.hello]`. Both spellings
-/// therefore do the same thing, which is the point — `mise tasks ls` shows the
-/// stem and `mise run` takes it, so which spelling a config happened to use
+/// therefore do the same thing, which is the point — `pakro tasks ls` shows the
+/// stem and `pakro run` takes it, so which spelling a config happened to use
 /// should not change what runs.
 ///
 /// A name reaches a script exactly as an overlay does: the script named exactly,
@@ -5608,7 +5615,7 @@ fn claim_scripts_for_inline_commands(
     }
     // A stem whose scripts are all still here reached them and was refused, so
     // it is not a name a task can take: leaving a command under it would shadow
-    // those scripts under `mise run <stem>` and undo the refusal. The full name
+    // those scripts under `pakro run <stem>` and undo the refusal. The full name
     // needs no such marking -- the script still holds it, so the merge finds it
     // by name and decorates.
     let refused = inline_command_precedence
@@ -5662,7 +5669,7 @@ fn file_task_overlay_targets(
 
 /// Executable file tasks whose extension-stripped name is exactly `name`.
 ///
-/// `mise run hello` already resolves `mise-tasks/hello.sh` this way, and more
+/// `pakro run hello` already resolves `pakro-tasks/hello.sh` this way, and more
 /// than one script can share a stem (`hello.sh` and `hello.js` both run), so a
 /// block naming the stem overlays every file task behind it.
 ///
@@ -5695,7 +5702,7 @@ fn prefer_windows_file_task_siblings(file_tasks: Vec<Task>) -> Vec<Task> {
 /// File tasks have no way to branch on platform — `run_windows` is a TOML-task key and is rejected
 /// in a file-task header — so writing the task twice, once per platform, is the only option
 /// available. Both files then reduce to the same task name, because the name is the file stem, and
-/// `mise run <name>` would run both.
+/// `pakro run <name>` would run both.
 ///
 /// The POSIX side is anything *not* carrying a Windows-native extension, which includes both
 /// `build` and `build.sh`. Keying on "no extension at all" is what this used to do, and it stopped
@@ -5884,8 +5891,8 @@ fn collect_task_files(root: &Path, excludes: &[PathBuf]) -> Result<Vec<PathBuf>>
             // Losing nothing by skipping: walkdir reports this only when a link resolves to a
             // directory already on the walk stack, so everything under it has been visited
             // through the real path. A permission or I/O error is not like that -- a whole
-            // subtree goes unseen -- so those stay fatal. One `mise-tasks/current -> mise-tasks`
-            // used to fail every task command, including tasks defined in `mise.toml` that
+            // subtree goes unseen -- so those stay fatal. One `pakro-tasks/current -> pakro-tasks`
+            // used to fail every task command, including tasks defined in `pakro.toml` that
             // involve no file at all.
             Err(err) if err.loop_ancestor().is_some() => {
                 debug!("skipping task path that links back into itself: {err}");
@@ -5939,7 +5946,7 @@ async fn load_tasks_includes(
         let (toml_files, exec_files): (Vec<_>, Vec<_>) = all_files
             .into_iter()
             .filter(|p| match is_toml(p) {
-                true => !is_mise_config_file_in_task_include(root, p),
+                true => !is_pakro_config_file_in_task_include(root, p),
                 false => file::is_executable(p),
             })
             .partition(|p| is_toml(p));
@@ -6029,7 +6036,7 @@ async fn load_tasks_includes(
     }
 }
 
-fn is_mise_config_file_in_task_include(root: &Path, path: &Path) -> bool {
+fn is_pakro_config_file_in_task_include(root: &Path, path: &Path) -> bool {
     let Ok(relative_path) = path.strip_prefix(root) else {
         return false;
     };
@@ -6285,7 +6292,7 @@ pub(crate) fn task_creation_dir_for_dir(dir: &Path, config_files: &ConfigMap) ->
 ///
 /// A remote file task is parsed from its downloaded script at run time, long after the
 /// loaders that resolve templates have finished, so it has to ask for the definitions
-/// itself. Without this its `#MISE extends=...` is parsed and then silently dropped.
+/// itself. Without this its `#PAKRO extends=...` is parsed and then silently dropped.
 ///
 /// Collecting the definitions is not free, so a task that names no template pays nothing.
 pub(crate) fn resolve_template_for_late_task(config: &Arc<Config>, task: &mut Task) -> Result<()> {
@@ -6849,9 +6856,9 @@ fn trust_check_task_include(path: &Path, require_trust: bool) -> Result<()> {
     Ok(())
 }
 
-/// Template-free task files are inert at load time: TOML and `#MISE` headers
+/// Template-free task files are inert at load time: TOML and `#PAKRO` headers
 /// are only parsed, and the scripts themselves only run on an explicit
-/// `mise run`. Templates are what can execute code while tasks load (via
+/// `pakro run`. Templates are what can execute code while tasks load (via
 /// exec() etc. when task fields render), so only files containing template
 /// syntax need trust. Paranoid mode keeps requiring trust for everything.
 fn task_include_requires_trust(path: &Path) -> bool {
@@ -6967,8 +6974,8 @@ mod tests {
     #[test]
     fn test_resolve_task_template_tracks_definition_sources() -> Result<()> {
         let project_root = PathBuf::from("/workspace/packages/app");
-        let template_source = PathBuf::from("/workspace/mise.toml");
-        let defaults_source = PathBuf::from("/workspace/mise.local.toml");
+        let template_source = PathBuf::from("/workspace/pakro.toml");
+        let defaults_source = PathBuf::from("/workspace/pakro.local.toml");
         let mut definitions = TaskDefinitions::default();
         definitions.templates.insert(
             "build-template".to_string(),
@@ -6993,7 +7000,7 @@ mod tests {
                 },
             )]),
         });
-        let primary_source = project_root.join("mise.toml");
+        let primary_source = project_root.join("pakro.toml");
         let mut task = Task {
             name: "build".to_string(),
             extends: Some("build-template".to_string()),
@@ -7333,18 +7340,18 @@ mod tests {
     }
 
     #[test]
-    fn test_has_mise_config_with_glob_filenames() -> Result<()> {
+    fn test_has_pakro_config_with_glob_filenames() -> Result<()> {
         let tmp = TempDir::new()?;
         for pattern in [
-            ".config/mise/conf.d/*.toml",
-            ".mise/conf.d/*.toml",
-            "mise/conf.d/*.toml",
+            ".config/pakro/conf.d/*.toml",
+            ".pakro/conf.d/*.toml",
+            "pakro/conf.d/*.toml",
         ] {
             let confd = tmp.path().join(pattern.trim_end_matches("/*.toml"));
             fs::create_dir_all(&confd)?;
             fs::write(confd.join("tools.toml"), "[tools]\n")?;
 
-            assert!(has_mise_config_with_filenames(
+            assert!(has_pakro_config_with_filenames(
                 tmp.path(),
                 &[pattern.to_string()]
             ));
@@ -7354,9 +7361,9 @@ mod tests {
     }
 
     #[test]
-    fn test_project_visible_mise_conf_d_precedence() -> Result<()> {
+    fn test_project_visible_pakro_conf_d_precedence() -> Result<()> {
         let tmp = TempDir::new()?;
-        let confd = tmp.path().join("mise/conf.d");
+        let confd = tmp.path().join("pakro/conf.d");
         fs::create_dir_all(&confd)?;
         fs::write(confd.join("01-base.toml"), "[env]\nORDER = 'base'\n")?;
         fs::write(
@@ -7365,13 +7372,13 @@ mod tests {
         )?;
         fs::write(confd.join(".hidden.toml"), "[env]\nORDER = 'hidden'\n")?;
         fs::write(
-            tmp.path().join("mise/config.toml"),
+            tmp.path().join("pakro/config.toml"),
             "[env]\nORDER = 'config'\n",
         )?;
 
         let filenames = vec![
-            "mise/conf.d/*.toml".to_string(),
-            "mise/config.toml".to_string(),
+            "pakro/conf.d/*.toml".to_string(),
+            "pakro/config.toml".to_string(),
         ];
         let paths = config_paths_in_dir_with_filenames(tmp.path(), &filenames);
         let relative = paths
@@ -7381,9 +7388,9 @@ mod tests {
         assert_eq!(
             relative,
             vec![
-                Path::new("mise/config.toml"),
-                Path::new("mise/conf.d/02-override.toml"),
-                Path::new("mise/conf.d/01-base.toml"),
+                Path::new("pakro/config.toml"),
+                Path::new("pakro/conf.d/02-override.toml"),
+                Path::new("pakro/conf.d/01-base.toml"),
             ]
         );
 
@@ -7393,7 +7400,7 @@ mod tests {
     #[test]
     fn test_project_conf_d_dotted_fragments_remain_unconditional() -> Result<()> {
         let tmp = TempDir::new()?;
-        let confd = tmp.path().join(".mise/conf.d");
+        let confd = tmp.path().join(".pakro/conf.d");
         fs::create_dir_all(&confd)?;
         for filename in [
             "01-base.toml",
@@ -7405,7 +7412,7 @@ mod tests {
             fs::write(confd.join(filename), "[env]\n")?;
         }
 
-        let filenames = vec![".mise/conf.d/*.toml".to_string()];
+        let filenames = vec![".pakro/conf.d/*.toml".to_string()];
         let paths = config_paths_in_dir_with_filenames(tmp.path(), &filenames);
         let relative = paths
             .iter()
@@ -7414,11 +7421,11 @@ mod tests {
         assert_eq!(
             relative,
             vec![
-                Path::new(".mise/conf.d/05-ci.ci.toml"),
-                Path::new(".mise/conf.d/04-dev-local.dev.local.toml"),
-                Path::new(".mise/conf.d/03-dev.dev.toml"),
-                Path::new(".mise/conf.d/02-local.local.toml"),
-                Path::new(".mise/conf.d/01-base.toml"),
+                Path::new(".pakro/conf.d/05-ci.ci.toml"),
+                Path::new(".pakro/conf.d/04-dev-local.dev.local.toml"),
+                Path::new(".pakro/conf.d/03-dev.dev.toml"),
+                Path::new(".pakro/conf.d/02-local.local.toml"),
+                Path::new(".pakro/conf.d/01-base.toml"),
             ]
         );
 
@@ -7446,12 +7453,12 @@ mod tests {
         let file_tasks = vec![
             Task {
                 name: "pkl:gen".to_string(),
-                config_source: PathBuf::from("mise-tasks/pkl/gen"),
+                config_source: PathBuf::from("pakro-tasks/pkl/gen"),
                 ..Default::default()
             },
             Task {
                 name: "pkl:gen.ps1".to_string(),
-                config_source: PathBuf::from("mise-tasks/pkl/gen.ps1"),
+                config_source: PathBuf::from("pakro-tasks/pkl/gen.ps1"),
                 ..Default::default()
             },
         ];
@@ -7462,7 +7469,7 @@ mod tests {
         assert_eq!(tasks[0].name, "pkl:gen");
         assert_eq!(
             tasks[0].config_source,
-            PathBuf::from("mise-tasks/pkl/gen.ps1")
+            PathBuf::from("pakro-tasks/pkl/gen.ps1")
         );
     }
 
@@ -7471,12 +7478,12 @@ mod tests {
         let file_tasks = vec![
             Task {
                 name: "hello".to_string(),
-                config_source: PathBuf::from("mise-tasks/hello"),
+                config_source: PathBuf::from("pakro-tasks/hello"),
                 ..Default::default()
             },
             Task {
                 name: "hello.sh".to_string(),
-                config_source: PathBuf::from("mise-tasks/hello.sh"),
+                config_source: PathBuf::from("pakro-tasks/hello.sh"),
                 ..Default::default()
             },
         ];
@@ -7494,14 +7501,14 @@ mod tests {
         let file_tasks = vec![
             Task {
                 name: "hello".to_string(),
-                config_source: PathBuf::from("mise-tasks/hello"),
-                file: Some(PathBuf::from("mise-tasks/hello")),
+                config_source: PathBuf::from("pakro-tasks/hello"),
+                file: Some(PathBuf::from("pakro-tasks/hello")),
                 ..Default::default()
             },
             Task {
                 name: "hello.ps1".to_string(),
-                config_source: PathBuf::from("mise-tasks/hello.ps1"),
-                file: Some(PathBuf::from("mise-tasks/hello.ps1")),
+                config_source: PathBuf::from("pakro-tasks/hello.ps1"),
+                file: Some(PathBuf::from("pakro-tasks/hello.ps1")),
                 ..Default::default()
             },
         ];
@@ -7520,7 +7527,7 @@ mod tests {
         assert_eq!(tasks[0].name, "hello");
         assert_eq!(
             tasks[0].config_source,
-            PathBuf::from("mise-tasks/hello.ps1")
+            PathBuf::from("pakro-tasks/hello.ps1")
         );
         assert_eq!(tasks[0].description, "windows task metadata");
     }
@@ -7530,8 +7537,8 @@ mod tests {
     fn file_task(name: &str) -> Task {
         Task {
             name: name.to_string(),
-            config_source: PathBuf::from(format!("mise-tasks/{name}")),
-            file: Some(PathBuf::from(format!("mise-tasks/{name}"))),
+            config_source: PathBuf::from(format!("pakro-tasks/{name}")),
+            file: Some(PathBuf::from(format!("pakro-tasks/{name}"))),
             ..Default::default()
         }
     }
@@ -7540,7 +7547,7 @@ mod tests {
     fn inline_overlay(name: &str) -> Task {
         Task {
             name: name.to_string(),
-            config_source: PathBuf::from("mise.toml"),
+            config_source: PathBuf::from("pakro.toml"),
             ..Default::default()
         }
     }
@@ -7565,7 +7572,7 @@ mod tests {
 
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].name, "hello.sh");
-        assert_eq!(tasks[0].file, Some(PathBuf::from("mise-tasks/hello.sh")));
+        assert_eq!(tasks[0].file, Some(PathBuf::from("pakro-tasks/hello.sh")));
         assert_eq!(tasks[0].description, "overlaid");
     }
 
@@ -7588,7 +7595,7 @@ mod tests {
 
     #[test]
     fn test_stripped_name_block_defers_to_an_inline_command_with_the_same_name() {
-        // `mise.local.toml` contributes metadata, `mise.toml` the command. The
+        // `pakro.local.toml` contributes metadata, `pakro.toml` the command. The
         // metadata block must overlay that inline base, not the file task, or
         // the base below it is dropped. The command also claims `hello.sh`,
         // since `[tasks.hello]` names that script.
@@ -7797,7 +7804,7 @@ mod tests {
 
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].name, "hello.sh");
-        assert_eq!(tasks[0].file, Some(PathBuf::from("mise-tasks/hello.sh")));
+        assert_eq!(tasks[0].file, Some(PathBuf::from("pakro-tasks/hello.sh")));
         assert_eq!(
             tasks[0]
                 .wait_for
@@ -7824,7 +7831,7 @@ mod tests {
             assert_eq!(tasks[0].name, "hello.sh", "{spelling}");
             assert_eq!(
                 tasks[0].file,
-                Some(PathBuf::from("mise-tasks/hello.sh")),
+                Some(PathBuf::from("pakro-tasks/hello.sh")),
                 "{spelling} lost the script"
             );
             out.push(tasks[0].clone());
@@ -8008,13 +8015,13 @@ mod tests {
         let tasks = merge_file_and_config_tasks(vec![script], vec![block]);
 
         assert_eq!(tasks.len(), 1);
-        assert_eq!(tasks[0].file, Some(PathBuf::from("mise-tasks/hello.sh")));
+        assert_eq!(tasks[0].file, Some(PathBuf::from("pakro-tasks/hello.sh")));
         assert_eq!(tasks[0].description, "from a lower config");
     }
 
     /// A command under the stem claims the scripts that stem names, so the two
-    /// spellings do the same thing. `mise tasks ls` shows the stem and
-    /// `mise run` takes it, so a script left beside the command would be
+    /// spellings do the same thing. `pakro tasks ls` shows the stem and
+    /// `pakro run` takes it, so a script left beside the command would be
     /// shadowed by exact-name matching anyway (#10393).
     #[test]
     fn test_a_command_under_the_stem_claims_the_scripts_it_names() {
@@ -8070,7 +8077,7 @@ mod tests {
         );
         assert_eq!(
             tasks["hello.js"].file,
-            Some(PathBuf::from("mise-tasks/hello.js"))
+            Some(PathBuf::from("pakro-tasks/hello.js"))
         );
     }
 
@@ -8104,12 +8111,12 @@ mod tests {
             vec![RunEntry::Script("echo exact".to_string())]
         );
         let sibling = tasks.iter().find(|t| t.name == "hello.js").unwrap();
-        assert_eq!(sibling.file, Some(PathBuf::from("mise-tasks/hello.js")));
+        assert_eq!(sibling.file, Some(PathBuf::from("pakro-tasks/hello.js")));
     }
 
     /// A command that cannot outrank the scripts its stem reaches decorates
     /// them, exactly as one written with a script's full name does. Left as a
-    /// task of its own it would shadow them under `mise run <stem>`, which is
+    /// task of its own it would shadow them under `pakro run <stem>`, which is
     /// the takeover the precedence rule just refused.
     #[test]
     fn test_a_refused_stem_command_decorates_instead_of_shadowing() {
@@ -8127,7 +8134,7 @@ mod tests {
 
         assert_eq!(tasks.len(), 1, "the command stood up a task of its own");
         assert_eq!(tasks[0].name, "hello.sh");
-        assert_eq!(tasks[0].file, Some(PathBuf::from("mise-tasks/hello.sh")));
+        assert_eq!(tasks[0].file, Some(PathBuf::from("pakro-tasks/hello.sh")));
         assert_eq!(tasks[0].description, "from a lower config");
     }
 
@@ -8214,17 +8221,17 @@ mod tests {
         let file_tasks = vec![
             Task {
                 name: "hello".to_string(),
-                config_source: PathBuf::from("mise-tasks/hello"),
+                config_source: PathBuf::from("pakro-tasks/hello"),
                 ..Default::default()
             },
             Task {
                 name: "hello.ps1".to_string(),
-                config_source: PathBuf::from("mise-tasks/hello.ps1"),
+                config_source: PathBuf::from("pakro-tasks/hello.ps1"),
                 ..Default::default()
             },
             Task {
                 name: "hello.sh".to_string(),
-                config_source: PathBuf::from("mise-tasks/hello.sh"),
+                config_source: PathBuf::from("pakro-tasks/hello.sh"),
                 ..Default::default()
             },
         ];
@@ -8238,7 +8245,7 @@ mod tests {
         assert_eq!(matches.len(), 1);
         assert_eq!(
             matches[0].config_source,
-            PathBuf::from("mise-tasks/hello.ps1")
+            PathBuf::from("pakro-tasks/hello.ps1")
         );
     }
 
@@ -8247,17 +8254,17 @@ mod tests {
         let file_tasks = vec![
             Task {
                 name: "hello".to_string(),
-                config_source: PathBuf::from("mise-tasks/hello"),
+                config_source: PathBuf::from("pakro-tasks/hello"),
                 ..Default::default()
             },
             Task {
                 name: "hello.ps1".to_string(),
-                config_source: PathBuf::from("mise-tasks/hello.ps1"),
+                config_source: PathBuf::from("pakro-tasks/hello.ps1"),
                 ..Default::default()
             },
             Task {
                 name: "hello.cmd".to_string(),
-                config_source: PathBuf::from("mise-tasks/hello.cmd"),
+                config_source: PathBuf::from("pakro-tasks/hello.cmd"),
                 ..Default::default()
             },
         ];
@@ -8273,9 +8280,9 @@ mod tests {
         assert_eq!(
             task_sources,
             vec![
-                Path::new("mise-tasks/hello"),
-                Path::new("mise-tasks/hello.ps1"),
-                Path::new("mise-tasks/hello.cmd"),
+                Path::new("pakro-tasks/hello"),
+                Path::new("pakro-tasks/hello.ps1"),
+                Path::new("pakro-tasks/hello.cmd"),
             ]
         );
     }
@@ -8290,7 +8297,7 @@ mod tests {
             },
             Task {
                 name: "build.ps1".to_string(),
-                config_source: PathBuf::from("mise-tasks/build.ps1"),
+                config_source: PathBuf::from("pakro-tasks/build.ps1"),
                 ..Default::default()
             },
         ];
@@ -8307,7 +8314,7 @@ mod tests {
             task_sources,
             vec![
                 Path::new("included-tasks/build"),
-                Path::new("mise-tasks/build.ps1"),
+                Path::new("pakro-tasks/build.ps1"),
             ]
         );
     }
@@ -8321,12 +8328,12 @@ mod tests {
         let file_tasks = vec![
             Task {
                 name: "build.sh".to_string(),
-                config_source: PathBuf::from("mise-tasks/build.sh"),
+                config_source: PathBuf::from("pakro-tasks/build.sh"),
                 ..Default::default()
             },
             Task {
                 name: "build.ps1".to_string(),
-                config_source: PathBuf::from("mise-tasks/build.ps1"),
+                config_source: PathBuf::from("pakro-tasks/build.ps1"),
                 ..Default::default()
             },
         ];
@@ -8337,7 +8344,7 @@ mod tests {
         assert_eq!(tasks[0].name, "build");
         assert_eq!(
             tasks[0].config_source,
-            PathBuf::from("mise-tasks/build.ps1")
+            PathBuf::from("pakro-tasks/build.ps1")
         );
     }
 
@@ -8345,19 +8352,19 @@ mod tests {
     ///
     /// `build.release.sh` is named `build.release.sh`, and `strip_task_extension` takes off only
     /// the last extension — so the pair keys as `build.release` and the survivor is renamed to
-    /// `build.release`, not to `build`. Getting that wrong would leave `mise run build.release`
+    /// `build.release`, not to `build`. Getting that wrong would leave `pakro run build.release`
     /// with nothing to resolve.
     #[test]
     fn test_prefer_windows_file_task_siblings_keeps_a_dotted_task_name() {
         let file_tasks = vec![
             Task {
                 name: "build.release.sh".to_string(),
-                config_source: PathBuf::from("mise-tasks/build.release.sh"),
+                config_source: PathBuf::from("pakro-tasks/build.release.sh"),
                 ..Default::default()
             },
             Task {
                 name: "build.release.ps1".to_string(),
-                config_source: PathBuf::from("mise-tasks/build.release.ps1"),
+                config_source: PathBuf::from("pakro-tasks/build.release.ps1"),
                 ..Default::default()
             },
         ];
@@ -8368,7 +8375,7 @@ mod tests {
         assert_eq!(tasks[0].name, "build.release");
         assert_eq!(
             tasks[0].config_source,
-            PathBuf::from("mise-tasks/build.release.ps1")
+            PathBuf::from("pakro-tasks/build.release.ps1")
         );
     }
 
@@ -8379,7 +8386,7 @@ mod tests {
     fn test_prefer_windows_file_task_siblings_keeps_a_lone_posix_extension() {
         let file_tasks = vec![Task {
             name: "build.sh".to_string(),
-            config_source: PathBuf::from("mise-tasks/build.sh"),
+            config_source: PathBuf::from("pakro-tasks/build.sh"),
             ..Default::default()
         }];
 
@@ -8389,7 +8396,10 @@ mod tests {
         // Name untouched as well as kept: renaming it to `build` here would invent a task the
         // POSIX-only project never had.
         assert_eq!(tasks[0].name, "build.sh");
-        assert_eq!(tasks[0].config_source, PathBuf::from("mise-tasks/build.sh"));
+        assert_eq!(
+            tasks[0].config_source,
+            PathBuf::from("pakro-tasks/build.sh")
+        );
     }
 
     /// The other control: two POSIX files are not a platform pair, so neither is Windows' to
@@ -8399,12 +8409,12 @@ mod tests {
         let file_tasks = vec![
             Task {
                 name: "build".to_string(),
-                config_source: PathBuf::from("mise-tasks/build"),
+                config_source: PathBuf::from("pakro-tasks/build"),
                 ..Default::default()
             },
             Task {
                 name: "build.sh".to_string(),
-                config_source: PathBuf::from("mise-tasks/build.sh"),
+                config_source: PathBuf::from("pakro-tasks/build.sh"),
                 ..Default::default()
             },
         ];
@@ -8421,17 +8431,17 @@ mod tests {
         let file_tasks = vec![
             Task {
                 name: "build.sh".to_string(),
-                config_source: PathBuf::from("mise-tasks/build.sh"),
+                config_source: PathBuf::from("pakro-tasks/build.sh"),
                 ..Default::default()
             },
             Task {
                 name: "build.ps1".to_string(),
-                config_source: PathBuf::from("mise-tasks/build.ps1"),
+                config_source: PathBuf::from("pakro-tasks/build.ps1"),
                 ..Default::default()
             },
             Task {
                 name: "build.cmd".to_string(),
-                config_source: PathBuf::from("mise-tasks/build.cmd"),
+                config_source: PathBuf::from("pakro-tasks/build.cmd"),
                 ..Default::default()
             },
         ];
@@ -8451,30 +8461,30 @@ mod tests {
         assert_eq!(
             env_config_patterns_with_conf_d("linux", true),
             vec![
-                ".config/mise/conf.d/*.linux.toml",
-                ".config/mise/conf.d/*/mise.linux.toml",
-                ".config/mise/config.linux.toml",
-                ".config/mise.linux.toml",
-                "mise/conf.d/*.linux.toml",
-                "mise/conf.d/*/mise.linux.toml",
-                "mise/config.linux.toml",
-                "mise.linux.toml",
-                ".mise/conf.d/*.linux.toml",
-                ".mise/conf.d/*/mise.linux.toml",
-                ".mise/config.linux.toml",
-                ".mise.linux.toml",
-                ".config/mise/conf.d/*.linux.local.toml",
-                ".config/mise/conf.d/*/mise.linux.local.toml",
-                ".config/mise/config.linux.local.toml",
-                ".config/mise.linux.local.toml",
-                "mise/conf.d/*.linux.local.toml",
-                "mise/conf.d/*/mise.linux.local.toml",
-                "mise/config.linux.local.toml",
-                "mise.linux.local.toml",
-                ".mise/conf.d/*.linux.local.toml",
-                ".mise/conf.d/*/mise.linux.local.toml",
-                ".mise/config.linux.local.toml",
-                ".mise.linux.local.toml",
+                ".config/pakro/conf.d/*.linux.toml",
+                ".config/pakro/conf.d/*/pakro.linux.toml",
+                ".config/pakro/config.linux.toml",
+                ".config/pakro.linux.toml",
+                "pakro/conf.d/*.linux.toml",
+                "pakro/conf.d/*/pakro.linux.toml",
+                "pakro/config.linux.toml",
+                "pakro.linux.toml",
+                ".pakro/conf.d/*.linux.toml",
+                ".pakro/conf.d/*/pakro.linux.toml",
+                ".pakro/config.linux.toml",
+                ".pakro.linux.toml",
+                ".config/pakro/conf.d/*.linux.local.toml",
+                ".config/pakro/conf.d/*/pakro.linux.local.toml",
+                ".config/pakro/config.linux.local.toml",
+                ".config/pakro.linux.local.toml",
+                "pakro/conf.d/*.linux.local.toml",
+                "pakro/conf.d/*/pakro.linux.local.toml",
+                "pakro/config.linux.local.toml",
+                "pakro.linux.local.toml",
+                ".pakro/conf.d/*.linux.local.toml",
+                ".pakro/conf.d/*/pakro.linux.local.toml",
+                ".pakro/config.linux.local.toml",
+                ".pakro.linux.local.toml",
             ]
         );
         // Folder fragments are new, so their environment files are never
@@ -8483,38 +8493,38 @@ mod tests {
             env_config_patterns_with_conf_d("linux", false)
                 .iter()
                 .filter(|pattern| pattern.contains("conf.d"))
-                .all(|pattern| pattern.contains("conf.d/*/mise."))
+                .all(|pattern| pattern.contains("conf.d/*/pakro."))
         );
     }
 
     #[test]
     fn test_glob_skips_patterns_under_missing_directories() -> Result<()> {
         let missing = TempDir::new()?;
-        assert!(glob(missing.path(), ".config/mise/conf.d/*.toml")?.is_empty());
-        assert!(glob(missing.path(), ".mise/conf.d/*/mise.toml")?.is_empty());
+        assert!(glob(missing.path(), ".config/pakro/conf.d/*.toml")?.is_empty());
+        assert!(glob(missing.path(), ".pakro/conf.d/*/pakro.toml")?.is_empty());
 
         // glob caches by directory and pattern, so the matching case needs a
         // directory of its own.
         let tmp = TempDir::new()?;
-        let confd = tmp.path().join(".mise/conf.d");
+        let confd = tmp.path().join(".pakro/conf.d");
         fs::create_dir_all(confd.join("node"))?;
         fs::write(confd.join("tools.toml"), "")?;
-        fs::write(confd.join("node/mise.toml"), "")?;
+        fs::write(confd.join("node/pakro.toml"), "")?;
         assert_eq!(
-            glob(tmp.path(), ".mise/conf.d/*.toml")?,
+            glob(tmp.path(), ".pakro/conf.d/*.toml")?,
             vec![confd.join("tools.toml")]
         );
         assert_eq!(
-            glob(tmp.path(), ".mise/conf.d/*/mise.toml")?,
-            vec![confd.join("node/mise.toml")]
+            glob(tmp.path(), ".pakro/conf.d/*/pakro.toml")?,
+            vec![confd.join("node/pakro.toml")]
         );
         // A malformed pattern is an error even when its directory is missing.
         assert!(glob(missing.path(), "missing/[unclosed/*.toml").is_err());
         // A pattern with no wildcard names a file, not a directory to check.
-        fs::write(tmp.path().join("mise.toml"), "")?;
+        fs::write(tmp.path().join("pakro.toml"), "")?;
         assert_eq!(
-            glob(tmp.path(), "mise.toml")?,
-            vec![tmp.path().join("mise.toml")]
+            glob(tmp.path(), "pakro.toml")?,
+            vec![tmp.path().join("pakro.toml")]
         );
         Ok(())
     }
@@ -8522,14 +8532,14 @@ mod tests {
     #[test]
     fn test_env_config_patterns_escape_glob_characters() -> Result<()> {
         let tmp = TempDir::new()?;
-        let confd = tmp.path().join(".mise/conf.d");
+        let confd = tmp.path().join(".pakro/conf.d");
         fs::create_dir_all(&confd)?;
         fs::write(confd.join("tools.qa*.toml"), "[env]\n")?;
         fs::write(confd.join("tools.qa1.toml"), "[env]\n")?;
 
         let pattern = env_config_patterns_with_conf_d("qa*", true)
             .into_iter()
-            .find(|pattern| pattern.starts_with(".mise/conf.d/") && !pattern.contains(".local."))
+            .find(|pattern| pattern.starts_with(".pakro/conf.d/") && !pattern.contains(".local."))
             .unwrap();
         let matches = glob(tmp.path(), &pattern)?;
         assert_eq!(matches, vec![confd.join("tools.qa*.toml")]);
@@ -8541,7 +8551,7 @@ mod tests {
     fn test_env_config_patterns_with_non_star_glob_characters() -> Result<()> {
         for env_name in ["qa?", "qa[1]", "qa]"] {
             let tmp = TempDir::new()?;
-            let path = tmp.path().join(format!("mise.{env_name}.toml"));
+            let path = tmp.path().join(format!("pakro.{env_name}.toml"));
             fs::write(&path, "[env]\n")?;
 
             let patterns = env_config_patterns(env_name);
@@ -8641,7 +8651,7 @@ mod tests {
     async fn test_get_tool_opts_with_overrides_keeps_inline_opts_with_config_entry() -> Result<()> {
         crate::toolset::install_state::init().await?;
 
-        let source = crate::toolset::ToolSource::MiseToml(PathBuf::from("mise.toml"));
+        let source = crate::toolset::ToolSource::PakroToml(PathBuf::from("pakro.toml"));
         let resolved_ba = Arc::new(BackendArg::from("github:jdx/mise-test-fixtures"));
         let config_opts =
             crate::toolset::parse_tool_options("api_url=https://config.example/api/v3,foo=config");
@@ -8721,7 +8731,7 @@ mod tests {
     async fn backend_aliases_keep_their_tool_spelling() -> Result<()> {
         crate::backend::load_tools().await?;
         let temp = tempfile::tempdir()?;
-        let path = temp.path().join("mise.toml");
+        let path = temp.path().join("pakro.toml");
         fs::write(
             &path,
             r#"
@@ -8734,7 +8744,7 @@ backend = "cargo:ripgrep"
         let mut files: ConfigMap = Default::default();
         files.insert(
             path.clone(),
-            Arc::new(config_file::mise_toml::MiseToml::from_file(&path)?),
+            Arc::new(config_file::pakro_toml::PakroToml::from_file(&path)?),
         );
         let all_aliases = load_aliases(&files)?;
         assert_eq!(
@@ -8776,7 +8786,7 @@ backend = "cargo:ripgrep"
     async fn test_resolve_tool_opts_tracks_alias_config_and_inline_sources() -> Result<()> {
         crate::toolset::install_state::init().await?;
 
-        let source = crate::toolset::ToolSource::MiseToml(PathBuf::from("mise.toml"));
+        let source = crate::toolset::ToolSource::PakroToml(PathBuf::from("pakro.toml"));
         let config_ba = Arc::new(BackendArg::from("tiny"));
         let config_opts =
             crate::toolset::parse_tool_options("asset_pattern=config-pattern,bar=config");
@@ -8857,7 +8867,7 @@ backend = "cargo:ripgrep"
     async fn test_resolve_tool_opts_prefers_config_over_install_manifest_opts() -> Result<()> {
         crate::toolset::install_state::init().await?;
 
-        let source = crate::toolset::ToolSource::MiseToml(PathBuf::from("mise.toml"));
+        let source = crate::toolset::ToolSource::PakroToml(PathBuf::from("pakro.toml"));
         let config_ba = Arc::new(BackendArg::from("http:manifest-opts"));
         let config_opts =
             crate::toolset::parse_tool_options("version_json_path=.current,config_only=true");
@@ -8944,7 +8954,7 @@ backend = "cargo:ripgrep"
     -> Result<()> {
         crate::toolset::install_state::init().await?;
 
-        let source = crate::toolset::ToolSource::MiseToml(PathBuf::from("mise.toml"));
+        let source = crate::toolset::ToolSource::PakroToml(PathBuf::from("pakro.toml"));
         let config_ba = Arc::new(BackendArg::from("s3:manifest-opts"));
         let config_opts = crate::toolset::parse_tool_options(
             "version_prefix=current/,version_regex=current-(.*)",
@@ -9034,7 +9044,7 @@ backend = "cargo:ripgrep"
     #[tokio::test]
     async fn test_resolve_tool_opts_prefers_env_backend_override_over_alias_opts() -> Result<()> {
         unsafe {
-            std::env::set_var("MISE_BACKENDS_ENV_OPTS_TEST", "github:env/repo[foo=env]");
+            std::env::set_var("PAKRO_BACKENDS_ENV_OPTS_TEST", "github:env/repo[foo=env]");
         }
 
         let result = async {
@@ -9088,7 +9098,7 @@ backend = "cargo:ripgrep"
         .await;
 
         unsafe {
-            std::env::remove_var("MISE_BACKENDS_ENV_OPTS_TEST");
+            std::env::remove_var("PAKRO_BACKENDS_ENV_OPTS_TEST");
         }
 
         result
@@ -9103,7 +9113,7 @@ backend = "cargo:ripgrep"
         fs::create_dir_all(&api)?;
         fs::create_dir_all(&web)?;
 
-        let root_config = root.join(".test.mise.toml");
+        let root_config = root.join(".test.pakro.toml");
         fs::write(
             &root_config,
             r#"
@@ -9114,14 +9124,14 @@ config_roots = ["apps/api", "apps/web"]
 "#,
         )?;
         fs::write(
-            api.join(".test.mise.toml"),
+            api.join(".test.pakro.toml"),
             r#"
 [tools]
 "github:jdx/mise-test-fixtures" = "1"
 "#,
         )?;
         fs::write(
-            web.join(".test.mise.toml"),
+            web.join(".test.pakro.toml"),
             r#"
 [tools]
 "github:jdx/mise-test-fixtures" = "2"
@@ -9131,7 +9141,7 @@ config_roots = ["apps/api", "apps/web"]
         let mut config_files: ConfigMap = Default::default();
         config_files.insert(
             root_config.clone(),
-            Arc::new(config_file::mise_toml::MiseToml::from_file(&root_config)?),
+            Arc::new(config_file::pakro_toml::PakroToml::from_file(&root_config)?),
         );
         let config = Config {
             tera_ctx: BASE_CONTEXT.clone(),
@@ -9328,9 +9338,9 @@ config_roots = ["apps/api", "apps/web"]
         );
 
         for key in ["vfox:retired", "vfox-backend:retired", "package:retired"] {
-            let path = temp.path().join("removed.mise.toml");
+            let path = temp.path().join("removed.pakro.toml");
             let body = format!("[plugins]\n\"{key}\" = \"owner/retired\"\n");
-            let cf = MiseToml::parse_remote_fragment(&body, &path).unwrap();
+            let cf = PakroToml::parse_remote_fragment(&body, &path).unwrap();
             let files = ConfigMap::from([(path, Arc::new(cf) as Arc<dyn ConfigFile>)]);
             assert!(
                 config.with_config_files(files).is_err(),
@@ -9341,8 +9351,8 @@ config_roots = ["apps/api", "apps/web"]
             "[plugins]\nretired = \"packslip:owner/plugin\"\n",
             "[bootstrap.plugins]\nretired = \"owner/plugin\"\n",
         ] {
-            let path = temp.path().join("removed.mise.toml");
-            let cf: MiseToml = toml::from_str(body).unwrap();
+            let path = temp.path().join("removed.pakro.toml");
+            let cf: PakroToml = toml::from_str(body).unwrap();
             let files = ConfigMap::from([(path, Arc::new(cf) as Arc<dyn ConfigFile>)]);
             assert!(
                 config.with_config_files(files).is_err(),
@@ -9401,7 +9411,7 @@ mod write_target_tests {
         // the `.tool-versions` sitting right there. That ordering is what makes this
         // reachable, and nothing else in the file says so.
         let files = set(&[
-            "/home/u/.config/mise/conf.d/10-drop-in.toml",
+            "/home/u/.config/pakro/conf.d/10-drop-in.toml",
             "/home/u/.tool-versions",
         ]);
         assert_eq!(
@@ -9414,20 +9424,20 @@ mod write_target_tests {
     fn nothing_but_drop_ins_means_no_write_target() {
         // Every caller turns `None` into a config of its own, which is the wanted outcome:
         // creating `config.toml` beats editing somebody's drop-in.
-        let files = set(&["/home/u/.config/mise/conf.d/10-drop-in.toml"]);
+        let files = set(&["/home/u/.config/pakro/conf.d/10-drop-in.toml"]);
         assert_eq!(first_config_file(&files), None);
     }
 
     #[test]
     fn a_real_config_still_wins() {
         let files = set(&[
-            "/home/u/.config/mise/conf.d/10-drop-in.toml",
-            "/home/u/.config/mise/config.toml",
+            "/home/u/.config/pakro/conf.d/10-drop-in.toml",
+            "/home/u/.config/pakro/config.toml",
             "/home/u/.tool-versions",
         ]);
         assert_eq!(
             first_config_file(&files),
-            Some(&PathBuf::from("/home/u/.config/mise/config.toml"))
+            Some(&PathBuf::from("/home/u/.config/pakro/config.toml"))
         );
     }
 
@@ -9436,10 +9446,10 @@ mod write_target_tests {
         // Control for the change above: `.tool-versions` is skipped *while choosing* and only
         // returned when nothing else qualifies. Excluding drop-ins outright must not turn that
         // preference into an exclusion as well.
-        let files = set(&["/proj/.tool-versions", "/proj/mise.toml"]);
+        let files = set(&["/proj/.tool-versions", "/proj/pakro.toml"]);
         assert_eq!(
             first_config_file(&files),
-            Some(&PathBuf::from("/proj/mise.toml"))
+            Some(&PathBuf::from("/proj/pakro.toml"))
         );
 
         let only = set(&["/proj/.tool-versions"]);

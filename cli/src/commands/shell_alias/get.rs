@@ -6,7 +6,7 @@ use crate::config::Config;
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     example(
-        r###"mise shell-alias get ll
+        r###"pakro shell-alias get ll
 ls -la"###
     ),
     verbatim_doc_comment
@@ -22,7 +22,7 @@ impl ShellAliasGet {
         let config = Config::get().await?;
         match config.shell_aliases.get(&self.alias) {
             Some((command, _path)) => {
-                miseprintln!("{command}");
+                pakroprintln!("{command}");
                 Ok(())
             }
             None => Err(eyre!("Unknown shell alias: {}", &self.alias)),

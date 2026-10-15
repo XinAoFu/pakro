@@ -4,7 +4,7 @@ use std::path::Path;
 
 /// Open `file` in the user's editor and wait for it to exit.
 ///
-/// The wait is part of the contract, not an accident of blocking IO: `mise dot edit --apply`
+/// The wait is part of the contract, not an accident of blocking IO: `pakro dot edit --apply`
 /// converges the target as soon as this returns, so an editor that detached would apply a file the
 /// user had not saved yet.
 pub(super) fn open_in_editor(file: &Path) -> Result<()> {
@@ -18,11 +18,11 @@ fn open_in_editor_with(editor: &str, file: &Path) -> Result<()> {
     if let Err(err) = crate::cmd::cmd(&program, args).run() {
         // Name the program and the variables that choose it. A child that never starts comes back
         // as std's bare "program not found" (see the note in `backend::which_spawnable`), which
-        // says neither what mise tried to run nor where the name came from — and the default is
+        // says neither what pakro tried to run nor where the name came from — and the default is
         // the name most likely to be missing.
         bail!(
             "failed to open the editor `{program}`: {err}\n\
-             Set $EDITOR or $VISUAL to an editor mise can run."
+             Set $EDITOR or $VISUAL to an editor pakro can run."
         );
     }
     Ok(())
@@ -69,7 +69,7 @@ mod tests {
 
     /// The failure this exists for: an editor that cannot be started. The bare error is std's
     /// `program not found`, which names nothing — on Windows with neither variable set that is
-    /// the whole of what `mise tasks edit` used to print.
+    /// the whole of what `pakro tasks edit` used to print.
     #[test]
     fn an_editor_that_cannot_start_is_named_along_with_the_variables_that_choose_it() {
         let dir = tempfile::tempdir().unwrap();

@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 
-# Test that PATH reordering done after `mise activate` is preserved by hook-env.
+# Test that PATH reordering done after `pakro activate` is preserved by hook-env.
 # This simulates the scenario where ~/.zlogin (which runs after ~/.zshrc on login
 # shells) reorders PATH entries — e.g., moving a tool to the front for priority.
 #
 # Regression test for https://github.com/jdx/mise/discussions/8188
 # and https://github.com/jdx/mise/issues/8168
 
-# Save the mise binary path before we override PATH
-MISE_BIN="$(which mise)"
+# Save the pakro binary path before we override PATH
+PAKRO_BIN="$(which pakro)"
 
-# Simulate the PATH captured during mise activate in ~/.zshrc
+# Simulate the PATH captured during pakro activate in ~/.zshrc
 # The original order has system-bin first, mytool/bin last
-export __MISE_ORIG_PATH="$HOME/system-bin:/usr/local/bin:/usr/bin:/bin:$HOME/mytool/bin"
+export __PAKRO_ORIG_PATH="$HOME/system-bin:/usr/local/bin:/usr/bin:/bin:$HOME/mytool/bin"
 
 # Create test directories and executables
 mkdir -p "$HOME/mytool/bin"
@@ -22,11 +22,11 @@ mkdir -p "$HOME/system-bin"
 # (this is what users do to override system binaries)
 export PATH="$HOME/mytool/bin:$HOME/system-bin:/usr/local/bin:/usr/bin:/bin"
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 EOF
 
 # Run hook-env using the saved binary path
-eval "$("$MISE_BIN" hook-env -s bash)"
+eval "$("$PAKRO_BIN" hook-env -s bash)"
 
 echo "DEBUG: PATH=$PATH"
 
@@ -51,6 +51,6 @@ if [[ $MYTOOL_POS -lt $SYSTEM_POS ]]; then
   echo "SUCCESS: mytool/bin stays before system-bin (reorder preserved)"
 else
   echo "FAIL: mytool/bin ($MYTOOL_POS) was moved after system-bin ($SYSTEM_POS)"
-  echo "hook-env restored the original __MISE_ORIG_PATH order instead of the current order"
+  echo "hook-env restored the original __PAKRO_ORIG_PATH order instead of the current order"
   exit 1
 fi

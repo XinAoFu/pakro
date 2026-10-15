@@ -133,29 +133,29 @@ pub(crate) enum LevelFilter {
 
 #[derive(usage_rs::Cli)]
 #[usage(
-    name = "mise", about, long_about = LONG_ABOUT, settings,
+    name = "pakro", about, long_about = LONG_ABOUT, settings,
     // The chef's toque and the wink, in block characters. In a file rather than in this
     // attribute because art is edited by looking at it, and a raw string indented to match
     // this list would not be what prints.
     logo = include_str!("../../assets/logo.txt"),
     logo_style = "green",
-    example("mise install node@20.0.0", help = "Install a specific node version"),
-    example("mise install node@20", help = "Install a version matching a prefix"),
-    example("mise install node", help = "Install the node version defined in config"),
-    example("mise install", help = "Install all plugins/tools defined in config"),
-    example("mise install cargo:ripgrep", help = "Install something via cargo"),
-    example("mise install github:BurntSushi/ripgrep", help = "Install a GitHub release"),
-    example("mise use node@20", help = "Use node-20.x in current project"),
-    example("mise use -g node@20", help = "Use node-20.x as default"),
-    example("mise use node@latest", help = "Use latest node in current directory"),
-    example("mise up --interactive", help = "Show a menu to upgrade tools"),
-    example("mise x -- npm install", help = "Run npm install with config loaded into PATH"),
-    example("mise x node@20 -- node app.js", help = "Run node app.js with config and node-20.x on PATH"),
-    example("mise set NODE_ENV=production", help = "Set NODE_ENV=production in config"),
-    example("mise run build", help = "Run build tasks"),
-    example("mise watch build", help = "Run build tasks repeatedly when files change"),
-    example("mise settings", help = "Show settings in use"),
-    example("mise settings color=0", help = "Disable color by modifying global config file"),
+    example("pakro install node@20.0.0", help = "Install a specific node version"),
+    example("pakro install node@20", help = "Install a version matching a prefix"),
+    example("pakro install node", help = "Install the node version defined in config"),
+    example("pakro install", help = "Install all plugins/tools defined in config"),
+    example("pakro install cargo:ripgrep", help = "Install something via cargo"),
+    example("pakro install github:BurntSushi/ripgrep", help = "Install a GitHub release"),
+    example("pakro use node@20", help = "Use node-20.x in current project"),
+    example("pakro use -g node@20", help = "Use node-20.x as default"),
+    example("pakro use node@latest", help = "Use latest node in current directory"),
+    example("pakro up --interactive", help = "Show a menu to upgrade tools"),
+    example("pakro x -- npm install", help = "Run npm install with config loaded into PATH"),
+    example("pakro x node@20 -- node app.js", help = "Run node app.js with config and node-20.x on PATH"),
+    example("pakro set NODE_ENV=production", help = "Set NODE_ENV=production in config"),
+    example("pakro run build", help = "Run build tasks"),
+    example("pakro watch build", help = "Run build tasks repeatedly when files change"),
+    example("pakro settings", help = "Show settings in use"),
+    example("pakro settings color=0", help = "Disable color by modifying global config file"),
     author = "Jeff Dickey <@jdx>", arg_required_else_help = true, completion = true, unknown_flags = "error"
 )]
 pub(crate) struct Cli {
@@ -167,7 +167,7 @@ pub(crate) struct Cli {
         double_dash = "automatic",
         long_help = r#"Task to run.
 
-Shorthand for `mise tasks run <TASK>`."#
+Shorthand for `pakro tasks run <TASK>`."#
     )]
     pub task: Option<String>,
     /// Task arguments
@@ -181,14 +181,14 @@ Shorthand for `mise tasks run <TASK>`."#
     /// Change directory before running command
     #[usage(short='C', long, global=true, value_name="DIR", value_hint=usage_rs::ValueHint::DirPath)]
     pub cd: Option<PathBuf>,
-    /// Set the environment for loading `mise.<ENV>.toml`
+    /// Set the environment for loading `pakro.<ENV>.toml`
     #[usage(short = 'E', long, global = true)]
     pub env: Option<Vec<String>>,
     /// Force the operation
     #[usage(long, short, hide = true)]
     pub force: bool,
     /// How many jobs to run in parallel; values below 1 are treated as 1 [default: 8]
-    #[usage(long, short, global = true, env = "MISE_JOBS")]
+    #[usage(long, short, global = true, env = "PAKRO_JOBS")]
     pub jobs: Option<usize>,
     /// Dry run, don't actually do anything
     #[usage(short = 'n', long, hide = true)]
@@ -197,11 +197,11 @@ Shorthand for `mise tasks run <TASK>`."#
     #[usage(short = 'P', long, global = true, hide = true, conflicts = "env")]
     pub profile: Option<Vec<String>>,
     /// Suppress non-error messages
-    #[usage(short = 'q', long, global = true, env = "MISE_QUIET", overrides = &["silent", "trace", "verbose", "debug", "log_level"])]
+    #[usage(short = 'q', long, global = true, env = "PAKRO_QUIET", overrides = &["silent", "trace", "verbose", "debug", "log_level"])]
     pub quiet: bool,
     #[usage(long, short, hide = true)]
     pub shell: Option<String>,
-    /// Tool(s) to run in addition to what is in mise.toml files
+    /// Tool(s) to run in addition to what is in pakro.toml files
     /// e.g.: node@20 python@3.10
     #[usage(short, long, hide = true, value_name = "TOOL@VERSION")]
     pub tool: Vec<ToolArg>,
@@ -220,25 +220,25 @@ Shorthand for `mise tasks run <TASK>`."#
     pub log_level: Option<LevelFilter>,
     /// Do not load any config files
     ///
-    /// Can also use `MISE_NO_CONFIG=1`
+    /// Can also use `PAKRO_NO_CONFIG=1`
     #[usage(long)]
     pub no_config: bool,
     /// Do not load environment variables from config files
     ///
-    /// Can also use `MISE_NO_ENV=1`
+    /// Can also use `PAKRO_NO_ENV=1`
     #[usage(long)]
     pub no_env: bool,
     /// Do not execute hooks from config files
     ///
-    /// Can also use `MISE_NO_HOOKS=1`
+    /// Can also use `PAKRO_NO_HOOKS=1`
     #[usage(long)]
     pub no_hooks: bool,
     /// Hide the elapsed time printed after each task completes
     ///
-    /// Set `MISE_TASK_TIMINGS=0` to hide it by default
+    /// Set `PAKRO_TASK_TIMINGS=0` to hide it by default
     #[usage(long, alias = "no-timing", hide = true, verbatim_doc_comment)]
     pub no_timings: bool,
-    /// How task output is displayed when running a task (same as `mise run --output`)
+    /// How task output is displayed when running a task (same as `pakro run --output`)
     #[usage(long, hide = true)]
     pub output: Option<TaskOutput>,
     /// Read/write directly to stdin/stdout/stderr instead of by line
@@ -248,15 +248,15 @@ Shorthand for `mise tasks run <TASK>`."#
     ///
     /// Fails if tools don't have pre-resolved URLs in the lockfile for the current platform.
     /// This prevents API calls to GitHub, aqua registry, etc.
-    /// Can also be enabled via MISE_LOCKED=1 or settings.locked=true
+    /// Can also be enabled via PAKRO_LOCKED=1 or settings.locked=true
     #[usage(long, global = true, verbatim_doc_comment)]
     pub locked: bool,
-    /// Suppress all task output and mise non-error messages
+    /// Suppress all task output and pakro non-error messages
     #[usage(long, global = true, overrides = &["quiet", "trace", "verbose", "debug", "log_level"])]
     pub silent: bool,
     /// Show the elapsed time after each task completes
     ///
-    /// Set `MISE_TASK_TIMINGS=1` to show it by default
+    /// Set `PAKRO_TASK_TIMINGS=1` to show it by default
     #[usage(long, alias = "timing", verbatim_doc_comment, hide = true)]
     pub timings: bool,
     /// Set the log level to trace
@@ -264,9 +264,9 @@ Shorthand for `mise tasks run <TASK>`."#
     pub trace: bool,
 }
 
-/// Whether a help page mise prints should carry colour.
+/// Whether a help page pakro prints should carry colour.
 ///
-/// mise's own policy, not the renderer's: `Settings` folds `color`, `MISE_COLOR`, `CLICOLOR`,
+/// pakro's own policy, not the renderer's: `Settings` folds `color`, `PAKRO_COLOR`, `CLICOLOR`,
 /// `CLICOLOR_FORCE`, `NO_COLOR` and CI detection into `console`, so a user who turned colour
 /// off has said so in one place. `Style::auto()` would ask the terminal directly and miss all
 /// of it. This is the rule `render_task_help` already follows.
@@ -292,7 +292,7 @@ fn help_style_for(coloured: bool) -> usage_rs::help::Style {
 
 /// A help page as this process should print it.
 ///
-/// `usage_rs::help::render` is the plain form, for a page going into a document. mise
+/// `usage_rs::help::render` is the plain form, for a page going into a document. pakro
 /// dispatches `Error::Help` itself rather than letting `parse()` exit, so the colour policy
 /// `parse()` would have applied has to be applied here.
 fn render_page(
@@ -637,8 +637,8 @@ fn get_all_run_value_taking_short_flags(cmd: &usage_rs::Command<'_>) -> Vec<(Str
     flags
 }
 
-/// Prefix used to escape flags that should be passed to tasks, not mise
-const TASK_ARG_ESCAPE_PREFIX: &str = "\x00MISE_TASK_ARG\x00";
+/// Prefix used to escape flags that should be passed to tasks, not pakro
+const TASK_ARG_ESCAPE_PREFIX: &str = "\x00PAKRO_TASK_ARG\x00";
 
 /// One task-side argument, with a leading flag hidden from the parser.
 ///
@@ -659,7 +659,7 @@ fn escape_args_after_separator(args: &[String], separator_idx: usize) -> Vec<Str
     result
 }
 
-use mise_util::args::first_non_global_arg_idx_with;
+use pakro_util::args::first_non_global_arg_idx_with;
 
 /// Index of the first argument that is not a global flag or one of its values.
 ///
@@ -694,16 +694,16 @@ fn warn_deprecated_backends_alias(uses_alias: bool) {
             "2026.4.0",
             "2027.4.0",
             "cli.backends.b",
-            "`mise b` is deprecated. Use `mise backends` instead."
+            "`pakro b` is deprecated. Use `pakro backends` instead."
         );
     }
 }
 
-/// Escape flags after task names so clap doesn't parse them as mise flags.
+/// Escape flags after task names so clap doesn't parse them as pakro flags.
 /// This preserves ::: separators for multi-task handling while preventing
 /// clap from consuming flags like --jobs that appear after task names.
 fn escape_task_args(cmd: &usage_rs::Command<'_>, args: &[String]) -> Vec<String> {
-    // Find the mise `run` subcommand position. Do not scan past `--`; values
+    // Find the pakro `run` subcommand position. Do not scan past `--`; values
     // after that boundary belong to another command or a task.
     let first_idx = first_non_global_arg_idx(cmd, args);
     let run_pos = first_idx.filter(|&pos| args[pos] == "run");
@@ -754,7 +754,7 @@ fn escape_task_args(cmd: &usage_rs::Command<'_>, args: &[String]) -> Vec<String>
         }
 
         if !in_task_args {
-            // Looking for task name - skip any mise flags
+            // Looking for task name - skip any pakro flags
             if arg.starts_with('-') {
                 // clap treats attached values for short options as positional
                 // values when the positional allows hyphens. Normalize them to
@@ -773,7 +773,7 @@ fn escape_task_args(cmd: &usage_rs::Command<'_>, args: &[String]) -> Vec<String>
                     continue;
                 }
 
-                // It's a flag - keep it as-is for mise to parse
+                // It's a flag - keep it as-is for pakro to parse
                 result.push(arg.clone());
 
                 // Check if this flag takes a value (and needs to consume the next arg)
@@ -854,7 +854,7 @@ fn preprocess_args_for_naked_run(cmd: &usage_rs::Command<'_>, args: &[String]) -
     }
 
     // This is a naked run - inject "run" subcommand so clap routes it correctly
-    // Format: ["mise", "-q", "task", "arg1"] becomes ["mise", "-q", "run", "task", "arg1"]
+    // Format: ["pakro", "-q", "task", "arg1"] becomes ["pakro", "-q", "run", "task", "arg1"]
     // This preserves global flags while making it an explicit run command
     let mut result = args[..i].to_vec(); // Keep program name + global flags
     result.push("run".to_string()); // Insert "run" subcommand
@@ -977,11 +977,11 @@ impl Cli {
     /// cannot settle returns false, and `run` then goes through `run_inner` as
     /// usual.
     pub(crate) fn exit_early_for_unchanged_hook_env(args: &[String]) -> bool {
-        if args.get(1).map(String::as_str) != Some("hook-env") || *crate::env::MISE_TOOL_STUB {
+        if args.get(1).map(String::as_str) != Some("hook-env") || *crate::env::PAKRO_TOOL_STUB {
             return false;
         }
         *crate::env::ARGS.write().unwrap() = args.to_vec();
-        if crate::config::miserc::init().is_err() {
+        if crate::config::pakrorc::init().is_err() {
             return false;
         }
         if !hook_env_module::should_exit_early_fast() {
@@ -1003,7 +1003,7 @@ impl Cli {
             Settings::init_git_credential()?;
             return token::git_credential::run(&args[4]);
         }
-        // usage-rs's generated `parse()` intercepts this, but mise never calls
+        // usage-rs's generated `parse()` intercepts this, but pakro never calls
         // `parse()` — it uses `parse_from_argv` after shim/naked-run rewriting.
         // Handle the hidden completion protocol here, before config or tools load.
         // Record ARGS first: an error from this path (a closed stdout, an unreadable
@@ -1012,11 +1012,11 @@ impl Cli {
         let completion_argv: Vec<std::ffi::OsString> =
             args.iter().skip(1).map(std::ffi::OsString::from).collect();
         if let Some(answer) = completion::usage_spec_request(&completion_argv) {
-            miseprint!("{}", answer?)?;
+            pakroprint!("{}", answer?)?;
             return Ok(());
         }
         if let Some(answer) = completion::completion_request(&completion_argv) {
-            miseprint!("{answer}")?;
+            pakroprint!("{answer}")?;
             return Ok(());
         }
         if is_packages_where_query(args) {
@@ -1037,10 +1037,10 @@ impl Cli {
         }
         crate::env::ARGS.write().unwrap().clone_from(args);
         let original_cwd = std::env::current_dir().ok();
-        // Load .miserc.toml early, before MISE_ENV and other early settings are accessed.
-        // This allows setting MISE_ENV in a config file instead of only via env vars.
-        crate::config::miserc::init()?;
-        if *crate::env::MISE_TOOL_STUB && args.len() >= 2 {
+        // Load .pakrorc.toml early, before PAKRO_ENV and other early settings are accessed.
+        // This allows setting PAKRO_ENV in a config file instead of only via env vars.
+        crate::config::pakrorc::init()?;
+        if *crate::env::PAKRO_TOOL_STUB && args.len() >= 2 {
             tool_stub::short_circuit_stub(&args[2..]).await?;
         }
         // Fast-path for hook-env: exit early if nothing has changed
@@ -1064,9 +1064,9 @@ impl Cli {
         // Pre-process args to handle naked runs before parsing
         let cmd = measure!("build_cli_command", { Cli::command() });
         let processed_args = preprocess_args_for_naked_run(cmd, args);
-        // Escape flags after task names so they go to tasks, not mise
+        // Escape flags after task names so they go to tasks, not pakro
         let mut processed_args = escape_task_args(cmd, &processed_args);
-        // `mise install python@3.10.14+numpy@4.2.2`: keep the runtime in the
+        // `pakro install python@3.10.14+numpy@4.2.2`: keep the runtime in the
         // argv for a normal tool install, lift the package pins out for the
         // packages hook
         if let Some(command_idx) = first_non_global_arg_idx(cmd, args)
@@ -1163,7 +1163,7 @@ impl Cli {
             // Nested command structs are private to their modules, so inspect
             // their parsed argument span as a fallback. Task/exec arguments
             // after `--` cannot affect this policy. `watch -n` means
-            // `--no-shell`, unlike every other mise `-n` flag.
+            // `--no-shell`, unlike every other pakro `-n` flag.
             || has_dry_run_flag(
                 &processed_args,
                 !matches!(cli.command.as_ref(), Some(Commands::Watch(_))),
@@ -1181,7 +1181,7 @@ impl Cli {
         }
 
         debug!("ARGS: {}", &args.join(" "));
-        trace!("MISE_BIN: {}", crate::env::MISE_BIN.display_user());
+        trace!("PAKRO_BIN: {}", crate::env::PAKRO_BIN.display_user());
         if print_version {
             version::show_latest().await;
             version::show_version_hint();
@@ -1200,7 +1200,7 @@ impl Cli {
                 // Handle special case: "help", "-h", or "--help" as task should print help
                 if task == "help" || task == "-h" || task == "--help" {
                     if let Some(page) = render_page(Cli::spec(), Cli::command(), false) {
-                        miseprint!("{page}")?;
+                        pakroprint!("{page}")?;
                     }
                     return Err(request_exit(0));
                 }
@@ -1282,7 +1282,7 @@ impl Cli {
                 }
             }
             if let Some(page) = render_page(Cli::spec(), Cli::command(), false) {
-                miseprint!("{page}")?;
+                pakroprint!("{page}")?;
             }
             Err(request_exit(1))
         }
@@ -1304,7 +1304,7 @@ fn usage_error(argv: &[&std::ffi::OsStr], err: usage_rs::Error<'_, '_>) -> Repor
     match err {
         usage_rs::Error::Help { cmd, long } => {
             if let Some(page) = render_page(spec, cmd, long)
-                && let Err(err) = miseprint!("{page}")
+                && let Err(err) = pakroprint!("{page}")
             {
                 return err.into();
             }
@@ -1312,7 +1312,7 @@ fn usage_error(argv: &[&std::ffi::OsStr], err: usage_rs::Error<'_, '_>) -> Repor
         }
         usage_rs::Error::HelpAll { cmd } => {
             if let Some(page) = usage_rs::help::render_all_styled(spec, cmd, help_style())
-                && let Err(err) = miseprint!("{page}")
+                && let Err(err) = pakroprint!("{page}")
             {
                 return err.into();
             }
@@ -1333,7 +1333,7 @@ fn usage_error(argv: &[&std::ffi::OsStr], err: usage_rs::Error<'_, '_>) -> Repor
                 spec.version
             }
             .unwrap_or_default();
-            if let Err(err) = miseprint!("{} {version}\n", spec.name) {
+            if let Err(err) = pakroprint!("{} {version}\n", spec.name) {
                 return err.into();
             }
             request_exit(0)
@@ -1345,9 +1345,9 @@ fn usage_error(argv: &[&std::ffi::OsStr], err: usage_rs::Error<'_, '_>) -> Repor
     }
 }
 
-const LONG_ABOUT: &str = "mise installs the dev tools your projects need, sets their environment variables, and runs their tasks.
+const LONG_ABOUT: &str = "pakro installs the dev tools your projects need, sets their environment variables, and runs their tasks.
 
-Tools, env vars, and tasks are declared in mise.toml. `mise use <TOOL>` adds a tool to the project in the current directory, `mise install` installs everything the config asks for, and `mise run <TASK>` runs a task. Docs: https://mise.jdx.dev";
+Tools, env vars, and tasks are declared in pakro.toml. `pakro use <TOOL>` adds a tool to the project in the current directory, `pakro install` installs everything the config asks for, and `pakro run <TASK>` runs a task. Docs: https://mise.jdx.dev";
 
 /// Check if the current working directory exists and warn if not
 fn check_working_directory() {
@@ -1387,15 +1387,15 @@ fn validate_cd_path(cd: &Option<PathBuf>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mise_util::args::GLOBAL_FLAGS_WITH_VALUES;
+    use pakro_util::args::GLOBAL_FLAGS_WITH_VALUES;
 
     #[test]
-    /// A help page follows mise's colour decision, not the terminal's.
+    /// A help page follows pakro's colour decision, not the terminal's.
     ///
-    /// `Style::auto()` asks the terminal and so ignored `color`, `MISE_COLOR` and `CLICOLOR`,
+    /// `Style::auto()` asks the terminal and so ignored `color`, `PAKRO_COLOR` and `CLICOLOR`,
     /// which `Settings` folds into `console` — a user who turned colour off still got a
     /// coloured help page. This pins the mapping the fix put in its place.
-    fn help_colour_follows_mise_rather_than_the_terminal() {
+    fn help_colour_follows_pakro_rather_than_the_terminal() {
         assert_eq!(help_style_for(true), usage_rs::help::Style::COLOURED);
         assert_eq!(help_style_for(false), usage_rs::help::Style::PLAIN);
     }
@@ -1404,9 +1404,9 @@ mod tests {
     /// Keep early recognition consistent with the full parser across inherited flag placements.
     fn packages_where_classifier_accepts_global_and_parent_flags() {
         let cases: &[&[&str]] = &[
-            &["mise", "bootstrap", "packages", "where", "brew:widget"],
+            &["pakro", "bootstrap", "packages", "where", "brew:widget"],
             &[
-                "mise",
+                "pakro",
                 "--quiet",
                 "--cd",
                 ".",
@@ -1416,7 +1416,7 @@ mod tests {
                 "brew:widget",
             ],
             &[
-                "mise",
+                "pakro",
                 "bootstrap",
                 "--yes",
                 "--only",
@@ -1426,7 +1426,7 @@ mod tests {
                 "brew:widget",
             ],
             &[
-                "mise",
+                "pakro",
                 "bootstrap",
                 "packages",
                 "where",
@@ -1436,7 +1436,7 @@ mod tests {
                 "brew:widget",
             ],
             &[
-                "mise",
+                "pakro",
                 "bootstrap",
                 "packages",
                 "where",
@@ -1445,7 +1445,7 @@ mod tests {
                 "--quiet",
             ],
             &[
-                "mise",
+                "pakro",
                 "-C.",
                 "bootstrap",
                 "packages",
@@ -1454,7 +1454,7 @@ mod tests {
                 "brew:widget",
             ],
             &[
-                "mise",
+                "pakro",
                 "--env",
                 "bootstrap",
                 "bootstrap",
@@ -1463,7 +1463,7 @@ mod tests {
                 "brew:widget",
             ],
             &[
-                "mise",
+                "pakro",
                 "bootstrap",
                 "--from",
                 "packages",
@@ -1487,16 +1487,16 @@ mod tests {
     /// Isolate malformed queries so configuration errors cannot mask their argument diagnostics.
     fn packages_where_recognition_precedes_query_argument_validation() {
         let cases: &[&[&str]] = &[
-            &["mise", "bootstrap", "packages", "where"],
+            &["pakro", "bootstrap", "packages", "where"],
             &[
-                "mise",
+                "pakro",
                 "bootstrap",
                 "packages",
                 "where",
                 "--unknown-query-flag",
             ],
             &[
-                "mise",
+                "pakro",
                 "bootstrap",
                 "packages",
                 "where",
@@ -1504,7 +1504,7 @@ mod tests {
                 "brew:widget",
             ],
             &[
-                "mise",
+                "pakro",
                 "bootstrap",
                 "packages",
                 "where",
@@ -1512,18 +1512,25 @@ mod tests {
                 "--unknown-query-flag",
             ],
             &[
-                "mise",
+                "pakro",
                 "bootstrap",
                 "packages",
                 "where",
                 "brew:widget",
                 "brew:extra",
             ],
-            &["mise", "bootstrap", "packages", "where", "--help"],
-            &["mise", "bootstrap", "packages", "where", "--cd"],
-            &["mise", "--cd", "/missing", "bootstrap", "packages", "where"],
-            &["mise", "bootstrap", "--only=packages", "packages", "where"],
-            &["mise", "-q", "bootstrap", "-y", "packages", "where"],
+            &["pakro", "bootstrap", "packages", "where", "--help"],
+            &["pakro", "bootstrap", "packages", "where", "--cd"],
+            &[
+                "pakro",
+                "--cd",
+                "/missing",
+                "bootstrap",
+                "packages",
+                "where",
+            ],
+            &["pakro", "bootstrap", "--only=packages", "packages", "where"],
+            &["pakro", "-q", "bootstrap", "-y", "packages", "where"],
         ];
         for args in cases {
             let argv: Vec<String> = args.iter().map(ToString::to_string).collect();
@@ -1535,11 +1542,11 @@ mod tests {
     /// Preserve normal startup when query-like words occur in flag values or another command payload.
     fn packages_where_recognizer_distinguishes_flag_values_tasks_exec_and_separators() {
         let cases: &[&[&str]] = &[
-            &["mise"],
-            &["mise", "bootstrap", "packages"],
-            &["mise", "bootstrap", "packages", "status"],
+            &["pakro"],
+            &["pakro", "bootstrap", "packages"],
+            &["pakro", "bootstrap", "packages", "status"],
             &[
-                "mise",
+                "pakro",
                 "--env",
                 "bootstrap",
                 "packages",
@@ -1547,15 +1554,15 @@ mod tests {
                 "brew:widget",
             ],
             &[
-                "mise",
+                "pakro",
                 "--env=bootstrap",
                 "packages",
                 "where",
                 "brew:widget",
             ],
-            &["mise", "-Ebootstrap", "packages", "where", "brew:widget"],
+            &["pakro", "-Ebootstrap", "packages", "where", "brew:widget"],
             &[
-                "mise",
+                "pakro",
                 "--cd",
                 "bootstrap",
                 "packages",
@@ -1563,7 +1570,7 @@ mod tests {
                 "brew:widget",
             ],
             &[
-                "mise",
+                "pakro",
                 "bootstrap",
                 "--from",
                 "packages",
@@ -1571,14 +1578,14 @@ mod tests {
                 "brew:widget",
             ],
             &[
-                "mise",
+                "pakro",
                 "bootstrap",
                 "--from=packages",
                 "where",
                 "brew:widget",
             ],
             &[
-                "mise",
+                "pakro",
                 "bootstrap",
                 "--only",
                 "packages",
@@ -1586,7 +1593,7 @@ mod tests {
                 "brew:widget",
             ],
             &[
-                "mise",
+                "pakro",
                 "exec",
                 "--",
                 "bootstrap",
@@ -1595,7 +1602,7 @@ mod tests {
                 "brew:widget",
             ],
             &[
-                "mise",
+                "pakro",
                 "x",
                 "--",
                 "bootstrap",
@@ -1604,7 +1611,7 @@ mod tests {
                 "brew:widget",
             ],
             &[
-                "mise",
+                "pakro",
                 "run",
                 "bootstrap",
                 "packages",
@@ -1612,7 +1619,7 @@ mod tests {
                 "brew:widget",
             ],
             &[
-                "mise",
+                "pakro",
                 "task-name",
                 "bootstrap",
                 "packages",
@@ -1620,7 +1627,7 @@ mod tests {
                 "brew:widget",
             ],
             &[
-                "mise",
+                "pakro",
                 "--",
                 "bootstrap",
                 "packages",
@@ -1628,7 +1635,7 @@ mod tests {
                 "brew:widget",
             ],
             &[
-                "mise",
+                "pakro",
                 "bootstrap",
                 "--",
                 "packages",
@@ -1636,7 +1643,7 @@ mod tests {
                 "brew:widget",
             ],
             &[
-                "mise",
+                "pakro",
                 "bootstrap",
                 "packages",
                 "--",
@@ -1654,11 +1661,18 @@ mod tests {
     /// Keep other bootstrap operations on their normal configuration and execution path.
     fn packages_where_classifier_distinguishes_other_bootstrap_commands() {
         let cases: &[&[&str]] = &[
-            &["mise", "bootstrap"],
-            &["mise", "bootstrap", "packages", "status"],
-            &["mise", "bootstrap", "packages", "apply", "brew:widget"],
-            &["mise", "bootstrap", "status"],
-            &["mise", "bootstrap", "--from", "where", "packages", "status"],
+            &["pakro", "bootstrap"],
+            &["pakro", "bootstrap", "packages", "status"],
+            &["pakro", "bootstrap", "packages", "apply", "brew:widget"],
+            &["pakro", "bootstrap", "status"],
+            &[
+                "pakro",
+                "bootstrap",
+                "--from",
+                "where",
+                "packages",
+                "status",
+            ],
         ];
         for args in cases {
             let cli = parse_cli(args).unwrap_or_else(|error| panic!("{args:?}: {error:?}"));
@@ -1681,7 +1695,7 @@ mod tests {
             &["brew:widget", "--unknown-query-flag"],
         ];
         for suffix in cases {
-            let mut args = vec!["mise", "bootstrap", "packages", "where"];
+            let mut args = vec!["pakro", "bootstrap", "packages", "where"];
             args.extend_from_slice(suffix);
             assert!(parse_cli(&args).is_err(), "{args:?}");
         }
@@ -1705,37 +1719,37 @@ mod tests {
                 .is_some_and(Commands::runs_unattended)
         }
 
-        assert!(unattended(&["mise", "dot", "watch"]));
-        assert!(unattended(&["mise", "dotfiles", "watch"]));
-        assert!(unattended(&["mise", "bootstrap", "dotfiles", "watch"]));
+        assert!(unattended(&["pakro", "dot", "watch"]));
+        assert!(unattended(&["pakro", "dotfiles", "watch"]));
+        assert!(unattended(&["pakro", "bootstrap", "dotfiles", "watch"]));
 
         // the launcher a Windows user service's task starts is handed a
         // console the same way, and its window has to go before settings,
         // config, or an auto-update can hold it on screen
         assert!(unattended(&[
-            "mise",
+            "pakro",
             "bootstrap",
             "__service-exec",
             "--launch",
-            "C:\\state\\mise-history.launches/abc.json",
+            "C:\\state\\pakro-history.launches/abc.json",
             "--digest",
             "abc",
             "--",
-            "mise-history",
+            "pakro-history",
         ]));
 
         // every other dotfiles command has a terminal reading it
-        assert!(!unattended(&["mise", "dot", "status"]));
-        assert!(!unattended(&["mise", "bootstrap", "dotfiles", "status"]));
-        assert!(!unattended(&["mise", "bootstrap"]));
-        assert!(!unattended(&["mise", "run", "build"]));
+        assert!(!unattended(&["pakro", "dot", "status"]));
+        assert!(!unattended(&["pakro", "bootstrap", "dotfiles", "status"]));
+        assert!(!unattended(&["pakro", "bootstrap"]));
+        assert!(!unattended(&["pakro", "run", "build"]));
 
         // `run` rejects a setup source alongside a subcommand, so these never
         // reach the watcher and must keep a console to say so
         for source in ["--from", "--adopt"] {
             assert!(
                 !unattended(&[
-                    "mise",
+                    "pakro",
                     "bootstrap",
                     source,
                     "https://example.com/setup.git",
@@ -1759,14 +1773,14 @@ mod tests {
 
     #[test]
     fn truncate_flags_are_command_local_negatable_settings() {
-        assert_eq!(parse_truncate(&["mise", "ls"]), None);
+        assert_eq!(parse_truncate(&["pakro", "ls"]), None);
         assert_eq!(
-            parse_truncate(&["mise", "config", "ls", "--no-truncate"]),
+            parse_truncate(&["pakro", "config", "ls", "--no-truncate"]),
             Some(false)
         );
         assert_eq!(
             parse_truncate(&[
-                "mise",
+                "pakro",
                 "bootstrap",
                 "dotfiles",
                 "status",
@@ -1777,7 +1791,7 @@ mod tests {
         );
         assert_eq!(
             parse_truncate(&[
-                "mise",
+                "pakro",
                 "bootstrap",
                 "dotfiles",
                 "status",
@@ -1788,8 +1802,8 @@ mod tests {
         );
 
         for args in [
-            &["mise", "registry", "--no-truncate"][..],
-            &["mise", "config", "get", "--no-truncate"],
+            &["pakro", "registry", "--no-truncate"][..],
+            &["pakro", "config", "get", "--no-truncate"],
         ] {
             let argv = args.iter().map(std::ffi::OsStr::new).collect::<Vec<_>>();
             assert!(Cli::parse_from_argv_with_settings(&argv).is_err());
@@ -1802,18 +1816,18 @@ mod tests {
 
     #[test]
     fn run_no_cache_flag_sets_task_remote_no_cache() {
-        assert_eq!(parse_task_remote_no_cache(&["mise", "run", "build"]), None);
+        assert_eq!(parse_task_remote_no_cache(&["pakro", "run", "build"]), None);
         assert_eq!(
-            parse_task_remote_no_cache(&["mise", "run", "--no-cache", "build"]),
+            parse_task_remote_no_cache(&["pakro", "run", "--no-cache", "build"]),
             Some(true)
         );
         assert_eq!(
-            parse_task_remote_no_cache(&["mise", "tasks", "run", "--no-cache", "build"]),
+            parse_task_remote_no_cache(&["pakro", "tasks", "run", "--no-cache", "build"]),
             Some(true)
         );
         // `oci build --no-cache` is about image layers, not remote tasks.
         assert_eq!(
-            parse_task_remote_no_cache(&["mise", "oci", "build", "--no-cache"]),
+            parse_task_remote_no_cache(&["pakro", "oci", "build", "--no-cache"]),
             None
         );
     }
@@ -1823,23 +1837,23 @@ mod tests {
         let args = |args: &[&str]| args.iter().map(ToString::to_string).collect::<Vec<_>>();
 
         assert!(has_dry_run_flag(
-            &args(&["mise", "cache", "prune", "--dry-run"]),
+            &args(&["pakro", "cache", "prune", "--dry-run"]),
             true
         ));
         assert!(has_dry_run_flag(
-            &args(&["mise", "bootstrap", "files", "apply", "-nq"]),
+            &args(&["pakro", "bootstrap", "files", "apply", "-nq"]),
             true
         ));
         assert!(!has_dry_run_flag(
-            &args(&["mise", "exec", "--", "tool", "--dry-run"]),
+            &args(&["pakro", "exec", "--", "tool", "--dry-run"]),
             true
         ));
-        assert!(!has_dry_run_flag(&args(&["mise", "watch", "-n"]), false));
+        assert!(!has_dry_run_flag(&args(&["pakro", "watch", "-n"]), false));
     }
 
     #[test]
     fn run_keeps_its_custom_help_route() {
-        let cli = parse_cli(&["mise", "run", "--help"]).unwrap();
+        let cli = parse_cli(&["pakro", "run", "--help"]).unwrap();
         let Some(Commands::Run(run)) = cli.command else {
             panic!("expected the run command");
         };
@@ -1849,9 +1863,9 @@ mod tests {
     #[test]
     fn bootstrap_inherits_root_yes_and_dry_run_flags() {
         for args in [
-            ["mise", "--yes", "bootstrap"].as_slice(),
-            ["mise", "--dry-run", "bootstrap"].as_slice(),
-            ["mise", "--yes", "--dry-run", "bootstrap"].as_slice(),
+            ["pakro", "--yes", "bootstrap"].as_slice(),
+            ["pakro", "--dry-run", "bootstrap"].as_slice(),
+            ["pakro", "--yes", "--dry-run", "bootstrap"].as_slice(),
         ] {
             let mut cli = parse_cli(args).unwrap();
             let root_flags = (cli.dry_run, cli.yes);
@@ -1865,7 +1879,7 @@ mod tests {
 
     #[test]
     fn tool_stub_forwards_flag_like_arguments() {
-        let cli = parse_cli(&["mise", "tool-stub", "jqstub", "--version"]).unwrap();
+        let cli = parse_cli(&["pakro", "tool-stub", "jqstub", "--version"]).unwrap();
         let Some(Commands::ToolStub(tool_stub)) = cli.command else {
             panic!("expected tool-stub command")
         };
@@ -1876,10 +1890,10 @@ mod tests {
     #[test]
     fn test_commands_that_implicitly_trust_active_config() {
         let trusting = [
-            vec!["mise", "run", "task"],
-            vec!["mise", "install"],
-            vec!["mise", "exec", "--", "true"],
-            vec!["mise", "watch", "task"],
+            vec!["pakro", "run", "task"],
+            vec!["pakro", "install"],
+            vec!["pakro", "exec", "--", "true"],
+            vec!["pakro", "watch", "task"],
         ];
         for args in trusting {
             let cli = parse_cli(&args).unwrap();
@@ -1892,9 +1906,9 @@ mod tests {
         }
 
         let non_trusting = [
-            vec!["mise", "hook-env", "-s", "bash"],
-            vec!["mise", "env"],
-            vec!["mise", "ls"],
+            vec!["pakro", "hook-env", "-s", "bash"],
+            vec!["pakro", "env"],
+            vec!["pakro", "ls"],
         ];
         for args in non_trusting {
             let cli = parse_cli(&args).unwrap();
@@ -1910,12 +1924,12 @@ mod tests {
     #[test]
     fn shell_commands_and_aliases_do_not_allow_auto_update() {
         for args in [
-            vec!["mise", "doctor"],
-            vec!["mise", "dr"],
-            vec!["mise", "hook-env"],
-            vec!["mise", "hook-not-found", "missing-bin"],
-            vec!["mise", "version"],
-            vec!["mise", "v"],
+            vec!["pakro", "doctor"],
+            vec!["pakro", "dr"],
+            vec!["pakro", "hook-env"],
+            vec!["pakro", "hook-not-found", "missing-bin"],
+            vec!["pakro", "version"],
+            vec!["pakro", "v"],
         ] {
             let cli = parse_cli(&args).unwrap();
             assert!(
@@ -1926,7 +1940,7 @@ mod tests {
             );
         }
 
-        let cli = parse_cli(&["mise", "install"]).unwrap();
+        let cli = parse_cli(&["pakro", "install"]).unwrap();
         assert!(
             cli.command
                 .as_ref()
@@ -1988,14 +2002,14 @@ mod tests {
         assert!(!bootstrap.subcommands.is_empty());
 
         let alias_args = vec![
-            "mise".to_string(),
+            "pakro".to_string(),
             "bs".to_string(),
             "status".to_string(),
             "--json".to_string(),
         ];
         assert_eq!(preprocess_args_for_naked_run(cmd, &alias_args), alias_args);
-        assert!(parse_cli(&["mise", "bs", "status", "--json"]).is_ok());
-        assert!(parse_cli(&["mise", "bootstrap", "status", "--json"]).is_ok());
+        assert!(parse_cli(&["pakro", "bs", "status", "--json"]).is_ok());
+        assert!(parse_cli(&["pakro", "bootstrap", "status", "--json"]).is_ok());
     }
 
     #[test]
@@ -2020,9 +2034,9 @@ mod tests {
                 .iter()
                 .any(|command| command.name == "history")
         );
-        assert!(parse_cli(&["mise", "dotfiles", "track", "~/.zshrc"]).is_ok());
-        assert!(parse_cli(&["mise", "dot", "track", "~/.zshrc"]).is_ok());
-        assert!(parse_cli(&["mise", "bootstrap", "dotfiles", "track", "~/.zshrc"]).is_ok());
+        assert!(parse_cli(&["pakro", "dotfiles", "track", "~/.zshrc"]).is_ok());
+        assert!(parse_cli(&["pakro", "dot", "track", "~/.zshrc"]).is_ok());
+        assert!(parse_cli(&["pakro", "bootstrap", "dotfiles", "track", "~/.zshrc"]).is_ok());
     }
 
     /// Commands that name a config file to write to accept both spellings, so it
@@ -2086,9 +2100,9 @@ mod tests {
     }
 
     /// A `--file`/`--path` alias whose natural short form belongs to a *different* argument
-    /// on the same command teaches the wrong flag. `mise dot add` carried `--file` as an
+    /// on the same command teaches the wrong flag. `pakro dot add` carried `--file` as an
     /// alias of `--path` while `-f` was `--force`, and because its targets accept any string,
-    /// `mise dot add -f <path>` silently adopted that config file as a dotfile instead of
+    /// `pakro dot add -f <path>` silently adopted that config file as a dotfile instead of
     /// writing to it — no error, and `--force` meant no prompt either.
     ///
     /// Walks the whole CLI rather than a fixed list, so re-adding the alias anywhere fails
@@ -2110,7 +2124,7 @@ mod tests {
                         .find(|other| other.key != arg.key && other.shorts.contains(&(short as u8)))
                     {
                         panic!(
-                            "mise {}: --{alias} aliases --{}, but -{short} is --{} — \
+                            "pakro {}: --{alias} aliases --{}, but -{short} is --{} — \
                              drop the alias or the collision",
                             path.join(" "),
                             arg.name,
@@ -2148,7 +2162,7 @@ mod tests {
     fn test_escape_task_args_preserves_task_separator_tail() {
         let cmd = Cli::command();
         let args = vec![
-            "mise".to_string(),
+            "pakro".to_string(),
             "run".to_string(),
             "atask".to_string(),
             "-q".to_string(),
@@ -2171,7 +2185,7 @@ mod tests {
     }
 
     #[test]
-    fn quiet_owns_the_mise_quiet_environment_binding() {
+    fn quiet_owns_the_pakro_quiet_environment_binding() {
         let quiet = Cli::spec()
             .root
             .flags
@@ -2184,7 +2198,7 @@ mod tests {
             .iter()
             .find(|flag| flag.flag.name == "tool")
             .expect("--tool");
-        assert_eq!(quiet.env, Some("MISE_QUIET"));
+        assert_eq!(quiet.env, Some("PAKRO_QUIET"));
         assert_eq!(tool.env, None);
     }
 
@@ -2192,11 +2206,11 @@ mod tests {
     fn test_run_parser_consumes_the_task_separator() {
         let cmd = Cli::command();
         let args = [
-            "mise",
+            "pakro",
             "run",
             "show-output-on-failure",
             "--",
-            "mise",
+            "pakro",
             "x",
             "node@latest",
             "--",
@@ -2214,7 +2228,7 @@ mod tests {
         assert!(run.args.is_empty(), "ordinary args: {:?}", run.args);
         assert_eq!(
             unescape_task_args(&run.args_last),
-            ["mise", "x", "node@latest", "--", "npx", "--version"]
+            ["pakro", "x", "node@latest", "--", "npx", "--version"]
         );
     }
 
@@ -2222,7 +2236,7 @@ mod tests {
     fn test_escape_task_args_splits_attached_short_option_values_before_task() {
         let cmd = Cli::command();
         let args = vec![
-            "mise".to_string(),
+            "pakro".to_string(),
             "run".to_string(),
             "-j1".to_string(),
             "-Ctmp".to_string(),
@@ -2233,7 +2247,7 @@ mod tests {
         assert_eq!(
             escape_task_args(cmd, &args),
             [
-                "mise",
+                "pakro",
                 "run",
                 "--jobs=1",
                 "--cd=tmp",
@@ -2247,12 +2261,12 @@ mod tests {
     #[test]
     fn test_escape_task_args_preserves_equals_attached_option_values() {
         let cmd = Cli::command();
-        let args = ["mise", "run", "-C=/tmp", "-o=prefix", "atask"].map(str::to_string);
+        let args = ["pakro", "run", "-C=/tmp", "-o=prefix", "atask"].map(str::to_string);
         let processed = escape_task_args(cmd, &args);
 
         assert_eq!(
             processed,
-            ["mise", "run", "--cd=/tmp", "--output=prefix", "atask"].map(str::to_string)
+            ["pakro", "run", "--cd=/tmp", "--output=prefix", "atask"].map(str::to_string)
         );
         let refs: Vec<&str> = processed.iter().map(String::as_str).collect();
         let cli = parse_cli(&refs).unwrap();
@@ -2266,12 +2280,12 @@ mod tests {
     #[test]
     fn test_escape_task_args_keeps_hyphen_prefixed_attached_value_bound_to_option() {
         let cmd = Cli::command();
-        let args = ["mise", "run", "-C-dir", "atask"].map(str::to_string);
+        let args = ["pakro", "run", "-C-dir", "atask"].map(str::to_string);
         let processed = escape_task_args(cmd, &args);
 
         assert_eq!(
             processed,
-            ["mise", "run", "--cd=-dir", "atask"].map(str::to_string)
+            ["pakro", "run", "--cd=-dir", "atask"].map(str::to_string)
         );
 
         let refs: Vec<&str> = processed.iter().map(String::as_str).collect();
@@ -2287,7 +2301,7 @@ mod tests {
     fn test_escape_task_args_preserves_naked_task_separator_tail() {
         let cmd = Cli::command();
         let args = vec![
-            "mise".to_string(),
+            "pakro".to_string(),
             "atask".to_string(),
             "-q".to_string(),
             "--".to_string(),
@@ -2309,7 +2323,7 @@ mod tests {
     fn test_escape_task_args_leaves_subcommand_separator_tail_alone() {
         let cmd = Cli::command();
         let args = vec![
-            "mise".to_string(),
+            "pakro".to_string(),
             "exec".to_string(),
             "--".to_string(),
             "sh".to_string(),
@@ -2322,7 +2336,7 @@ mod tests {
     #[test]
     fn test_uses_deprecated_backends_alias() {
         let cmd = Cli::command();
-        let args = vec!["mise".to_string(), "b".to_string()];
+        let args = vec!["pakro".to_string(), "b".to_string()];
 
         assert!(uses_deprecated_backends_alias(cmd, &args));
     }
@@ -2331,7 +2345,7 @@ mod tests {
     fn test_uses_deprecated_backends_alias_after_global_flag() {
         let cmd = Cli::command();
         let args = vec![
-            "mise".to_string(),
+            "pakro".to_string(),
             "--cd".to_string(),
             "project".to_string(),
             "b".to_string(),
@@ -2344,7 +2358,7 @@ mod tests {
     fn test_uses_deprecated_backends_alias_ignores_global_flag_value() {
         let cmd = Cli::command();
         let args = vec![
-            "mise".to_string(),
+            "pakro".to_string(),
             "--cd".to_string(),
             "b".to_string(),
             "backends".to_string(),
@@ -2363,10 +2377,10 @@ mod tests {
         };
 
         for args in [
-            args(&["mise", "-C", "/tmp", "lock"]),
-            args(&["mise", "-C/tmp", "lock"]),
-            args(&["mise", "-C=/tmp", "lock"]),
-            args(&["mise", "-j8", "lock"]),
+            args(&["pakro", "-C", "/tmp", "lock"]),
+            args(&["pakro", "-C/tmp", "lock"]),
+            args(&["pakro", "-C=/tmp", "lock"]),
+            args(&["pakro", "-j8", "lock"]),
         ] {
             let idx = first_non_global_arg_idx(cmd, &args).unwrap();
             assert_eq!(args[idx], "lock");
@@ -2376,7 +2390,7 @@ mod tests {
     #[test]
     fn test_uses_deprecated_backends_alias_ignores_task_arg() {
         let cmd = Cli::command();
-        let args = vec!["mise".to_string(), "run".to_string(), "b".to_string()];
+        let args = vec!["pakro".to_string(), "run".to_string(), "b".to_string()];
 
         assert!(!uses_deprecated_backends_alias(cmd, &args));
     }
@@ -2385,7 +2399,7 @@ mod tests {
     fn test_escape_task_args_ignores_run_after_subcommand_separator() {
         let cmd = Cli::command();
         let args = vec![
-            "mise".to_string(),
+            "pakro".to_string(),
             "exec".to_string(),
             "--".to_string(),
             "npm".to_string(),

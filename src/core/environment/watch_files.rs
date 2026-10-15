@@ -99,19 +99,19 @@ async fn execute(
         .chain(once(run))
         .collect_vec();
     let mut env = ts.full_env(config).await?;
-    env.insert("MISE_WATCH_FILES_MODIFIED".to_string(), modified_files_var);
+    env.insert("PAKRO_WATCH_FILES_MODIFIED".to_string(), modified_files_var);
     if let Some(cwd) = &*dirs::CWD {
         env.insert(
-            "MISE_ORIGINAL_CWD".to_string(),
+            "PAKRO_ORIGINAL_CWD".to_string(),
             cwd.to_string_lossy().to_string(),
         );
     }
     env.insert(
-        "MISE_PROJECT_ROOT".to_string(),
+        "PAKRO_PROJECT_ROOT".to_string(),
         root.to_string_lossy().to_string(),
     );
     // TODO: this should be different but I don't have easy access to it
-    // env.insert("MISE_CONFIG_ROOT".to_string(), root.to_string_lossy().to_string());
+    // env.insert("PAKRO_CONFIG_ROOT".to_string(), root.to_string_lossy().to_string());
     // On Windows, `cmd /c <run>` must receive the command verbatim so inner
     // double quotes survive (#9355). Mirror the hook path: spawn a raw Command
     // with stdout redirected to our stderr handle (duct's stdout_to_stderr) and
@@ -153,23 +153,23 @@ async fn execute_task(
         .iter()
         .map(|f| f.to_string_lossy().replace(':', "\\:"))
         .join(":");
-    let mise_bin = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("mise"));
+    let pakro_bin = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("pakro"));
 
     let mut env = ts.full_env(config).await?;
-    env.insert("MISE_WATCH_FILES_MODIFIED".to_string(), modified_files_var);
-    env.insert("MISE_NO_HOOKS".to_string(), "1".to_string());
+    env.insert("PAKRO_WATCH_FILES_MODIFIED".to_string(), modified_files_var);
+    env.insert("PAKRO_NO_HOOKS".to_string(), "1".to_string());
     if let Some(cwd) = &*dirs::CWD {
         env.insert(
-            "MISE_ORIGINAL_CWD".to_string(),
+            "PAKRO_ORIGINAL_CWD".to_string(),
             cwd.to_string_lossy().to_string(),
         );
     }
     env.insert(
-        "MISE_PROJECT_ROOT".to_string(),
+        "PAKRO_PROJECT_ROOT".to_string(),
         root.to_string_lossy().to_string(),
     );
     cmd(
-        mise_bin,
+        pakro_bin,
         ["--cd", &root.to_string_lossy(), "run", task_name],
     )
     .stdout_to_stderr()

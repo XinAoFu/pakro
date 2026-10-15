@@ -3,7 +3,7 @@
 # Regression test: task delegation via `run = [{ task }]` should not
 # re-run shared dependencies that already completed in the parent graph.
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.setup]
 run = "echo '>>> SETUP RUNNING <<<'"
 
@@ -33,7 +33,7 @@ run = [
 EOF
 
 # "setup" output must appear exactly once (exclude the "$ echo ..." command line)
-output="$(mise run -f all 2>&1)"
+output="$(pakro run -f all 2>&1)"
 count="$(echo "$output" | grep -v '^\[setup\] \$' | grep -c '>>> SETUP RUNNING <<<')"
 if [[ $count -ne 1 ]]; then
   echo "Expected setup to run exactly once, but it ran $count times"
@@ -47,12 +47,12 @@ assert_contains "echo \"$output\"" "lint done"
 assert_contains "echo \"$output\"" "security check done"
 
 # Standalone call should still trigger setup as a dependency
-assert_contains "mise run -f check:security" ">>> SETUP RUNNING <<<"
-assert_contains "mise run -f check:security" "security check done"
+assert_contains "pakro run -f check:security" ">>> SETUP RUNNING <<<"
+assert_contains "pakro run -f check:security" "security check done"
 
 # Sequential injected graphs share completed state, so the second entry does
 # not repeat either the delegated task or its dependency.
-output="$(mise run -f sequence 2>&1)"
+output="$(pakro run -f sequence 2>&1)"
 setup_count="$(echo "$output" | grep -v '^\[setup\] \$' | grep -c '>>> SETUP RUNNING <<<')"
 security_count="$(echo "$output" | grep -v '^\[check:security\] \$' | grep -c 'security check done')"
 if [[ $setup_count -ne 1 || $security_count -ne 1 ]]; then

@@ -46,18 +46,18 @@ impl Shell for Bash {
         let activate = render_template(
             include_str!("../../assets/bash/activate.sh"),
             &[
-                ("__MISE_EXE_VALUE__", &exe),
-                ("__MISE_FLAGS_VALUE__", &flags),
+                ("__PAKRO_EXE_VALUE__", &exe),
+                ("__PAKRO_FLAGS_VALUE__", &flags),
                 (
-                    "__MISE_HOOK_ENABLED_VALUE__",
+                    "__PAKRO_HOOK_ENABLED_VALUE__",
                     if opts.no_hook_env { "0" } else { "1" },
                 ),
                 (
-                    "__MISE_CHPWD_FUNCTIONS__",
+                    "__PAKRO_CHPWD_FUNCTIONS__",
                     include_str!("../../assets/bash_zsh_support/chpwd/function.sh"),
                 ),
                 (
-                    "__MISE_CHPWD_LOAD__",
+                    "__PAKRO_CHPWD_LOAD__",
                     include_str!("../../assets/bash_zsh_support/chpwd/load.sh"),
                 ),
             ],
@@ -67,7 +67,7 @@ impl Shell for Bash {
         if settings.not_found_auto_install {
             let not_found = render_template(
                 include_str!("../../assets/bash/command_not_found.sh"),
-                &[("__MISE_EXE__", &exe)],
+                &[("__PAKRO_EXE__", &exe)],
             );
             out.push_str(&not_found);
             out.push('\n');
@@ -144,12 +144,12 @@ mod tests {
     #[test]
     fn test_activate() {
         unsafe {
-            std::env::remove_var("__MISE_ORIG_PATH");
-            std::env::remove_var("__MISE_DIFF");
+            std::env::remove_var("__PAKRO_ORIG_PATH");
+            std::env::remove_var("__PAKRO_DIFF");
         }
 
         let bash = Bash::default();
-        let exe = Path::new("/some/dir/mise");
+        let exe = Path::new("/some/dir/pakro");
         let opts = ActivateOptions {
             exe: exe.to_path_buf(),
             flags: " --status".into(),

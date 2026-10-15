@@ -2,19 +2,19 @@
 # Test HTTP backend binary name cleaning with docker-compose
 
 set -euo pipefail
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 
 # Test: Install docker-compose via HTTP backend
 # The binary name should be automatically cleaned from docker-compose-linux-x86_64 to docker-compose
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools]
 "http:docker-compose" = { version = "2.29.1", url = "https://github.com/docker/compose/releases/download/v{version}/docker-compose-linux-x86_64" }
 EOF
 
-assert_succeed "mise install -f http:docker-compose"
+assert_succeed "pakro install -f http:docker-compose"
 
 # Verify it's executable
-assert_succeed "mise exec http:docker-compose -- docker-compose version"
+assert_succeed "pakro exec http:docker-compose -- docker-compose version"
 
 # The binary should be cleaned to just "docker-compose" in the installation directory
-assert_succeed "test -f $MISE_DATA_DIR/installs/http-docker-compose/2.29.1/docker-compose"
+assert_succeed "test -f $PAKRO_DATA_DIR/installs/http-docker-compose/2.29.1/docker-compose"

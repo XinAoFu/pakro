@@ -126,7 +126,7 @@ impl TaskFetcher {
                     .unwrap_or_default();
                 let prefix = local_path.parent().unwrap_or(&local_path);
 
-                // Parse the downloaded script as a regular file task so all #MISE
+                // Parse the downloaded script as a regular file task so all #PAKRO
                 // metadata is honored. The inline TOML task remains the higher-
                 // precedence overlay, matching local file-task behavior.
                 let mut remote = Task::from_path_unrendered_with_cf(
@@ -217,10 +217,10 @@ mod tests {
             .with_status(200)
             .with_body(
                 r#"#!/usr/bin/env bash
-#MISE description="remote description"
-#MISE hide=true
-#MISE quiet=true
-#MISE tools={node="24", python="3.12"}
+#PAKRO description="remote description"
+#PAKRO hide=true
+#PAKRO quiet=true
+#PAKRO tools={node="24", python="3.12"}
 echo ok
 "#,
             )
@@ -235,7 +235,7 @@ echo ok
             name: "lint".into(),
             display_name: "lint".into(),
             description: "toml description".into(),
-            config_source: config_root.path().join("mise.toml"),
+            config_source: config_root.path().join("pakro.toml"),
             config_root: Some(config_root.path().to_path_buf()),
             file: Some(PathBuf::from(&source)),
             args: vec!["--fix".into()],
@@ -278,7 +278,7 @@ echo ok
         let remote = server
             .mock("GET", "/cached-task")
             .with_status(200)
-            .with_body("#!/usr/bin/env bash\n#MISE description=\"from cache\"\necho ok\n")
+            .with_body("#!/usr/bin/env bash\n#PAKRO description=\"from cache\"\necho ok\n")
             .expect(1)
             .create_async()
             .await;
@@ -288,7 +288,7 @@ echo ok
         let source = format!("{}/cached-task", server.url());
         let new_task = || Task {
             name: "cached".into(),
-            config_source: config_root.path().join("mise.toml"),
+            config_source: config_root.path().join("pakro.toml"),
             config_root: Some(config_root.path().to_path_buf()),
             file: Some(PathBuf::from(&source)),
             ..Default::default()
@@ -314,7 +314,7 @@ echo ok
         let remote = server
             .mock("GET", "/command-snapshot")
             .with_status(200)
-            .with_body("#!/usr/bin/env bash\n#MISE env={REMOTE_REVISION=\"one\"}\necho snapshot\n")
+            .with_body("#!/usr/bin/env bash\n#PAKRO env={REMOTE_REVISION=\"one\"}\necho snapshot\n")
             .expect(1)
             .create_async()
             .await;
@@ -324,7 +324,7 @@ echo ok
         let source = format!("{}/command-snapshot", server.url());
         let task = Task {
             name: "remote-dependency".into(),
-            config_source: config_root.path().join("mise.toml"),
+            config_source: config_root.path().join("pakro.toml"),
             config_root: Some(config_root.path().to_path_buf()),
             file: Some(PathBuf::from(&source)),
             ..Default::default()
@@ -357,7 +357,7 @@ echo ok
             .mock("GET", "/templated-task")
             .with_status(200)
             .with_body(
-                "#!/usr/bin/env bash\n#MISE description=\"{{vars.runtime_value}}\"\necho ok\n",
+                "#!/usr/bin/env bash\n#PAKRO description=\"{{vars.runtime_value}}\"\necho ok\n",
             )
             .expect(1)
             .create_async()
@@ -366,7 +366,7 @@ echo ok
         let config = Config::get().await.unwrap();
         let config_root = tempfile::tempdir().unwrap();
         let source = format!("{}/templated-task", server.url());
-        let config_source = config_root.path().join("mise.toml");
+        let config_source = config_root.path().join("pakro.toml");
         let mut tasks = vec![Task {
             name: "templated".into(),
             config_source: config_source.clone(),

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-mise settings set idiomatic_version_file_enable_tools "bazel,chezmoi,cmake,dagger,earthly,golangci-lint,goreleaser,lefthook,pixi,pre-commit,ruff,task"
+pakro settings set idiomatic_version_file_enable_tools "bazel,chezmoi,cmake,dagger,earthly,golangci-lint,goreleaser,lefthook,pixi,pre-commit,ruff,task"
 
 cat >dagger.json <<'EOF'
 {
@@ -9,7 +9,7 @@ cat >dagger.json <<'EOF'
 }
 EOF
 
-assert_contains "mise tool dagger" "0.21.7"
+assert_contains "pakro tool dagger" "0.21.7"
 
 cat >Taskfile.yml <<'EOF'
 version: '3.17'
@@ -20,35 +20,35 @@ tasks:
       - echo hello
 EOF
 
-assert_contains "mise tool task" "3.17"
+assert_contains "pakro tool task" "3.17"
 
 mv Taskfile.yml Taskfile.yaml
-assert_contains "mise tool task" "3.17"
+assert_contains "pakro tool task" "3.17"
 
 mv Taskfile.yaml taskfile.yml
-assert_contains "mise tool task" "3.17"
+assert_contains "pakro tool task" "3.17"
 
 mv taskfile.yml taskfile.yaml
-assert_contains "mise tool task" "3.17"
+assert_contains "pakro tool task" "3.17"
 
 echo "v2.71.1" >.chezmoiversion
-assert_contains "mise tool chezmoi" "2.71.1"
+assert_contains "pakro tool chezmoi" "2.71.1"
 
 # `cmake_minimum_required` is a floor, not the version the project is built with.
-# Deprecated: it still resolves but warns. Removed in mise 2026.11.0 along with this
+# Deprecated: it still resolves but warns. Removed in pakro 2026.11.0 along with this
 # block and the registry entry's parser.
 cat >CMakeLists.txt <<'EOF'
 cmake_minimum_required(VERSION 3.25...3.28)
 project(example)
 EOF
-assert_contains "mise tool cmake" "3.25"
-assert_contains "mise tool cmake 2>&1" "deprecated [CMakeLists.txt]"
+assert_contains "pakro tool cmake" "3.25"
+assert_contains "pakro tool cmake 2>&1" "deprecated [CMakeLists.txt]"
 
 # opting into the final behavior now drops the version and the warning
-export MISE_IDIOMATIC_VERSION_FILE_IGNORE_MINIMUM_VERSIONS=1
-assert_not_contains "mise tool cmake" "3.25"
-assert_not_contains "mise tool cmake 2>&1" "deprecated"
-unset MISE_IDIOMATIC_VERSION_FILE_IGNORE_MINIMUM_VERSIONS
+export PAKRO_IDIOMATIC_VERSION_FILE_IGNORE_MINIMUM_VERSIONS=1
+assert_not_contains "pakro tool cmake" "3.25"
+assert_not_contains "pakro tool cmake 2>&1" "deprecated"
+unset PAKRO_IDIOMATIC_VERSION_FILE_IGNORE_MINIMUM_VERSIONS
 
 cat >Earthfile <<'EOF'
 VERSION --pass-args 0.8
@@ -56,10 +56,10 @@ VERSION --pass-args 0.8
 build:
     FROM alpine
 EOF
-assert_contains "mise tool earthly" "0.8"
+assert_contains "pakro tool earthly" "0.8"
 
 echo '{"version":"2"}' >.golangci.json
-assert_contains "mise tool golangci-lint" "2"
+assert_contains "pakro tool golangci-lint" "2"
 
 mkdir -p .config
 cat >.config/goreleaser.yaml <<'EOF'
@@ -67,63 +67,63 @@ version: 2
 builds:
   - id: example
 EOF
-assert_contains "mise tool goreleaser" "2"
+assert_contains "pakro tool goreleaser" "2"
 
 cat >.config/lefthook.jsonc <<'EOF'
 {
   "min_version": "2.1.0"
 }
 EOF
-assert_contains "mise tool lefthook" "2.1.0"
+assert_contains "pakro tool lefthook" "2.1.0"
 
 cat >pyproject.toml <<'EOF'
 [tool.pixi.workspace]
 name = "example"
 requires-pixi = "0.58.0"
 EOF
-assert_contains "mise tool pixi" "0.58.0"
+assert_contains "pakro tool pixi" "0.58.0"
 
 cat >.pre-commit-config.yaml <<'EOF'
 minimum_pre_commit_version: "4.0.0"
 repos: []
 EOF
-assert_contains "mise tool pre-commit" "4.0.0"
+assert_contains "pakro tool pre-commit" "4.0.0"
 
 cat >.ruff.toml <<'EOF'
 required-version = "0.14.0"
 EOF
-assert_contains "mise tool ruff" "0.14.0"
+assert_contains "pakro tool ruff" "0.14.0"
 
 # .bazelversion pins the exact Bazel release the project builds with
 echo "7.2.1" >.bazelversion
-assert "mise tool bazel --requested" "7.2.1"
+assert "pakro tool bazel --requested" "7.2.1"
 
 # a release candidate names a concrete release too
 echo "8.0.0rc1" >.bazelversion
-assert "mise tool bazel --requested" "8.0.0rc1"
+assert "pakro tool bazel --requested" "8.0.0rc1"
 
 # bazelisk also accepts values that name no particular release (latest, last_green,
-# rolling), move on their own (8.x), or point somewhere mise cannot install from (a
+# rolling), move on their own (8.x), or point somewhere pakro cannot install from (a
 # commit hash, <FORK>/<VERSION>). None of them are version requests, so the file
 # yields nothing rather than resolving to the wrong release or failing outright.
 for bazelversion in latest last_green rolling 8.x my-fork/7.2.1 0f2ab1c9d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8; do
   echo "$bazelversion" >.bazelversion
-  assert "mise tool bazel --requested" "[none]"
+  assert "pakro tool bazel --requested" "[none]"
 done
 
 # 8.x reaching the backend would warn about an unsupported semver range on every command
 echo "8.x" >.bazelversion
-assert_not_contains "mise tool bazel 2>&1" "semver range"
+assert_not_contains "pakro tool bazel 2>&1" "semver range"
 
 # bazelisk reads one line and ignores the rest of the file, so only the first line is a
 # version request. Reading further would ask for two versions of one tool at once...
 printf '7.2.1\n8.0.0\n' >.bazelversion
-assert "mise tool bazel --requested" "7.2.1"
+assert "pakro tool bazel --requested" "7.2.1"
 
 # ...or read past a first line that is deliberately not a release.
 printf 'latest\n8.0.0\n' >.bazelversion
-assert "mise tool bazel --requested" "[none]"
+assert "pakro tool bazel --requested" "[none]"
 
 # a CRLF checkout still resolves -- registry parsers see the raw bytes, not normalized lines
 printf '7.2.1\r\n' >.bazelversion
-assert "mise tool bazel --requested" "7.2.1"
+assert "pakro tool bazel --requested" "7.2.1"

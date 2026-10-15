@@ -1,5 +1,5 @@
 use crate::args::{BackendArg, ToolArg};
-use crate::config::config_file::mise_toml::{EnvList, ParsedToolMap, deserialize_vars};
+use crate::config::config_file::pakro_toml::{EnvList, ParsedToolMap, deserialize_vars};
 use crate::config::config_file::toml::{TrackingTomlParser, deserialize_arr};
 use crate::config::env_directive::{EnvDirective, EnvResolveOptions, EnvResults, ToolsFilter};
 use crate::config::{self, Config, SettingsExt};
@@ -566,7 +566,7 @@ impl Display for RunEntry {
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct TaskWatchOptions {
-    /// Ignore VCS ignore files such as `.gitignore` when running `mise watch`.
+    /// Ignore VCS ignore files such as `.gitignore` when running `pakro watch`.
     pub no_vcs_ignore: bool,
 }
 
@@ -734,9 +734,9 @@ pub struct Task {
     pub global: bool,
     #[serde(default)]
     pub raw: bool,
-    /// When true, mise does not parse arguments to the task at all:
+    /// When true, pakro does not parse arguments to the task at all:
     /// the usage spec parser is bypassed and `--help`/`-h` are passed through
-    /// to the underlying command instead of being intercepted by mise.
+    /// to the underlying command instead of being intercepted by pakro.
     /// Useful when the task is a thin proxy for a tool that already has its
     /// own argument parser (e.g. `next build`, Django manage.py, argparse).
     #[serde(default)]
@@ -880,7 +880,7 @@ pub struct Task {
     pub trailing_args: Vec<String>,
 }
 
-/// Tracks whether a `#MISE` header entry still has an open array, inline table
+/// Tracks whether a `#PAKRO` header entry still has an open array, inline table
 /// or multi-line string, i.e. whether the next header line continues it.
 /// Quotes and `#` comments are honored so brackets inside strings don't count.
 #[derive(Default)]
@@ -953,10 +953,10 @@ impl TomlOpenState {
     }
 }
 
-/// One logical `#MISE key=value` header entry: its TOML text plus the range of
+/// One logical `#PAKRO key=value` header entry: its TOML text plus the range of
 /// script lines it was assembled from. Entries are normally a single line, but
 /// a TOML array left open at the end of one continues on the next.
-struct MiseHeaderEntry {
+struct PakroHeaderEntry {
     /// TOML source, continuation lines joined with newlines
     toml: String,
     /// 0-based index of the entry's first line
@@ -965,7 +965,7 @@ struct MiseHeaderEntry {
     end: usize,
 }
 
-impl MiseHeaderEntry {
+impl PakroHeaderEntry {
     fn parse_toml(&self) -> Result<toml::Value> {
         toml::de::from_str::<toml::Value>(&self.toml).map_err(|e| {
             if self.start == self.end {
@@ -982,25 +982,25 @@ impl MiseHeaderEntry {
     }
 }
 
-/// Split the `#MISE` (and `//MISE`, `::MISE`, `# [MISE]`) header lines of a task
+/// Split the `#PAKRO` (and `//PAKRO`, `::PAKRO`, `# [PAKRO]`) header lines of a task
 /// script into logical TOML entries.
 ///
-/// An entry starts on a line that looks like `key=value`; any other `#MISE` line
+/// An entry starts on a line that looks like `key=value`; any other `#PAKRO` line
 /// is a usage-spec directive (see `extract_usage_from_comments`). If the entry
 /// leaves a TOML array open, the following header lines are folded into it so
 /// arrays can be written across several lines:
 ///
 /// ```text
-/// #MISE depends=[
-/// #MISE   "lint",
-/// #MISE ]
+/// #PAKRO depends=[
+/// #PAKRO   "lint",
+/// #PAKRO ]
 /// ```
-fn scan_mise_header_entries(body: &str) -> Vec<MiseHeaderEntry> {
+fn scan_pakro_header_entries(body: &str) -> Vec<PakroHeaderEntry> {
     // `\s*` before the marker, to match `extract_usage_from_comments`. When
-    // only that function accepted `# MISE`, a spaced `# MISE tools."x".version`
+    // only that function accepted `# PAKRO`, a spaced `# PAKRO tools."x".version`
     // was suppressed from the usage text *and* never became config: it set
     // nothing and said nothing.
-    let header_regex = regex!(r"^(?:#|//|::)\s*(?:MISE|\[MISE\]) (.*)$");
+    let header_regex = regex!(r"^(?:#|//|::)\s*(?:PAKRO|\[PAKRO\]) (.*)$");
     // A TOML key path: bare segments, quoted segments, or a dotted mix. The old
     // `[a-z0-9_.-]+` matched neither a quoted segment nor an uppercase one, so
     // `tools."http:ruff".version = …` and `env.FOO = "bar"` were not recognised
@@ -1012,8 +1012,8 @@ fn scan_mise_header_entries(body: &str) -> Vec<MiseHeaderEntry> {
     let entry_regex = regex!(
         r#"^\s*(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*"|'[^']*')(?:\s*\.\s*(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*"|'[^']*'))*\s*=\s*[^\n]+$"#
     );
-    let mut entries: Vec<MiseHeaderEntry> = vec![];
-    let mut open: Option<(MiseHeaderEntry, TomlOpenState)> = None;
+    let mut entries: Vec<PakroHeaderEntry> = vec![];
+    let mut open: Option<(PakroHeaderEntry, TomlOpenState)> = None;
     for (i, line) in body.lines().enumerate() {
         let Some(captures) = header_regex.captures(line) else {
             // a non-header line ends an entry whose array was never closed; it
@@ -1039,7 +1039,7 @@ fn scan_mise_header_entries(body: &str) -> Vec<MiseHeaderEntry> {
         if entry_regex.is_match(content) {
             let mut state = TomlOpenState::default();
             state.feed(content);
-            let entry = MiseHeaderEntry {
+            let entry = PakroHeaderEntry {
                 toml: content.to_string(),
                 start: i,
                 end: i,
@@ -1078,10 +1078,10 @@ fn merge_header_value(map: &mut toml::Table, key: String, value: toml::Value) {
     }
 }
 
-/// Parse the `#MISE key=value` (and `// MISE`, `:: MISE`, `[MISE]`) header
+/// Parse the `#PAKRO key=value` (and `// PAKRO`, `:: PAKRO`, `[PAKRO]`) header
 /// lines out of a task script into their decoded TOML values.
-fn parse_mise_header_toml(body: &str) -> Result<Vec<toml::Value>> {
-    scan_mise_header_entries(body)
+fn parse_pakro_header_toml(body: &str) -> Result<Vec<toml::Value>> {
+    scan_pakro_header_entries(body)
         .into_iter()
         .map(|entry| entry.parse_toml())
         .collect()
@@ -1102,12 +1102,12 @@ fn parse_task_dependencies(parser: &mut TrackingTomlParser<'_>, key: &str) -> Re
 /// decoding (e.g. `{{` written as `{{`). Such escapes pass a
 /// raw-text scan but decode to real templates that render — and can `exec()` —
 /// at load time, so they must still require trust. `.toml` task files are
-/// checked whole; script files are checked through their `#MISE` headers (the
+/// checked whole; script files are checked through their `#PAKRO` headers (the
 /// only part parsed and rendered at load).
 pub(crate) fn file_has_decoded_template(path: &Path, body: &str) -> bool {
-    use crate::config::config_file::mise_toml::toml_value_has_template;
+    use crate::config::config_file::pakro_toml::toml_value_has_template;
     // Must see exactly what the loader sees. `Task::from_path_unrendered_with_cf` strips a
-    // byte-order mark before scanning headers, so leaving one here would let a `#MISE` on line 1
+    // byte-order mark before scanning headers, so leaving one here would let a `#PAKRO` on line 1
     // hide an escaped template from this check and then render it anyway -- the caller runs the
     // two back to back on the same file.
     let body = file::strip_utf8_bom(body);
@@ -1118,7 +1118,7 @@ pub(crate) fn file_has_decoded_template(path: &Path, body: &str) -> bool {
     } else {
         // per-entry so one unparseable header cannot hide a decoded template in
         // another entry (the whole file used to fall back to "no template")
-        scan_mise_header_entries(body)
+        scan_pakro_header_entries(body)
             .into_iter()
             .filter_map(|entry| entry.parse_toml().ok())
             .any(|value| toml_value_has_template(&value))
@@ -1135,7 +1135,7 @@ fn parse_task_script_usage_with_env(
     env: Option<&EnvMap>,
 ) -> usage::Result<usage::Spec> {
     let script = std::fs::read_to_string(file)?;
-    // Same reason as the `#MISE` header scan: `#USAGE` on line 1 is invisible behind a mark.
+    // Same reason as the `#PAKRO` header scan: `#USAGE` on line 1 is invisible behind a mark.
     let raw = extract_usage_from_comments(crate::file::strip_utf8_bom(&script));
     if raw.trim().is_empty() {
         return usage::Spec::parse_script(file);
@@ -1166,7 +1166,7 @@ pub(crate) fn parse_task_usage_field(task_name: &str, spec: &str) -> Result<usag
 /// Parse a task script's usage spec, failing when the spec itself does not parse.
 ///
 /// A script that cannot be read still warns and yields an empty spec: that is not a spec
-/// problem, and `mise tasks validate` reports a missing task file on its own.
+/// problem, and `pakro tasks validate` reports a missing task file on its own.
 fn parse_task_script_usage_checked(file: &Path, env: Option<&EnvMap>) -> Result<usage::Spec> {
     match parse_task_script_usage_with_env(file, env) {
         Ok(spec) => Ok(spec),
@@ -1191,7 +1191,7 @@ fn parse_task_script_usage_checked(file: &Path, env: Option<&EnvMap>) -> Result<
 /// Parse a task script's usage spec, warning with the detail and falling back to an empty spec.
 ///
 /// A file task's spec failing must not take the whole task load down, the same way one
-/// unrecognised `#MISE` key does not: every task in the project is parsed in one loop.
+/// unrecognised `#PAKRO` key does not: every task in the project is parsed in one loop.
 fn parse_task_script_usage_or_warn(file: &Path, env: Option<&EnvMap>) -> usage::Spec {
     parse_task_script_usage_checked(file, env).unwrap_or_else(|err| {
         warn!("{err}");
@@ -1219,27 +1219,31 @@ fn parse_task_usage_raw(
     if spec.name.is_empty() {
         spec.name.clone_from(&spec.bin);
     }
-    if let Some(mount_cmd) = spec.cmd.subcommands.shift_remove("__mise_task_root_mounts") {
+    if let Some(mount_cmd) = spec
+        .cmd
+        .subcommands
+        .shift_remove("__pakro_task_root_mounts")
+    {
         spec.cmd.mounts.extend(mount_cmd.mounts);
     }
     Ok(spec)
 }
 
 fn extract_usage_from_comments(full: &str) -> String {
-    let usage_regex = regex!(r"^(?:#|//|::)\s*(?:(USAGE|MISE)|\[(USAGE|MISE)\])(.*)$");
+    let usage_regex = regex!(r"^(?:#|//|::)\s*(?:(USAGE|PAKRO)|\[(USAGE|PAKRO)\])(.*)$");
     let blank_comment_regex = regex!(r"^(?:#|//|::)\s*$");
-    // The same key path `scan_mise_header_entries` looks for. Both markers now
+    // The same key path `scan_pakro_header_entries` looks for. Both markers now
     // allow whitespace after the comment character, so the entry ranges below
     // already cover the ordinary shapes; this stays as the backstop for lines
     // that only the marker here matches (it does not require a space after
-    // `MISE`), so such a line is dropped rather than handed to the usage
+    // `PAKRO`), so such a line is dropped rather than handed to the usage
     // parser. Keep the two key-path patterns identical.
-    let mise_header_regex = regex!(
+    let pakro_header_regex = regex!(
         r#"^\s*(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*"|'[^']*')(?:\s*\.\s*(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*"|'[^']*'))*\s*="#
     );
-    // Continuation lines of a multi-line `#MISE key=[...]` entry are config, not
+    // Continuation lines of a multi-line `#PAKRO key=[...]` entry are config, not
     // usage text, even though they don't look like `key=value` on their own.
-    let header_entries = scan_mise_header_entries(full);
+    let header_entries = scan_pakro_header_entries(full);
     let mut next_entry = 0;
     let mut usage = vec![];
     let mut found = false;
@@ -1256,7 +1260,7 @@ fn extract_usage_from_comments(full: &str) -> String {
                 .or_else(|| captures.get(2))
                 .map_or("", |m| m.as_str());
             let content = captures.get(3).map_or("", |m| m.as_str());
-            if marker == "MISE" && mise_header_regex.is_match(content.trim()) {
+            if marker == "PAKRO" && pakro_header_regex.is_match(content.trim()) {
                 continue;
             }
             usage.push(content.trim());
@@ -1294,7 +1298,7 @@ fn hoist_root_usage_mounts(raw: &str) -> Option<String> {
     if mounts.is_empty() {
         return None;
     }
-    output.push("cmd \"__mise_task_root_mounts\" {".to_string());
+    output.push("cmd \"__pakro_task_root_mounts\" {".to_string());
     for mount in mounts {
         output.extend(mount.lines().map(|line| format!("    {line}")));
     }
@@ -1490,17 +1494,17 @@ impl Task {
         let mut task = Task::new(path, prefix, config_root)?;
         task.cf = cf;
         // Stripped before scanning: the header patterns anchor at the start of a line, so a
-        // byte-order mark would hide a `#MISE` written on line 1 -- which is where a task with
+        // byte-order mark would hide a `#PAKRO` written on line 1 -- which is where a task with
         // an executable extension rather than a shebang puts it.
         let body = file::read_to_string(path)?;
-        let info = parse_mise_header_toml(file::strip_utf8_bom(&body))?
+        let info = parse_pakro_header_toml(file::strip_utf8_bom(&body))?
             .into_iter()
             .filter_map(|toml| toml.as_table().cloned())
             .flatten()
             .fold(toml::Table::new(), |mut map, (key, value)| {
-                // Merge tables so one field can be written per #MISE line:
-                //   #MISE tools.terraform="1"
-                //   #MISE tools.tflint="0"
+                // Merge tables so one field can be written per #PAKRO line:
+                //   #PAKRO tools.terraform="1"
+                //   #PAKRO tools.tflint="0"
                 // See: https://github.com/jdx/mise/discussions/7839
                 merge_header_value(&mut map, key, value);
                 map
@@ -1512,8 +1516,8 @@ impl Task {
 
         task.description = p.parse_str("description").unwrap_or_default();
         // The loaders that build file tasks call `resolve_task_template` on the result, so a
-        // template named here is applied the same way a `mise.toml` task's `extends` is. Only
-        // the header parser was missing the field, which made `#MISE extends="..."` an unknown
+        // template named here is applied the same way a `pakro.toml` task's `extends` is. Only
+        // the header parser was missing the field, which made `#PAKRO extends="..."` an unknown
         // key: warned about and dropped.
         task.extends = p.parse_str("extends");
         // Check for multiple alias fields before parsing
@@ -1618,12 +1622,12 @@ impl Task {
         unparsed.sort();
 
         if !unparsed.is_empty() {
-            // A warning rather than an error, matching how `mise.toml` treats a key it does not
-            // recognise (`MiseToml::from_str` reports one through `serde_ignored` and carries on).
+            // A warning rather than an error, matching how `pakro.toml` treats a key it does not
+            // recognise (`PakroToml::from_str` reports one through `serde_ignored` and carries on).
             // A file task has no reason to be stricter than the config file, and it is in a worse
             // position to be: this parse runs inside the loop that loads *every* task in the
             // project, so returning here made one unrecognised key in one file take all of them
-            // down -- `mise run <some other task>` failed too.
+            // down -- `pakro run <some other task>` failed too.
             //
             // Only genuinely unknown key names reach this point. `TrackingTomlParser` records a key
             // as parsed when it is looked up, so a known key holding the wrong type is not here.
@@ -2029,11 +2033,11 @@ impl Task {
         }
     }
 
-    /// True when mise should not run the usage parser against this task's
+    /// True when pakro should not run the usage parser against this task's
     /// args. Either the task opted in via `raw_args = true`, or the user
     /// passed `--help`/`-h` after `--` for an ad-hoc passthrough.
     ///
-    /// The `--` separator is the boundary between mise parsing and task
+    /// The `--` separator is the boundary between pakro parsing and task
     /// parsing, so task-side help flags remain literal task arguments.
     pub(crate) fn should_bypass_usage_parser(&self) -> bool {
         if self.raw_args {
@@ -2208,7 +2212,7 @@ impl Task {
 
     /// Parse usage spec like [`Self::parse_usage_spec_for_display`], except that a file task
     /// whose `#USAGE` spec does not parse is an error rather than a warning and an empty spec.
-    /// Checking the spec is what `mise tasks validate` is for.
+    /// Checking the spec is what `pakro tasks validate` is for.
     pub async fn parse_usage_spec_for_validation(
         &self,
         config: &Arc<Config>,
@@ -2264,12 +2268,12 @@ impl Task {
     fn usage_include_env(&self, config: &Config, file: &Path) -> EnvMap {
         let mut env = env::PRISTINE_ENV.clone();
         let path = task_executor::task_env_path;
-        env.insert("MISE_TASK_FILE".to_string(), path(file));
+        env.insert("PAKRO_TASK_FILE".to_string(), path(file));
         if let Some(dir) = file.parent() {
-            env.insert("MISE_TASK_DIR".to_string(), path(dir));
+            env.insert("PAKRO_TASK_DIR".to_string(), path(dir));
         }
         if let Some(root) = &self.config_root {
-            env.insert("MISE_CONFIG_ROOT".to_string(), path(root));
+            env.insert("PAKRO_CONFIG_ROOT".to_string(), path(root));
         }
         let project_root = if self.global || self.is_remote() {
             config.project_root.as_ref().or(self.config_root.as_ref())
@@ -2277,7 +2281,7 @@ impl Task {
             self.config_root.as_ref().or(config.project_root.as_ref())
         };
         if let Some(root) = project_root {
-            env.insert("MISE_PROJECT_ROOT".to_string(), path(root));
+            env.insert("PAKRO_PROJECT_ROOT".to_string(), path(root));
         }
         env
     }
@@ -2299,7 +2303,7 @@ impl Task {
             .await?;
         // Skip the usage parser entirely when the task opts into raw arg
         // passthrough, or when the user explicitly asked for `--help`/`-h`
-        // to reach the underlying command via `mise run task -- --help`.
+        // to reach the underlying command via `pakro run task -- --help`.
         // Without this bypass the usage crate intercepts `--help` even after
         // `--`, which breaks proxy tasks that wrap tools with their own
         // argument parsers.
@@ -2690,7 +2694,7 @@ impl Task {
     /// Used when a file task (auto-discovered executable script) and a TOML
     /// `[tasks.<name>]` block share the same name: the TOML block is treated
     /// as a metadata overlay on top of the file task, so users can add env,
-    /// description, dependencies, etc. in `mise.toml` without having to move
+    /// description, dependencies, etc. in `pakro.toml` without having to move
     /// the script out of the auto-discovered tasks directory.
     ///
     /// `self` is the file-task base (keeps its `run`/`file`/`config_source`);
@@ -3348,11 +3352,11 @@ fn name_from_path(prefix: impl AsRef<Path>, path: impl AsRef<Path>) -> Result<St
         .as_ref()
         .strip_prefix(prefix)
         .map(|p| match p {
-            p if p.starts_with("mise-tasks") => p.strip_prefix("mise-tasks"),
-            p if p.starts_with(".mise-tasks") => p.strip_prefix(".mise-tasks"),
-            p if p.starts_with(".mise/tasks") => p.strip_prefix(".mise/tasks"),
-            p if p.starts_with("mise/tasks") => p.strip_prefix("mise/tasks"),
-            p if p.starts_with(".config/mise/tasks") => p.strip_prefix(".config/mise/tasks"),
+            p if p.starts_with("pakro-tasks") => p.strip_prefix("pakro-tasks"),
+            p if p.starts_with(".pakro-tasks") => p.strip_prefix(".pakro-tasks"),
+            p if p.starts_with(".pakro/tasks") => p.strip_prefix(".pakro/tasks"),
+            p if p.starts_with("pakro/tasks") => p.strip_prefix("pakro/tasks"),
+            p if p.starts_with(".config/pakro/tasks") => p.strip_prefix(".config/pakro/tasks"),
             _ => Ok(p),
         })??
         .components()
@@ -3708,7 +3712,7 @@ impl TreeItem for (&Graph<Task, ()>, NodeIndex) {
 
     fn write_self(&self) -> std::io::Result<()> {
         if let Some(w) = self.0.node_weight(self.1) {
-            miseprint!("{}", w.graph_display_name())?;
+            pakroprint!("{}", w.graph_display_name())?;
         }
         Ok(())
     }
@@ -3816,7 +3820,7 @@ where
                 // Prefer exact name matches; only fall back to extension-stripped
                 // matches when there is no exact match. Otherwise a TOML task
                 // "hello" and an auto-discovered file task "hello.sh" would both
-                // match `mise run hello` and run the script twice (#10298).
+                // match `pakro run hello` and run the script twice (#10298).
                 let exact: Vec<&T> = self
                     .iter()
                     .filter(|(k, _)| k.as_str() == pat)
@@ -4095,7 +4099,7 @@ mod tests {
         fn val(key: &str, value: &str) -> (EnvDirective, PathBuf) {
             (
                 EnvDirective::Val(key.into(), value.into(), Default::default()),
-                PathBuf::from("mise.toml"),
+                PathBuf::from("pakro.toml"),
             )
         }
 
@@ -4109,7 +4113,7 @@ mod tests {
                         ..Default::default()
                     },
                 ),
-                PathBuf::from("mise.toml"),
+                PathBuf::from("pakro.toml"),
             )
         }
 
@@ -4123,7 +4127,7 @@ mod tests {
                         ..Default::default()
                     },
                 ),
-                PathBuf::from("mise.toml"),
+                PathBuf::from("pakro.toml"),
             )
         }
 
@@ -4134,7 +4138,7 @@ mod tests {
         fn file(path: &str) -> (EnvDirective, PathBuf) {
             (
                 EnvDirective::File(path.into(), Default::default()),
-                PathBuf::from("mise.toml"),
+                PathBuf::from("pakro.toml"),
             )
         }
 
@@ -4190,7 +4194,7 @@ mod tests {
                     val("cmd", "run --{{vars.mode}}"),
                     (
                         EnvDirective::Default("mode".into(), "fast".into(), Default::default()),
-                        PathBuf::from("mise.toml"),
+                        PathBuf::from("pakro.toml"),
                     ),
                 ]),
                 ["mode=", "cmd=run --{{vars.mode}}", "mode default=fast"]
@@ -4278,11 +4282,11 @@ mod tests {
 
     mod header_key_paths {
         use super::super::{
-            extract_usage_from_comments, merge_header_value, parse_mise_header_toml,
+            extract_usage_from_comments, merge_header_value, parse_pakro_header_toml,
         };
 
         fn keys(body: &str) -> Vec<String> {
-            parse_mise_header_toml(body)
+            parse_pakro_header_toml(body)
                 .unwrap()
                 .into_iter()
                 .filter_map(|v| v.as_table().cloned())
@@ -4294,7 +4298,7 @@ mod tests {
         /// so the line never reaches the `=` and is not seen as config at all.
         #[test]
         fn an_uppercase_dotted_key_is_config() {
-            let body = "#!/usr/bin/env bash\n#MISE env.FOO = \"bar\"\n";
+            let body = "#!/usr/bin/env bash\n#PAKRO env.FOO = \"bar\"\n";
             assert_eq!(keys(body), ["env"]);
         }
 
@@ -4303,7 +4307,7 @@ mod tests {
         /// needs (discussions#11195).
         #[test]
         fn a_quoted_segment_is_config() {
-            let body = "#!/usr/bin/env bash\n#MISE tools.\"http:ruff\".version = \"0.11.0\"\n";
+            let body = "#!/usr/bin/env bash\n#PAKRO tools.\"http:ruff\".version = \"0.11.0\"\n";
             assert_eq!(keys(body), ["tools"]);
         }
 
@@ -4312,7 +4316,7 @@ mod tests {
         /// `KdlError` warning came from.
         #[test]
         fn a_config_line_is_not_usage_text() {
-            let body = "#!/usr/bin/env bash\n#MISE tools.\"http:ruff\".version = \"0.11.0\"\n";
+            let body = "#!/usr/bin/env bash\n#PAKRO tools.\"http:ruff\".version = \"0.11.0\"\n";
             assert_eq!(extract_usage_from_comments(body), "");
         }
 
@@ -4320,7 +4324,7 @@ mod tests {
         /// (`dot-sep = ws %x2E ws`), so a spaced key path is still config.
         #[test]
         fn whitespace_around_the_dots_is_config() {
-            let body = "#!/usr/bin/env bash\n#MISE tools . \"http:ruff\" . version = \"0.11.0\"\n";
+            let body = "#!/usr/bin/env bash\n#PAKRO tools . \"http:ruff\" . version = \"0.11.0\"\n";
             assert_eq!(keys(body), ["tools"]);
         }
 
@@ -4328,7 +4332,7 @@ mod tests {
         /// send the line to the usage parser like every other unmatched shape.
         #[test]
         fn an_escaped_quote_inside_a_key_is_config() {
-            let body = "#!/usr/bin/env bash\n#MISE tools.\"a\\\"b\".version = \"1\"\n";
+            let body = "#!/usr/bin/env bash\n#PAKRO tools.\"a\\\"b\".version = \"1\"\n";
             assert_eq!(keys(body), ["tools"]);
         }
 
@@ -4336,7 +4340,7 @@ mod tests {
         /// quote, so it must not be mistaken for a key path.
         #[test]
         fn a_usage_directive_is_still_usage_text() {
-            let body = "#!/usr/bin/env bash\n#MISE flag \"--jobs\" default=\"4\"\n";
+            let body = "#!/usr/bin/env bash\n#PAKRO flag \"--jobs\" default=\"4\"\n";
             assert!(keys(body).is_empty());
             assert_eq!(
                 extract_usage_from_comments(body),
@@ -4349,8 +4353,8 @@ mod tests {
         #[test]
         fn splitting_one_tool_across_lines_keeps_every_field() {
             let mut map = toml::Table::new();
-            for value in parse_mise_header_toml(
-                "#!/usr/bin/env bash\n#MISE tools.jq.version = \"1.8.1\"\n#MISE tools.jq.os = [\"macos\"]\n",
+            for value in parse_pakro_header_toml(
+                "#!/usr/bin/env bash\n#PAKRO tools.jq.version = \"1.8.1\"\n#PAKRO tools.jq.os = [\"macos\"]\n",
             )
             .unwrap()
             {
@@ -4367,23 +4371,23 @@ mod tests {
         }
 
         /// TOML allows whitespace before the key, and the scanner matches the
-        /// raw payload after `#MISE `, so the extra spaces here have to be part
+        /// raw payload after `#PAKRO `, so the extra spaces here have to be part
         /// of the pattern rather than trimmed away by the caller.
         #[test]
         fn extra_space_after_the_marker_is_still_config() {
-            let body = "#!/usr/bin/env bash\n#MISE   env.FOO = \"bar\"\n";
+            let body = "#!/usr/bin/env bash\n#PAKRO   env.FOO = \"bar\"\n";
             assert_eq!(keys(body), ["env"]);
             assert_eq!(extract_usage_from_comments(body), "");
         }
 
-        /// Fails before the fix: `scan_mise_header_entries` only accepted
-        /// `#MISE`, so a spaced `# MISE` line was suppressed from the usage text
+        /// Fails before the fix: `scan_pakro_header_entries` only accepted
+        /// `#PAKRO`, so a spaced `# PAKRO` line was suppressed from the usage text
         /// by the extractor and never parsed as config either — it set nothing
         /// and reported nothing. Asserting only the suppression would pass while
         /// the setting was still being thrown away, so assert the key lands.
         #[test]
         fn a_spaced_marker_with_a_quoted_key_is_still_config() {
-            let body = "#!/usr/bin/env bash\n# MISE tools.\"http:ruff\".version = \"0.11.0\"\n";
+            let body = "#!/usr/bin/env bash\n# PAKRO tools.\"http:ruff\".version = \"0.11.0\"\n";
             assert_eq!(keys(body), ["tools"]);
             assert_eq!(extract_usage_from_comments(body), "");
         }
@@ -4449,12 +4453,12 @@ mod tests {
     #[test]
     fn test_merge_toml_overlay_tracks_definition_sources() {
         let mut file_task = Task {
-            config_source: PathBuf::from(".mise/tasks/build"),
-            file: Some(PathBuf::from(".mise/tasks/build")),
+            config_source: PathBuf::from(".pakro/tasks/build"),
+            file: Some(PathBuf::from(".pakro/tasks/build")),
             ..Default::default()
         };
         let overlay = Task {
-            config_source: PathBuf::from("mise.toml"),
+            config_source: PathBuf::from("pakro.toml"),
             depends: vec!["lint".to_string().into()],
             ..Default::default()
         };
@@ -4463,7 +4467,7 @@ mod tests {
 
         assert_eq!(
             file_task.config_sources(),
-            vec![Path::new(".mise/tasks/build"), Path::new("mise.toml")]
+            vec![Path::new(".pakro/tasks/build"), Path::new("pakro.toml")]
         );
     }
 
@@ -4696,7 +4700,7 @@ rust_cache = { unknown = true }
         ));
         assert!(!file_has_decoded_template(
             script,
-            "#!/usr/bin/env bash\n#MISE description=\"a plain task\"\necho hi\n"
+            "#!/usr/bin/env bash\n#PAKRO description=\"a plain task\"\necho hi\n"
         ));
 
         // escaped delimiters ({ == '{', } == '}') decode to a template
@@ -4706,7 +4710,7 @@ rust_cache = { unknown = true }
         ));
         assert!(file_has_decoded_template(
             script,
-            "#!/usr/bin/env bash\n#MISE description=\"\\u007b\\u007b exec(command='x') \\u007d\\u007d\"\necho hi\n"
+            "#!/usr/bin/env bash\n#PAKRO description=\"\\u007b\\u007b exec(command='x') \\u007d\\u007d\"\necho hi\n"
         ));
 
         // A byte-order mark must not hide the header from this check. The loader strips one
@@ -4714,7 +4718,7 @@ rust_cache = { unknown = true }
         // was never gated on trust.
         assert!(file_has_decoded_template(
             script,
-            "\u{feff}#MISE description=\"\\u007b\\u007b exec(command='x') \\u007d\\u007d\"\necho hi\n"
+            "\u{feff}#PAKRO description=\"\\u007b\\u007b exec(command='x') \\u007d\\u007d\"\necho hi\n"
         ));
         assert!(file_has_decoded_template(
             toml,
@@ -4723,7 +4727,7 @@ rust_cache = { unknown = true }
         // and it must not turn a plain file into one that needs trust
         assert!(!file_has_decoded_template(
             script,
-            "\u{feff}#MISE description=\"a plain task\"\necho hi\n"
+            "\u{feff}#PAKRO description=\"a plain task\"\necho hi\n"
         ));
     }
 
@@ -4750,13 +4754,18 @@ exec shapeme "$@"
             assert_eq!(spec.cmd.flags.len(), 1);
             assert_eq!(spec.cmd.mounts.len(), 1);
             assert_eq!(spec.cmd.mounts[0].run, "shapeme --usage-spec");
-            assert!(!spec.cmd.subcommands.contains_key("__mise_task_root_mounts"));
+            assert!(
+                !spec
+                    .cmd
+                    .subcommands
+                    .contains_key("__pakro_task_root_mounts")
+            );
         }
     }
 
     /// A `#USAGE` on line 1 is the case a byte-order mark hides: the extractor anchors at the
     /// start of a line, and `str::trim` does not remove U+FEFF. Without the mark stripped the
-    /// flag never reaches the spec, so `mise run task -- -f` leaves `usage_force` unset.
+    /// flag never reaches the spec, so `pakro run task -- -f` leaves `usage_force` unset.
     #[test]
     fn test_parse_task_script_usage_reads_a_marked_first_line() {
         use std::io::Write;
@@ -4794,14 +4803,14 @@ exec shapeme "$@"
     }
 
     #[tokio::test]
-    async fn test_file_task_usage_expands_mise_config_root() {
+    async fn test_file_task_usage_expands_pakro_config_root() {
         let dir = tempfile::tempdir().unwrap();
         let included = dir.path().join("shared.usage.kdl");
         let task = dir.path().join("build");
         std::fs::write(&included, "flagset \"shared\" {\n  flag \"--release\"\n}\n").unwrap();
         std::fs::write(
             &task,
-            "#!/usr/bin/env bash\n#USAGE include file=\"$MISE_CONFIG_ROOT/shared.usage.kdl\"\n#USAGE use \"shared\"\n",
+            "#!/usr/bin/env bash\n#USAGE include file=\"$PAKRO_CONFIG_ROOT/shared.usage.kdl\"\n#USAGE use \"shared\"\n",
         )
         .unwrap();
         let task = Task {
@@ -4819,16 +4828,16 @@ exec shapeme "$@"
     }
 
     #[test]
-    fn test_parse_task_script_usage_hoists_mise_root_mount() {
+    fn test_parse_task_script_usage_hoists_pakro_root_mount() {
         use std::io::Write;
 
-        for marker in ["#MISE", "# MISE"] {
+        for marker in ["#PAKRO", "# PAKRO"] {
             let mut tmp = tempfile::NamedTempFile::new().unwrap();
             tmp.write_all(
                 format!(
                     r#"#!/usr/bin/env bash
 #USAGE flag "--verbose" help="Show extra output"
-{marker} flag "--mise" help="MISE flag"
+{marker} flag "--pakro" help="PAKRO flag"
 {marker} description="Run the mounted CLI"
 {marker} mount "shapeme --usage-spec"
 exec shapeme "$@"
@@ -5029,13 +5038,13 @@ exec proxy "$@"
 
     #[tokio::test]
     async fn test_from_path() {
-        let test_cases = [(".mise/tasks/filetask", "filetask", vec!["ft"])];
+        let test_cases = [(".pakro/tasks/filetask", "filetask", vec!["ft"])];
         let config = Config::get().await.unwrap();
         for (path, name, aliases) in test_cases {
             let t = Task::from_path(
                 &config,
                 Path::new(path),
-                Path::new(".mise/tasks"),
+                Path::new(".pakro/tasks"),
                 Path::new(dirs::CWD.as_ref().unwrap()),
             )
             .await
@@ -5097,16 +5106,16 @@ exec proxy "$@"
     #[cfg(unix)]
     fn test_name_from_path() {
         let test_cases = [
-            (("/.mise/tasks", "/.mise/tasks/a"), "a"),
-            (("/.mise/tasks", "/.mise/tasks/a/b"), "a:b"),
-            (("/.mise/tasks", "/.mise/tasks/a/b/c"), "a:b:c"),
-            (("/.mise/tasks", "/.mise/tasks/a:b"), "a_b"),
-            (("/.mise/tasks", "/.mise/tasks/a:b/c"), "a_b:c"),
-            (("/.mise/tasks", "/.mise/tasks/a/_default"), "a"),
-            (("/.mise/tasks", "/.mise/tasks/a/_default.sh"), "a"),
-            (("/.mise/tasks", "/.mise/tasks/a/_default.js"), "a"),
-            (("/.mise/tasks", "/.mise/tasks/a/b/_default"), "a:b"),
-            (("/.mise/tasks", "/.mise/tasks/a/b/_default.sh"), "a:b"),
+            (("/.pakro/tasks", "/.pakro/tasks/a"), "a"),
+            (("/.pakro/tasks", "/.pakro/tasks/a/b"), "a:b"),
+            (("/.pakro/tasks", "/.pakro/tasks/a/b/c"), "a:b:c"),
+            (("/.pakro/tasks", "/.pakro/tasks/a:b"), "a_b"),
+            (("/.pakro/tasks", "/.pakro/tasks/a:b/c"), "a_b:c"),
+            (("/.pakro/tasks", "/.pakro/tasks/a/_default"), "a"),
+            (("/.pakro/tasks", "/.pakro/tasks/a/_default.sh"), "a"),
+            (("/.pakro/tasks", "/.pakro/tasks/a/_default.js"), "a"),
+            (("/.pakro/tasks", "/.pakro/tasks/a/b/_default"), "a:b"),
+            (("/.pakro/tasks", "/.pakro/tasks/a/b/_default.sh"), "a:b"),
         ];
 
         for ((root, path), expected) in test_cases {
@@ -5116,7 +5125,7 @@ exec proxy "$@"
 
     #[test]
     fn test_name_from_path_invalid() {
-        let test_cases = [("/some/other/dir", "/.mise/tasks/a")];
+        let test_cases = [("/some/other/dir", "/.pakro/tasks/a")];
 
         for (root, path) in test_cases {
             assert!(name_from_path(root, path).is_err())
@@ -5245,9 +5254,9 @@ exec proxy "$@"
         fs::write(
             &task_path,
             r#"#!/bin/bash
-#MISE description="Build the CLI"
-# MISE alias="b"
-# [MISE] sources=["Cargo.toml", "src/**/*.rs"]
+#PAKRO description="Build the CLI"
+# PAKRO alias="b"
+# [PAKRO] sources=["Cargo.toml", "src/**/*.rs"]
 echo "hello world"
 "#,
         )
@@ -5273,7 +5282,7 @@ echo "hello world"
         fs::write(
             &task_path,
             r#"#!/bin/bash
-#MISE sources="src/**/*.rs"
+#PAKRO sources="src/**/*.rs"
 echo "hello world"
 "#,
         )
@@ -5299,7 +5308,7 @@ echo "hello world"
         fs::write(
             &task_path,
             r#"#!/usr/bin/env bash
-#MISE env._.file = "env.yaml"
+#PAKRO env._.file = "env.yaml"
 echo "Hello $USR"
 "#,
         )
@@ -5327,8 +5336,8 @@ echo "Hello $USR"
         fs::write(
             &task_path,
             r#"#!/bin/bash
-#MISE description="test task"
-#MISE env={invalid=toml=here}
+#PAKRO description="test task"
+#PAKRO env={invalid=toml=here}
 echo "hello world"
 "#,
         )
@@ -5348,7 +5357,7 @@ echo "hello world"
     /// An unrecognised header key is a warning, not an error.
     ///
     /// This parse runs for every task file in the project, so failing here took down tasks in
-    /// other files — including TOML ones — over a single typo. `mise.toml` already treats an
+    /// other files — including TOML ones — over a single typo. `pakro.toml` already treats an
     /// unknown key as a warning; a file task should not be stricter.
     ///
     /// `run_windows` is the real case that turned this up: it is a TOML-task key, so a file task
@@ -5365,8 +5374,8 @@ echo "hello world"
         fs::write(
             &task_path,
             r#"#!/usr/bin/env bash
-#MISE description="still parsed"
-#MISE run_windows="echo nope"
+#PAKRO description="still parsed"
+#PAKRO run_windows="echo nope"
 echo "hello world"
 "#,
         )
@@ -6038,31 +6047,31 @@ echo "hello world"
 
         // Create a file task with ALL possible header fields
         let script_content = r#"#!/usr/bin/env bash
-#MISE extends="base-template"
-#MISE description="Test task with all fields"
-#MISE aliases=["alias1", "alias2"]
-#MISE depends=["dep1", "dep2"]
-#MISE daemons=["postgres"]
-#MISE depends_post=["post1"]
-#MISE wait_for=["wait1"]
-#MISE env={TEST_VAR="value"}
-#MISE dir="/some/dir"
-#MISE hide=true
-#MISE raw=true
-#MISE raw_args=true
-#MISE interactive=true
-#MISE sources=["src1.txt", "src2.txt"]
-#MISE watch={no_vcs_ignore=true}
-#MISE outputs=["out1.txt"]
-#MISE cache={enabled=true,env=["PROFILE"]}
-#MISE rust_cache=true
-#MISE pass_through_env=["DEPLOY_TOKEN"]
-#MISE shell="bash -c"
-#MISE quiet=true
-#MISE silent=true
-#MISE output="prefix"
-#MISE tools={node={prefix="20"}, python="3.11"}
-#MISE confirm="Are you sure?"
+#PAKRO extends="base-template"
+#PAKRO description="Test task with all fields"
+#PAKRO aliases=["alias1", "alias2"]
+#PAKRO depends=["dep1", "dep2"]
+#PAKRO daemons=["postgres"]
+#PAKRO depends_post=["post1"]
+#PAKRO wait_for=["wait1"]
+#PAKRO env={TEST_VAR="value"}
+#PAKRO dir="/some/dir"
+#PAKRO hide=true
+#PAKRO raw=true
+#PAKRO raw_args=true
+#PAKRO interactive=true
+#PAKRO sources=["src1.txt", "src2.txt"]
+#PAKRO watch={no_vcs_ignore=true}
+#PAKRO outputs=["out1.txt"]
+#PAKRO cache={enabled=true,env=["PROFILE"]}
+#PAKRO rust_cache=true
+#PAKRO pass_through_env=["DEPLOY_TOKEN"]
+#PAKRO shell="bash -c"
+#PAKRO quiet=true
+#PAKRO silent=true
+#PAKRO output="prefix"
+#PAKRO tools={node={prefix="20"}, python="3.11"}
+#PAKRO confirm="Are you sure?"
 echo "test"
 "#;
         fs::write(&task_file, script_content).unwrap();
@@ -6157,9 +6166,9 @@ echo "test"
         fs::write(
             &task_file,
             r#"#!/usr/bin/env bash
-#MISE depends=["simple", {task="structured", args=["--flag"], env={MODE="test"}}]
-#MISE depends_post=[["cleanup", "--all"], {task="notify"}]
-#MISE wait_for=["setup", {task="service", env={PORT="3000"}}]
+#PAKRO depends=["simple", {task="structured", args=["--flag"], env={MODE="test"}}]
+#PAKRO depends_post=[["cleanup", "--all"], {task="notify"}]
+#PAKRO wait_for=["setup", {task="service", env={PORT="3000"}}]
 echo "test"
 "#,
         )
@@ -6200,7 +6209,7 @@ echo "test"
         let task_file = tasks_dir.join("invalid-tools");
         fs::write(
             &task_file,
-            "#!/usr/bin/env bash\n#MISE tools={node={version=\"20\", prefix=\"20\"}}\n",
+            "#!/usr/bin/env bash\n#PAKRO tools={node={version=\"20\", prefix=\"20\"}}\n",
         )
         .unwrap();
         fs::set_permissions(&task_file, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -6221,7 +6230,7 @@ echo "test"
     #[cfg(unix)]
     async fn test_multi_line_tools_merge() {
         // Regression test for https://github.com/jdx/mise/discussions/7839
-        // Multiple #MISE tools.X=Y lines should be merged into a single tools table
+        // Multiple #PAKRO tools.X=Y lines should be merged into a single tools table
         use std::fs;
         use std::os::unix::fs::PermissionsExt;
         use tempfile::tempdir;
@@ -6235,9 +6244,9 @@ echo "test"
 
         // Create a file task with multiple tools on separate lines
         let script_content = r#"#!/usr/bin/env bash
-#MISE tools.node="20"
-#MISE tools.python="3.11"
-#MISE tools.ruby="3.2"
+#PAKRO tools.node="20"
+#PAKRO tools.python="3.11"
+#PAKRO tools.ruby="3.2"
 echo "test"
 "#;
         fs::write(&task_file, script_content).unwrap();
@@ -6285,18 +6294,18 @@ echo "test"
     }
 
     #[test]
-    fn test_scan_mise_header_entries() {
+    fn test_scan_pakro_header_entries() {
         // https://github.com/jdx/mise/discussions/4603
         let body = r#"#!/usr/bin/env bash
-#MISE description="hi"
-#MISE depends=[
-#MISE   "lint",
-#MISE ]
-#MISE flag "--verbose" help="not a header"
-#MISE tools.node="20"
+#PAKRO description="hi"
+#PAKRO depends=[
+#PAKRO   "lint",
+#PAKRO ]
+#PAKRO flag "--verbose" help="not a header"
+#PAKRO tools.node="20"
 echo hi
 "#;
-        let entries = super::scan_mise_header_entries(body);
+        let entries = super::scan_pakro_header_entries(body);
         let got = entries
             .iter()
             .map(|e| (e.start, e.end, e.toml.as_str()))
@@ -6312,11 +6321,11 @@ echo hi
     }
 
     #[test]
-    fn test_scan_mise_header_entries_multiline_basic_string() {
+    fn test_scan_pakro_header_entries_multiline_basic_string() {
         // inside a multi-line basic string `\"""` is an escaped quote followed
         // by two more, not the closing delimiter — the entry must keep going
-        let entries = super::scan_mise_header_entries(
-            "#MISE description=\"\"\"abc \\\"\"\" def\n#MISE ghi\"\"\"\n",
+        let entries = super::scan_pakro_header_entries(
+            "#PAKRO description=\"\"\"abc \\\"\"\" def\n#PAKRO ghi\"\"\"\n",
         );
         assert_eq!(entries.len(), 1);
         assert_eq!((entries[0].start, entries[0].end), (0, 1));
@@ -6327,10 +6336,11 @@ echo hi
     }
 
     #[test]
-    fn test_scan_mise_header_entries_ignores_brackets_in_strings() {
+    fn test_scan_pakro_header_entries_ignores_brackets_in_strings() {
         // a bracket inside a string must not open a continuation
-        let entries =
-            super::scan_mise_header_entries("#MISE description=\"see [1]\"\n#MISE alias=\"b\"\n");
+        let entries = super::scan_pakro_header_entries(
+            "#PAKRO description=\"see [1]\"\n#PAKRO alias=\"b\"\n",
+        );
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].end, 0);
         assert_eq!(entries[1].start, 1);
@@ -6348,14 +6358,14 @@ echo hi
         fs::write(
             &task_path,
             r#"#!/usr/bin/env bash
-#MISE description="multi-line arrays"
-#MISE depends=[
-#MISE   "lint",
-#MISE   "test",
-#MISE ]
-#MISE sources=[
-#MISE   "src/**/*.rs"
-#MISE ]
+#PAKRO description="multi-line arrays"
+#PAKRO depends=[
+#PAKRO   "lint",
+#PAKRO   "test",
+#PAKRO ]
+#PAKRO sources=[
+#PAKRO   "src/**/*.rs"
+#PAKRO ]
 echo "test"
 "#,
         )
@@ -6384,10 +6394,10 @@ echo "test"
         fs::write(
             &task_path,
             r#"#!/usr/bin/env node
-//MISE depends=[
-//MISE   { task = "lint", args = ["--fix"] },
-//MISE   "test",
-//MISE ]
+//PAKRO depends=[
+//PAKRO   { task = "lint", args = ["--fix"] },
+//PAKRO   "test",
+//PAKRO ]
 console.log("hi");
 "#,
         )
@@ -6414,8 +6424,8 @@ console.log("hi");
         fs::write(
             &task_path,
             r#"#!/usr/bin/env bash
-#MISE depends=[
-#MISE   "lint"
+#PAKRO depends=[
+#PAKRO   "lint"
 echo "test"
 "#,
         )
@@ -6433,7 +6443,7 @@ echo "test"
 
     #[tokio::test]
     async fn test_from_path_multi_line_inline_table() {
-        // mise parses headers with TOML 1.1, which allows inline tables to span
+        // pakro parses headers with TOML 1.1, which allows inline tables to span
         // lines as well as arrays
         use super::TaskToolValue;
         use std::fs;
@@ -6445,10 +6455,10 @@ echo "test"
         fs::write(
             &task_path,
             r#"#!/usr/bin/env bash
-#MISE tools={
-#MISE   node="20",
-#MISE   python="3.11"
-#MISE }
+#PAKRO tools={
+#PAKRO   node="20",
+#PAKRO   python="3.11"
+#PAKRO }
 echo "test"
 "#,
         )
@@ -6472,9 +6482,9 @@ echo "test"
     fn test_extract_usage_skips_multi_line_headers() {
         // continuation lines are config, not usage spec text
         let script = r#"#!/usr/bin/env bash
-#MISE depends=[
-#MISE   "lint",
-#MISE ]
+#PAKRO depends=[
+#PAKRO   "lint",
+#PAKRO ]
 #USAGE flag "--verbose" help="Show extra output"
 echo hi
 "#;
@@ -6492,12 +6502,12 @@ echo hi
         // a template hidden by TOML escapes inside a multi-line array
         assert!(file_has_decoded_template(
             script,
-            "#!/usr/bin/env bash\n#MISE depends=[\n#MISE \"\\u007b\\u007b exec(command='x') \\u007d\\u007d\"\n#MISE ]\necho hi\n"
+            "#!/usr/bin/env bash\n#PAKRO depends=[\n#PAKRO \"\\u007b\\u007b exec(command='x') \\u007d\\u007d\"\n#PAKRO ]\necho hi\n"
         ));
         // an unparseable entry must not hide a template in another entry
         assert!(file_has_decoded_template(
             script,
-            "#!/usr/bin/env bash\n#MISE env={invalid=toml=here}\n#MISE description=\"\\u007b\\u007b exec(command='x') \\u007d\\u007d\"\necho hi\n"
+            "#!/usr/bin/env bash\n#PAKRO env={invalid=toml=here}\n#PAKRO description=\"\\u007b\\u007b exec(command='x') \\u007d\\u007d\"\necho hi\n"
         ));
     }
 
@@ -6519,8 +6529,8 @@ echo hi
 
         // Create a file task with hyphenated and numeric tool names
         let script_content = r#"#!/usr/bin/env bash
-#MISE tools.git-cliff="1.0"
-#MISE tools.1password-cli="2.0"
+#PAKRO tools.git-cliff="1.0"
+#PAKRO tools.1password-cli="2.0"
 echo "test"
 "#;
         fs::write(&task_file, script_content).unwrap();
@@ -7126,7 +7136,7 @@ echo "test"
         use super::GetMatchingExt;
 
         // #10298: a TOML task "hello" and an auto-discovered file task "hello.sh"
-        // coexist; `mise run hello` must match only the exact "hello", not also
+        // coexist; `pakro run hello` must match only the exact "hello", not also
         // "hello.sh" (which would run the script twice).
         let mut tasks: BTreeMap<String, String> = BTreeMap::new();
         tasks.insert("hello".to_string(), "hello".to_string());
@@ -7140,7 +7150,7 @@ echo "test"
         assert_eq!(matches, vec![&"hello.sh".to_string()]);
 
         // Extension-stripped fallback still applies when there is no exact match
-        // (e.g. `mise run build` runs a `build.js` file task).
+        // (e.g. `pakro run build` runs a `build.js` file task).
         let mut only_file: BTreeMap<String, String> = BTreeMap::new();
         only_file.insert("build.js".to_string(), "build.js".to_string());
         let matches = only_file.get_matching("build").unwrap();

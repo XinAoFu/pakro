@@ -20,9 +20,9 @@ exec bash -c "$2"
 SCRIPT
 chmod +x "$HOME/watch-explicit-shell"
 
-export MISE_UNIX_DEFAULT_INLINE_SHELL_ARGS="\"$HOME/watch-fallback-shell\" -c"
+export PAKRO_UNIX_DEFAULT_INLINE_SHELL_ARGS="\"$HOME/watch-fallback-shell\" -c"
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [[watch_files]]
 patterns = ["fallback.txt"]
 run = "echo WATCH_FALLBACK_RUN"
@@ -34,13 +34,13 @@ shell = '"$HOME/watch-explicit-shell" -c'
 EOF
 
 touch fallback.txt explicit.txt
-eval "$(mise hook-env)"
+eval "$(pakro hook-env)"
 
 sleep 1
 printf "changed" >>fallback.txt
 printf "changed" >>explicit.txt
 
-mise hook-env >hook-env.out 2>&1
+pakro hook-env >hook-env.out 2>&1
 
 assert_contains "cat hook-env.out" "WATCH_FALLBACK_SHELL"
 assert_contains "cat hook-env.out" "WATCH_FALLBACK_RUN"

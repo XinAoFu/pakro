@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Preset rendering only: no service is installed or started here.
 
-export MISE_OFFLINE=1
+export PAKRO_OFFLINE=1
 cat >~/bin/pitchfork <<'SH'
 #!/usr/bin/env bash
 case "$1" in
@@ -14,7 +14,7 @@ SH
 chmod u+x ~/bin/pitchfork
 export PATH="$HOME/bin:$PATH"
 
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 
@@ -40,64 +40,64 @@ options.datastore_uri = "postgresql://root@127.0.0.1:26258/spicedb?sslmode=disab
 options.datastore_daemon = "crdb"
 TOML
 
-assert_contains "mise daemons ls --json" '"preset": "cockroachdb"'
-assert_contains "mise daemons ls --json" '"preset": "nats"'
-assert_contains "mise daemons ls --json" '"preset": "spicedb"'
+assert_contains "pakro daemons ls --json" '"preset": "cockroachdb"'
+assert_contains "pakro daemons ls --json" '"preset": "nats"'
+assert_contains "pakro daemons ls --json" '"preset": "spicedb"'
 
 # Named ports, path options, and list options all reach the rendered definitions.
-assert_contains "mise env -s bash" "NATS_MONITORING_URL='http://127.0.0.1:8333'"
-assert_contains "mise env -s bash" "COCKROACH_URL='postgresql://root@127.0.0.1:26258/entirecore?sslmode=disable'"
-assert_contains "mise env -s bash" "SPICEDB_ENDPOINT='127.0.0.1:50051'"
-assert_contains "mise env -s bash" "SPICEDB_PRESHARED_KEY=mise-dev-key"
+assert_contains "pakro env -s bash" "NATS_MONITORING_URL='http://127.0.0.1:8333'"
+assert_contains "pakro env -s bash" "COCKROACH_URL='postgresql://root@127.0.0.1:26258/entirecore?sslmode=disable'"
+assert_contains "pakro env -s bash" "SPICEDB_ENDPOINT='127.0.0.1:50051'"
+assert_contains "pakro env -s bash" "SPICEDB_PRESHARED_KEY=pakro-dev-key"
 
 # Each named port is exported under the daemon's name, as the command uses it:
 # the default, or the value set with ports.<name>.
-assert_contains "mise env -s bash" "CRDB_HTTP_PORT=8080"
-assert_contains "mise env -s bash" "EVENTS_MONITOR_PORT=8333"
-assert_contains "mise env -s bash" "AUTHZ_HTTP_PORT=8443"
-assert_contains "mise env -s bash" "AUTHZ_METRICS_PORT=9090"
+assert_contains "pakro env -s bash" "CRDB_HTTP_PORT=8080"
+assert_contains "pakro env -s bash" "EVENTS_MONITOR_PORT=8333"
+assert_contains "pakro env -s bash" "AUTHZ_HTTP_PORT=8443"
+assert_contains "pakro env -s bash" "AUTHZ_METRICS_PORT=9090"
 
 # Unknown ports and values failing a preset's declared pattern are rejected.
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [daemons.crdb]
 preset = "cockroachdb"
 version = "26"
 ports.grpc_port = 1234
 TOML
-assert_fail_contains "mise daemons ls 2>&1" 'unknown cockroachdb port'
+assert_fail_contains "pakro daemons ls 2>&1" 'unknown cockroachdb port'
 
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [daemons.crdb]
 preset = "cockroachdb"
 version = "26"
 options.databases = ["good", "bad; name"]
 TOML
-assert_fail_contains "mise daemons ls 2>&1" 'must match'
+assert_fail_contains "pakro daemons ls 2>&1" 'must match'
 
-# proxy_idle_timeout is a duration string or false; pitchfork parses it, mise
+# proxy_idle_timeout is a duration string or false; pitchfork parses it, pakro
 # refuses the wrong shapes and names the daemon.
 for value in true 30 "'soon'"; do
-  cat >mise.toml <<TOML
+  cat >pakro.toml <<TOML
 [daemons.api]
 run = "sleep 30"
 port = 3000
 proxy_idle_timeout = $value
 TOML
-  assert_fail_contains "mise daemons ls 2>&1" '[daemons.api].proxy_idle_timeout'
+  assert_fail_contains "pakro daemons ls 2>&1" '[daemons.api].proxy_idle_timeout'
 done
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [daemons.crdb]
 preset = "cockroachdb"
 version = "26"
 proxy_idle_timeout = true
 TOML
-assert_fail_contains "mise daemons ls 2>&1" '[daemons.crdb].proxy_idle_timeout'
+assert_fail_contains "pakro daemons ls 2>&1" '[daemons.crdb].proxy_idle_timeout'
 for value in "'30m'" false; do
-  cat >mise.toml <<TOML
+  cat >pakro.toml <<TOML
 [daemons.api]
 run = "sleep 30"
 port = 3000
 proxy_idle_timeout = $value
 TOML
-  assert_contains "mise daemons ls --json" '"name": "api"'
+  assert_contains "pakro daemons ls --json" '"name": "api"'
 done

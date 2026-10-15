@@ -211,10 +211,10 @@ enum InlineArgsStyle {
     SeparateArgv,
 }
 
-/// Whether the shell mise is about to spawn cannot use `dir` as its working directory.
+/// Whether the shell pakro is about to spawn cannot use `dir` as its working directory.
 ///
 /// cmd.exe refuses a UNC working directory. It says so on stderr, starts in `C:\Windows` instead,
-/// and carries on — so the task runs somewhere the user never asked for while mise reports success.
+/// and carries on — so the task runs somewhere the user never asked for while pakro reports success.
 /// Reuses [`crate::path::is_cmd_shell_program`] and [`crate::file::is_unc_path`]; both already know
 /// the shapes involved, including `cmd`/`cmd.exe`/`CMD.EXE` and the verbatim `\\?\UNC\` form.
 #[cfg(windows)]
@@ -230,7 +230,7 @@ fn unc_working_dir_error(dir: &Path) -> String {
 
           working directory: {dir}
 
-        It would start in C:\Windows instead and run the command there, so mise stops rather
+        It would start in C:\Windows instead and run the command there, so pakro stops rather
         than running it somewhere you did not ask for.
 
         Use a shell that accepts UNC paths, either for this task:
@@ -239,7 +239,7 @@ fn unc_working_dir_error(dir: &Path) -> String {
 
         or for every task:
 
-          mise settings windows_default_inline_shell_args="pwsh -c"
+          pakro settings windows_default_inline_shell_args="pwsh -c"
 
         A file task takes its shell from windows_default_file_shell_args instead."#,
         dir = display_path(dir),
@@ -510,7 +510,7 @@ impl TaskExecutor {
         // override is honored (e.g. a task with `output = "interleave"` must not
         // get a timing line just because the global default is `prefix`).
         let output_mode = self.output_handler.output(task);
-        // Quiet/silent suppresses mise's own output, so the per-task "Finished in …"
+        // Quiet/silent suppresses pakro's own output, so the per-task "Finished in …"
         // timing line must not leak. This matters now that quiet keeps its style
         // (e.g. `--quiet` with parallel tasks still resolves to `Prefix`).
         let default = !self.output_handler.quiet(task)
@@ -621,7 +621,7 @@ impl TaskExecutor {
                         .await?;
                     if let Some(explanation) = cache.explanation() {
                         if self.task_cache_explain_json {
-                            miseprintln!("{}", explanation.to_json(&task.name, cache.key())?);
+                            pakroprintln!("{}", explanation.to_json(&task.name, cache.key())?);
                         } else if !self.quiet(Some(task)) {
                             for line in explanation.lines() {
                                 self.eprint(task, &prefix, &line);
@@ -832,7 +832,7 @@ impl TaskExecutor {
         })
     }
 
-    fn insert_env_excluded_from_nested_mise_diff(
+    fn insert_env_excluded_from_nested_pakro_diff(
         env: &mut BTreeMap<String, String>,
         excluded_keys: &mut HashSet<String>,
         key: &str,
@@ -844,7 +844,7 @@ impl TaskExecutor {
         }
     }
 
-    fn env_for_nested_mise_diff(
+    fn env_for_nested_pakro_diff(
         &self,
         env: &BTreeMap<String, String>,
         excluded_keys: &HashSet<String>,
@@ -939,7 +939,7 @@ impl TaskExecutor {
                     };
                     guard = None; // drop lock before waiting on sub-tasks
                     // Release the semaphore permit before waiting on sub-tasks to
-                    // avoid deadlock when MISE_JOBS=1 (the sub-task needs a permit
+                    // avoid deadlock when PAKRO_JOBS=1 (the sub-task needs a permit
                     // but we're holding the only one).
                     let had_permit = permit.is_some();
                     *permit = None;
@@ -1083,7 +1083,7 @@ impl TaskExecutor {
             // `depends` of one of those names is scheduled here too, and without
             // a slot its block landed wherever its first line happened to arrive
             // — so the same tasks came out in a different order from one run to
-            // the next. Creation order is what the identical `mise run a ::: b`
+            // the next. Creation order is what the identical `pakro run a ::: b`
             // would have given them, since that builds its graph the same way
             // from the same list.
             //
@@ -1603,7 +1603,7 @@ impl TaskExecutor {
         #[cfg(not(windows))]
         let _ = cmd_verbatim;
         // `program` is shadowed several times below — `to_executable`, POSIX-shell resolution,
-        // audit wrapping — so keep the shell mise was asked to spawn for the working-directory
+        // audit wrapping — so keep the shell pakro was asked to spawn for the working-directory
         // check further down. `cmd_verbatim` is not a substitute: it is only set for inline
         // scripts, and a file task can reach cmd.exe through windows_default_file_shell_args.
         #[cfg(windows)]
@@ -1683,7 +1683,7 @@ impl TaskExecutor {
             } else {
                 hint!(
                     "raw_redactions",
-                    "--raw will prevent mise from being able to use redactions",
+                    "--raw will prevent pakro from being able to use redactions",
                     ""
                 );
             }
@@ -1695,7 +1695,7 @@ impl TaskExecutor {
         // actually capture it. Under `raw` the child gets the terminal
         // directly and a fully silenced task discards both streams, so the
         // observers would never fire — and the claim path would then invite a
-        // nested `mise run` to take over a stream nobody is reading.
+        // nested `pakro run` to take over a stream nobody is reading.
         let forwards_output =
             self.output_forwarder.is_some() && !raw && !task.silent.suppresses_both();
         // Holds the claim directory for the lifetime of the command; dropping
@@ -2181,7 +2181,7 @@ impl TaskExecutor {
             )
         {
             env.entry(key.clone())
-                .or_insert_with(|| "__MISE_PREFLIGHT_ENV_INPUT__".to_string());
+                .or_insert_with(|| "__PAKRO_PREFLIGHT_ENV_INPUT__".to_string());
         }
         for subcmd in cmd.subcommands.values() {
             Self::fill_unavailable_required_env_inputs(subcmd, env);
@@ -2236,31 +2236,31 @@ impl TaskExecutor {
             env_render_start.elapsed().as_millis()
         );
 
-        let mut nested_mise_diff_exclude_keys: HashSet<String> = task_env
+        let mut nested_pakro_diff_exclude_keys: HashSet<String> = task_env
             .iter()
             .map(|(key, _)| key.clone())
             .filter(|key| key.as_str() != crate::env::PATH_KEY.as_str())
-            .chain(once("__MISE_DIFF".to_string()))
+            .chain(once("__PAKRO_DIFF".to_string()))
             .collect();
         if !self.timings || self.no_timings {
-            Self::insert_env_excluded_from_nested_mise_diff(
+            Self::insert_env_excluded_from_nested_pakro_diff(
                 &mut env,
-                &mut nested_mise_diff_exclude_keys,
-                "MISE_TASK_TIMINGS",
+                &mut nested_pakro_diff_exclude_keys,
+                "PAKRO_TASK_TIMINGS",
                 "0".to_string(),
             );
         }
-        if !crate::env::MISE_ENV.is_empty() {
-            Self::insert_env_excluded_from_nested_mise_diff(
+        if !crate::env::PAKRO_ENV.is_empty() {
+            Self::insert_env_excluded_from_nested_pakro_diff(
                 &mut env,
-                &mut nested_mise_diff_exclude_keys,
-                "MISE_ENV",
-                crate::env::MISE_ENV.join(","),
+                &mut nested_pakro_diff_exclude_keys,
+                "PAKRO_ENV",
+                crate::env::PAKRO_ENV.join(","),
             );
         }
         if let Some(span_cx) = otel_span_cx {
             // Propagate trace context via the W3C env-carriers spec so
-            // nested `mise run` and any OTEL-instrumented tools the task
+            // nested `pakro run` and any OTEL-instrumented tools the task
             // invokes automatically join this distributed trace.
             // https://opentelemetry.io/docs/specs/otel/context/env-carriers/
             let mut carrier = BTreeMap::new();
@@ -2273,21 +2273,21 @@ impl TaskExecutor {
                 env_remove.insert("TRACESTATE".to_string());
             }
             for (key, value) in carrier {
-                // Kept out of __MISE_DIFF so a nested `mise hook-env` doesn't
-                // treat them as mise-managed env and unset the trace context.
-                Self::insert_env_excluded_from_nested_mise_diff(
+                // Kept out of __PAKRO_DIFF so a nested `pakro hook-env` doesn't
+                // treat them as pakro-managed env and unset the trace context.
+                Self::insert_env_excluded_from_nested_pakro_diff(
                     &mut env,
-                    &mut nested_mise_diff_exclude_keys,
+                    &mut nested_pakro_diff_exclude_keys,
                     &key,
                     value,
                 );
             }
         }
         if let Some(cwd) = &*crate::dirs::CWD {
-            Self::insert_env_excluded_from_nested_mise_diff(
+            Self::insert_env_excluded_from_nested_pakro_diff(
                 &mut env,
-                &mut nested_mise_diff_exclude_keys,
-                "MISE_ORIGINAL_CWD",
+                &mut nested_pakro_diff_exclude_keys,
+                "PAKRO_ORIGINAL_CWD",
                 task_env_path(cwd),
             );
         }
@@ -2300,64 +2300,64 @@ impl TaskExecutor {
             task.config_root.clone().or(config.project_root.clone())
         };
         if let Some(root) = project_root {
-            Self::insert_env_excluded_from_nested_mise_diff(
+            Self::insert_env_excluded_from_nested_pakro_diff(
                 &mut env,
-                &mut nested_mise_diff_exclude_keys,
-                "MISE_PROJECT_ROOT",
+                &mut nested_pakro_diff_exclude_keys,
+                "PAKRO_PROJECT_ROOT",
                 task_env_path(&root),
             );
         }
         if let Some(monorepo_root) = config.monorepo_root() {
-            Self::insert_env_excluded_from_nested_mise_diff(
+            Self::insert_env_excluded_from_nested_pakro_diff(
                 &mut env,
-                &mut nested_mise_diff_exclude_keys,
-                "MISE_MONOREPO_ROOT",
+                &mut nested_pakro_diff_exclude_keys,
+                "PAKRO_MONOREPO_ROOT",
                 task_env_path(&monorepo_root),
             );
         }
-        Self::insert_env_excluded_from_nested_mise_diff(
+        Self::insert_env_excluded_from_nested_pakro_diff(
             &mut env,
-            &mut nested_mise_diff_exclude_keys,
-            "MISE_TASK_NAME",
+            &mut nested_pakro_diff_exclude_keys,
+            "PAKRO_TASK_NAME",
             task.name.clone(),
         );
         let task_color = self.output_handler.task_prefix_color(task);
-        Self::insert_env_excluded_from_nested_mise_diff(
+        Self::insert_env_excluded_from_nested_pakro_diff(
             &mut env,
-            &mut nested_mise_diff_exclude_keys,
-            "MISE_TASK_COLOR",
+            &mut nested_pakro_diff_exclude_keys,
+            "PAKRO_TASK_COLOR",
             task_color,
         );
         let task_file = task
             .file_path(config)
             .await?
             .unwrap_or(task.config_source.clone());
-        Self::insert_env_excluded_from_nested_mise_diff(
+        Self::insert_env_excluded_from_nested_pakro_diff(
             &mut env,
-            &mut nested_mise_diff_exclude_keys,
-            "MISE_TASK_FILE",
+            &mut nested_pakro_diff_exclude_keys,
+            "PAKRO_TASK_FILE",
             task_env_path(&task_file),
         );
         if let Some(dir) = task_file.parent() {
-            Self::insert_env_excluded_from_nested_mise_diff(
+            Self::insert_env_excluded_from_nested_pakro_diff(
                 &mut env,
-                &mut nested_mise_diff_exclude_keys,
-                "MISE_TASK_DIR",
+                &mut nested_pakro_diff_exclude_keys,
+                "PAKRO_TASK_DIR",
                 task_env_path(dir),
             );
         }
         if let Some(config_root) = &task.config_root {
-            Self::insert_env_excluded_from_nested_mise_diff(
+            Self::insert_env_excluded_from_nested_pakro_diff(
                 &mut env,
-                &mut nested_mise_diff_exclude_keys,
-                "MISE_CONFIG_ROOT",
+                &mut nested_pakro_diff_exclude_keys,
+                "PAKRO_CONFIG_ROOT",
                 task_env_path(config_root),
             );
         }
         if let Some(task_tool_args) = task_tool_args_env {
-            Self::insert_env_excluded_from_nested_mise_diff(
+            Self::insert_env_excluded_from_nested_pakro_diff(
                 &mut env,
-                &mut nested_mise_diff_exclude_keys,
+                &mut nested_pakro_diff_exclude_keys,
                 crate::shims::TASK_TOOL_ARGS_ENV,
                 task_tool_args,
             );
@@ -2367,19 +2367,19 @@ impl TaskExecutor {
         }
         if Settings::get().env_cache {
             let key = CachedEnv::ensure_encryption_key();
-            Self::insert_env_excluded_from_nested_mise_diff(
+            Self::insert_env_excluded_from_nested_pakro_diff(
                 &mut env,
-                &mut nested_mise_diff_exclude_keys,
-                "__MISE_ENV_CACHE_KEY",
+                &mut nested_pakro_diff_exclude_keys,
+                "__PAKRO_ENV_CACHE_KEY",
                 key,
             );
         }
 
-        let env_for_diff = self.env_for_nested_mise_diff(&env, &nested_mise_diff_exclude_keys);
+        let env_for_diff = self.env_for_nested_pakro_diff(&env, &nested_pakro_diff_exclude_keys);
         if let Ok(serialized) =
             EnvDiff::from_final_env(&crate::env::PRISTINE_ENV, &env_for_diff).serialize()
         {
-            env.insert("__MISE_DIFF".into(), serialized);
+            env.insert("__PAKRO_DIFF".into(), serialized);
         }
 
         Ok(PreparedTaskContext {
@@ -2491,7 +2491,7 @@ impl TaskExecutor {
 /// `.vbs` names `cscript`, the *console* script host, instead of letting `cmd /c` resolve
 /// the file association: the registered handler is whichever host the machine has, and
 /// `wscript` — the Windows-based host — writes its output to message boxes rather than the
-/// pipes mise reads. Naming the console host keeps task output capturable, the same reason
+/// pipes pakro reads. Naming the console host keeps task output capturable, the same reason
 /// `.ps1` names `pwsh -File`. `//nologo` keeps the banner out of the task's output.
 ///
 /// That arm is `cfg(windows)`-only because `cscript` does not exist elsewhere, and this
@@ -2510,7 +2510,7 @@ fn shell_from_extension(path: &Path) -> Option<Vec<String>> {
     }
 }
 
-/// True when mise hands the file straight to the OS rather than starting a shell for it,
+/// True when pakro hands the file straight to the OS rather than starting a shell for it,
 /// in which case no shell resolution happens and nothing below applies.
 fn runs_without_a_shell(file: &Path) -> bool {
     !Settings::get().use_file_shell_for_executable_tasks && can_execute_directly(file)
@@ -2536,7 +2536,7 @@ fn file_task_shell(file: &Path, task: &Task) -> Result<Vec<String>> {
 /// The Linux and macOS builds have no such rule — measured on the same pwsh 7.6.5, an
 /// extensionless script runs there and is refused here — so `#!/usr/bin/env pwsh`, the
 /// shape the file-task docs show, worked everywhere except Windows. Windows has no kernel
-/// shebang either, so mise is the one starting the interpreter and the one that has to
+/// shebang either, so pakro is the one starting the interpreter and the one that has to
 /// hand it a name it will accept.
 ///
 /// The copy lives exactly as long as the returned [`tempfile::TempPath`], which deletes it
@@ -2551,7 +2551,7 @@ fn ps1_shim(file: &Path, shell: &[String]) -> Result<Option<tempfile::TempPath>>
         if needs_ps1_shim(file, shell) {
             let stem = file.file_stem().and_then(|s| s.to_str()).unwrap_or("task");
             let path = tempfile::Builder::new()
-                .prefix(&format!("mise-task-{stem}-"))
+                .prefix(&format!("pakro-task-{stem}-"))
                 .suffix(".ps1")
                 .tempfile()?
                 .into_temp_path();
@@ -2641,8 +2641,8 @@ mod tests {
         #[cfg(windows)]
         {
             assert_eq!(
-                task_env_path(Path::new(r"C:\Users\me\.config/mise/config.toml")),
-                r"C:\Users\me\.config\mise\config.toml"
+                task_env_path(Path::new(r"C:\Users\me\.config/pakro/config.toml")),
+                r"C:\Users\me\.config\pakro\config.toml"
             );
             assert_eq!(
                 task_env_path(Path::new(r"\\server\share/tasks/build.ps1")),
@@ -2718,7 +2718,7 @@ mod tests {
         // `shell_from_extension`, or the task silently falls through to
         // `windows_default_file_shell_args` — and for .vbs that means whichever script host
         // the machine's file association points at, where `wscript` writes to message boxes
-        // instead of the pipes mise reads.
+        // instead of the pipes pakro reads.
         //
         // Derived from the setting rather than from a hand-kept list of interpreter-only
         // extensions, so that adding one to the shipped default without a mapping here is caught

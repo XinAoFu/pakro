@@ -63,7 +63,7 @@ impl DotfilesOrigin {
             None => {
                 match crate::system::history::config::origin()? {
                     Some((path, origin)) => {
-                        miseprintln!(
+                        pakroprintln!(
                             "{} (branch {}) declared in {}; mode {}",
                             origin.url,
                             origin.branch,
@@ -71,8 +71,8 @@ impl DotfilesOrigin {
                             SyncMode::current()?.as_str()
                         );
                     }
-                    None => miseprintln!(
-                        "no setup repository is connected; `mise dot origin set <url>` connects one"
+                    None => pakroprintln!(
+                        "no setup repository is connected; `pakro dot origin set <url>` connects one"
                     ),
                 }
                 Ok(())
@@ -128,9 +128,9 @@ impl DotfilesOriginSet {
 static AFTER_LONG_HELP: &str = color_print::cstr!(
     r#"<bold><underline>Examples:</underline></bold>
 
-    $ <bold>mise dot origin set https://github.com/you/setup.git</bold>
-    $ <bold>mise dot origin set git@github.com:you/setup.git --sync manual</bold>
-    $ <bold>mise dot origin</bold>              # what is connected
-    $ <bold>mise dot origin --remove</bold>
+    $ <bold>pakro dot origin set https://github.com/you/setup.git</bold>
+    $ <bold>pakro dot origin set git@github.com:you/setup.git --sync manual</bold>
+    $ <bold>pakro dot origin</bold>              # what is connected
+    $ <bold>pakro dot origin --remove</bold>
 "#
 );

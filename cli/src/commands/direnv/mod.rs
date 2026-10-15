@@ -8,7 +8,7 @@ mod activate;
 mod envrc;
 mod exec;
 
-/// Output direnv function to use mise inside direnv
+/// Output direnv function to use pakro inside direnv
 ///
 /// See https://mise.jdx.dev/direnv.html for more information
 ///

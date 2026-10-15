@@ -39,9 +39,9 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// Release builds for Linux GNU set `MISE_NO_PIE=1` (see packaging/scripts/build-tarball.sh)
-/// to link the `mise` executable at a fixed address. As a position-independent
-/// executable, mise makes the dynamic loader patch about 300k pointers on every
+/// Release builds for Linux GNU set `PAKRO_NO_PIE=1` (see packaging/scripts/build-tarball.sh)
+/// to link the `pakro` executable at a fixed address. As a position-independent
+/// executable, pakro makes the dynamic loader patch about 300k pointers on every
 /// launch, which copies roughly 2k pages and dominates the startup of short
 /// commands such as `hook-env`. Linked non-PIE, those pointers are final in the
 /// file. Dependencies are still compiled position-independent; the flag reaches
@@ -50,10 +50,10 @@ fn main() -> Result<()> {
 /// the alternative, `-C relocation-model=static`, is not something a build
 /// script can set.
 fn link_without_pie() {
-    println!("cargo:rerun-if-env-changed=MISE_NO_PIE");
+    println!("cargo:rerun-if-env-changed=PAKRO_NO_PIE");
     let linux_gnu = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux")
         && env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("gnu");
-    if linux_gnu && env::var("MISE_NO_PIE").as_deref() == Ok("1") {
+    if linux_gnu && env::var("PAKRO_NO_PIE").as_deref() == Ok("1") {
         println!("cargo:rustc-link-arg-bins=-no-pie");
     }
 }
@@ -65,13 +65,13 @@ fn build_notification_helper() -> Result<()> {
     println!("cargo:rerun-if-changed={source}");
     println!("cargo:rerun-if-changed={info}");
     println!("cargo:rerun-if-changed={icon}");
-    println!("cargo:rerun-if-env-changed=MISE_NOTIFICATION_SIGN_IDENTITY");
+    println!("cargo:rerun-if-env-changed=PAKRO_NOTIFICATION_SIGN_IDENTITY");
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
         return Ok(());
     }
-    let app = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("mise-notify.app");
+    let app = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("pakro-notify.app");
     let contents = app.join("Contents");
-    let output = contents.join("MacOS/mise-notify");
+    let output = contents.join("MacOS/pakro-notify");
     fs::create_dir_all(contents.join("MacOS"))?;
     fs::create_dir_all(contents.join("Resources"))?;
     let status = cc::Build::new()
@@ -95,7 +95,7 @@ fn build_notification_helper() -> Result<()> {
     }
     // The compiler may place a debug-symbol bundle beside the executable.
     // It is not needed at runtime and must not become part of the app's seal,
-    // because only the runtime bundle is embedded in mise.
+    // because only the runtime bundle is embedded in pakro.
     let debug_symbols = output.with_extension("dSYM");
     if debug_symbols.exists() {
         fs::remove_dir_all(debug_symbols)?;
@@ -108,18 +108,18 @@ fn build_notification_helper() -> Result<()> {
     icns.extend_from_slice(b"ic09");
     icns.extend_from_slice(&u32::try_from(png.len() + 8)?.to_be_bytes());
     icns.extend_from_slice(&png);
-    fs::write(contents.join("Resources/mise.icns"), icns)?;
+    fs::write(contents.join("Resources/pakro.icns"), icns)?;
 
-    let identity = env::var("MISE_NOTIFICATION_SIGN_IDENTITY").unwrap_or_else(|_| "-".into());
+    let identity = env::var("PAKRO_NOTIFICATION_SIGN_IDENTITY").unwrap_or_else(|_| "-".into());
     println!(
-        "cargo:rustc-env=MISE_NOTIFICATION_RELEASE_SIGNED={}",
+        "cargo:rustc-env=PAKRO_NOTIFICATION_RELEASE_SIGNED={}",
         if identity == "-" { "0" } else { "1" }
     );
     let mut codesign = Command::new("/usr/bin/codesign");
     codesign
         .args(["--force", "--sign"])
         .arg(&identity)
-        .args(["--identifier", "dev.jdx.mise.notifications"]);
+        .args(["--identifier", "pakro.notifications"]);
     if identity != "-" {
         codesign.args(["--options", "runtime", "--timestamp"]);
     }

@@ -30,10 +30,10 @@ impl Heads {
                 if bases.is_empty() {
                     bail!(
                         "local and origin histories are unrelated. Neither history was replaced.\n\
-                         To keep local checkpoints, connect an empty repository with `mise dot origin set <url>`. \
-                         Alternatively, use Git to push the local history to a new remote branch, then connect it with `mise dot origin set <url> --branch <name>`.\n\
-                         To discard local checkpoints and adopt a mise setup repository's history, run `mise bootstrap --adopt <url> --replace-history --yes`. \
-                         This requires a repository with mise enrollment metadata."
+                         To keep local checkpoints, connect an empty repository with `pakro dot origin set <url>`. \
+                         Alternatively, use Git to push the local history to a new remote branch, then connect it with `pakro dot origin set <url> --branch <name>`.\n\
+                         To discard local checkpoints and adopt a pakro setup repository's history, run `pakro bootstrap --adopt <url> --replace-history --yes`. \
+                         This requires a repository with pakro enrollment metadata."
                     );
                 }
                 // A criss-cross merge has shared ancestry but no unique base.

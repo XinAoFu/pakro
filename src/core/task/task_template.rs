@@ -1,4 +1,4 @@
-use crate::config::config_file::mise_toml::{EnvList, deserialize_vars};
+use crate::config::config_file::pakro_toml::{EnvList, deserialize_vars};
 use crate::config::config_file::toml::deserialize_arr;
 use crate::task::task_sources::TaskOutputs;
 use crate::task::{
@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use serde::Deserialize;
 
 /// A task template definition that can be extended by tasks via `extends`
-/// Templates are defined in [task_templates.*] sections of mise.toml
+/// Templates are defined in [task_templates.*] sections of pakro.toml
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct TaskTemplate {
     #[serde(default)]
@@ -142,7 +142,7 @@ impl Task {
         // execute and yet shows up wherever the task is described.
         //
         // Either side can supply the `file`: the task's own (every file task, which reaches a
-        // template through `#MISE extends=...` with `run` necessarily empty), or the
+        // template through `#PAKRO extends=...` with `run` necessarily empty), or the
         // template's, which is merged further down and would otherwise arrive *after* its own
         // `run` had already been copied onto a task that had neither.
         let command_is_a_file = self.file.is_some() || template.file.is_some();
@@ -347,7 +347,7 @@ mod tests {
     #[test]
     fn test_merge_template_run_not_inherited_by_file_task() {
         let mut task = Task {
-            file: Some("mise-tasks/build".into()),
+            file: Some("pakro-tasks/build".into()),
             ..Default::default()
         };
         let template = TaskTemplate {
@@ -370,7 +370,7 @@ mod tests {
     fn test_merge_template_run_not_inherited_when_template_has_a_file() {
         let mut task = Task::default();
         let template = TaskTemplate {
-            file: Some("mise-tasks/build".to_string()),
+            file: Some("pakro-tasks/build".to_string()),
             run: vec![RunEntry::Script("template command".to_string())],
             run_windows: vec![RunEntry::Script("template command".to_string())],
             ..Default::default()
@@ -380,7 +380,7 @@ mod tests {
 
         // The template's `file` is the command it contributes; its `run` would only ever be
         // dead weight on the task, since `file` wins in the executor.
-        assert_eq!(task.file, Some("mise-tasks/build".into()));
+        assert_eq!(task.file, Some("pakro-tasks/build".into()));
         assert!(task.run.is_empty());
         assert!(task.run_windows.is_empty());
     }

@@ -2,7 +2,7 @@
 set -euo pipefail
 # https://github.com/jdx/mise/discussions/6391
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.clean]
 run = 'echo "Cleaning..."'
 
@@ -36,7 +36,7 @@ depends = ["clean", "check"] # this variant currently hangs
 EOF
 
 # Test that task failure with dependencies does not hang
-timeout 5s mise run --jobs 1 ci:check 2>&1 && exit_code=0 || exit_code=$?
+timeout 5s pakro run --jobs 1 ci:check 2>&1 && exit_code=0 || exit_code=$?
 
 # Check if it was a timeout (exit code 124)
 if [ "$exit_code" -eq 124 ]; then

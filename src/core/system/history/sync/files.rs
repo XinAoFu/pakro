@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::{layout, reconcile::Object};
 use crate::{agecrypt, system::history::shadow::HistoryRepo};
 
-const MAGIC: &[u8] = b"mise-encrypted-file-v1\n";
+const MAGIC: &[u8] = b"pakro-encrypted-file-v1\n";
 
 #[derive(Clone)]
 struct VerifiedAncestry {
@@ -129,7 +129,7 @@ fn audit_history_cached(
                 });
             if !valid {
                 bail!(
-                    "cannot publish: encrypted path {} has an unencrypted or invalid version in commit {commit}; encrypting the latest version does not erase earlier plaintext. Remove that history before pushing, or use `mise dot sync --allow-plaintext-history` to publish it anyway",
+                    "cannot publish: encrypted path {} has an unencrypted or invalid version in commit {commit}; encrypting the latest version does not erase earlier plaintext. Remove that history before pushing, or use `pakro dot sync --allow-plaintext-history` to publish it anyway",
                     entry.path
                 );
             }
@@ -197,7 +197,7 @@ struct Plaintext {
 }
 
 fn control_file(path: &str) -> bool {
-    if path.starts_with(".mise-history/") {
+    if path.starts_with(".pakro-history/") {
         return true;
     }
     let Some((root, path)) = path.split_once('/') else {
@@ -209,7 +209,7 @@ fn control_file(path: &str) -> bool {
     (path.starts_with("conf.d/") && path.ends_with(".toml"))
         || (!path.contains('/')
             && path.ends_with(".toml")
-            && (path.starts_with("config.") || path.starts_with("mise.")))
+            && (path.starts_with("config.") || path.starts_with("pakro.")))
 }
 
 fn envelope(repo: &HistoryRepo, object: &Object, limit: u64) -> Result<Option<Envelope>> {
@@ -262,7 +262,7 @@ pub(crate) fn decrypt(
     }
     let bytes = agecrypt::decrypt_sync(&outer.ciphertext.0, interactive).wrap_err_with(|| {
         format!(
-            "cannot unlock {path}; run mise dot pull interactively with a matching age identity"
+            "cannot unlock {path}; run pakro dot pull interactively with a matching age identity"
         )
     })?;
     let inner: Plaintext =
@@ -515,7 +515,7 @@ mod tests {
         let repo = HistoryRepo::open_or_init_in(tmp.path()).unwrap().unwrap();
         let key = age::x25519::Identity::generate();
         let mut environment = crate::test::EnvVarGuard::new();
-        environment.set("MISE_AGE_KEY", key.to_string().expose_secret());
+        environment.set("PAKRO_AGE_KEY", key.to_string().expose_secret());
         let recipients: Vec<Box<dyn age::Recipient + Send>> = vec![Box::new(key.to_public())];
         for mode in ["100644", "100755", "120000"] {
             let object = (
@@ -533,7 +533,7 @@ mod tests {
             );
             assert!(repo.object_type(&object.1).unwrap().is_none());
             assert!(
-                repo.list_refs("refs/mise-decrypted-files/")
+                repo.list_refs("refs/pakro-decrypted-files/")
                     .unwrap()
                     .is_empty()
             );

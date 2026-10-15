@@ -2,9 +2,9 @@
 
 set -euo pipefail
 
-unset MISE_CARGO_HOME MISE_RUSTUP_HOME
-export MISE_OFFLINE=1
-export MISE_ENV_CACHE=1
+unset PAKRO_CARGO_HOME PAKRO_RUSTUP_HOME
+export PAKRO_OFFLINE=1
+export PAKRO_ENV_CACHE=1
 
 CONFIG_CARGO_HOME="$PWD/config-cargo"
 CONFIG_RUSTUP_HOME="$PWD/config-rustup"
@@ -56,10 +56,10 @@ exec cargo "$@"
 EOF
 chmod +x "$PWD/mbx/bin/mbx"
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [env]
-MISE_CARGO_HOME = "$CONFIG_CARGO_HOME"
-MISE_RUSTUP_HOME = "$CONFIG_RUSTUP_HOME"
+PAKRO_CARGO_HOME = "$CONFIG_CARGO_HOME"
+PAKRO_RUSTUP_HOME = "$CONFIG_RUSTUP_HOME"
 [tools]
 rust = { version = "1.81.0", components = ["rustfmt"] }
 [tasks.check]
@@ -69,91 +69,91 @@ tools = { rust = { version = "1.81.0", mr_boxington = false } }
 run = "cargo check"
 EOF
 
-mise use --tool-option mr_boxington=true rust@1.81.0 "mr-boxington@path:$PWD/mbx"
-assert "mise config get tools.rust.mr_boxington" "true"
-assert_contains "cat mise.toml" 'mr_boxington = true'
-assert_contains "cat mise.toml" 'components = ["rustfmt"]'
-assert "mise exec -- cargo check" "mbx:1
+pakro use --tool-option mr_boxington=true rust@1.81.0 "mr-boxington@path:$PWD/mbx"
+assert "pakro config get tools.rust.mr_boxington" "true"
+assert_contains "cat pakro.toml" 'mr_boxington = true'
+assert_contains "cat pakro.toml" 'components = ["rustfmt"]'
+assert "pakro exec -- cargo check" "mbx:1
 cargo:1.81.0:check"
-assert "mise run check 2>/dev/null" "mbx:1
+assert "pakro run check 2>/dev/null" "mbx:1
 cargo:1.81.0:check"
-assert_contains "mise hook-env -s bash --force" "$MISE_DATA_DIR/command-wrappers/bin"
-assert "'$MISE_DATA_DIR/shims/cargo' check" "mbx:1
+assert_contains "pakro hook-env -s bash --force" "$PAKRO_DATA_DIR/command-wrappers/bin"
+assert "'$PAKRO_DATA_DIR/shims/cargo' check" "mbx:1
 cargo:1.81.0:check"
 (
-  eval "$(mise activate bash --shims)"
+  eval "$(pakro activate bash --shims)"
   assert "cargo check" "mbx:1
 cargo:1.81.0:check"
 )
 
-assert "mise exec 'rust[mr_boxington=false]@1.81.0' -- cargo check" "cargo:1.81.0:check"
-assert "mise run unwrapped 2>/dev/null" "cargo:1.81.0:check"
+assert "pakro exec 'rust[mr_boxington=false]@1.81.0' -- cargo check" "cargo:1.81.0:check"
+assert "pakro run unwrapped 2>/dev/null" "cargo:1.81.0:check"
 
 # Safe mode ignores project-provided wrapping.
-assert "MISE_CARGO_HOME='$CONFIG_CARGO_HOME' MISE_RUSTUP_HOME='$CONFIG_RUSTUP_HOME' MISE_SAFE=1 mise exec -- cargo check" "cargo:1.81.0:check"
+assert "PAKRO_CARGO_HOME='$CONFIG_CARGO_HOME' PAKRO_RUSTUP_HOME='$CONFIG_RUSTUP_HOME' PAKRO_SAFE=1 pakro exec -- cargo check" "cargo:1.81.0:check"
 
 # Project overrides turn off a global/parent default.
 mkdir child
 (
   cd child
-  printf '[tools]\nrust = { version = "1.81.0", mr_boxington = false }\n' >mise.toml
-  assert "mise exec -- cargo check" "cargo:1.81.0:check"
-  assert "'$MISE_DATA_DIR/shims/cargo' check" "cargo:1.81.0:check"
-  printf '[tools]\nrust = "1.81.0"\n' >mise.toml
-  assert "mise exec -- cargo check" "cargo:1.81.0:check"
+  printf '[tools]\nrust = { version = "1.81.0", mr_boxington = false }\n' >pakro.toml
+  assert "pakro exec -- cargo check" "cargo:1.81.0:check"
+  assert "'$PAKRO_DATA_DIR/shims/cargo' check" "cargo:1.81.0:check"
+  printf '[tools]\nrust = "1.81.0"\n' >pakro.toml
+  assert "pakro exec -- cargo check" "cargo:1.81.0:check"
 )
 
 # Task and exec opt-ins work without a previously generated wrapper.
-mise use --tool-option mr_boxington=false rust@1.81.0
-mise reshim
-assert_fail "test -e '$MISE_DATA_DIR/command-wrappers/bin/cargo'"
-cat >>mise.toml <<'EOF'
+pakro use --tool-option mr_boxington=false rust@1.81.0
+pakro reshim
+assert_fail "test -e '$PAKRO_DATA_DIR/command-wrappers/bin/cargo'"
+cat >>pakro.toml <<'EOF'
 [tasks.wrapped]
 tools = { rust = { version = "1.81.0", mr_boxington = true } }
 run = "cargo check"
 EOF
-assert "mise run wrapped 2>/dev/null" "mbx:1
+assert "pakro run wrapped 2>/dev/null" "mbx:1
 cargo:1.81.0:check"
-assert "mise run check 2>/dev/null" "cargo:1.81.0:check"
-# A Windows exe- or file-mode shim runs `mise x -- cargo` with __MISE_SHIM_PATH
+assert "pakro run check 2>/dev/null" "cargo:1.81.0:check"
+# A Windows exe- or file-mode shim runs `pakro x -- cargo` with __PAKRO_SHIM_PATH
 # set, and must still see the task's tools to find its wrapper (#13671).
-cat >>mise.toml <<'EOF'
+cat >>pakro.toml <<'EOF'
 [tasks.wrapped-native]
 tools = { rust = { version = "1.81.0", mr_boxington = true } }
-run = '__MISE_SHIM_PATH="$MISE_DATA_DIR/command-wrappers/bin/cargo" mise x -- cargo check'
+run = '__PAKRO_SHIM_PATH="$PAKRO_DATA_DIR/command-wrappers/bin/cargo" pakro x -- cargo check'
 EOF
-assert "mise run wrapped-native 2>/dev/null" "mbx:1
+assert "pakro run wrapped-native 2>/dev/null" "mbx:1
 cargo:1.81.0:check"
-assert "mise run wrapped 2>/dev/null" "mbx:1
+assert "pakro run wrapped 2>/dev/null" "mbx:1
 cargo:1.81.0:check"
-mise reshim
-assert "mise exec 'rust[mr_boxington=true]@1.81.0' -- cargo check" "mbx:1
+pakro reshim
+assert "pakro exec 'rust[mr_boxington=true]@1.81.0' -- cargo check" "mbx:1
 cargo:1.81.0:check"
 
 # Explicit wrappers take precedence.
-cat >>mise.toml <<'EOF'
+cat >>pakro.toml <<'EOF'
 [wrappers.cargo]
 command = "echo"
 args = ["custom"]
 EOF
-assert "mise exec -- cargo check" "custom check"
+assert "pakro exec -- cargo check" "custom check"
 
 # Missing dependencies produce actionable errors, not accidental PATH fallbacks.
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [env]
-MISE_CARGO_HOME = "$CONFIG_CARGO_HOME"
-MISE_RUSTUP_HOME = "$CONFIG_RUSTUP_HOME"
+PAKRO_CARGO_HOME = "$CONFIG_CARGO_HOME"
+PAKRO_RUSTUP_HOME = "$CONFIG_RUSTUP_HOME"
 [tools]
 rust = { version = "1.81.0", mr_boxington = true }
 EOF
-assert_fail_contains "mise exec -- cargo check 2>&1" "requires mr-boxington in [tools]"
-cat >>mise.toml <<'EOF'
+assert_fail_contains "pakro exec -- cargo check 2>&1" "requires mr-boxington in [tools]"
+cat >>pakro.toml <<'EOF'
 [wrappers.cargo]
 command = "echo"
 args = ["custom"]
 EOF
-assert "mise exec -- cargo check" "custom check"
+assert "pakro exec -- cargo check" "custom check"
 
-: >mise.toml
-mise reshim
-assert_fail "test -e '$MISE_DATA_DIR/command-wrappers/bin/cargo'"
+: >pakro.toml
+pakro reshim
+assert_fail "test -e '$PAKRO_DATA_DIR/command-wrappers/bin/cargo'"

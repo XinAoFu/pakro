@@ -46,7 +46,7 @@ pub struct InstallStateTool {
     pub installs_path: Option<PathBuf>,
 }
 
-/// Entry in the consolidated manifest file (.mise-installs.toml).
+/// Entry in the consolidated manifest file (.pakro-installs.toml).
 /// Versions are NOT stored here — they come from the filesystem.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ManifestTool {
@@ -88,13 +88,13 @@ fn shared_install_dirs_for_scan() -> Vec<PathBuf> {
 }
 
 fn manifest_path() -> PathBuf {
-    dirs::INSTALLS.join(".mise-installs.toml")
+    dirs::INSTALLS.join(".pakro-installs.toml")
 }
 
 fn tool_manifest_path(installs_dir: &Path, short: &str) -> PathBuf {
     installs_dir
         .join(crate::backend::tool_directory_name(short))
-        .join(".mise.backend.toml")
+        .join(".pakro.backend.toml")
 }
 
 /// Read the consolidated manifest file. Returns empty map if it doesn't exist.
@@ -155,12 +155,12 @@ fn write_tool_manifest_to(path: &Path, tool: &ManifestTool) -> Result<()> {
     Ok(())
 }
 
-/// Read a legacy `.mise.backend` file for migration purposes.
+/// Read a legacy `.pakro.backend` file for migration purposes.
 ///
 /// Returns `Some((short, full, explicit_backend))` if legacy metadata is found.
 fn read_legacy_backend_meta(short: &str) -> Option<(String, Option<String>, bool)> {
-    // Try .mise.backend.json first (oldest format)
-    let json_path = dirs::INSTALLS.join(short).join(".mise.backend.json");
+    // Try .pakro.backend.json first (oldest format)
+    let json_path = dirs::INSTALLS.join(short).join(".pakro.backend.json");
     if json_path.exists()
         && let std::result::Result::Ok(f) = file::open(&json_path)
         && let std::result::Result::Ok(json) = serde_json::from_reader::<_, serde_json::Value>(f)
@@ -174,10 +174,10 @@ fn read_legacy_backend_meta(short: &str) -> Option<(String, Option<String>, bool
         return Some((s, full, true));
     }
 
-    // Try .mise.backend (text format)
+    // Try .pakro.backend (text format)
     let path = dirs::INSTALLS
         .join(crate::backend::tool_directory_name(short))
-        .join(".mise.backend");
+        .join(".pakro.backend");
     if !path.exists() {
         return None;
     }
@@ -291,13 +291,13 @@ fn scan_versions(dir: &Path, tool_dir_name: &str) -> Result<Vec<String>> {
                 continue;
             }
             // A compatibility link whose installation is gone (pruned, or removed
-            // by hand) is stale, not a broken `mise link`.
+            // by hand) is stale, not a broken `pakro link`.
             if crate::install_layout::resolver::is_compat_link_shape(&path) {
                 continue;
             }
-            // Keeping the links that lead nowhere. `mise link` leaves one behind as soon as its
+            // Keeping the links that lead nowhere. `pakro link` leaves one behind as soon as its
             // target is moved or deleted, and dropping it here is what made the version invisible
-            // to `mise ls` and unreachable to `mise uninstall` — occupying a name nothing would
+            // to `pakro ls` and unreachable to `pakro uninstall` — occupying a name nothing would
             // admit to. It is listed, not treated as installed: `is_version_installed` still
             // resolves the path and still says no.
             if !path.is_dir() && path.exists() {
@@ -325,7 +325,7 @@ fn scan_versions_best_effort(dir: &Path, tool_dir_name: &str) -> Vec<String> {
 }
 
 /// Identity and versions for one primary install dir: the sidecar wins, then
-/// the consolidated manifest, then legacy `.mise.backend` metadata. Returns
+/// the consolidated manifest, then legacy `.pakro.backend` metadata. Returns
 /// `None` when the dir holds no complete versions.
 ///
 /// Read-only: when a legacy format was parsed, the manifest entry the caller
@@ -343,7 +343,7 @@ fn scan_tool_dir(
     if !dir.is_dir() {
         return Ok(None);
     }
-    let tool_manifest = read_tool_manifest_from(&dir.join(".mise.backend.toml"));
+    let tool_manifest = read_tool_manifest_from(&dir.join(".pakro.backend.toml"));
     let manifest_tool = tool_manifest.as_ref().or_else(|| manifest.get(dir_name));
     let legacy_meta = if manifest_tool.is_none() {
         read_legacy_backend_meta(dir_name)
@@ -416,7 +416,7 @@ fn merge_shared_tool(
     dir_name: &str,
     shared_manifest: &Manifest,
 ) {
-    let tool_manifest = read_tool_manifest_from(&dir.join(".mise.backend.toml"));
+    let tool_manifest = read_tool_manifest_from(&dir.join(".pakro.backend.toml"));
     let manifest_tool = tool_manifest
         .as_ref()
         .or_else(|| shared_manifest.get(dir_name));
@@ -487,7 +487,7 @@ fn full_scan_tools() -> MutexResult<InstallStateTools> {
         let mut tools = BTreeMap::new();
         crate::install_layout::resolver::adopt_unrecorded_installs(&subdirs);
         for dir_name in subdirs {
-            // `.mise` holds the install catalog, and an identity-layout installation
+            // `.pakro` holds the install catalog, and an identity-layout installation
             // is not a tool directory.
             if crate::install_layout::resolver::is_reserved_dir(&dirs::INSTALLS, &dir_name) {
                 continue;
@@ -562,7 +562,7 @@ fn shared_manifest(shared_dir: &Path) -> Arc<Manifest> {
         .expect("SHARED_MANIFEST_MEMO lock failed");
     memo.get_or_insert_with(Default::default)
         .entry(shared_dir.to_path_buf())
-        .or_insert_with(|| Arc::new(read_manifest_from(&shared_dir.join(".mise-installs.toml"))))
+        .or_insert_with(|| Arc::new(read_manifest_from(&shared_dir.join(".pakro-installs.toml"))))
         .clone()
 }
 
@@ -594,11 +594,11 @@ fn root_manifest() -> Arc<Manifest> {
 /// Install state for one tool, loaded without scanning any other tool's
 /// install dir.
 ///
-/// mise creates install dirs as the kebab-cased short name, so that dir is
+/// pakro creates install dirs as the kebab-cased short name, so that dir is
 /// probed directly; the consolidated manifest (one memoized file read) covers
 /// dirs recorded under a different name. A dir whose only identity is a
 /// sidecar under a name that doesn't kebab-match its short is not found here —
-/// that requires enumeration, which mise itself never produces, and full-scan
+/// that requires enumeration, which pakro itself never produces, and full-scan
 /// callers still see such dirs.
 pub(crate) fn get_tool(short: &str) -> Option<InstallStateTool> {
     // A completed full scan is authoritative (it includes plugin identities and
@@ -801,7 +801,7 @@ pub(crate) fn get_tool_full(short: &str) -> Option<String> {
 }
 
 pub fn get_plugin_type(short: &str) -> Option<PluginType> {
-    let plugins = if mise_util::testing::in_tests() {
+    let plugins = if pakro_util::testing::in_tests() {
         try_list_plugins()?
     } else {
         list_plugins()
@@ -1051,7 +1051,7 @@ fn persistent_opts(ba: &BackendArg) -> BTreeMap<String, toml::Value> {
 /// These manifests are written under the data directory, which gets backed up,
 /// synced between machines and left group-readable, so a live credential must
 /// not reach them. It can: a registry URL authenticates as basic-auth userinfo
-/// (mise's gem `source` option, for one), and templating the token in from the
+/// (pakro's gem `source` option, for one), and templating the token in from the
 /// environment does not help, because rendering happens before the value is
 /// stored.
 ///
@@ -1105,7 +1105,7 @@ pub fn lock_tool_version(ba: &BackendArg, v: &str) -> Result<fslock::LockFile> {
 /// waiting, so an install can report the pause instead of looking hung.
 /// `on_wait` receives the PID of the process holding the lock when known:
 /// that process is usually a shim, whose command line looks like the tool
-/// it is installing rather than mise.
+/// it is installing rather than pakro.
 pub(crate) fn lock_tool_version_with_notice(
     ba: &BackendArg,
     v: &str,
@@ -1149,7 +1149,7 @@ pub(crate) fn clear_incomplete_marker_best_effort(ba: &BackendArg, v: &str) {
 /// Path to the checksum file for a specific tool version.
 /// Used to track changes in rolling releases (like "nightly").
 fn checksum_file_path(install_path: &Path) -> PathBuf {
-    install_path.join(".mise.checksum")
+    install_path.join(".pakro.checksum")
 }
 
 /// Read the stored checksum for a tool version
@@ -1220,7 +1220,7 @@ mod tests {
     #[test]
     fn empty_tool_manifest_is_ignored() {
         let tempdir = tempfile::tempdir().unwrap();
-        let path = tempdir.path().join(".mise.backend.toml");
+        let path = tempdir.path().join(".pakro.backend.toml");
         std::fs::write(&path, "").unwrap();
 
         assert!(read_tool_manifest_from(&path).is_none());
@@ -1578,7 +1578,7 @@ explicit_backend = true
     /// Also pins that `DirEntry::file_type()` reports a Windows junction as a symlink, which is
     /// what the scan keys on. `make_symlink` writes a junction there, so if that were not so,
     /// `broken` would be dropped below — and the *live* junction would never have been listed
-    /// either, which is how `mise ls` has been showing linked versions on Windows all along.
+    /// either, which is how `pakro ls` has been showing linked versions on Windows all along.
     #[test]
     fn scan_versions_keeps_links_that_lead_nowhere_but_not_runtime_symlinks() {
         let temp = tempfile::tempdir().unwrap();

@@ -90,9 +90,9 @@ fn print_tree_item<T: TreeItem>(
     indent: &TreeItemIndent,
     level: u32,
 ) -> std::io::Result<()> {
-    miseprint!("{}", prefix)?;
+    pakroprint!("{}", prefix)?;
     item.write_self()?;
-    miseprintln!("");
+    pakroprintln!("");
 
     if level < u32::MAX {
         let children = item.children();
@@ -128,14 +128,14 @@ where
     K: Eq + Hash,
     F: Fn(&T) -> K,
 {
-    miseprint!("{}", prefix)?;
+    pakroprint!("{}", prefix)?;
     item.write_self()?;
 
     if !seen.insert(key(item)) {
-        miseprintln!(" (already shown)");
+        pakroprintln!(" (already shown)");
         return Ok(());
     }
-    miseprintln!("");
+    pakroprintln!("");
 
     if level < u32::MAX {
         let children = item.children();

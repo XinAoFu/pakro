@@ -28,7 +28,7 @@ pub(crate) const DIR_SNAPSHOT_MAX: u64 = 256 * 1024 * 1024;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum JournalEntry {
-    /// Context for someone reading `mise dot history show`.
+    /// Context for someone reading `pakro dot history show`.
     Note { message: String },
     /// Written before `path` is mutated on behalf of `item` (a dotfile
     /// target, an edit key) in bootstrap part `part`.
@@ -41,7 +41,7 @@ pub enum JournalEntry {
     /// The mutation recorded at index `seq` finished; `after` is what the
     /// path looks like now.
     Committed { seq: u32, after: PathState },
-    /// Written by a newer mise than this one.
+    /// Written by a newer pakro than this one.
     #[serde(other)]
     Unknown,
 }
@@ -62,7 +62,7 @@ impl JournalEntry {
                 prior.describe()
             ),
             Self::Committed { seq, after } => format!("#{seq} now {}", after.describe()),
-            Self::Unknown => "recorded by a newer mise".to_string(),
+            Self::Unknown => "recorded by a newer pakro".to_string(),
         }
     }
 }

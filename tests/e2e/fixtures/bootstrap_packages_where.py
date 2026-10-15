@@ -18,8 +18,8 @@ class PackagesWhere(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Require the harness binary and identify hosts supported by local Homebrew lookup."""
-        cls.binary = shutil.which("mise")
-        assert cls.binary is not None, "the e2e harness must provide mise"
+        cls.binary = shutil.which("pakro")
+        assert cls.binary is not None, "the e2e harness must provide pakro"
         cls.supported = (platform.system(), platform.machine()) in {
             ("Darwin", "arm64"),
             ("Linux", "x86_64"),
@@ -36,25 +36,25 @@ class PackagesWhere(unittest.TestCase):
         self.env = {
             key: value
             for key, value in os.environ.items()
-            if not key.startswith(("MISE_", "GITHUB_", "GH_", "CI", "GIT_"))
+            if not key.startswith(("PAKRO_", "GITHUB_", "GH_", "CI", "GIT_"))
         }
         self.env.update({
             "HOME": str(self.base / "home"),
-            "MISE_CONFIG_DIR": str(self.base / "config"),
-            "MISE_GLOBAL_CONFIG_FILE": str(self.base / "config/config.toml"),
-            "MISE_DATA_DIR": str(self.base / "data"),
-            "MISE_CACHE_DIR": str(self.base / "cache"),
-            "MISE_STATE_DIR": str(self.base / "state"),
-            "MISE_SYSTEM_BREW_PREFIX": str(self.prefix),
-            "MISE_AUTO_UPDATE": "1",
-            "MISE_AUTO_UPDATE_CHECK_DURATION": "0s",
-            "MISE_CACHE_PRUNE_AGE": "0s",
-            "MISE_CI": "0",
-            "MISE_OFFLINE": "0",
-            "MISE_PREFER_OFFLINE": "0",
-            "MISE_COLOR": "0",
-            "MISE_FRIENDLY_ERROR": "1",
-            "MISE_TRUSTED_CONFIG_PATHS": str(self.base),
+            "PAKRO_CONFIG_DIR": str(self.base / "config"),
+            "PAKRO_GLOBAL_CONFIG_FILE": str(self.base / "config/config.toml"),
+            "PAKRO_DATA_DIR": str(self.base / "data"),
+            "PAKRO_CACHE_DIR": str(self.base / "cache"),
+            "PAKRO_STATE_DIR": str(self.base / "state"),
+            "PAKRO_SYSTEM_BREW_PREFIX": str(self.prefix),
+            "PAKRO_AUTO_UPDATE": "1",
+            "PAKRO_AUTO_UPDATE_CHECK_DURATION": "0s",
+            "PAKRO_CACHE_PRUNE_AGE": "0s",
+            "PAKRO_CI": "0",
+            "PAKRO_OFFLINE": "0",
+            "PAKRO_PREFER_OFFLINE": "0",
+            "PAKRO_COLOR": "0",
+            "PAKRO_FRIENDLY_ERROR": "1",
+            "PAKRO_TRUSTED_CONFIG_PATHS": str(self.base),
             "HTTP_PROXY": "http://127.0.0.1:1",
             "HTTPS_PROXY": "http://127.0.0.1:1",
             "ALL_PROXY": "http://127.0.0.1:1",
@@ -92,14 +92,14 @@ class PackagesWhere(unittest.TestCase):
 
     def seed_config_sentinels(self):
         """Expose configuration loading through invalid syntax and commands that create marker files."""
-        for scope, path in [("global", "config/config.toml"), ("project", "project/mise.toml")]:
+        for scope, path in [("global", "config/config.toml"), ("project", "project/pakro.toml")]:
             marker = self.base / "home" / (scope + "-settings-ran")
             expression = '{{ exec(command="touch ' + str(marker) + '") }}'
             self.write(path, "[settings.age]\nkey_file = '" + expression + "'\n")
         marker = self.base / "home/config-ran"
-        config = self.base / "project/mise.toml"
+        config = self.base / "project/pakro.toml"
         config.write_text(config.read_text() + "\n[env]\nQUERY_SENTINEL = '{{ exec(command=\"touch " + str(marker) + "\") }}'\n")
-        self.write("project/.miserc.toml", "invalid-miserc-sentinel = [\n")
+        self.write("project/.pakrorc.toml", "invalid-pakrorc-sentinel = [\n")
 
     def keg(self, name="widget", version="active", target=None):
         """Create a formula rack and active opt link without Homebrew or installation receipts."""
@@ -119,7 +119,7 @@ class PackagesWhere(unittest.TestCase):
             result[str(path.relative_to(self.base))] = (stat.S_IFMT(metadata.st_mode), metadata.st_mtime_ns, content)
         return result
 
-    def run_mise(self, args, extra_env=None):
+    def run_pakro(self, args, extra_env=None):
         """Separate stdout from terminal diagnostics and require the query to preserve fixture state."""
         before = self.snapshot()
         env = self.env | (extra_env or {})
@@ -159,7 +159,7 @@ class PackagesWhere(unittest.TestCase):
         """Require one exact opt-path line and return the path for subsequent executable checks."""
         if args is None:
             args = ["bootstrap", "packages", "where", "brew:widget"]
-        result, stderr = self.run_mise(args, extra_env)
+        result, stderr = self.run_pakro(args, extra_env)
         self.assertEqual(result.returncode, 0, stderr)
         root = self.prefix / "opt/widget" if expected is None else expected
         self.assertEqual(result.stdout, os.fsencode(root) + b"\n")
@@ -167,11 +167,11 @@ class PackagesWhere(unittest.TestCase):
 
     def failure(self, args, diagnostic, extra_env=None):
         """Require empty stdout, failure status, and the query diagnostic instead of configuration errors."""
-        result, stderr = self.run_mise(args, extra_env)
+        result, stderr = self.run_pakro(args, extra_env)
         self.assertNotEqual(result.returncode, 0, stderr)
         self.assertEqual(result.stdout, b"", stderr)
         self.assertIn(diagnostic.lower(), stderr.lower())
-        self.assertNotIn("invalid-miserc-sentinel", stderr)
+        self.assertNotIn("invalid-pakrorc-sentinel", stderr)
         self.assertNotIn("failed to render settings", stderr)
 
     def require_supported(self):
@@ -239,7 +239,7 @@ class PackagesWhere(unittest.TestCase):
         """Resolve relative Homebrew prefixes from the directory selected by the CLI."""
         self.require_supported()
         self.keg()
-        self.success(["--cd", str(self.base), "bootstrap", "packages", "where", "brew:widget"], {"MISE_SYSTEM_BREW_PREFIX": "prefix with spaces"})
+        self.success(["--cd", str(self.base), "bootstrap", "packages", "where", "brew:widget"], {"PAKRO_SYSTEM_BREW_PREFIX": "prefix with spaces"})
 
     def test_symlinked_prefix_preserves_its_spelling(self):
         """Expose the configured prefix alias while accepting its valid canonical installation."""
@@ -247,7 +247,7 @@ class PackagesWhere(unittest.TestCase):
         self.keg()
         alias = self.base / "prefix alias"
         alias.symlink_to(self.prefix)
-        self.success(extra_env={"MISE_SYSTEM_BREW_PREFIX": str(alias)}, expected=alias / "opt/widget")
+        self.success(extra_env={"PAKRO_SYSTEM_BREW_PREFIX": str(alias)}, expected=alias / "opt/widget")
 
     def test_missing_and_invalid_opt_records_fail_without_stdout(self):
         """Exercise the script-facing failure contract for missing records and invalid opt targets."""
@@ -284,12 +284,12 @@ class PackagesWhere(unittest.TestCase):
             (["bootstrap", "packages", "where", "brew:widget", "brew:other"], "brew:other", {}),
             (["bootstrap", "packages", "where", "--unknown-query-flag", "brew:widget"], "--unknown-query-flag", {}),
             (["--cd", str(self.base / "missing-cd"), "bootstrap", "packages", "where", "brew:widget"], "missing-cd", {}),
-            (["bootstrap", "packages", "where", "brew:widget"], "invalid-query-bool", {"MISE_YES": "invalid-query-bool"}),
+            (["bootstrap", "packages", "where", "brew:widget"], "invalid-query-bool", {"PAKRO_YES": "invalid-query-bool"}),
         ]:
             with self.subTest(args=args, extra=extra):
                 self.failure(args, diagnostic, extra)
 
-    def test_nearby_non_queries_retain_normal_miserc_initialization(self):
+    def test_nearby_non_queries_retain_normal_pakrorc_initialization(self):
         """Limit isolation to the exact query path rather than matching words in arbitrary arguments."""
         for args in [
             ["exec", "--", "bootstrap", "packages", "where", "brew:widget"],
@@ -302,14 +302,14 @@ class PackagesWhere(unittest.TestCase):
             with self.subTest(args=args):
                 result = subprocess.run([self.binary, *args], cwd=self.project, env=self.env, capture_output=True, timeout=20)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn(b".miserc.toml", result.stderr)
+                self.assertIn(b".pakrorc.toml", result.stderr)
 
     def test_config_exec_and_settings_file_errors_are_outside_query_inputs(self):
         """Keep lookup independent of settings-file syntax and executable configuration templates."""
         self.require_supported()
         self.keg()
-        (self.project / ".miserc.toml").unlink()
-        for relative in ["config/config.toml", "project/mise.toml"]:
+        (self.project / ".pakrorc.toml").unlink()
+        for relative in ["config/config.toml", "project/pakro.toml"]:
             with self.subTest(relative=relative):
                 path = self.base / relative
                 original = path.read_text()
@@ -318,12 +318,12 @@ class PackagesWhere(unittest.TestCase):
                 path.write_text(original)
         (self.base / "config/config.toml").write_text("")
         marker = self.base / "home/config-ran"
-        (self.project / "mise.toml").write_text("[env]\nQUERY_SENTINEL = '{{ exec(command=\"touch " + str(marker) + "\") }}'\n")
+        (self.project / "pakro.toml").write_text("[env]\nQUERY_SENTINEL = '{{ exec(command=\"touch " + str(marker) + "\") }}'\n")
         self.success()
 
     def test_query_help_uses_informational_output(self):
         """Allow help to print usage successfully through the isolated query startup path."""
-        result, stderr = self.run_mise(["bootstrap", "packages", "where", "--help"])
+        result, stderr = self.run_pakro(["bootstrap", "packages", "where", "--help"])
         self.assertEqual(result.returncode, 0, stderr)
         self.assertIn(b"where", result.stdout)
         self.assertIn(b"PACKAGE", result.stdout)
@@ -351,7 +351,7 @@ class PackagesWhere(unittest.TestCase):
             with self.subTest(suffix=suffix):
                 self.prefix = self.base / suffix
                 self.keg()
-                self.failure(["bootstrap", "packages", "where", "brew:widget"], "UTF-8", {"MISE_SYSTEM_BREW_PREFIX": str(self.prefix)})
+                self.failure(["bootstrap", "packages", "where", "brew:widget"], "UTF-8", {"PAKRO_SYSTEM_BREW_PREFIX": str(self.prefix)})
 
     def test_non_utf8_prefix_environment_preserves_encoding_error(self):
         """Preserve non-UTF-8 environment bytes long enough to report the intended encoding error."""
@@ -362,7 +362,7 @@ class PackagesWhere(unittest.TestCase):
         self.failure(
             ["bootstrap", "packages", "where", "brew:widget"],
             "UTF-8",
-            {"MISE_SYSTEM_BREW_PREFIX": prefix},
+            {"PAKRO_SYSTEM_BREW_PREFIX": prefix},
         )
 
     def test_local_validation_error_does_not_invoke_github_credentials(self):
@@ -373,13 +373,13 @@ class PackagesWhere(unittest.TestCase):
             '#!/bin/sh\ntouch "$HOME/credential-ran"\nprintf "fixture-token\\n"\n',
             executable=True,
         )
-        for token in ["GITHUB_TOKEN", "GH_TOKEN", "MISE_GITHUB_TOKEN", "GITHUB_API_TOKEN"]:
+        for token in ["GITHUB_TOKEN", "GH_TOKEN", "PAKRO_GITHUB_TOKEN", "GITHUB_API_TOKEN"]:
             self.assertNotIn(token, self.env)
         spec = "brew:HTTP status client error (403 Forbidden) for url (https://api.github.com"
         self.failure(
             ["bootstrap", "packages", "where", spec],
             "brew:<formula>",
-            {"MISE_GITHUB_CREDENTIAL_COMMAND": shlex.quote(str(credential))},
+            {"PAKRO_GITHUB_CREDENTIAL_COMMAND": shlex.quote(str(credential))},
         )
         self.assertFalse((self.base / "home/credential-ran").exists())
 

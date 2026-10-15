@@ -10,7 +10,7 @@ ln -s . tree/b
 ln -s missing tree/dangling
 ln -s self tree/self
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [settings]
 experimental = true
 
@@ -58,32 +58,32 @@ EOF
 
 # Recursive source expansion must skip ancestor symlink loops while retaining
 # ordinary files, both for artifact-cache inputs and task_source_files().
-assert "mise run -q cached" "cached"
-assert "mise run -q render-sources" "tree/input.txt"
+assert "pakro run -q cached" "cached"
+assert "pakro run -q render-sources" "tree/input.txt"
 
 # Artifact-cache output enumeration must likewise prune loops without aborting
 # task preparation.
-assert "mise run -q cached-output" "cached output"
+assert "pakro run -q cached-output" "cached output"
 
 # Content-based output hashing must prune loop errors and retain a usable
 # freshness baseline.
-assert "mise run -q hash-output" "hash output"
-assert_empty "mise run -q hash-output"
+assert "pakro run -q hash-output" "hash output"
+assert_empty "pakro run -q hash-output"
 
 # Mtime-based freshness uses a separate traversal path and must also prune the
 # same loops.
 printf 'changed\n' >mtime-input.txt
-assert "MISE_TASK_SOURCE_FRESHNESS_HASH_CONTENTS=false mise run -q mtime-output" "mtime output"
-assert_empty "MISE_TASK_SOURCE_FRESHNESS_HASH_CONTENTS=false mise run -q mtime-output"
+assert "PAKRO_TASK_SOURCE_FRESHNESS_HASH_CONTENTS=false pakro run -q mtime-output" "mtime output"
+assert_empty "PAKRO_TASK_SOURCE_FRESHNESS_HASH_CONTENTS=false pakro run -q mtime-output"
 
 # A not-yet-created literal output prefix is zero matches during cache
 # preparation, not a traversal failure.
-assert "mise run -q missing-output" "generated output"
-assert "mise run -q missing-output" "generated output"
+assert "pakro run -q missing-output" "generated output"
+assert "pakro run -q missing-output" "generated output"
 assert "wc -l < missing-output-runs.txt | tr -d ' '" "1"
 
 # A dangling symlink created by the task must be stored in the artifact cache
 # so the second invocation does not execute the task body again.
-assert "mise run -q created-dangling-output" "dangling output"
-assert "mise run -q created-dangling-output" "dangling output"
+assert "pakro run -q created-dangling-output" "dangling output"
+assert "pakro run -q created-dangling-output" "dangling output"
 assert "wc -l < dangling-output-runs.txt | tr -d ' '" "1"

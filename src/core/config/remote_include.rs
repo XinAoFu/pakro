@@ -1,4 +1,4 @@
-//! Remote config fragments (`include = [...]` in `mise.toml`).
+//! Remote config fragments (`include = [...]` in `pakro.toml`).
 //!
 //! A fragment is a whole config file that another config pulls in, ranking just
 //! below it. It is read on every config load, so it is fetched once and served
@@ -20,14 +20,14 @@ use std::time::Duration;
 use eyre::{Result, WrapErr, bail};
 
 use crate::config::config_file::ConfigFile;
-use crate::config::config_file::mise_toml::MiseToml;
+use crate::config::config_file::pakro_toml::PakroToml;
 use crate::config::{Settings, SettingsExt, is_global_config};
 use crate::file;
 use crate::remote_source::RemoteSource;
 use crate::task::task_file_providers::{OCI_INCLUDE_PREFIX, TaskFileProvidersBuilder};
 use crate::{dirs, hash};
 
-const FRAGMENT_FILE: &str = "mise.toml";
+const FRAGMENT_FILE: &str = "pakro.toml";
 const DEFAULT_TTL: Duration = Duration::from_secs(60 * 60);
 
 /// `cf` with everything it includes merged in, or `cf` itself when it includes
@@ -81,7 +81,7 @@ async fn load(parent: &Path, reference: &str) -> Result<(PathBuf, String)> {
     // A body is only cached once it is known to load, so a bad edit upstream
     // can never replace a copy that works.
     let fetched = match fetch(reference).await {
-        Ok(body) => MiseToml::parse_remote_fragment(&body, parent)
+        Ok(body) => PakroToml::parse_remote_fragment(&body, parent)
             .map(|_| body)
             .wrap_err_with(|| format!("invalid config include {reference}")),
         Err(err) => Err(err),
@@ -189,9 +189,9 @@ mod tests {
 
     #[test]
     fn a_sha_or_digest_is_immutable() {
-        let git = format!("git::https://github.com/org/repo.git//base/mise.toml?ref={SHA}");
+        let git = format!("git::https://github.com/org/repo.git//base/pakro.toml?ref={SHA}");
         assert_eq!(classify(&git).unwrap(), Pin::Immutable);
-        let ssh = format!("git::ssh://git@github.com/org/repo.git//mise.toml?ref={SHA}");
+        let ssh = format!("git::ssh://git@github.com/org/repo.git//pakro.toml?ref={SHA}");
         assert_eq!(classify(&ssh).unwrap(), Pin::Immutable);
         let oci = format!("oci::ghcr.io/org/base@sha256:{DIGEST}");
         assert_eq!(classify(&oci).unwrap(), Pin::Immutable);
@@ -202,11 +202,11 @@ mod tests {
     #[test]
     fn a_branch_tag_or_missing_ref_is_mutable() {
         for reference in [
-            "git::https://github.com/org/repo.git//mise.toml?ref=main".to_string(),
-            "git::https://github.com/org/repo.git//mise.toml?ref=v1.0.0".to_string(),
-            "git::https://github.com/org/repo.git//mise.toml".to_string(),
+            "git::https://github.com/org/repo.git//pakro.toml?ref=main".to_string(),
+            "git::https://github.com/org/repo.git//pakro.toml?ref=v1.0.0".to_string(),
+            "git::https://github.com/org/repo.git//pakro.toml".to_string(),
             // an abbreviated sha can become ambiguous, so it is not a pin
-            "git::https://github.com/org/repo.git//mise.toml?ref=0123abc".to_string(),
+            "git::https://github.com/org/repo.git//pakro.toml?ref=0123abc".to_string(),
             "oci::ghcr.io/org/base:1.0".to_string(),
             "oci::ghcr.io/org/base".to_string(),
             "oci::ghcr.io/org/base@sha256:abc".to_string(),
@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn rejects_other_sources_and_directories() {
-        assert!(classify("https://example.com/mise.toml").is_err());
+        assert!(classify("https://example.com/pakro.toml").is_err());
         assert!(classify("./local.toml").is_err());
         let dir = format!("git::https://github.com/org/repo.git//base?ref={SHA}");
         assert!(classify(&dir).is_err());

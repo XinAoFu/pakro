@@ -96,7 +96,7 @@ pub struct DetectedPlatform {
 }
 
 impl DetectedPlatform {
-    /// Convert to mise's platform string format (e.g., "linux-x64", "macos-arm64")
+    /// Convert to pakro's platform string format (e.g., "linux-x64", "macos-arm64")
     pub fn to_platform_string(&self) -> String {
         let os_str = match self.os {
             AssetOs::Linux => "linux",
@@ -726,7 +726,7 @@ pub(crate) fn is_metadata_asset(asset: &str) -> bool {
     .any(|suffix| asset.ends_with(suffix))
 }
 
-/// Assets that cannot become a runnable tool through mise's normal extraction
+/// Assets that cannot become a runnable tool through pakro's normal extraction
 /// path. Keep them out of automatic selection while still allowing an explicit
 /// `asset_pattern` or URL to select one for custom installation logic.
 fn is_non_executable_asset(asset: &str) -> bool {
@@ -819,7 +819,7 @@ fn extraction_suffix_len(name: &str) -> Option<usize> {
     None
 }
 
-/// Keep preferred-name normalization scoped to the suffix families mise
+/// Keep preferred-name normalization scoped to the suffix families pakro
 /// already treated as executable assets, plus the missing bzip shorthands.
 /// Other `ExtractionFormat` variants include unsupported archives (`rar`,
 /// `tar.br`, ...) and semantically distinct packages (`vsix`); granting those
@@ -2443,7 +2443,7 @@ abc123def456abc123def456abc123def456abc123def456abc123def456abcd  tool-1.0.0-dar
 
     /// Real release set for grpc-ecosystem/grpc-gateway v2.27.3 — two binaries
     /// per platform that SHARE the `protoc-gen-` prefix. This is the shape behind
-    /// the wrong-artifact bug ubi hit (ubi #137 / mise discussion #6611), where
+    /// the wrong-artifact bug ubi hit (ubi #137 / pakro discussion #6611), where
     /// `--matching protoc-gen-openapiv2` selected the wrong binary because ubi
     /// applied `matching` *after* arch filtering. Ported here as a regression
     /// guard for the github backend's pre-filter ordering.
@@ -2464,7 +2464,7 @@ abc123def456abc123def456abc123def456abc123def456abc123def456abcd  tool-1.0.0-dar
 
     #[test]
     fn test_matching_overrides_shortest_name_tiebreak_for_shared_prefix() {
-        // Regression for the wrong-artifact class of bug (ubi #137 / mise #6611).
+        // Regression for the wrong-artifact class of bug (ubi #137 / pakro #6611).
         // grpc-gateway ships protoc-gen-grpc-gateway and protoc-gen-openapiv2,
         // sharing the `protoc-gen-` prefix. The decisive case: `matching` must be
         // able to select protoc-gen-grpc-gateway — the LONGER name, which the

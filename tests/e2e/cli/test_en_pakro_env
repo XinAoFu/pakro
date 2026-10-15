@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+
+# Test that PAKRO_ENV is properly propagated when using 'pakro -E <env> en'
+# This tests the fix for: https://github.com/jdx/mise/discussions/6928
+
+# Create base config
+cat >pakro.toml <<EOF
+[env]
+TTT_BASE_VAR = "base_value"
+EOF
+
+# Create dev-specific config
+cat >pakro.dev.toml <<EOF
+[env]
+TTT_ENV_NAME = "dev"
+TTT_BASE_VAR = "dev_value"
+EOF
+
+# Create staging-specific config
+cat >pakro.staging.toml <<EOF
+[env]
+TTT_ENV_NAME = "staging"
+TTT_BASE_VAR = "staging_value"
+EOF
+
+# Test 1: Verify PAKRO_ENV is set in spawned shell
+assert_contains "pakro -E dev en -s 'bash -c \"echo \$PAKRO_ENV\"'" "dev"
+
+# Test 2: Verify pakro config can find dev-specific config files in spawned shell
+assert_contains "pakro -E dev en -s 'bash -c \"pakro config ls\"'" "pakro.dev.toml"
+
+# Test 3: Verify environment variables from dev config are available
+assert_contains "pakro -E dev en -s 'bash -c \"pakro env | grep TTT_ENV_NAME\"'" "TTT_ENV_NAME=dev"
+
+# Test 4: Verify base variable is overridden by dev config
+assert_contains "pakro -E dev en -s 'bash -c \"pakro env | grep TTT_BASE_VAR\"'" "TTT_BASE_VAR=dev_value"
+
+# Test 5: Test with staging environment
+assert_contains "pakro -E staging en -s 'bash -c \"echo \$PAKRO_ENV\"'" "staging"
+
+# Test 6: Verify staging-specific config files are found
+assert_contains "pakro -E staging en -s 'bash -c \"pakro config ls\"'" "pakro.staging.toml"
+
+# Test 7: Verify staging-specific variables are loaded
+assert_contains "pakro -E staging en -s 'bash -c \"pakro env | grep TTT_ENV_NAME\"'" "TTT_ENV_NAME=staging"
+
+# Test 8: Verify staging overrides base variable
+assert_contains "pakro -E staging en -s 'bash -c \"pakro env | grep TTT_BASE_VAR\"'" "TTT_BASE_VAR=staging_value"
+
+# Test 9: Test multiple environments (comma-separated)
+assert_contains "pakro -E dev,staging en -s 'bash -c \"echo \$PAKRO_ENV\"'" "dev,staging"
+
+# Test 10: Verify last environment wins for conflicting variables (staging should override dev)
+assert_contains "pakro -E dev,staging en -s 'bash -c \"pakro env | grep TTT_ENV_NAME\"'" "TTT_ENV_NAME=staging"
+
+# Test 11: Verify both config files are loaded
+assert_contains "pakro -E dev,staging en -s 'bash -c \"pakro config ls\"'" "pakro.dev.toml"
+assert_contains "pakro -E dev,staging en -s 'bash -c \"pakro config ls\"'" "pakro.staging.toml"
+
+# Test 12: Test reverse order (dev should win over staging)
+assert_contains "pakro -E staging,dev en -s 'bash -c \"pakro env | grep TTT_ENV_NAME\"'" "TTT_ENV_NAME=dev"
+
+# Test 13: Without -E flag, PAKRO_ENV should be empty
+assert_contains "pakro en -s 'bash -c \"echo PAKRO_ENV_IS:\$PAKRO_ENV:END\"'" "PAKRO_ENV_IS::END"
+
+# Test 14: Without -E flag, only base config is loaded (no env-specific configs)
+assert_not_contains "pakro en -s 'bash -c \"pakro config ls\"'" "pakro.dev.toml"
+assert_not_contains "pakro en -s 'bash -c \"pakro config ls\"'" "pakro.staging.toml"
+
+# Test 15: Without -E flag, base variable has base value
+assert_contains "pakro en -s 'bash -c \"pakro env | grep TTT_BASE_VAR\"'" "TTT_BASE_VAR=base_value"
+
+# Test 16: Without -E flag, env-specific variable is not set
+assert_not_contains "pakro en -s 'bash -c \"pakro env\"'" "TTT_ENV_NAME"
+
+# Test 17: -E should survive when the spawned interactive shell activates pakro
+zsh_bin=$(command -v zsh)
+mkdir -p zsh-home
+cat >zsh-home/.zshrc <<EOF
+eval "\$(pakro activate zsh)"
+EOF
+assert_contains "ZDOTDIR=$(pwd)/zsh-home HOME=$(pwd)/zsh-home SHELL=$zsh_bin pakro -E dev en -s 'zsh -i -c \"echo \$PAKRO_ENV\"'" "dev"
+assert_contains "ZDOTDIR=$(pwd)/zsh-home HOME=$(pwd)/zsh-home SHELL=$zsh_bin pakro -E dev en -s 'zsh -i -c \"pakro env | grep TTT_ENV_NAME\"'" "TTT_ENV_NAME=dev"

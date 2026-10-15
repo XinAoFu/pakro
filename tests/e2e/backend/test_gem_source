@@ -72,12 +72,12 @@ port="$(cat registry.port)"
 
 # Declared in config, with a credential in the URL. The command below names the
 # tool as a bare argument and passes no options.
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools]
 "gem:internal-cli" = { version = "latest", source = "http://${TOKEN}@127.0.0.1:${port}/acme" }
 EOF
 
-output="$(MISE_DEBUG=1 mise ls-remote gem:internal-cli 2>&1)"
+output="$(PAKRO_DEBUG=1 pakro ls-remote gem:internal-cli 2>&1)"
 echo "$output"
 
 # Versions came from the fixture, not from rubygems.org, which only happens if

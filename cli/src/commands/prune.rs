@@ -19,21 +19,21 @@ use super::trust::Trust;
 
 /// Delete unused versions of tools
 ///
-/// mise tracks which config files have been used in ~/.local/state/mise/tracked-configs
+/// pakro tracks which config files have been used in ~/.local/state/pakro/tracked-configs
 /// Versions which are no longer the latest specified in any of those configs are deleted.
-/// Versions installed only with environment variables `MISE_<TOOL>_VERSION` will be deleted,
-/// as will versions only referenced on the command line `mise exec <TOOL>@<VERSION>`.
+/// Versions installed only with environment variables `PAKRO_<TOOL>_VERSION` will be deleted,
+/// as will versions only referenced on the command line `pakro exec <TOOL>@<VERSION>`.
 ///
-/// Tool stubs that have been executed are tracked in ~/.local/state/mise/tracked-stubs.
+/// Tool stubs that have been executed are tracked in ~/.local/state/pakro/tracked-stubs.
 /// Versions still referenced by a tracked stub are not deleted.
 ///
-/// You can list prunable tools with `mise ls --prunable`
+/// You can list prunable tools with `pakro ls --prunable`
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
     example(
-        "mise prune --dry-run",
-        help = "Preview unused versions without deleting them. Example output: `rm -rf ~/.local/share/mise/installs/node/20.0.0` and `rm -rf ~/.local/share/mise/installs/node/20.0.1`."
+        "pakro prune --dry-run",
+        help = "Preview unused versions without deleting them. Example output: `rm -rf ~/.local/share/pakro/installs/node/20.0.0` and `rm -rf ~/.local/share/pakro/installs/node/20.0.1`."
     )
 )]
 pub(crate) struct Prune {
@@ -55,7 +55,7 @@ pub(crate) struct Prune {
     #[usage(long, verbatim_doc_comment)]
     pub dry_run_code: bool,
 
-    /// Placeholder for future monorepo pruning; `mise prune --monorepo` is not implemented yet.
+    /// Placeholder for future monorepo pruning; `pakro prune --monorepo` is not implemented yet.
     #[usage(long, verbatim_doc_comment)]
     pub monorepo: bool,
 
@@ -71,7 +71,7 @@ impl Prune {
 
     pub(crate) async fn run(self) -> Result<()> {
         if self.monorepo {
-            unimplemented!("mise prune --monorepo is not implemented yet");
+            unimplemented!("pakro prune --monorepo is not implemented yet");
         }
         let mut config = Config::get().await?;
         if self.configs || !self.tools {
@@ -186,7 +186,7 @@ async fn delete(
             Confirmation::No | Confirmation::Unanswered => {}
             Confirmation::Unavailable if unavailable == UnavailableConfirmation::Decline => {}
             Confirmation::Unavailable => eyre::bail!(
-                "mise prune requires confirmation but there was nobody to ask; pass --yes to prune non-interactively"
+                "pakro prune requires confirmation but there was nobody to ask; pass --yes to prune non-interactively"
             ),
         }
     }

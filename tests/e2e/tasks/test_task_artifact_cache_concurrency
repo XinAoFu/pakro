@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [settings]
 experimental = true
 
@@ -10,7 +10,7 @@ enabled = true
 [tasks.build]
 run = '''
 mkdir -p dist
-printf '%s\n' "$MISE_CONCURRENT_VALUE" >"dist/$MISE_CONCURRENT_VALUE.txt"
+printf '%s\n' "$PAKRO_CONCURRENT_VALUE" >"dist/$PAKRO_CONCURRENT_VALUE.txt"
 '''
 sources = ["input.txt"]
 outputs = ["dist"]
@@ -22,14 +22,14 @@ printf 'input\n' >input.txt
 # artifacts. Their final archive and manifest must always be one matching pair.
 pids=()
 for value in one two three four five six seven eight; do
-  MISE_CONCURRENT_VALUE="$value" mise run build >"writer-$value.log" 2>&1 &
+  PAKRO_CONCURRENT_VALUE="$value" pakro run build >"writer-$value.log" 2>&1 &
   pids+=("$!")
 done
 for pid in "${pids[@]}"; do
   wait "$pid"
 done
 
-cache_dir="$MISE_CACHE_DIR/task-artifacts/v2"
+cache_dir="$PAKRO_CACHE_DIR/task-artifacts/v2"
 assert "find \"$cache_dir\" -maxdepth 1 -name '*.json' | wc -l | tr -d ' '" "1"
 assert "find \"$cache_dir\" -maxdepth 1 -name '*.tar.zst' | wc -l | tr -d ' '" "1"
 assert "find \"$cache_dir\" -maxdepth 1 -name '*.part-*' | wc -l | tr -d ' '" "0"
@@ -38,7 +38,7 @@ assert "find \"$cache_dir\" -maxdepth 1 -name '*.part-*' | wc -l | tr -d ' '" "0
 # writer, including entries unrelated to the task it is about to restore.
 printf 'abandoned archive\n' >"$cache_dir/abandoned.part-deadbeef.tar.zst"
 printf 'abandoned manifest\n' >"$cache_dir/abandoned.part-deadbeef.json"
-mise run --task-cache read-only build >/dev/null
+pakro run --task-cache read-only build >/dev/null
 assert "find \"$cache_dir\" -maxdepth 1 -name '*.part-*' | wc -l | tr -d ' '" "0"
 
 # Readers share both the cache key and working directory. Entry locks protect
@@ -46,7 +46,7 @@ assert "find \"$cache_dir\" -maxdepth 1 -name '*.part-*' | wc -l | tr -d ' '" "0
 rm -rf dist
 pids=()
 for reader in 1 2 3 4 5 6 7 8; do
-  mise run --task-cache read-only build >"reader-$reader.log" 2>&1 &
+  pakro run --task-cache read-only build >"reader-$reader.log" 2>&1 &
   pids+=("$!")
 done
 for pid in "${pids[@]}"; do

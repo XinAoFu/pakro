@@ -8,7 +8,7 @@ use std::sync::LazyLock as Lazy;
 use crate::ui::style;
 use crate::{backend, ui};
 
-pub use mise_util::progress::{ProgressIcon, SingleReport};
+pub use pakro_util::progress::{ProgressIcon, SingleReport};
 
 static LONGEST_PLUGIN_NAME: Lazy<usize> = Lazy::new(|| {
     backend::list()

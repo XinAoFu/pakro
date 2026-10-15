@@ -14,7 +14,7 @@ use crate::system::history::OperationScope;
 /// installs the current cask artifact, flatpak and flatpak-user update
 /// applications and runtimes, mas upgrades App Store apps, and winget upgrades
 /// Windows packages. Packages that are not installed yet are skipped — use
-/// `mise bootstrap packages apply` for those.
+/// `pakro bootstrap packages apply` for those.
 ///
 /// Packages can also be given explicitly in `manager:package` form.
 #[derive(Debug, usage_rs::Args)]
@@ -22,13 +22,13 @@ use crate::system::history::OperationScope;
     visible_alias = "up",
     verbatim_doc_comment,
     example(
-        r###"mise bootstrap packages upgrade
-mise bootstrap packages upgrade brew:postgresql@17
-mise bootstrap packages upgrade --manager brew-cask
-mise bootstrap packages upgrade --manager mas
-mise bootstrap packages upgrade --manager winget
-mise bootstrap packages upgrade --manager apt --yes
-mise bootstrap packages upgrade --dry-run"###
+        r###"pakro bootstrap packages upgrade
+pakro bootstrap packages upgrade brew:postgresql@17
+pakro bootstrap packages upgrade --manager brew-cask
+pakro bootstrap packages upgrade --manager mas
+pakro bootstrap packages upgrade --manager winget
+pakro bootstrap packages upgrade --manager apt --yes
+pakro bootstrap packages upgrade --dry-run"###
     )
 )]
 pub(crate) struct SystemUpgrade {

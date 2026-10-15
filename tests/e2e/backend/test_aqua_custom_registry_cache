@@ -1,28 +1,28 @@
 #!/usr/bin/env bash
 
-export MISE_EXPERIMENTAL=1
-export MISE_LOCKFILE=1
-export MISE_AQUA_BAKED_REGISTRY=0
-export MISE_AQUA_REGISTRY_URL="file://$ROOT/runtimes/vendor/aqua-registry"
+export PAKRO_EXPERIMENTAL=1
+export PAKRO_LOCKFILE=1
+export PAKRO_AQUA_BAKED_REGISTRY=0
+export PAKRO_AQUA_REGISTRY_URL="file://$ROOT/runtimes/vendor/aqua-registry"
 
-cat <<'EOF_MISE' >mise.toml
+cat <<'EOF_PAKRO' >pakro.toml
 [tools]
 "aqua:BurntSushi/ripgrep" = "14.1.1"
-EOF_MISE
+EOF_PAKRO
 
-output=$(MISE_TIMINGS=1 mise lock --platform linux-x64 2>&1)
+output=$(PAKRO_TIMINGS=1 pakro lock --platform linux-x64 2>&1)
 printf '%s\n' "$output"
 
-[[ $output == *"mise::aqua::aqua_registry_wrapper::aqua_registry::parse_yaml"* ]] ||
+[[ $output == *"pakro::aqua::aqua_registry_wrapper::aqua_registry::parse_yaml"* ]] ||
   fail "expected custom aqua registry parse timing in output"
-[[ $output == *"mise::aqua::aqua_registry_wrapper::aqua_registry::write_compiled_cache"* ]] ||
+[[ $output == *"pakro::aqua::aqua_registry_wrapper::aqua_registry::write_compiled_cache"* ]] ||
   fail "expected custom aqua registry cache generation timing in output"
 
-assert_contains "cat mise.lock" 'backend = "aqua:BurntSushi/ripgrep"'
-assert_contains "cat mise.lock" '[[tools."aqua:BurntSushi/ripgrep"]]'
+assert_contains "cat pakro.lock" 'backend = "aqua:BurntSushi/ripgrep"'
+assert_contains "cat pakro.lock" '[[tools."aqua:BurntSushi/ripgrep"]]'
 
-second_output=$(MISE_TIMINGS=1 mise lock --platform linux-x64 2>&1)
+second_output=$(PAKRO_TIMINGS=1 pakro lock --platform linux-x64 2>&1)
 printf '%s\n' "$second_output"
 
-[[ $second_output != *"mise::aqua::aqua_registry_wrapper::aqua_registry::write_compiled_cache"* ]] ||
+[[ $second_output != *"pakro::aqua::aqua_registry_wrapper::aqua_registry::write_compiled_cache"* ]] ||
   fail "expected unchanged registry source hash to reuse the compiled cache"

@@ -135,7 +135,7 @@ async fn query(args: &[&str]) -> Result<String> {
         .wrap_err("failed to run Nix; install Nix and make its CLI available on PATH")?;
     if !output.status.success() {
         bail!(
-            "nix {} failed: {}\nNix bootstrap requires modern `nix profile` support and the nix-command and flakes experimental features. Enable these in your Nix configuration; mise does not change it.",
+            "nix {} failed: {}\nNix bootstrap requires modern `nix profile` support and the nix-command and flakes experimental features. Enable these in your Nix configuration; pakro does not change it.",
             shell_words::join(args),
             String::from_utf8_lossy(&output.stderr).trim()
         );
@@ -245,7 +245,7 @@ fn attribute_matches(request: &str, installed: &str, system: &str) -> bool {
 
 async fn action(args: Vec<String>, opts: &InstallOpts) -> Result<()> {
     if opts.dry_run {
-        miseprintln!("nix {}", shell_words::join(&args));
+        pakroprintln!("nix {}", shell_words::join(&args));
         return Ok(());
     }
     debug!("$ nix {}", shell_words::join(&args));

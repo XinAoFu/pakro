@@ -1,6 +1,6 @@
 //! macOS user LaunchAgents for `[bootstrap.macos.launchd.agents]`.
 //!
-//! Entries are rendered to `~/Library/LaunchAgents/dev.mise.<name>.plist` and
+//! Entries are rendered to `~/Library/LaunchAgents/dev.pakro.<name>.plist` and
 //! loaded with `launchctl bootstrap gui/$UID ...` when explicitly applied.
 
 use std::io::Cursor;
@@ -155,7 +155,7 @@ impl LaunchdRequest {
             }
         }
         Ok(Self {
-            label: format!("dev.mise.{name}"),
+            label: format!("dev.pakro.{name}"),
             name,
             program,
             args: config.args,
@@ -282,7 +282,7 @@ pub async fn apply(requests: &[LaunchdRequest], dry_run: bool) -> Result<()> {
         let target = format!("{domain}/{}", req.label);
         let plist = render_plist(req)?;
         if dry_run {
-            miseprintln!(
+            pakroprintln!(
                 "{}",
                 shell_words::join([
                     "mkdir".to_string(),
@@ -290,8 +290,8 @@ pub async fn apply(requests: &[LaunchdRequest], dry_run: bool) -> Result<()> {
                     launch_agents_dir().display().to_string(),
                 ])
             );
-            miseprintln!("write {}", shell_words::join([path.display().to_string()]));
-            miseprintln!(
+            pakroprintln!("write {}", shell_words::join([path.display().to_string()]));
+            pakroprintln!(
                 "{}",
                 shell_words::join([
                     "launchctl".to_string(),
@@ -300,7 +300,7 @@ pub async fn apply(requests: &[LaunchdRequest], dry_run: bool) -> Result<()> {
                     path.display().to_string(),
                 ])
             );
-            miseprintln!(
+            pakroprintln!(
                 "{}",
                 shell_words::join([
                     "launchctl".to_string(),
@@ -309,7 +309,7 @@ pub async fn apply(requests: &[LaunchdRequest], dry_run: bool) -> Result<()> {
                     path.display().to_string(),
                 ])
             );
-            miseprintln!(
+            pakroprintln!(
                 "{}",
                 shell_words::join([
                     "launchctl".to_string(),
@@ -318,7 +318,7 @@ pub async fn apply(requests: &[LaunchdRequest], dry_run: bool) -> Result<()> {
                 ])
             );
             if req.kickstart {
-                miseprintln!(
+                pakroprintln!(
                     "{}",
                     shell_words::join(["launchctl".to_string(), "kickstart".to_string(), target,])
                 );
@@ -376,7 +376,7 @@ pub(crate) async fn unload(label: &str, dry_run: bool) -> Result<()> {
     let domain = launchctl_domain();
     let path = launch_agents_dir().join(format!("{label}.plist"));
     if dry_run {
-        miseprintln!(
+        pakroprintln!(
             "{}",
             shell_words::join([
                 "launchctl".to_string(),
@@ -390,17 +390,17 @@ pub(crate) async fn unload(label: &str, dry_run: bool) -> Result<()> {
     bootout(&domain, &path).await
 }
 
-/// Unload and delete the LaunchAgent mise wrote for `name`
-/// (`dev.mise.<name>`). Returns whether a plist existed.
+/// Unload and delete the LaunchAgent pakro wrote for `name`
+/// (`dev.pakro.<name>`). Returns whether a plist existed.
 pub(crate) async fn remove_agent(name: &str, dry_run: bool) -> Result<bool> {
-    let label = format!("dev.mise.{name}");
+    let label = format!("dev.pakro.{name}");
     let path = launch_agents_dir().join(format!("{label}.plist"));
     if !path.exists() {
         return Ok(false);
     }
     unload(&label, dry_run).await?;
     if dry_run {
-        miseprintln!(
+        pakroprintln!(
             "{}",
             shell_words::join(["rm".to_string(), path.display().to_string()])
         );
@@ -410,9 +410,9 @@ pub(crate) async fn remove_agent(name: &str, dry_run: bool) -> Result<bool> {
     Ok(true)
 }
 
-/// The plist path mise uses for an agent named `name`.
+/// The plist path pakro uses for an agent named `name`.
 pub(crate) fn agent_plist_path(name: &str) -> PathBuf {
-    launch_agents_dir().join(format!("dev.mise.{name}.plist"))
+    launch_agents_dir().join(format!("dev.pakro.{name}.plist"))
 }
 
 pub(crate) fn render_plist(request: &LaunchdRequest) -> Result<Vec<u8>> {
@@ -598,11 +598,11 @@ const PROCESS_TYPES: [&str; 4] = ["Background", "Standard", "Adaptive", "Interac
 /// do nothing: the config would claim a band the job is not in. That is what
 /// makes this worth rejecting rather than passing through.
 ///
-/// Exact rather than case-insensitive, so that `schema/mise.json` can say the
+/// Exact rather than case-insensitive, so that `schema/pakro.json` can say the
 /// same thing. The schema is an enum of these four strings, and JSON Schema has
 /// no case-insensitive enum: matching loosely here would mean either an
 /// unreadable character-class regex in the schema, or editors red-lining a
-/// config mise accepts. One spelling keeps parser, schema and docs in exact
+/// config pakro accepts. One spelling keeps parser, schema and docs in exact
 /// agreement, and it is the spelling Apple documents.
 ///
 /// A value that differs only in case or surrounding space is still a typo worth
@@ -705,8 +705,8 @@ mod tests {
         )
     }
 
-    /// The four launchd spells, and only those, so `schema/mise.json` can carry
-    /// the same enum without an editor red-lining a config mise accepts.
+    /// The four launchd spells, and only those, so `schema/pakro.json` can carry
+    /// the same enum without an editor red-lining a config pakro accepts.
     #[test]
     fn process_type_accepts_launchds_own_spelling() {
         for expected in ["Background", "Standard", "Adaptive", "Interactive"] {
@@ -792,7 +792,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(request.label, "dev.mise.my-agent");
+        assert_eq!(request.label, "dev.pakro.my-agent");
         assert!(LaunchdRequest::from_toml("bad/name".to_string(), Default::default()).is_err());
         assert!(
             LaunchdRequest::from_toml(
@@ -842,7 +842,7 @@ mod tests {
         environment.insert("PATH".to_string(), "/usr/bin:/bin".to_string());
         let request = LaunchdRequest {
             name: "sync".to_string(),
-            label: "dev.mise.sync".to_string(),
+            label: "dev.pakro.sync".to_string(),
             program: "/bin/echo".to_string(),
             args: vec!["hello".to_string()],
             run_at_load: true,
@@ -873,7 +873,7 @@ mod tests {
         };
         assert_eq!(
             dict.get("Label"),
-            Some(&Value::String("dev.mise.sync".to_string()))
+            Some(&Value::String("dev.pakro.sync".to_string()))
         );
         assert_eq!(dict.get("RunAtLoad"), Some(&Value::Boolean(true)));
         assert_eq!(dict.get("KeepAlive"), Some(&Value::Boolean(true)));
@@ -955,7 +955,7 @@ mod tests {
     fn test_render_plist_multiple_calendar_intervals() {
         let request = LaunchdRequest {
             name: "sync".to_string(),
-            label: "dev.mise.sync".to_string(),
+            label: "dev.pakro.sync".to_string(),
             program: "/bin/echo".to_string(),
             args: vec![],
             run_at_load: false,

@@ -14,105 +14,105 @@ write_cask_fixture() {
 
 write_cask_fixture "current-2" false
 start_http_server --dir "$FORMULAE_DIR"
-MISE_URL_REPLACEMENTS="$(printf '{"https://formulae.brew.sh":"http://127.0.0.1:%s"}' "$HTTP_PORT")"
-export MISE_URL_REPLACEMENTS
+PAKRO_URL_REPLACEMENTS="$(printf '{"https://formulae.brew.sh":"http://127.0.0.1:%s"}' "$HTTP_PORT")"
+export PAKRO_URL_REPLACEMENTS
 
-export MISE_SYSTEM_BREW_PREFIX="$PWD/brew-prefix"
+export PAKRO_SYSTEM_BREW_PREFIX="$PWD/brew-prefix"
 token="example-homebrew-owned"
-token_dir="$MISE_SYSTEM_BREW_PREFIX/Caskroom/$token"
+token_dir="$PAKRO_SYSTEM_BREW_PREFIX/Caskroom/$token"
 version_dir="$token_dir/current-2"
 binary="$version_dir/bin/example"
-binary_target="$MISE_SYSTEM_BREW_PREFIX/bin/example"
-app_target="$MISE_SYSTEM_BREW_PREFIX/Applications/External.app"
+binary_target="$PAKRO_SYSTEM_BREW_PREFIX/bin/example"
+app_target="$PAKRO_SYSTEM_BREW_PREFIX/Applications/External.app"
 
 mkdir -p \
   "$token_dir/.metadata" \
   "$version_dir/bin" \
-  "$MISE_SYSTEM_BREW_PREFIX/bin" \
-  "$MISE_SYSTEM_BREW_PREFIX/etc/bash_completion.d" \
-  "$MISE_SYSTEM_BREW_PREFIX/share/fish/vendor_completions.d" \
-  "$MISE_SYSTEM_BREW_PREFIX/share/zsh/site-functions" \
+  "$PAKRO_SYSTEM_BREW_PREFIX/bin" \
+  "$PAKRO_SYSTEM_BREW_PREFIX/etc/bash_completion.d" \
+  "$PAKRO_SYSTEM_BREW_PREFIX/share/fish/vendor_completions.d" \
+  "$PAKRO_SYSTEM_BREW_PREFIX/share/zsh/site-functions" \
   "$app_target/Contents"
 printf '{"owned_by":"homebrew"}\n' >"$token_dir/.metadata/INSTALL_RECEIPT.json"
 printf '#!/bin/sh\necho external\n' >"$binary"
 chmod +x "$binary"
 ln -s "$binary" "$binary_target"
-printf 'bash completion\n' >"$MISE_SYSTEM_BREW_PREFIX/etc/bash_completion.d/example"
-printf 'fish completion\n' >"$MISE_SYSTEM_BREW_PREFIX/share/fish/vendor_completions.d/example.fish"
-printf 'zsh completion\n' >"$MISE_SYSTEM_BREW_PREFIX/share/zsh/site-functions/_example"
+printf 'bash completion\n' >"$PAKRO_SYSTEM_BREW_PREFIX/etc/bash_completion.d/example"
+printf 'fish completion\n' >"$PAKRO_SYSTEM_BREW_PREFIX/share/fish/vendor_completions.d/example.fish"
+printf 'zsh completion\n' >"$PAKRO_SYSTEM_BREW_PREFIX/share/zsh/site-functions/_example"
 printf 'external app\n' >"$app_target/Contents/payload"
 ln -s "$app_target" "$version_dir/External.app"
 
 write_config() {
-  cat >mise.toml <<EOF
+  cat >pakro.toml <<EOF
 [bootstrap.packages]
 "brew-cask:$token" = "latest"
 EOF
 }
 
 clear_config() {
-  cat >mise.toml <<EOF
+  cat >pakro.toml <<EOF
 [bootstrap.packages]
 EOF
 }
 
 snapshot_prefix() {
-  tar -cf - -C "$MISE_SYSTEM_BREW_PREFIX" . | cksum
+  tar -cf - -C "$PAKRO_SYSTEM_BREW_PREFIX" . | cksum
 }
 
 write_config
 before="$(snapshot_prefix)"
 
-assert_contains "mise bootstrap packages status" "installed"
-assert_contains "mise bootstrap packages apply --yes 2>&1" "already installed"
-assert_contains "mise bootstrap packages upgrade --yes 2>&1" "managed by Homebrew"
-assert_succeed "mise bootstrap packages use brew-cask:$token"
+assert_contains "pakro bootstrap packages status" "installed"
+assert_contains "pakro bootstrap packages apply --yes 2>&1" "already installed"
+assert_contains "pakro bootstrap packages upgrade --yes 2>&1" "managed by Homebrew"
+assert_succeed "pakro bootstrap packages use brew-cask:$token"
 clear_config
-assert_contains "mise bootstrap packages prune --manager brew-cask --yes 2>&1" "Homebrew owns this cask"
+assert_contains "pakro bootstrap packages prune --manager brew-cask --yes 2>&1" "Homebrew owns this cask"
 
 after="$(snapshot_prefix)"
 assert_succeed "test '$before' = '$after'"
-assert_fail "test -e $version_dir/.mise-cask.toml"
+assert_fail "test -e $version_dir/.pakro-cask.toml"
 assert "cat $token_dir/.metadata/INSTALL_RECEIPT.json" '{"owned_by":"homebrew"}'
 
-cat >"$version_dir/.mise-cask.toml" <<EOF
+cat >"$version_dir/.pakro-cask.toml" <<EOF
 schema_version = 3
 version = "current-2"
 EOF
 write_config
 dual_before="$(snapshot_prefix)"
 
-assert_contains "mise bootstrap packages status" "installed"
-assert_contains "mise bootstrap packages apply --yes 2>&1" "already installed"
-assert_contains "mise bootstrap packages upgrade --yes 2>&1" "managed by Homebrew"
+assert_contains "pakro bootstrap packages status" "installed"
+assert_contains "pakro bootstrap packages apply --yes 2>&1" "already installed"
+assert_contains "pakro bootstrap packages upgrade --yes 2>&1" "managed by Homebrew"
 clear_config
-assert_contains "mise bootstrap packages prune --manager brew-cask --yes 2>&1" "Homebrew owns this cask"
+assert_contains "pakro bootstrap packages prune --manager brew-cask --yes 2>&1" "Homebrew owns this cask"
 
 dual_after="$(snapshot_prefix)"
 assert_succeed "test '$dual_before' = '$dual_after'"
-assert "cat $version_dir/.mise-cask.toml" $'schema_version = 3\nversion = "current-2"'
+assert "cat $version_dir/.pakro-cask.toml" $'schema_version = 3\nversion = "current-2"'
 assert "cat $token_dir/.metadata/INSTALL_RECEIPT.json" '{"owned_by":"homebrew"}'
 
 write_cask_fixture "future-3" true
 write_config
 auto_before="$(snapshot_prefix)"
 
-assert_contains "mise bootstrap packages status" "auto-updates"
-assert_contains "mise bootstrap packages apply --yes 2>&1" "already installed"
-assert_contains "mise bootstrap packages upgrade --yes 2>&1" "managed by Homebrew"
+assert_contains "pakro bootstrap packages status" "auto-updates"
+assert_contains "pakro bootstrap packages apply --yes 2>&1" "already installed"
+assert_contains "pakro bootstrap packages upgrade --yes 2>&1" "managed by Homebrew"
 
 auto_after="$(snapshot_prefix)"
 assert_succeed "test '$auto_before' = '$auto_after'"
-assert "cat $version_dir/.mise-cask.toml" $'schema_version = 3\nversion = "current-2"'
+assert "cat $version_dir/.pakro-cask.toml" $'schema_version = 3\nversion = "current-2"'
 assert "cat $token_dir/.metadata/INSTALL_RECEIPT.json" '{"owned_by":"homebrew"}'
 
 mkdir "$token_dir/stale-1"
 malformed_before="$(snapshot_prefix)"
 
-assert_fail_contains "mise bootstrap packages status 2>&1" "multiple Caskroom versions"
-assert_fail_contains "mise bootstrap packages upgrade --yes 2>&1" "multiple Caskroom versions"
+assert_fail_contains "pakro bootstrap packages status 2>&1" "multiple Caskroom versions"
+assert_fail_contains "pakro bootstrap packages upgrade --yes 2>&1" "multiple Caskroom versions"
 
 malformed_after="$(snapshot_prefix)"
 assert_succeed "test '$malformed_before' = '$malformed_after'"
-assert "cat $version_dir/.mise-cask.toml" $'schema_version = 3\nversion = "current-2"'
+assert "cat $version_dir/.pakro-cask.toml" $'schema_version = 3\nversion = "current-2"'
 assert "cat $token_dir/.metadata/INSTALL_RECEIPT.json" '{"owned_by":"homebrew"}'

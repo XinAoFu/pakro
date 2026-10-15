@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.a]
 run = 'echo running a'
 [tasks.b]
@@ -19,14 +19,14 @@ run = 'echo running d'
 run = 'echo running z'
 EOF
 
-MISE_TASK_OUTPUT=silent assert_empty "mise run all" ""
-MISE_TASK_OUTPUT=quiet assert "mise run all" "running a
+PAKRO_TASK_OUTPUT=silent assert_empty "pakro run all" ""
+PAKRO_TASK_OUTPUT=quiet assert "pakro run all" "running a
 running b
 running c
 running all
 running z"
-# test that task.output config setting works the same as MISE_TASK_OUTPUT env var
-cat <<EOF >mise.toml
+# test that task.output config setting works the same as PAKRO_TASK_OUTPUT env var
+cat <<EOF >pakro.toml
 [settings]
 task.output = "silent"
 [tasks.a]
@@ -46,8 +46,8 @@ run = 'echo running d'
 [tasks.z]
 run = 'echo running z'
 EOF
-assert_empty "mise run all" ""
-cat <<EOF >mise.toml
+assert_empty "pakro run all" ""
+cat <<EOF >pakro.toml
 [settings]
 task.output = "quiet"
 [tasks.a]
@@ -67,12 +67,12 @@ run = 'echo running d'
 [tasks.z]
 run = 'echo running z'
 EOF
-assert "mise run all" "running a
+assert "pakro run all" "running a
 running b
 running c
 running all
 running z"
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.a]
 run = 'echo running a'
 [tasks.b]
@@ -90,26 +90,26 @@ run = 'echo running d'
 [tasks.z]
 run = 'echo running z'
 EOF
-MISE_TASK_OUTPUT=interleave assert "mise run all" "running a
+PAKRO_TASK_OUTPUT=interleave assert "pakro run all" "running a
 running b
 running c
 running all
 running z"
-MISE_TASK_OUTPUT=prefix assert "mise run all" "[a] running a
+PAKRO_TASK_OUTPUT=prefix assert "pakro run all" "[a] running a
 [b] running b
 [c] running c
 [all] running all
 [z] running z"
 # defaults to interleave if linear dependency graph
-assert "mise run all" "running a
+assert "pakro run all" "running a
 running b
 running c
 running all
 running z"
 # now the graph isn't linear so it uses prefix
-assert_contains "mise run a ::: d" "[a] running a"
-assert_contains "mise run a ::: d" "[d] running d"
-assert "mise tasks deps" "a
+assert_contains "pakro run a ::: d" "[a] running a"
+assert_contains "pakro run a ::: d" "[d] running d"
+assert "pakro tasks deps" "a
 all
 ├── c
 │   └── b

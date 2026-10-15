@@ -1,23 +1,23 @@
 use crate::forgejo;
 use crate::tokens;
 
-/// Display the Forgejo token mise will use for a given host
+/// Display the Forgejo token pakro will use for a given host
 ///
-/// Shows which token source mise would use, useful for debugging
+/// Shows which token source pakro would use, useful for debugging
 /// authentication issues. The token is masked by default.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise token forgejo
+        r###"pakro token forgejo
 codeberg.org: a180…61f6 (source: FORGEJO_TOKEN)"###
     ),
     example(
-        r###"mise token forgejo --unmask
+        r###"pakro token forgejo --unmask
 codeberg.org: a18099ca69064be387fbe37b8ad1d333758361f6 (source: FORGEJO_TOKEN)"###
     ),
     example(
-        r###"mise token forgejo forgejo.mycompany.com
+        r###"pakro token forgejo forgejo.mycompany.com
 forgejo.mycompany.com: (none)"###
     )
 )]
@@ -40,10 +40,10 @@ impl Forgejo {
                 } else {
                     tokens::mask_token(&token)
                 };
-                miseprintln!("{}: {} (source: {})", self.host, display_token, source);
+                pakroprintln!("{}: {} (source: {})", self.host, display_token, source);
             }
             None => {
-                miseprintln!("{}: (none)", self.host);
+                pakroprintln!("{}: (none)", self.host);
             }
         }
         Ok(())

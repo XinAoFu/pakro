@@ -512,9 +512,9 @@ impl OutputHandler {
     ///
     /// This resolves the stream-rendering style only (prefix/interleave/…) and
     /// never returns `Quiet`. Verbosity ("quiet") is a separate axis applied via
-    /// [`quiet`](Self::quiet) at mise's own metadata print sites, so styles and
+    /// [`quiet`](Self::quiet) at pakro's own metadata print sites, so styles and
     /// quietness combine freely (e.g. `output = "prefix"` + `quiet = true` prints
-    /// prefixed task lines with none of mise's own chatter). Full-silent is the
+    /// prefixed task lines with none of pakro's own chatter). Full-silent is the
     /// one verbosity level that still shows up here, because it nulls both streams.
     pub fn output(&self, task: Option<&Task>) -> TaskOutput {
         // Full-silent (null BOTH streams) is terminal. This must stay distinct
@@ -538,7 +538,7 @@ impl OutputHandler {
         // Resolve a STYLE only, in precedence order. `Quiet` values map to
         // `Interleave` (their historical stream behavior); the quiet-ness is kept
         // by the `quiet()` predicate independently.
-        // 1. CLI `--output` / `MISE_TASK_OUTPUT`
+        // 1. CLI `--output` / `PAKRO_TASK_OUTPUT`
         if let Some(o) = self.output {
             return o.style_with_raw(self.raw(task));
         }
@@ -674,7 +674,7 @@ impl OutputHandler {
             || task.is_some_and(|t| t.output.is_some_and(|o| o.is_silent()))
     }
 
-    /// Return whether mise-generated output should be suppressed for this task.
+    /// Return whether pakro-generated output should be suppressed for this task.
     pub fn quiet(&self, task: Option<&Task>) -> bool {
         self.quiet
             || Settings::get().quiet

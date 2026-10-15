@@ -5,10 +5,10 @@ use crate::config::config_file::ConfigFile;
 
 /// Add/update a shell alias
 ///
-/// This modifies the contents of ~/.config/mise/config.toml
+/// This modifies the contents of ~/.config/pakro/config.toml
 #[derive(Debug, usage_rs::Args)]
-#[usage(visible_aliases = ["add", "create"], example(r###"mise shell-alias set ll "ls -la"
-mise shell-alias set gs "git status""###), verbatim_doc_comment)]
+#[usage(visible_aliases = ["add", "create"], example(r###"pakro shell-alias set ll "ls -la"
+pakro shell-alias set gs "git status""###), verbatim_doc_comment)]
 pub(super) struct ShellAliasSet {
     /// The alias name
     #[usage(name = "shell_alias")]
@@ -23,7 +23,7 @@ impl ShellAliasSet {
             Some(v) => (self.alias, v),
             None => {
                 let (k, v) = self.alias.split_once('=').ok_or_else(|| {
-                    eyre!("Usage: mise shell-alias set <ALIAS>=<COMMAND> or mise shell-alias set <ALIAS> <COMMAND>")
+                    eyre!("Usage: pakro shell-alias set <ALIAS>=<COMMAND> or pakro shell-alias set <ALIAS> <COMMAND>")
                 })?;
                 (k.to_string(), v.to_string())
             }

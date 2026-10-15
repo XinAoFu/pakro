@@ -118,7 +118,7 @@ fn parse_owner_id(value: &str, name: &str) -> std::result::Result<u32, String> {
 }
 
 /// Build a reproducible gzipped tar layer from files in `src_dir`, placing them
-/// under `target_prefix` inside the tar (e.g. `/mise/installs/node/20.0.0`).
+/// under `target_prefix` inside the tar (e.g. `/pakro/installs/node/20.0.0`).
 ///
 /// `src_dir` must exist and be a directory. Symlinks are preserved; their
 /// targets are NOT followed. `owner` is applied to every emitted tar entry.
@@ -371,7 +371,7 @@ fn collect_sorted_entries(
     // WalkDir's sort_by_file_name sorts per-parent; we additionally sort the
     // full relative path so siblings interleave deterministically with their
     // children (parent-dir-first). Preserves `a/` before `a/b` because `/` is
-    // lexically smaller than any file-name character mise will emit.
+    // lexically smaller than any file-name character pakro will emit.
     entries.sort_by(|a, b| a.rel.cmp(&b.rel));
     Ok(entries)
 }
@@ -389,7 +389,7 @@ fn build_layer_from_entries(
         let mut builder = Builder::new(&mut tar_bytes);
 
         // Always emit a directory entry for the target prefix chain itself
-        // (e.g. `/mise`, `/mise/installs`, `/mise/installs/node`). This
+        // (e.g. `/pakro`, `/pakro/installs`, `/pakro/installs/node`). This
         // guarantees parent dirs exist even if the src_dir is empty.
         let mut emitted_dirs: std::collections::BTreeSet<String> = Default::default();
         for dir in prefix_parents(prefix) {
@@ -910,9 +910,9 @@ mod tests {
         fs::write(dir.path().join("bin/hello"), b"#!/bin/sh\necho hi\n").unwrap();
         fs::write(dir.path().join("README"), b"hello\n").unwrap();
 
-        let a = build_layer_from_dir(dir.path(), "mise/installs/test/1.0", LayerOwner::default())
+        let a = build_layer_from_dir(dir.path(), "pakro/installs/test/1.0", LayerOwner::default())
             .unwrap();
-        let b = build_layer_from_dir(dir.path(), "mise/installs/test/1.0", LayerOwner::default())
+        let b = build_layer_from_dir(dir.path(), "pakro/installs/test/1.0", LayerOwner::default())
             .unwrap();
         assert_eq!(a.digest, b.digest, "digests should match across runs");
         assert_eq!(a.diff_id, b.diff_id, "diff_ids should match across runs");
@@ -985,9 +985,13 @@ mod tests {
     #[test]
     fn files_layer_is_reproducible() {
         let files = vec![
-            ("etc/mise/config.toml".to_string(), b"foo\n".to_vec(), 0o644),
             (
-                "usr/local/bin/mise".to_string(),
+                "etc/pakro/config.toml".to_string(),
+                b"foo\n".to_vec(),
+                0o644,
+            ),
+            (
+                "usr/local/bin/pakro".to_string(),
                 b"#!/bin/sh\nexec true\n".to_vec(),
                 0o755,
             ),
@@ -999,7 +1003,11 @@ mod tests {
 
     #[test]
     fn default_files_layer_owner_is_root() {
-        let files = vec![("etc/mise/config.toml".to_string(), b"foo\n".to_vec(), 0o644)];
+        let files = vec![(
+            "etc/pakro/config.toml".to_string(),
+            b"foo\n".to_vec(),
+            0o644,
+        )];
         let blob = build_layer_from_files(&files, LayerOwner::default()).unwrap();
 
         assert_layer_owner(&blob, 0, 0);
@@ -1008,9 +1016,13 @@ mod tests {
     #[test]
     fn configured_files_layer_owner_applies_to_every_entry_and_is_reproducible() {
         let files = vec![
-            ("etc/mise/config.toml".to_string(), b"foo\n".to_vec(), 0o644),
             (
-                "usr/local/bin/mise".to_string(),
+                "etc/pakro/config.toml".to_string(),
+                b"foo\n".to_vec(),
+                0o644,
+            ),
+            (
+                "usr/local/bin/pakro".to_string(),
                 b"#!/bin/sh\nexec true\n".to_vec(),
                 0o755,
             ),
@@ -1032,7 +1044,7 @@ mod tests {
 
         let blob = build_layer_from_dir(
             dir.path(),
-            "opt/mise/installs/test/1.0",
+            "opt/pakro/installs/test/1.0",
             LayerOwner::new(1000, 1000),
         )
         .unwrap();
@@ -1233,11 +1245,11 @@ mod tests {
 
         let relocation = ToolRelocation::new(vec![(
             alias.clone(),
-            PathBuf::from("/mise/installs/pipx-tool/1.0.0"),
+            PathBuf::from("/pakro/installs/pipx-tool/1.0.0"),
         )]);
         assert_eq!(
             relocate_absolute_path(&alias.join("venv"), Some(&relocation)),
-            Some(PathBuf::from("/mise/installs/pipx-tool/1.0.0/venv"))
+            Some(PathBuf::from("/pakro/installs/pipx-tool/1.0.0/venv"))
         );
     }
 
@@ -1261,7 +1273,8 @@ mod tests {
         symlink(&long_target, src.join("bin/cli")).unwrap();
 
         let entries = collect_sorted_entries(src, false, LayerOwner::default(), None).unwrap();
-        let blob = build_layer_from_entries(&entries, "mise", LayerOwner::default(), None).unwrap();
+        let blob =
+            build_layer_from_entries(&entries, "pakro", LayerOwner::default(), None).unwrap();
 
         // The GNU @LongLink extension must round-trip back to the full target.
         let decoder = flate2::read::GzDecoder::new(blob.bytes.as_slice());
@@ -1270,12 +1283,12 @@ mod tests {
         for entry in archive.entries().unwrap() {
             let entry = entry.unwrap();
             let path = entry.path().unwrap().to_string_lossy().into_owned();
-            if path == "mise/bin/cli" {
+            if path == "pakro/bin/cli" {
                 let link = entry.header().link_name().unwrap();
                 assert_eq!(&*link, Path::new(&long_target));
                 found = true;
             }
         }
-        assert!(found, "symlink entry mise/bin/cli not found in layer");
+        assert!(found, "symlink entry pakro/bin/cli not found in layer");
     }
 }

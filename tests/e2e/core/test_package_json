@@ -3,7 +3,7 @@
 # Test that package.json is used as an idiomatic version file
 
 # Enable idiomatic version files for node and pnpm
-mise settings set idiomatic_version_file_enable_tools "node,pnpm"
+pakro settings set idiomatic_version_file_enable_tools "node,pnpm"
 
 # Test devEngines.runtime for node
 cat >package.json <<'EOF'
@@ -17,7 +17,7 @@ cat >package.json <<'EOF'
 }
 EOF
 
-assert_contains "mise current node" "22."
+assert_contains "pakro current node" "22."
 
 # Test packageManager field for pnpm
 cat >package.json <<'EOF'
@@ -26,7 +26,7 @@ cat >package.json <<'EOF'
 }
 EOF
 
-assert_contains "mise current pnpm" "9.1.0"
+assert_contains "pakro current pnpm" "9.1.0"
 
 # Test devEngines.packageManager overrides packageManager field
 cat >package.json <<'EOF'
@@ -41,7 +41,7 @@ cat >package.json <<'EOF'
 }
 EOF
 
-assert_contains "mise current pnpm" "10."
+assert_contains "pakro current pnpm" "10."
 
 # Test package.json with no relevant fields doesn't break anything
 cat >package.json <<'EOF'
@@ -52,10 +52,10 @@ cat >package.json <<'EOF'
 EOF
 
 # Should not error, just no version detected
-assert "mise current node" ""
+assert "pakro current node" ""
 
 # Test package.json can be disabled for node without disabling .nvmrc or pnpm
-mise settings set idiomatic_version_file_disable_files "node:package.json"
+pakro settings set idiomatic_version_file_disable_files "node:package.json"
 echo "20.0.0" >.nvmrc
 cat >package.json <<'EOF'
 {
@@ -72,5 +72,5 @@ cat >package.json <<'EOF'
 }
 EOF
 
-assert "mise current node" "20.0.0"
-assert "mise current pnpm" "10.0.0"
+assert "pakro current node" "20.0.0"
+assert "pakro current pnpm" "10.0.0"

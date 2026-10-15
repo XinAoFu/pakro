@@ -18,7 +18,7 @@ use tokio::task::JoinSet;
 /// Includes newly published releases by disabling the global minimum release age
 /// for this command.
 #[derive(Debug, Clone, usage_rs::Args)]
-#[usage(verbatim_doc_comment, example(r###"mise test-tool ripgrep"###))]
+#[usage(verbatim_doc_comment, example(r###"pakro test-tool ripgrep"###))]
 pub(crate) struct TestTool {
     /// Tool(s) to test
     #[usage(required_unless = ["all", "all_config"])]
@@ -29,7 +29,7 @@ pub(crate) struct TestTool {
     /// Number of tool tests to run in parallel
     /// Values below 1 are treated as 1
     /// [default: 4]
-    #[usage(long, short, env = "MISE_TEST_TOOL_JOBS", verbatim_doc_comment)]
+    #[usage(long, short, env = "PAKRO_TEST_TOOL_JOBS", verbatim_doc_comment)]
     pub jobs: Option<usize>,
     /// Test all tools specified in config files
     #[usage(long, conflicts = "tools", conflicts = "all")]
@@ -108,7 +108,7 @@ impl TestTool {
         let results = self.test_targets(config, targets).await?;
         for result in results {
             if !result.output.is_empty() {
-                miseprintln!("{}", result.output);
+                pakroprintln!("{}", result.output);
             }
             if let Some(err) = result.error {
                 if !result.status_logged {

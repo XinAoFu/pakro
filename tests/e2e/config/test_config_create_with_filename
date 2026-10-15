@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-export MISE_DEFAULT_CONFIG_FILENAME=mise.config.toml
+export PAKRO_DEFAULT_CONFIG_FILENAME=pakro.config.toml
 
-mise use tiny
+pakro use tiny
 
-assert_contains "mise config" "mise.config.toml"
+assert_contains "pakro config" "pakro.config.toml"

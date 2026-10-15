@@ -1,6 +1,6 @@
 //! Install orchestration: requests -> lock reuse -> solve -> artifact
 //! selection -> download + verify -> store -> materialize -> lockfile. Every
-//! network touch goes through mise-index or the shared http helper; every
+//! network touch goes through pakro-index or the shared http helper; every
 //! byte that lands in the store is digest-checked first.
 
 use std::collections::BTreeMap;
@@ -11,10 +11,10 @@ use eyre::{Context, ContextCompat, bail};
 use tokio::runtime::Handle;
 use tokio::task::block_in_place;
 
-use mise_index::Index;
-use mise_index::{ArtifactKind, RuntimeInfo};
-use mise_resolver::{DependencyRequest, MetadataSource, ResolvedGraph};
-use mise_store::{Digest, Eco, PackageIdentity, Platform, RuntimeId, Store};
+use pakro_index::Index;
+use pakro_index::{ArtifactKind, RuntimeInfo};
+use pakro_resolver::{DependencyRequest, MetadataSource, ResolvedGraph};
+use pakro_store::{Digest, Eco, PackageIdentity, Platform, RuntimeId, Store};
 
 use crate::{dirs, http};
 
@@ -33,9 +33,9 @@ use super::python::{
 };
 
 pub struct Locations {
-    /// directory receiving `mise.packages.lock`
+    /// directory receiving `pakro.packages.lock`
     pub config_root: PathBuf,
-    /// directory receiving `.mise/venvs/`
+    /// directory receiving `.pakro/venvs/`
     pub project_root: PathBuf,
     pub store_root: PathBuf,
     pub index_cache: PathBuf,
@@ -133,12 +133,12 @@ pub(crate) async fn install_packages(
                         index: Arc::clone(&index),
                         context: python.context.clone(),
                     };
-                    mise_resolver::solve(&solve_requests, &bias, &source, "python")
+                    pakro_resolver::solve(&solve_requests, &bias, &source, "python")
                 } else {
                     let source = NodeSource {
                         index: Arc::clone(&index),
                     };
-                    mise_resolver::solve(&solve_requests, &bias, &source, "node")
+                    pakro_resolver::solve(&solve_requests, &bias, &source, "node")
                 };
                 result.map_err(|error| eyre::eyre!("resolving {group_key}: {error}"))?
             }
@@ -282,8 +282,8 @@ pub(crate) async fn install_packages(
 }
 
 fn select_node_artifact(
-    artifacts: &[mise_index::ArtifactDescriptor],
-) -> Option<&mise_index::ArtifactDescriptor> {
+    artifacts: &[pakro_index::ArtifactDescriptor],
+) -> Option<&pakro_index::ArtifactDescriptor> {
     let mut candidates: Vec<_> = artifacts
         .iter()
         .filter(|artifact| {
@@ -308,7 +308,7 @@ fn maybe_auto_gc(store_root: &std::path::Path) {
     }
     let store = Store::open(store_root);
     if let Ok(store) = store
-        && let Ok(report) = mise_store::gc(&store)
+        && let Ok(report) = pakro_store::gc(&store)
         && !report.removed.is_empty()
     {
         info!(
@@ -388,7 +388,7 @@ impl MetadataSource for NodeSource {
 }
 
 /// Installs every `[packages]` group plus any extra CLI pins (bound or bare).
-/// Shared by `mise install` and `mise use`.
+/// Shared by `pakro install` and `pakro use`.
 pub async fn install_config_packages(
     config: &Arc<crate::config::Config>,
     extra: Vec<super::PackageInstallRequest>,
@@ -426,7 +426,7 @@ pub async fn install_config_packages(
 
 /// A wheel produced by building an sdist locally.
 struct BuiltArtifact {
-    descriptor: mise_index::ArtifactDescriptor,
+    descriptor: pakro_index::ArtifactDescriptor,
     bytes: Vec<u8>,
 }
 
@@ -434,7 +434,7 @@ struct BuiltArtifact {
 /// Uses the explicitly bound interpreter to invoke `pip wheel --no-deps`.
 /// Correct executable binding does not make this a native build.
 async fn build_sdist_to_wheel(
-    metadata: &mise_index::PackageMetadata,
+    metadata: &pakro_index::PackageMetadata,
     name: &str,
     version: &str,
     interpreter_executable: &Path,
@@ -442,7 +442,7 @@ async fn build_sdist_to_wheel(
     let sdist = metadata
         .artifacts
         .iter()
-        .find(|a| matches!(a.kind, mise_index::ArtifactKind::Sdist))
+        .find(|a| matches!(a.kind, pakro_index::ArtifactKind::Sdist))
         .context("no sdist available either")?;
     warn!(
         "no prebuilt wheel for {name} {version}; building from source (this runs the package's build code)"
@@ -482,13 +482,13 @@ async fn build_sdist_to_wheel(
         .context("pip wheel produced no wheel")?;
     let bytes = std::fs::read(wheel_file.path())?;
     let filename = wheel_file.file_name().to_string_lossy().to_string();
-    let digest = mise_store::Digest::from_sha256_bytes(&bytes).to_string();
+    let digest = pakro_store::Digest::from_sha256_bytes(&bytes).to_string();
     Ok(BuiltArtifact {
-        descriptor: mise_index::ArtifactDescriptor {
+        descriptor: pakro_index::ArtifactDescriptor {
             filename,
             url: String::new(),
             digest: Some(digest),
-            kind: mise_index::ArtifactKind::Sdist,
+            kind: pakro_index::ArtifactKind::Sdist,
         },
         bytes,
     })
@@ -517,12 +517,12 @@ mod source_path_tests {
             .with_body("controlled source bytes")
             .create_async()
             .await;
-        let metadata = mise_index::PackageMetadata {
+        let metadata = pakro_index::PackageMetadata {
             name: "demo".into(),
             version: "1.0".into(),
             requires_python: None,
             deps: vec![],
-            artifacts: vec![mise_index::ArtifactDescriptor {
+            artifacts: vec![pakro_index::ArtifactDescriptor {
                 filename: "demo-1.0.tar.gz".into(),
                 url: format!("{}/demo.tar.gz", server.url()),
                 digest: None,

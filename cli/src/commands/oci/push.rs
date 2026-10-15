@@ -3,15 +3,15 @@ use std::path::PathBuf;
 use eyre::{Context, Result, bail};
 use tempfile::TempDir;
 
-use crate::cli::oci::common::{mise_binary_path, perform_build};
+use crate::cli::oci::common::{pakro_binary_path, perform_build};
 use crate::config::Settings;
 use crate::oci::{BuildOptions, LayerOwner, registry};
 
 /// [experimental] Build an OCI image and push it to a registry
 ///
-/// Pushes with mise's built-in registry client — no skopeo/crane/docker
+/// Pushes with pakro's built-in registry client — no skopeo/crane/docker
 /// required. If `--image-dir` is not passed, builds fresh from the current
-/// mise.toml first. Only blobs the registry doesn't already have are
+/// pakro.toml first. Only blobs the registry doesn't already have are
 /// uploaded, so repeat pushes of mostly-unchanged toolsets are cheap.
 ///
 /// Tool layers whose tool, version, mount point, and file owner match the
@@ -25,12 +25,12 @@ use crate::oci::{BuildOptions, LayerOwner, registry};
 /// (including credential helpers) — so `docker login` / `podman login`
 /// is all the setup needed.
 ///
-/// Requires `mise settings experimental=true` (or `MISE_EXPERIMENTAL=1`).
+/// Requires `pakro settings experimental=true` (or `PAKRO_EXPERIMENTAL=1`).
 #[derive(Debug, usage_rs::Args)]
 #[usage(verbatim_doc_comment, after_long_help = AFTER_LONG_HELP,
-    example(r###"mise oci push ghcr.io/me/devenv:latest"###, help = r###"Build and push to GHCR:"###),
-    example(r###"mise oci build -o ./img
-mise oci push --image-dir ./img ghcr.io/me/devenv:v1"###, help = r###"Push an image built earlier:"###))]
+    example(r###"pakro oci push ghcr.io/me/devenv:latest"###, help = r###"Build and push to GHCR:"###),
+    example(r###"pakro oci build -o ./img
+pakro oci push --image-dir ./img ghcr.io/me/devenv:v1"###, help = r###"Push an image built earlier:"###))]
 pub(super) struct Push {
     /// Destination registry reference (e.g. `ghcr.io/me/devenv:latest`)
     #[usage(value_name = "REF")]
@@ -49,12 +49,12 @@ pub(super) struct Push {
     from: Option<String>,
 
     /// Push an already-built OCI image layout (skip the build step)
-    #[usage(long, value_hint = ValueHint::DirPath, conflicts = &["from", "mount_point", "no_mise", "owner", "include_global"])]
+    #[usage(long, value_hint = ValueHint::DirPath, conflicts = &["from", "mount_point", "no_pakro", "owner", "include_global"])]
     image_dir: Option<PathBuf>,
 
     /// Also include tools from the global / system config (default: project-only)
     ///
-    /// See `mise oci build --help` for details.
+    /// See `pakro oci build --help` for details.
     #[usage(long)]
     include_global: bool,
 
@@ -66,9 +66,9 @@ pub(super) struct Push {
     #[usage(long)]
     no_cache: bool,
 
-    /// Don't embed the mise binary (ignored with --image-dir)
+    /// Don't embed the pakro binary (ignored with --image-dir)
     #[usage(long)]
-    no_mise: bool,
+    no_pakro: bool,
 
     /// UID[:GID] to assign to every tar entry when building (conflicts with --image-dir)
     ///
@@ -82,7 +82,7 @@ pub(super) struct Push {
     ///
     /// Pushes this build's manifest by digest and points the tag at an OCI
     /// image index containing one entry per platform, preserving entries
-    /// other architectures pushed. Run `mise oci push --update-index` from
+    /// other architectures pushed. Run `pakro oci push --update-index` from
     /// one runner per platform to assemble a multi-arch tag.
     #[usage(long)]
     update_index: bool,
@@ -90,7 +90,7 @@ pub(super) struct Push {
 
 impl Push {
     pub(super) async fn run(self) -> Result<()> {
-        Settings::get().ensure_experimental("mise oci push")?;
+        Settings::get().ensure_experimental("pakro oci push")?;
 
         if !self.reference.contains('/') {
             bail!(
@@ -113,7 +113,7 @@ impl Push {
                 }
                 (d.clone(), None)
             } else {
-                let td = TempDir::with_prefix("mise-oci-push-")
+                let td = TempDir::with_prefix("pakro-oci-push-")
                     .wrap_err("creating temp dir for oci build output")?;
                 let out_dir = td.path().join("image");
                 let opts = BuildOptions {
@@ -122,7 +122,7 @@ impl Push {
                     tag: Some(self.reference.clone()),
                     mount_point: self.mount_point.clone(),
                     owner: self.owner,
-                    mise_binary: mise_binary_path(self.no_mise),
+                    pakro_binary: pakro_binary_path(self.no_pakro),
                     copy: vec![],
                     reuse_from: self.fetch_layer_cache().await?,
                     push_destination: Some(self.reference.clone()),
@@ -144,7 +144,7 @@ impl Push {
                 ", {reused_layers} tool layer(s) reused from previous image"
             ));
         }
-        miseprintln!(
+        pakroprintln!(
             "pushed {} to {} ({} blob(s) uploaded, {} already present{extras})",
             summary.manifest_digest,
             self.reference,
@@ -152,7 +152,7 @@ impl Push {
             summary.skipped
         );
         if let Some(index_digest) = &summary.index_digest {
-            miseprintln!("updated image index: {index_digest}");
+            pakroprintln!("updated image index: {index_digest}");
         }
         Ok(())
     }

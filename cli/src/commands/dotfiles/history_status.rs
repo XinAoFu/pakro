@@ -1,4 +1,4 @@
-//! The history half of `mise dot status`: what is tracked,
+//! The history half of `pakro dot status`: what is tracked,
 //! the latest checkpoint, unfinished operations, and whether edits are
 //! being saved automatically.
 
@@ -166,37 +166,37 @@ pub(crate) async fn report() -> Result<HistoryReport> {
 
 pub(crate) fn print(report: &HistoryReport) -> Result<()> {
     if !report.enabled {
-        miseprintln!("History: disabled (history.enabled = false).");
+        pakroprintln!("History: disabled (history.enabled = false).");
         return Ok(());
     }
     if let Some(reason) = &report.unavailable {
-        miseprintln!("History: capture is unavailable: {reason}");
+        pakroprintln!("History: capture is unavailable: {reason}");
     }
-    miseprintln!(
+    pakroprintln!(
         "History: tracking {} entries ({} files); {} checkpoints recorded.",
         report.tracked_entries,
         report.tracked_files,
         report.checkpoints
     );
     match &report.latest {
-        Some(latest) => miseprintln!(
+        Some(latest) => pakroprintln!(
             "  latest checkpoint {} ({}, {}): {}",
             latest.id,
             latest.trigger,
             local_time(&latest.created_at),
             latest.description
         ),
-        None => miseprintln!("  no checkpoint recorded yet; `mise dot save` records one."),
+        None => pakroprintln!("  no checkpoint recorded yet; `pakro dot save` records one."),
     }
     if !report.omitted.is_empty() || !report.nested.is_empty() {
-        miseprintln!(
+        pakroprintln!(
             "  {}.",
             crate::system::history::tracked::omission_summary(&report.omitted, &report.nested)
         );
     }
     if report.pending_operations > 0 {
-        miseprintln!(
-            "  {} operation(s) did not finish; `mise dot history --pending` lists them; `mise dot recover` retries safe recovery.",
+        pakroprintln!(
+            "  {} operation(s) did not finish; `pakro dot history --pending` lists them; `pakro dot recover` retries safe recovery.",
             report.pending_operations
         );
     }
@@ -205,23 +205,23 @@ pub(crate) fn print(report: &HistoryReport) -> Result<()> {
         .as_ref()
         .is_some_and(|health| health.failing_capture().is_some());
     if failing && report.watcher == super::capture_health::Watcher::Running {
-        miseprintln!(
+        pakroprintln!(
             "  automatic capture: {} but failing (edits are not being saved until a capture succeeds).",
             report.watcher.as_str()
         );
     } else {
-        miseprintln!(
+        pakroprintln!(
             "  automatic capture: {} ({}).",
             report.watcher.as_str(),
             super::capture_health::advice(report.watcher)
         );
     }
     match &report.sync {
-        None => miseprintln!(
-            "Setup repository: none (`mise dot origin set <url>` synchronizes committed history)."
+        None => pakroprintln!(
+            "Setup repository: none (`pakro dot origin set <url>` synchronizes committed history)."
         ),
         Some(sync) => {
-            miseprintln!(
+            pakroprintln!(
                 "Setup repository: {} (branch {}, mode {}).",
                 sync.origin,
                 sync.branch,
@@ -232,46 +232,46 @@ pub(crate) fn print(report: &HistoryReport) -> Result<()> {
                     .map(local_time)
                     .unwrap_or_else(|| "never".into())
             };
-            miseprintln!(
+            pakroprintln!(
                 "  last publish {}, last fetch {}, last pull {}.",
                 when(&sync.last_publish),
                 when(&sync.last_fetch),
                 when(&sync.last_apply)
             );
             if !sync.pending_applications.is_empty() {
-                miseprintln!(
-                    "  {} incoming change(s) pending: `mise dot pull` ({})",
+                pakroprintln!(
+                    "  {} incoming change(s) pending: `pakro dot pull` ({})",
                     sync.pending_applications.len(),
                     sync.pending_applications.join(", ")
                 );
             }
             for (path, reason) in &sync.conflicts {
                 let advice = crate::system::history::sync::apply::resolution_advice(path, reason);
-                miseprintln!(
+                pakroprintln!(
                     "  sync paused: {path}: {reason}; sharing is paused for the entire setup; local history continues ({advice})"
                 );
             }
             if sync.declarations_changed {
-                miseprintln!("  declarations changed: run `mise bootstrap` (dry-run available)");
+                pakroprintln!("  declarations changed: run `pakro bootstrap` (dry-run available)");
             }
             if let Some(error) = &sync.last_error {
                 match &sync.failing_since {
-                    Some(since) => miseprintln!(
+                    Some(since) => pakroprintln!(
                         "  last error: {error} (failing since {}, {} attempt(s))",
                         local_time(since),
                         sync.consecutive_failures
                     ),
-                    None => miseprintln!("  last error: {error}"),
+                    None => pakroprintln!("  last error: {error}"),
                 }
             }
             if let Some(error) = &sync.application_failure {
-                miseprintln!("  sync paused: {error}");
+                pakroprintln!("  sync paused: {error}");
             }
             if let Some(error) = &sync.validation_error {
-                miseprintln!("  incoming setup is invalid: {error}");
+                pakroprintln!("  incoming setup is invalid: {error}");
             }
             for (path, reason) in &sync.skipped {
-                miseprintln!("  not shared: {path} ({reason})");
+                pakroprintln!("  not shared: {path} ({reason})");
             }
         }
     }
@@ -282,7 +282,7 @@ pub(crate) fn print(report: &HistoryReport) -> Result<()> {
             .map(|secs| format!("{} ago", humantime(std::time::Duration::from_secs(secs))))
             .unwrap_or_else(|| "at an unknown time".into());
         let w = &health.watcher;
-        miseprintln!(
+        pakroprintln!(
             "  watcher health (updated {age}): last capture {}, last reconcile {}{}",
             w.last_capture
                 .as_deref()
@@ -307,7 +307,7 @@ pub(crate) fn print(report: &HistoryReport) -> Result<()> {
             w.last_error.as_deref()
         };
         if let Some(error) = error {
-            miseprintln!(
+            pakroprintln!(
                 "  last capture failure: {error} ({} consecutive; at {}). Edits since then are not protected.",
                 w.consecutive_failures,
                 w.last_error_at
@@ -316,24 +316,24 @@ pub(crate) fn print(report: &HistoryReport) -> Result<()> {
                     .unwrap_or_else(|| "unknown".into())
             );
             if running && crate::system::history::health::is_stale_watcher_schema_error(error) {
-                miseprintln!(
+                pakroprintln!(
                     "  outdated: {}.",
                     crate::system::history::health::STALE_WATCHER_SCHEMA_ADVICE
                 );
             }
         }
         if running && w.executable_gone {
-            miseprintln!(
+            pakroprintln!(
                 "  outdated: {}.",
                 crate::system::history::health::EXECUTABLE_GONE_ADVICE
             );
         }
         for degraded in &w.degraded {
-            miseprintln!("  degraded: {degraded}");
+            pakroprintln!("  degraded: {degraded}");
         }
         for throttled in &health.throttled {
-            miseprintln!(
-                "  throttled: {} changes constantly; saved every {} ({} unsaved change(s), last saved {}). Not a failure: `mise dot exclude '{}'` if it is a log, cache, or database, or track it with --no-autosave and save explicitly.",
+            pakroprintln!(
+                "  throttled: {} changes constantly; saved every {} ({} unsaved change(s), last saved {}). Not a failure: `pakro dot exclude '{}'` if it is a log, cache, or database, or track it with --no-autosave and save explicitly.",
                 throttled.path,
                 humantime(std::time::Duration::from_secs(throttled.interval_secs)),
                 throttled.pending_changes,

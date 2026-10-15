@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+# --no-config must skip pakrorc discovery entirely: a malformed .pakrorc.toml
+# anywhere in the chain must not fail config-free invocations.
+
+printf '[invalid' >.pakrorc.toml
+printf '[invalid' >"$PAKRO_CONFIG_DIR/pakrorc.toml"
+export PAKRO_SYSTEM_CONFIG_DIR="$HOME/system-pakro"
+mkdir -p "$PAKRO_SYSTEM_CONFIG_DIR"
+printf '[invalid' >"$PAKRO_SYSTEM_CONFIG_DIR/pakrorc.toml"
+
+# Without --no-config, the malformed pakrorc chain still fails (control).
+assert_fail "pakro version" "Invalid TOML in config file"
+
+# Env var and flag both succeed, from the project root ...
+PAKRO_NO_CONFIG=1 assert_succeed "pakro version"
+assert_succeed "pakro --no-config version"
+PAKRO_NO_CONFIG=1 assert "pakro exec -- echo hello" "hello"
+assert "pakro --no-config exec -- echo hello" "hello"
+
+# ... and from a nested directory (project pakrorc is discovered upward).
+mkdir -p nested
+cd nested || exit 1
+PAKRO_NO_CONFIG=1 assert_succeed "pakro version"
+assert_succeed "pakro --no-config version"
+PAKRO_NO_CONFIG=1 assert "pakro exec -- echo hello" "hello"
+assert "pakro --no-config exec -- echo hello" "hello"

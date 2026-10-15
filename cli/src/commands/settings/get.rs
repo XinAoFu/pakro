@@ -7,12 +7,12 @@ use eyre::bail;
 ///
 /// Includes defaults, configuration, and environment overrides. With `--local`,
 /// read only the selected local config's explicit settings; an unset key is an error.
-/// Use `mise config get settings.KEY --file path/to/mise.toml` to inspect one file.
+/// Use `pakro config get settings.KEY --file path/to/pakro.toml` to inspect one file.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     example(
-        r###"mise settings get jobs
-mise settings get python.compile"###
+        r###"pakro settings get jobs
+pakro settings get python.compile"###
     ),
     verbatim_doc_comment
 )]
@@ -50,8 +50,8 @@ impl SettingsGet {
             }
         }
         match value {
-            toml::Value::String(s) => miseprintln!("{s}"),
-            value => miseprintln!("{value}"),
+            toml::Value::String(s) => pakroprintln!("{s}"),
+            value => pakroprintln!("{value}"),
         }
 
         Ok(())

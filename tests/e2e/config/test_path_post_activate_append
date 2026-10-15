@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
-# Test that paths appended to PATH after `mise activate` are not reordered
+# Test that paths appended to PATH after `pakro activate` are not reordered
 # to the front. Paths added after activation that appear at the end of PATH
 # should stay at the end after hook-env runs.
 #
 # Regression test for https://github.com/jdx/mise/discussions/7694
-# where `mise activate` would move post-activation appended paths to the
+# where `pakro activate` would move post-activation appended paths to the
 # beginning of PATH, changing the intended priority order.
 
 # Create test directories
@@ -29,21 +29,21 @@ chmod +x "$HOME/appended/bin/test-priority"
 # Set up initial PATH with system/bin
 export PATH="$HOME/system/bin:$PATH"
 
-# Activate mise (this captures __MISE_ORIG_PATH)
-eval "$(mise activate bash)"
+# Activate pakro (this captures __PAKRO_ORIG_PATH)
+eval "$(pakro activate bash)"
 
-# Simulate a user appending a path AFTER mise activation (e.g., path+=$FOO/bin in .zshrc)
+# Simulate a user appending a path AFTER pakro activation (e.g., path+=$FOO/bin in .zshrc)
 export PATH="$PATH:$HOME/appended/bin"
 
-# Create an empty mise.toml so hook-env has something to work with
-cat >mise.toml <<'EOF'
+# Create an empty pakro.toml so hook-env has something to work with
+cat >pakro.toml <<'EOF'
 EOF
 
 # Run hook-env to reconstruct PATH
-eval "$(mise hook-env)"
+eval "$(pakro hook-env)"
 
 echo "DEBUG: Final PATH=$PATH"
-echo "DEBUG: __MISE_ORIG_PATH=${__MISE_ORIG_PATH:-not set}"
+echo "DEBUG: __PAKRO_ORIG_PATH=${__PAKRO_ORIG_PATH:-not set}"
 
 # The system version should still win because system/bin was earlier in PATH
 # and appended/bin was added at the end

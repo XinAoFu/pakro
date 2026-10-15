@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks."test:local"]
 run = "echo zero groups"
 
@@ -23,31 +23,31 @@ run = "echo recursive aggregate"
 EOF
 
 # A single star stays within one colon-delimited group.
-output="$(mise run 'test:*:local')"
+output="$(pakro run 'test:*:local')"
 assert_contains_text "$output" "units local"
 assert_contains_text "$output" "integration local"
 assert_not_contains_text "$output" "zero groups"
 assert_not_contains_text "$output" "e2e happy local"
 
 # A double star spans zero or more groups.
-output="$(mise run 'test:**:local')"
+output="$(pakro run 'test:**:local')"
 assert_contains_text "$output" "zero groups"
 assert_contains_text "$output" "units local"
 assert_contains_text "$output" "integration local"
 assert_contains_text "$output" "e2e happy local"
 
 # Dependency patterns use the same matcher as direct execution.
-output="$(mise run one-level)"
+output="$(pakro run one-level)"
 assert_contains_text "$output" "units local"
 assert_not_contains_text "$output" "e2e happy local"
-output="$(mise run recursive)"
+output="$(pakro run recursive)"
 assert_contains_text "$output" "zero groups"
 assert_contains_text "$output" "e2e happy local"
 
 # Monorepo task patterns apply the group rules only to the task-name portion.
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 mkdir -p projects/app
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 monorepo_root = true
 
 [settings]
@@ -56,7 +56,7 @@ task.auto_infer = ["node"]
 [monorepo]
 config_roots = ["projects/app"]
 EOF
-cat <<'EOF' >projects/app/mise.toml
+cat <<'EOF' >projects/app/pakro.toml
 [tasks."test:units:local"]
 run = "echo monorepo units local"
 
@@ -64,10 +64,10 @@ run = "echo monorepo units local"
 run = "echo monorepo e2e happy local"
 EOF
 
-output="$(mise run '//projects/app:test:*:local')"
+output="$(pakro run '//projects/app:test:*:local')"
 assert_contains_text "$output" "monorepo units local"
 assert_not_contains_text "$output" "monorepo e2e happy local"
-output="$(mise run '//projects/app:test:**:local')"
+output="$(pakro run '//projects/app:test:**:local')"
 assert_contains_text "$output" "monorepo units local"
 assert_contains_text "$output" "monorepo e2e happy local"
 
@@ -97,9 +97,9 @@ cat <<'EOF' >packages/app/package.json
 }
 EOF
 
-output="$(mise -q run 'node:@scope/app#test:*:local')"
+output="$(pakro -q run 'node:@scope/app#test:*:local')"
 assert_contains_text "$output" "run test:units:local"
 assert_not_contains_text "$output" "run test:e2e:happy:local"
-output="$(mise -q run 'node:@scope/app#test:**:local')"
+output="$(pakro -q run 'node:@scope/app#test:**:local')"
 assert_contains_text "$output" "run test:units:local"
 assert_contains_text "$output" "run test:e2e:happy:local"

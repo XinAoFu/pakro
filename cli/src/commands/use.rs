@@ -25,53 +25,53 @@ use crate::{config, env, exit, file};
 /// Install a tool and add it to configuration
 ///
 /// Installs missing tool versions and records the requests in a config file.
-/// By default, mise selects the nearest directory with a supported config and writes
-/// to its lowest-precedence file, such as `mise.toml` rather than `mise.local.toml`.
+/// By default, pakro selects the nearest directory with a supported config and writes
+/// to its lowest-precedence file, such as `pakro.toml` rather than `pakro.local.toml`.
 /// If no project config exists, it creates one in the current directory. Running from
 /// your home directory targets global configuration.
 ///
 /// Use `--path` for an explicit file/directory, `--global` for personal defaults, or
-/// `--env` to write `mise.ENV.toml` in the current directory (preserving an existing
-/// `.mise.ENV.toml`). These selectors override one another; use one per command.
+/// `--env` to write `pakro.ENV.toml` in the current directory (preserving an existing
+/// `.pakro.ENV.toml`). These selectors override one another; use one per command.
 ///
 /// See https://mise.jdx.dev/configuration.html#target-file-for-write-operations
 /// for filename overrides and configuration precedence. Selection takes effect in
-/// an activated shell on its next prompt, or immediately in `mise exec` commands.
+/// an activated shell on its next prompt, or immediately in `pakro exec` commands.
 #[derive(Debug, Default, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
     visible_alias = "u",
     example(
-        r###"mise use"###,
+        r###"pakro use"###,
         help = r###"run with no arguments to use the interactive selector"###
     ),
     example(
-        r###"mise use node@20"###,
+        r###"pakro use node@20"###,
         help = r###"set the current version of node to 20.x in the selected project config will write the fuzzy version (e.g.: 20)"###
     ),
     example(
-        r###"mise use --postinstall "mbx setup --defaults" mr-boxington"###,
+        r###"pakro use --postinstall "mbx setup --defaults" mr-boxington"###,
         help = r###"run a command after installing a tool"###
     ),
     example(
-        r###"mise use --postinstall "setup-a" tool-a --postinstall "setup-b" tool-b"###,
+        r###"pakro use --postinstall "setup-a" tool-a --postinstall "setup-b" tool-b"###,
         help = r###"associate a different postinstall command with each tool"###
     ),
     example(
-        r###"mise use --tool-option mr_boxington=true rust mr-boxington"###,
+        r###"pakro use --tool-option mr_boxington=true rust mr-boxington"###,
         help = r###"enable a Rust tool option while installing Rust and mbx"###
     ),
     example(
-        r###"mise use -g --pin node@20"###,
-        help = r###"set the current version of node to 20.x in ~/.config/mise/config.toml will write the precise version (e.g.: 20.0.0)"###
+        r###"pakro use -g --pin node@20"###,
+        help = r###"set the current version of node to 20.x in ~/.config/pakro/config.toml will write the precise version (e.g.: 20.0.0)"###
     ),
     example(
-        r###"mise use --env local node@20"###,
-        help = r###"writes mise.local.toml (preserving .mise.local.toml if it already exists)"###
+        r###"pakro use --env local node@20"###,
+        help = r###"writes pakro.local.toml (preserving .pakro.local.toml if it already exists)"###
     ),
     example(
-        r###"mise use --env staging node@20"###,
-        help = r###"writes mise.staging.toml (loaded with MISE_ENV=staging)"###
+        r###"pakro use --env staging node@20"###,
+        help = r###"writes pakro.staging.toml (loaded with PAKRO_ENV=staging)"###
     ),
     unknown_flags = "error"
 )]
@@ -79,7 +79,7 @@ pub(crate) struct Use {
     #[usage(clause)]
     tools: Vec<UseTool>,
 
-    /// Create/modify an environment-specific config file like .mise.<env>.toml
+    /// Create/modify an environment-specific config file like .pakro.<env>.toml
     #[usage(long, short, overrides = & ["global", "path"])]
     env: Option<String>,
 
@@ -87,14 +87,14 @@ pub(crate) struct Use {
     #[usage(long, short, requires = "tool")]
     force: bool,
 
-    /// Use the global config file (`~/.config/mise/config.toml`) instead of the local one
+    /// Use the global config file (`~/.config/pakro/config.toml`) instead of the local one
     #[usage(short, long, overrides = & ["path", "env"])]
     global: bool,
 
     /// Number of jobs to run in parallel
     /// Values below 1 are treated as 1
     /// Defaults to the `jobs` setting
-    #[usage(long, short, env = "MISE_JOBS", verbatim_doc_comment)]
+    #[usage(long, short, env = "PAKRO_JOBS", verbatim_doc_comment)]
     jobs: Option<usize>,
 
     /// Perform a dry run, showing what would be installed and modified without making changes
@@ -106,7 +106,7 @@ pub(crate) struct Use {
     /// If a directory is specified, it will look for a config file in that directory following
     /// the target-file selection rules.
     // No `--file` alias here: `-f` on this command is `--force`, so offering `--file`
-    // invites `-f <path>`, which is a different action. See `mise unset --path` for the
+    // invites `-f <path>`, which is a different action. See `pakro unset --path` for the
     // commands where the short form is free.
     #[usage(short, long, overrides = & ["global", "env"], value_hint = usage_rs::ValueHint::FilePath)]
     path: Option<PathBuf>,
@@ -119,8 +119,8 @@ pub(crate) struct Use {
 
     /// Save fuzzy version to config file
     ///
-    /// e.g.: `mise use --fuzzy node@20` will save `20` as the version.
-    /// This is the default behavior unless `MISE_PIN=1`
+    /// e.g.: `pakro use --fuzzy node@20` will save `20` as the version.
+    /// This is the default behavior unless `PAKRO_PIN=1`
     #[usage(long, verbatim_doc_comment, overrides = "pin")]
     fuzzy: bool,
 
@@ -134,10 +134,10 @@ pub(crate) struct Use {
     ///
     /// If the request exactly matches an available release, that release is preferred over
     /// installed fuzzy matches. Use `prefix:` to explicitly request recursive prefix matching.
-    /// e.g.: `mise use --pin node@20` will save the resolved `20.x.y` version
-    /// Set `MISE_PIN=1` to make this the default behavior
+    /// e.g.: `pakro use --pin node@20` will save the resolved `20.x.y` version
+    /// Set `PAKRO_PIN=1` to make this the default behavior
     ///
-    /// Consider using mise.lock as a better alternative to pinning in mise.toml:
+    /// Consider using pakro.lock as a better alternative to pinning in pakro.toml:
     /// https://mise.jdx.dev/configuration/settings.html#lockfile
     #[usage(long, verbatim_doc_comment, overrides = "fuzzy")]
     pin: bool,
@@ -171,7 +171,7 @@ struct UseTool {
     ///
     /// Tool options can be set with this syntax:
     ///
-    ///     mise use "cargo:ripgrep[features=pcre2]"
+    ///     pakro use "cargo:ripgrep[features=pcre2]"
     #[usage(value_name = "TOOL@VERSION", verbatim_doc_comment)]
     tool: ToolArg,
 }
@@ -278,7 +278,7 @@ impl Use {
             .await?;
         let mut cf = self.get_config_file().await?;
         if self.tools.iter().any(|target| target.postinstall.is_some())
-            && !matches!(cf.source(), ToolSource::MiseToml(_))
+            && !matches!(cf.source(), ToolSource::PakroToml(_))
         {
             bail!("--postinstall requires a TOML config file");
         }
@@ -286,7 +286,7 @@ impl Use {
             .tools
             .iter()
             .any(|target| !target.tool_option.is_empty())
-            && !matches!(cf.source(), ToolSource::MiseToml(_))
+            && !matches!(cf.source(), ToolSource::PakroToml(_))
         {
             bail!("--tool-option requires a TOML config file");
         }
@@ -332,7 +332,7 @@ impl Use {
                         target.tool.ba.clone(),
                         "latest",
                         request_options,
-                        ToolSource::MiseToml(cf.get_path().to_path_buf()),
+                        ToolSource::PakroToml(cf.get_path().to_path_buf()),
                     ),
                 }
             })
@@ -354,7 +354,7 @@ impl Use {
             )
             .await?;
 
-        // Installation can take long enough for another `mise use` process to update this file.
+        // Installation can take long enough for another `pakro use` process to update this file.
         // Serialize only the read-modify-write phase, then re-read under the lock so we apply our
         // changes to the latest contents instead of overwriting them with the stale snapshot used
         // during resolution and installation.
@@ -472,7 +472,7 @@ impl Use {
             )
             .await?;
             if installed > 0 {
-                info!("installed {installed} package artifact(s) into the mise store");
+                info!("installed {installed} package artifact(s) into the pakro store");
             }
         }
 
@@ -497,7 +497,7 @@ impl Use {
             // Tool-level options cannot be represented in .tool-versions or idiomatic
             // version files. Keep the selected directory, but write the hook to its
             // default TOML config rather than unexpectedly selecting a TOML file above it.
-            path.set_file_name(&*env::MISE_DEFAULT_CONFIG_FILENAME);
+            path.set_file_name(&*env::PAKRO_DEFAULT_CONFIG_FILENAME);
         }
 
         config_file::parse_or_init(&path).await
@@ -517,7 +517,7 @@ impl Use {
         for target in &self.tools {
             let targ = &target.tool;
             if let Some(tv) = ts.versions.get(targ.ba.as_ref())
-                && let ToolSource::MiseToml(p) | ToolSource::ToolVersions(p) = &tv.source
+                && let ToolSource::PakroToml(p) | ToolSource::ToolVersions(p) = &tv.source
                 && !file::same_file(p, global)
                 && !config::is_system_config(p)
             {
@@ -550,9 +550,9 @@ impl Use {
 
             if !messages.is_empty() {
                 if !quiet {
-                    miseprintln!(
+                    pakroprintln!(
                         "{} would update {} ({})",
-                        style("mise").green(),
+                        style("pakro").green(),
                         style(&path).cyan().for_stderr(),
                         messages.join(", ")
                     );
@@ -564,17 +564,17 @@ impl Use {
         } else if !quiet {
             if !versions.is_empty() {
                 let tools = versions.iter().map(|t| t.style()).join(", ");
-                miseprintln!(
+                pakroprintln!(
                     "{} {} tools: {tools}",
-                    style("mise").green(),
+                    style("pakro").green(),
                     style(&path).cyan().for_stderr(),
                 );
             }
             if !remove.is_empty() {
                 let tools_to_remove = remove.iter().map(|r| r.to_string()).join(", ");
-                miseprintln!(
+                pakroprintln!(
                     "{} {} removed: {tools_to_remove}",
-                    style("mise").green(),
+                    style("pakro").green(),
                     style(&path).cyan().for_stderr(),
                 );
             }

@@ -9,10 +9,10 @@ use usage_rs::Args;
 use crate::config::Config;
 use crate::{dirs, file};
 
-/// Manage mise projects
+/// Manage pakro projects
 ///
-/// A project is a directory tree plus its mise.toml; these commands scaffold
-/// that file (init/attach) and report what mise manages (ls/status). The
+/// A project is a directory tree plus its pakro.toml; these commands scaffold
+/// that file (init/attach) and report what pakro manages (ls/status). The
 /// runtime association itself is unchanged: running a command resolves the
 /// environment from the nearest config up the tree.
 #[derive(Debug, Args)]
@@ -32,7 +32,7 @@ enum ProjectCommands {
 
 /// Create a new project scaffold
 ///
-/// Writes a mise.toml (in PATH, default the current directory) declaring the
+/// Writes a pakro.toml (in PATH, default the current directory) declaring the
 /// requested runtimes and package pins. Never touches code files.
 #[derive(Debug, Args)]
 #[usage(verbatim_doc_comment)]
@@ -50,9 +50,9 @@ pub(crate) struct ProjectInit {
     packages: Vec<String>,
 }
 
-/// Bring an existing code directory under mise management
+/// Bring an existing code directory under pakro management
 ///
-/// Writes a minimal mise.toml into the current directory when none exists.
+/// Writes a minimal pakro.toml into the current directory when none exists.
 /// Code files are never modified.
 #[derive(Debug, Args)]
 #[usage(verbatim_doc_comment)]
@@ -63,7 +63,7 @@ pub(crate) struct ProjectAttach {}
 #[usage(verbatim_doc_comment)]
 pub(crate) struct ProjectLs {}
 
-/// Show what mise manages for the current project
+/// Show what pakro manages for the current project
 #[derive(Debug, Args)]
 #[usage(verbatim_doc_comment)]
 pub(crate) struct ProjectStatus {}
@@ -121,10 +121,10 @@ impl ProjectInit {
             }
             None => std::env::current_dir()?,
         };
-        let config_path = root.join("mise.toml");
+        let config_path = root.join("pakro.toml");
         if config_path.exists() {
             bail!(
-                "{} already exists; edit it directly or run `mise project attach` elsewhere",
+                "{} already exists; edit it directly or run `pakro project attach` elsewhere",
                 config_path.display()
             );
         }
@@ -167,11 +167,11 @@ impl ProjectInit {
             ));
         }
         if body.is_empty() {
-            body.push_str("# managed by mise\n");
+            body.push_str("# managed by pakro\n");
         }
         file::write(&config_path, body)?;
         ProjectsIndex::open().register(&root)?;
-        miseprintln!("created {}", config_path.display());
+        pakroprintln!("created {}", config_path.display());
         Ok(())
     }
 }
@@ -179,14 +179,14 @@ impl ProjectInit {
 impl ProjectAttach {
     fn run(self) -> Result<()> {
         let root = std::env::current_dir()?;
-        let config_path = root.join("mise.toml");
+        let config_path = root.join("pakro.toml");
         if config_path.exists() {
-            miseprintln!("{} already exists; nothing to do", config_path.display());
+            pakroprintln!("{} already exists; nothing to do", config_path.display());
             return Ok(());
         }
-        file::write(&config_path, "# managed by mise\n")?;
+        file::write(&config_path, "# managed by pakro\n")?;
         ProjectsIndex::open().register(&root)?;
-        miseprintln!("attached {}", config_path.display());
+        pakroprintln!("attached {}", config_path.display());
         Ok(())
     }
 }
@@ -194,7 +194,7 @@ impl ProjectAttach {
 impl ProjectLs {
     fn run(self) -> Result<()> {
         for project in ProjectsIndex::open().load() {
-            miseprintln!("{}", project.display());
+            pakroprintln!("{}", project.display());
         }
         Ok(())
     }
@@ -208,14 +208,14 @@ impl ProjectStatus {
             .clone()
             .or_else(|| std::env::current_dir().ok())
             .context("no project root")?;
-        miseprintln!("root: {}", root.display());
+        pakroprintln!("root: {}", root.display());
         let requests = config.package_requests();
         if requests.is_empty() {
-            miseprintln!("packages: (none)");
+            pakroprintln!("packages: (none)");
         } else {
-            miseprintln!("packages:");
+            pakroprintln!("packages:");
             for request in requests {
-                miseprintln!(
+                pakroprintln!(
                     "  {}@{} {} {}",
                     request.runtime_name,
                     request.runtime_version,
@@ -224,8 +224,8 @@ impl ProjectStatus {
                 );
             }
         }
-        let lock = root.join("mise.packages.lock");
-        miseprintln!(
+        let lock = root.join("pakro.packages.lock");
+        pakroprintln!(
             "lockfile: {}",
             if lock.exists() {
                 lock.display().to_string()
@@ -233,12 +233,12 @@ impl ProjectStatus {
                 "(none)".to_string()
             }
         );
-        let venv = root.join(".mise/venvs");
+        let venv = root.join(".pakro/venvs");
         if venv.exists() {
-            miseprintln!("venvs: {}", venv.display());
+            pakroprintln!("venvs: {}", venv.display());
         }
         if root.join("node_modules").exists() {
-            miseprintln!("node_modules: present");
+            pakroprintln!("node_modules: present");
         }
         Ok(())
     }

@@ -37,7 +37,7 @@ pub enum HookReason {
 /// Timestamps are stored per-directory (using a hash of CWD) so that
 /// multiple shells in different directories don't interfere with each other.
 static LAST_CHECK_DIR: Lazy<PathBuf> = Lazy::new(|| dirs::STATE.join("hook-env-checks"));
-const LAST_UNTRUSTED_CONFIG_WARNING_KEY_ENV: &str = "__MISE_LAST_UNTRUSTED_CONFIG_WARNING_KEY";
+const LAST_UNTRUSTED_CONFIG_WARNING_KEY_ENV: &str = "__PAKRO_LAST_UNTRUSTED_CONFIG_WARNING_KEY";
 
 /// Get the path to the last check file for a specific directory.
 fn last_check_file_for_dir(dir: &Path) -> PathBuf {
@@ -81,7 +81,7 @@ fn write_last_full_check(timestamp: u128) {
 /// `latest_update` stale and forcing another full run on the next prompt,
 /// forever.
 ///
-/// Both functions run in the same process for a given `mise hook-env`:
+/// Both functions run in the same process for a given `pakro hook-env`:
 /// `should_exit_early_fast` from `cli::run` before config is loaded, and
 /// `should_exit_early` from `cli::hook_env::HookEnv::run` after.
 static FAST_PATH_FORCED_FULL_RUN: AtomicBool = AtomicBool::new(false);
@@ -110,7 +110,7 @@ pub fn mark_untrusted_config_warning_seen(
     shell: &dyn Shell,
     config_paths: &[PathBuf],
 ) -> Result<()> {
-    miseprint!(
+    pakroprint!(
         "{}",
         shell.set_env(
             LAST_UNTRUSTED_CONFIG_WARNING_KEY_ENV,
@@ -167,12 +167,12 @@ fn config_path_mtime_millis(path: &Path) -> u128 {
 }
 
 pub static PREV_SESSION: Lazy<HookEnvSession> = Lazy::new(|| {
-    env::var("__MISE_SESSION")
+    env::var("__PAKRO_SESSION")
         .ok()
         .and_then(|s| {
             deserialize(s)
                 .map_err(|err| {
-                    warn!("error deserializing __MISE_SESSION: {err}");
+                    warn!("error deserializing __PAKRO_SESSION: {err}");
                     err
                 })
                 .ok()
@@ -241,14 +241,14 @@ fn check_exit_early_fast() -> bool {
         || args
             .windows(2)
             .any(|w| w[0] == "--reason" && w[1] == "precmd");
-    if is_precmd && !*env::__MISE_ZSH_PRECMD_RUN {
+    if is_precmd && !*env::__PAKRO_ZSH_PRECMD_RUN {
         return false;
     }
 
     // hook_env.chpwd_only and hook_env.cache_ttl are the only settings this
     // check reads, and loading settings costs more than the rest of it. When
     // the full run that wrote the session found neither set, skip the load:
-    // turning either on edits a config file or a MISE_* variable, which the
+    // turning either on edits a config file or a PAKRO_* variable, which the
     // checks below catch, and the resulting full run refreshes the session.
     // Otherwise read them live, so turning one off applies on the next prompt,
     // as it does for a session written before this was recorded.
@@ -279,8 +279,8 @@ fn check_exit_early_fast() -> bool {
     if dir_change().is_some() {
         return false;
     }
-    // Can't exit early if MISE_ env vars changed (cheap in-memory hash comparison)
-    if have_mise_env_vars_been_modified() {
+    // Can't exit early if PAKRO_ env vars changed (cheap in-memory hash comparison)
+    if have_pakro_env_vars_been_modified() {
         return false;
     }
 
@@ -377,8 +377,8 @@ pub fn should_exit_early(
 ) -> bool {
     // Force hook-env to run at least once from precmd after activation
     // This catches PATH modifications from shell initialization (e.g., path_helper in zsh)
-    if reason == Some(HookReason::Precmd) && !*env::__MISE_ZSH_PRECMD_RUN {
-        trace!("__MISE_ZSH_PRECMD_RUN=0 and reason=precmd, forcing hook-env to run");
+    if reason == Some(HookReason::Precmd) && !*env::__PAKRO_ZSH_PRECMD_RUN {
+        trace!("__PAKRO_ZSH_PRECMD_RUN=0 and reason=precmd, forcing hook-env to run");
         return false;
     }
     if has_untrusted_config_warning_marker() {
@@ -399,7 +399,7 @@ pub fn should_exit_early(
     if have_files_been_modified(watch_files) {
         return false;
     }
-    if have_mise_env_vars_been_modified() {
+    if have_pakro_env_vars_been_modified() {
         return false;
     }
     // The fast path already decided this run is necessary. Check it only after
@@ -489,8 +489,8 @@ fn has_preclap_logging_flag(args: &[String]) -> bool {
     })
 }
 
-fn have_mise_env_vars_been_modified() -> bool {
-    get_mise_env_vars_hashed() != PREV_SESSION.env_var_hash
+fn have_pakro_env_vars_been_modified() -> bool {
+    get_pakro_env_vars_hashed() != PREV_SESSION.env_var_hash
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -519,7 +519,7 @@ pub struct HookEnvSession {
     latest_update: u128,
     /// Whether the full run that wrote this session found `hook_env.chpwd_only`
     /// off and `hook_env.cache_ttl` unset, which lets the fast path skip
-    /// loading settings. False in sessions from older mise versions.
+    /// loading settings. False in sessions from older pakro versions.
     #[serde(default)]
     hook_env_shortcuts_unset: bool,
 }
@@ -544,7 +544,7 @@ pub(crate) fn deserialize<T: serde::de::DeserializeOwned>(raw: String) -> Result
 fn config_search_dir_mtimes() -> Vec<SystemTime> {
     let mut mtimes = Vec::new();
     if let Some(cwd) = &*dirs::CWD
-        && let Ok(ancestor_dirs) = file::all_dirs(cwd, &env::MISE_CEILING_PATHS)
+        && let Ok(ancestor_dirs) = file::all_dirs(cwd, &env::PAKRO_CEILING_PATHS)
     {
         let config_subdirs = DEFAULT_CONFIG_FILENAMES
             .iter()
@@ -646,7 +646,7 @@ pub async fn build_session(
     Ok(HookEnvSession {
         v: ENV_STATE_VERSION,
         dir: dirs::CWD.clone(),
-        env_var_hash: get_mise_env_vars_hashed(),
+        env_var_hash: get_pakro_env_vars_hashed(),
         env: env
             .into_iter()
             .map(|(k, v)| (k, hash_env_value(&v)))
@@ -687,19 +687,19 @@ pub(crate) fn get_watch_files(
     Ok(watches)
 }
 
-/// gets a hash of all MISE_ environment variables
-fn get_mise_env_vars_hashed() -> String {
+/// gets a hash of all PAKRO_ environment variables
+fn get_pakro_env_vars_hashed() -> String {
     let env_vars: Vec<(&String, &String)> = env::PRISTINE_ENV
         .deref()
         .iter()
-        .filter(|(k, _)| k.starts_with("MISE_"))
+        .filter(|(k, _)| k.starts_with("PAKRO_"))
         .sorted()
         .collect();
     hash_to_str(&env_vars)
 }
 
 pub fn clear_old_env_patches(shell: &dyn Shell) -> EnvDiffPatches {
-    let mut patches = env::__MISE_DIFF.reverse().to_patches();
+    let mut patches = env::__PAKRO_DIFF.reverse().to_patches();
 
     // For fish shell, filter out PATH operations from the reversed diff because
     // fish has its own PATH management that conflicts with ours.
@@ -713,7 +713,7 @@ pub fn clear_old_env_patches(shell: &dyn Shell) -> EnvDiffPatches {
         let new_path = compute_deactivated_path();
         patches.push(EnvDiffOperation::Change(PATH_KEY.to_string(), new_path));
     } else {
-        // For non-fish shells, we need to preserve user-added paths while removing mise paths
+        // For non-fish shells, we need to preserve user-added paths while removing pakro paths
         let new_path = compute_deactivated_path();
         patches.push(EnvDiffOperation::Change(PATH_KEY.to_string(), new_path));
     }
@@ -738,13 +738,13 @@ fn compute_deactivated_path() -> String {
     // Get current PATH (may include user additions since last hook-env)
     let current_path = env::var("PATH").unwrap_or_default();
 
-    // Get the PATH that mise set during the last hook-env
-    let mise_paths = &env::__MISE_DIFF.path;
+    // Get the PATH that pakro set during the last hook-env
+    let pakro_paths = &env::__PAKRO_DIFF.path;
 
-    // The activation prelude may establish a mise-managed shim boundary before
+    // The activation prelude may establish a pakro-managed shim boundary before
     // the first hook runs. Prefer the shell's explicit pre-activation snapshot
     // so deactivation does not preserve that boundary as a user-owned path.
-    let pristine_path = env::__MISE_ORIG_PATH.clone().unwrap_or_else(|| {
+    let pristine_path = env::__PAKRO_ORIG_PATH.clone().unwrap_or_else(|| {
         env::PRISTINE_ENV
             .deref()
             .get(&*PATH_KEY)
@@ -753,16 +753,16 @@ fn compute_deactivated_path() -> String {
     });
     let pristine_path = crate::windows_posix::orig_path_for_windows(&pristine_path).into_owned();
 
-    if current_path.is_empty() || mise_paths.is_empty() {
-        // If no current PATH or no mise PATH, just return pristine
+    if current_path.is_empty() || pakro_paths.is_empty() {
+        // If no current PATH or no pakro PATH, just return pristine
         return pristine_path;
     }
 
     // Parse paths
     let current_paths: Vec<PathBuf> = env::split_paths(&current_path).collect();
-    let mise_paths_vec = mise_paths.clone();
+    let pakro_paths_vec = pakro_paths.clone();
 
-    // Count occurrences of each path in current_path, mise_paths, and pristine_path
+    // Count occurrences of each path in current_path, pakro_paths, and pristine_path
     let pristine_paths: Vec<PathBuf> = env::split_paths(&pristine_path).collect();
 
     let mut current_counts: std::collections::HashMap<PathBuf, usize> =
@@ -771,10 +771,10 @@ fn compute_deactivated_path() -> String {
         *current_counts.entry(path.clone()).or_insert(0) += 1;
     }
 
-    let mut mise_counts: std::collections::HashMap<PathBuf, usize> =
+    let mut pakro_counts: std::collections::HashMap<PathBuf, usize> =
         std::collections::HashMap::new();
-    for path in &mise_paths_vec {
-        *mise_counts.entry(path.clone()).or_insert(0) += 1;
+    for path in &pakro_paths_vec {
+        *pakro_counts.entry(path.clone()).or_insert(0) += 1;
     }
 
     let mut pristine_counts: std::collections::HashMap<PathBuf, usize> =
@@ -788,9 +788,9 @@ fn compute_deactivated_path() -> String {
 
     let mut target_counts: HashMap<PathBuf, usize> = HashMap::new();
     for (path, current_count) in current_counts.iter() {
-        let removal_count = *mise_counts.get(path).unwrap_or(&0);
+        let removal_count = *pakro_counts.get(path).unwrap_or(&0);
         let pristine_count = *pristine_counts.get(path).unwrap_or(&0);
-        let user_and_pristine = if file::is_mise_shims_dir(path) {
+        let user_and_pristine = if file::is_pakro_shims_dir(path) {
             // Activation owns the shim boundary even though it is not part of
             // EnvDiff::path. Preserve only copies that existed before activation.
             pristine_count
@@ -903,7 +903,7 @@ mod tests {
         use super::{HookEnvSession, deserialize, serialize};
         use crate::env_diff::{ENV_STATE_VERSION, env_value_matches, hash_env_value};
 
-        // what the previous mise wrote: no version field, plaintext values
+        // what the previous pakro wrote: no version field, plaintext values
         #[derive(serde::Serialize)]
         struct Legacy {
             loaded_tools: Vec<String>,
@@ -952,20 +952,22 @@ mod tests {
     #[test]
     fn detects_logging_flags_that_need_clap_before_fast_exit() {
         assert!(has_preclap_logging_flag(&args(&[
-            "mise", "hook-env", "-s", "bash", "--quiet"
-        ])));
-        assert!(has_preclap_logging_flag(&args(&["mise", "hook-env", "-q"])));
-        assert!(has_preclap_logging_flag(&args(&[
-            "mise", "hook-env", "--silent"
+            "pakro", "hook-env", "-s", "bash", "--quiet"
         ])));
         assert!(has_preclap_logging_flag(&args(&[
-            "mise",
+            "pakro", "hook-env", "-q"
+        ])));
+        assert!(has_preclap_logging_flag(&args(&[
+            "pakro", "hook-env", "--silent"
+        ])));
+        assert!(has_preclap_logging_flag(&args(&[
+            "pakro",
             "hook-env",
             "--log-level",
             "error"
         ])));
         assert!(has_preclap_logging_flag(&args(&[
-            "mise",
+            "pakro",
             "hook-env",
             "--log-level=error"
         ])));
@@ -974,16 +976,16 @@ mod tests {
     #[test]
     fn ignores_logging_flags_that_do_not_suppress_warnings() {
         assert!(!has_preclap_logging_flag(&args(&[
-            "mise", "hook-env", "-s", "bash"
+            "pakro", "hook-env", "-s", "bash"
         ])));
         assert!(!has_preclap_logging_flag(&args(&[
-            "mise", "hook-env", "--trace"
+            "pakro", "hook-env", "--trace"
         ])));
         assert!(!has_preclap_logging_flag(&args(&[
-            "mise", "hook-env", "--debug"
+            "pakro", "hook-env", "--debug"
         ])));
         assert!(!has_preclap_logging_flag(&args(&[
-            "mise",
+            "pakro",
             "hook-env",
             "--verbose"
         ])));

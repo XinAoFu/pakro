@@ -1,21 +1,21 @@
 //! Homebrew formulae without Homebrew.
 //!
-//! mise installs homebrew/core bottles directly into the canonical prefix
+//! pakro installs homebrew/core bottles directly into the canonical prefix
 //! (/opt/homebrew on arm64 macOS, /home/linuxbrew/.linuxbrew on Linux) —
 //! fetching metadata from formulae.brew.sh, downloading bottles from
 //! ghcr.io, and doing the same relocation/codesigning work `brew` does at
-//! pour time. mise never shells out to brew to pour a bottle; the receipts
-//! it writes are brew-compatible, so a real Homebrew sees mise-poured kegs
+//! pour time. pakro never shells out to brew to pour a bottle; the receipts
+//! it writes are brew-compatible, so a real Homebrew sees pakro-poured kegs
 //! as its own.
 //!
 //! Formulae without a usable bottle are built from source, still without
-//! Homebrew: mise provisions a mise-managed ruby and evaluates the formula
+//! Homebrew: pakro provisions a pakro-managed ruby and evaluates the formula
 //! with its own Formula-DSL shim (see source.rs and shim.rb).
 //!
 //! Scope: formulae only. Casks are implemented by the sibling `brew-cask`
-//! manager. Services are not implemented. homebrew/core formulae use mise's
+//! manager. Services are not implemented. homebrew/core formulae use pakro's
 //! direct pour path; fully-qualified third-party tap formulae use published
-//! metadata or mise's metadata-only Ruby shim. mise never shells out to `brew`.
+//! metadata or pakro's metadata-only Ruby shim. pakro never shells out to `brew`.
 
 use async_trait::async_trait;
 use eyre::{WrapErr, bail};
@@ -138,7 +138,7 @@ impl BrewManager {
             {
                 warn!(
                     "'{alias}' resolves to '{}' — use the canonical name in [bootstrap.packages] \
-                     so `mise bootstrap packages status` can track it",
+                     so `pakro bootstrap packages status` can track it",
                     rf.formula.name
                 );
             }
@@ -156,7 +156,7 @@ impl BrewManager {
             return Ok(());
         }
         // formulae without a usable bottle are built from source by
-        // evaluating their Ruby with mise's formula shim; reject the ones
+        // evaluating their Ruby with pakro's formula shim; reject the ones
         // the builder can't handle before any work happens
         let source_builds: Vec<_> = to_pour
             .iter()
@@ -174,13 +174,13 @@ impl BrewManager {
                     "dependency"
                 };
                 if source::has_bottle(&rf.formula) {
-                    miseprintln!(
+                    pakroprintln!(
                         "pour {}/{} ({origin})",
                         rf.formula.name,
                         rf.formula.pkg_version()?,
                     );
                 } else {
-                    miseprintln!(
+                    pakroprintln!(
                         "build {}/{} from source ({origin}, {})",
                         rf.formula.name,
                         rf.formula.pkg_version()?,
@@ -193,7 +193,7 @@ impl BrewManager {
         if prefix::sudo_invoking_user().is_some() {
             warn!(
                 "running under sudo — poured files will be owned by root; run \
-                 `mise bootstrap packages apply` without sudo instead (mise elevates itself \
+                 `pakro bootstrap packages apply` without sudo instead (pakro elevates itself \
                  for the one-time prefix setup)"
             );
         }
@@ -422,7 +422,7 @@ impl SystemPackageManager for BrewManager {
     }
 
     async fn installed(&self, pkgs: &[PackageRequest]) -> Result<Vec<PackageStatus>> {
-        // the prefix is the source of truth whether kegs were poured by mise
+        // the prefix is the source of truth whether kegs were poured by pakro
         // or by a real brew; a formula counts as installed only when its opt
         // symlink resolves to a keg — a Cellar directory without one is a
         // remnant of a failed install and must not mask a retry

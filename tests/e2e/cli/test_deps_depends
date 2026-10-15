@@ -7,7 +7,7 @@
 touch schema.graphql
 touch requirements.txt
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [deps.step-a]
 run = "bash -c 'echo STEP-A >> prepare.log'"
 sources = ["schema.graphql"]
@@ -30,7 +30,7 @@ description = "step-c"
 EOF
 
 # Force run to ensure all steps execute
-mise deps --force 2>&1
+pakro deps --force 2>&1
 
 # Verify all steps ran and in dependency order (a before b before c)
 assert "cat prepare.log" "STEP-A
@@ -41,7 +41,7 @@ STEP-C"
 rm -f prepare.log
 
 # Test that independent steps can still run in parallel alongside deps
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [deps.dep-first]
 run = "bash -c 'echo DEP-FIRST >> prepare2.log'"
 sources = ["schema.graphql"]
@@ -62,7 +62,7 @@ outputs = ["gen-independent"]
 description = "independent"
 EOF
 
-mise deps --force 2>&1
+pakro deps --force 2>&1
 
 # dep-first must appear before dep-second
 output=$(cat prepare2.log)
@@ -81,4 +81,4 @@ fi
 rm -f prepare2.log
 
 # Test dry-run with depends shows what would run
-assert_contains "mise deps --dry-run 2>&1" "dep-first"
+assert_contains "pakro deps --dry-run 2>&1" "dep-first"

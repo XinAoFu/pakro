@@ -26,7 +26,7 @@ use crate::system::history::tracked::{Asked, ExcludeSet, TrackedSet};
 
 const PUSH_RETRIES: usize = 5;
 
-/// An incoming change waiting for `mise dot pull` (or automatic
+/// An incoming change waiting for `pakro dot pull` (or automatic
 /// application in `sync` mode).
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PendingApplication {
@@ -44,7 +44,7 @@ pub struct PendingApplication {
     pub local: Option<Object>,
 }
 
-/// A path sync leaves alone, and why; listed by `mise dot status`.
+/// A path sync leaves alone, and why; listed by `pakro dot status`.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SkippedPath {
     pub branch_path: String,
@@ -91,14 +91,14 @@ pub struct SyncStatus {
     /// Repository metadata and inactive streams can change without live writes.
     #[serde(default)]
     pub pending_repository: bool,
-    /// Incoming configuration changed declarations: run `mise bootstrap`.
+    /// Incoming configuration changed declarations: run `pakro bootstrap`.
     #[serde(default)]
     pub declarations_changed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
     /// When the current run of failed syncs began; a success clears it. An
     /// origin that has never answered has no last success to measure from,
-    /// so `mise doctor` measures the failure from here.
+    /// so `pakro doctor` measures the failure from here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failing_since: Option<String>,
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -234,7 +234,7 @@ pub fn origin() -> Result<OriginTomlConfig> {
     {
         return Ok(OriginTomlConfig::plain(url, branch));
     }
-    bail!("no setup repository is connected; `mise dot origin set <url>` connects one")
+    bail!("no setup repository is connected; `pakro dot origin set <url>` connects one")
 }
 
 /// Runs one synchronization.
@@ -278,7 +278,7 @@ pub(crate) fn sync_locked(
             let found = remote.fetch(&origin.branch)?;
             if !found && status.upstream_commit.is_some() {
                 bail!(
-                    "the setup branch `{}` is not at {} any more (renamed, or deleted?); nothing was changed. `mise dot origin set {} --branch <name>` follows a renamed branch",
+                    "the setup branch `{}` is not at {} any more (renamed, or deleted?); nothing was changed. `pakro dot origin set {} --branch <name>` follows a renamed branch",
                     origin.branch,
                     origin.url,
                     origin.url
@@ -302,7 +302,7 @@ pub(crate) fn sync_locked(
         repo_state.check()?;
         if repo_state == RepoState::Unmarked && !status.adopted {
             bail!(
-                "{} is an existing repository without the mise marker; `mise dot origin set {}` previews how it would be adopted",
+                "{} is an existing repository without the pakro marker; `pakro dot origin set {}` previews how it would be adopted",
                 origin.url,
                 origin.url
             );
@@ -578,9 +578,9 @@ fn notify_conflicts_with(status: &mut SyncStatus, enabled: bool, send: impl FnOn
             lines.join("\n")
         };
         send(
-            "mise: dotfile sync paused",
+            "pakro: dotfile sync paused",
             &format!(
-                "Conflicting changes in {body}.\nLocal saves still work. For resolution steps, run:\nmise dot status"
+                "Conflicting changes in {body}.\nLocal saves still work. For resolution steps, run:\npakro dot status"
             ),
         );
     }
@@ -643,7 +643,7 @@ fn record_pending(
             })
         })
         .collect();
-    // said until `mise bootstrap` ran, even once the configuration is written
+    // said until `pakro bootstrap` ran, even once the configuration is written
     status.declarations_changed = status.declarations_changed
         || status
             .pending_applications
@@ -1222,7 +1222,7 @@ mod capture_tests {
         let store = Store::open_in(temp.path())?;
         let repo = store.repo().ok_or_else(|| eyre::eyre!("git required"))?;
         let path = format!(
-            "home/.mise-test-{}",
+            "home/.pakro-test-{}",
             crate::system::history::store::new_uuid()
         );
         let saved = ("100644".into(), repo.hash_blob(b"saved")?);
@@ -1262,7 +1262,7 @@ mod capture_tests {
         // The live side is a directory: nothing changed type on either side
         // of the repository, so neither resolution applies until it is gone.
         let live = tempfile::Builder::new()
-            .prefix(".mise-unusable-test-")
+            .prefix(".pakro-unusable-test-")
             .tempdir_in(&roots.home)?;
         let branch_path = roots
             .branch_path(live.path(), None)
@@ -1292,7 +1292,7 @@ mod capture_tests {
         let repo = store.repo().ok_or_else(|| eyre::eyre!("git required"))?;
         let roots = Roots::current();
         let live = tempfile::Builder::new()
-            .prefix(".mise-lock-test-")
+            .prefix(".pakro-lock-test-")
             .tempdir_in(&roots.home)?;
         let path = live.path().join("config");
         std::fs::write(&path, "explicitly enrolled")?;
@@ -1376,7 +1376,7 @@ mod notification_tests {
         notify_conflicts_with(&mut status, true, |_, body| {
             assert!(body.contains("… and 1 other file"));
             assert!(body.contains("Local saves still work."));
-            assert!(body.ends_with("mise dot status"));
+            assert!(body.ends_with("pakro dot status"));
             assert_eq!(body.lines().count(), 3);
             assert!(body.chars().count() < 250);
         });
@@ -1471,7 +1471,7 @@ mod nested_repository_tests {
         let home = normalize(temp.path());
         let roots = Roots {
             home: home.clone(),
-            config_dir: home.join(".config/mise"),
+            config_dir: home.join(".config/pakro"),
         };
         for (parent, prefix) in [
             (home.join("plugins"), "home/plugins"),
@@ -1518,7 +1518,7 @@ mod tests {
     fn an_excluded_path_is_not_eligible_for_deletion() {
         let roots = Roots {
             home: "/home/u".into(),
-            config_dir: "/config/mise".into(),
+            config_dir: "/config/pakro".into(),
         };
         let policy = FilePolicy::for_mode(FileMode::Track);
         let mut entry = TrackedEntry::new("/home/u/.sample".into(), "track", policy);
@@ -1553,7 +1553,7 @@ mod tests {
     fn a_path_with_no_readable_kind_is_not_eligible_for_deletion() {
         let roots = Roots {
             home: "/home/u".into(),
-            config_dir: "/config/mise".into(),
+            config_dir: "/config/pakro".into(),
         };
         let policy = FilePolicy::for_mode(FileMode::Track);
         let mut entry = TrackedEntry::new("/home/u/.sample".into(), "track", policy);

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Test timeout via CLI flag (global timeout for entire run)
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.task1]
 run = "sleep 1 && echo 'Task 1 done'"
 
@@ -14,7 +14,7 @@ run = "sleep 5 && echo 'Task 3 should not appear'"
 EOF
 
 echo "Testing global timeout via CLI flag..."
-output="$(mise run --timeout=3s task1 ::: task2 ::: task3 2>&1 || true)"
+output="$(pakro run --timeout=3s task1 ::: task2 ::: task3 2>&1 || true)"
 if [[ $output != *"timed out"* ]]; then
   echo "ERROR: Expected 'timed out' in output, got: $output"
   exit 1
@@ -35,7 +35,7 @@ process_running() {
 # `exit::kill_all`; test the run's own cleanup instead.
 assert_timeout_stops_task() {
   rm -f task.pid
-  MISE_FRIENDLY_ERROR=0 mise run --timeout=5s stuck >timeout.log 2>&1 || true
+  PAKRO_FRIENDLY_ERROR=0 pakro run --timeout=5s stuck >timeout.log 2>&1 || true
   if ! grep -q "timed out" timeout.log; then
     echo "ERROR: Expected 'timed out' in output, got: $(cat timeout.log)"
     exit 1
@@ -52,14 +52,14 @@ assert_timeout_stops_task() {
   done
   if process_running "$task_pid"; then
     kill -9 "$task_pid"
-    echo "ERROR: task process $task_pid outlived mise run --timeout"
+    echo "ERROR: task process $task_pid outlived pakro run --timeout"
     exit 1
   fi
 }
 
 # The task ignores SIGTERM (inherited through exec), so this covers the SIGKILL
 # after the grace period.
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.stuck]
 run = "trap '' TERM; echo $$ > task.pid; exec sleep 60"
 EOF
@@ -68,8 +68,8 @@ assert_timeout_stops_task
 echo "✓ Global timeout stops the running task"
 
 # The shell exits on SIGTERM, but its background child ignores it and has let go
-# of mise's pipes. The SIGKILL must still reach the child's process group.
-cat <<'EOF' >mise.toml
+# of pakro's pipes. The SIGKILL must still reach the child's process group.
+cat <<'EOF' >pakro.toml
 [tasks.stuck]
 run = "(trap '' TERM; exec sleep 60) >/dev/null 2>&1 & echo $! > task.pid; wait"
 EOF
@@ -78,7 +78,7 @@ assert_timeout_stops_task
 echo "✓ Global timeout stops a background child that ignores SIGTERM"
 
 # Test timeout via task config (individual task timeout)
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.quick]
 run = "echo 'Quick task'"
 timeout = "5s"
@@ -93,7 +93,7 @@ timeout = "1s"
 EOF
 
 echo "Testing individual task timeout (too_slow should time out)..."
-output="$(mise run too_slow 2>&1 || true)"
+output="$(pakro run too_slow 2>&1 || true)"
 if [[ $output != *"timed out"* ]]; then
   echo "ERROR: Expected 'timed out' in output, got: $output"
   exit 1
@@ -101,19 +101,19 @@ fi
 echo "✓ Individual task timeout works"
 
 echo "Testing task completes within timeout..."
-mise run quick 2>&1
-mise run slow 2>&1
+pakro run quick 2>&1
+pakro run slow 2>&1
 echo "✓ Tasks within timeout complete successfully"
 
 # A task that exits 0 on SIGTERM still timed out.
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.clean_exit]
 run = "trap 'exit 0' TERM; while true; do sleep 1; done"
 timeout = "2s"
 EOF
 
 echo "Testing a task that exits cleanly on SIGTERM still times out..."
-if output="$(mise run clean_exit 2>&1)"; then
+if output="$(pakro run clean_exit 2>&1)"; then
   echo "ERROR: Expected clean_exit to fail, got: $output"
   exit 1
 fi
@@ -124,7 +124,7 @@ fi
 echo "✓ A task that exits cleanly on SIGTERM still times out"
 
 # Test timeout via environment variable (global)
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.env_test1]
 run = "sleep 1 && echo 'Task 1'"
 
@@ -133,7 +133,7 @@ run = "sleep 2 && echo 'Task 2'"
 EOF
 
 echo "Testing global timeout via environment variable..."
-output="$(MISE_TASK_TIMEOUT=2s mise run env_test1 ::: env_test2 2>&1 || true)"
+output="$(PAKRO_TASK_TIMEOUT=2s pakro run env_test1 ::: env_test2 2>&1 || true)"
 if [[ $output != *"timed out"* ]]; then
   echo "ERROR: Expected 'timed out' in output, got: $output"
   exit 1
@@ -141,7 +141,7 @@ fi
 echo "✓ Environment variable global timeout works"
 
 # Test task timeout is independent per task
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.parallel1]
 run = "sleep 2 && echo 'Parallel 1 done'"
 timeout = "3s"
@@ -152,22 +152,22 @@ timeout = "3s"
 EOF
 
 echo "Testing parallel tasks with individual timeouts..."
-mise run parallel1 ::: parallel2 2>&1
+pakro run parallel1 ::: parallel2 2>&1
 echo "✓ Parallel tasks with individual timeouts work"
 
 # Test using duration formats
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.duration_test]
 run = "sleep 1 && echo 'Duration test done'"
 timeout = "2s"
 EOF
 
 echo "Testing duration format parsing..."
-mise run duration_test 2>&1
+pakro run duration_test 2>&1
 echo "✓ Duration format works"
 
 # Test task timeout Tera rendering with the ordinary task-load context
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.template_timeout]
 run = "sleep 5 && echo 'Should not appear'"
 timeout = "{{ vars.timeout }}"
@@ -177,7 +177,7 @@ timeout = "1s"
 EOF
 
 echo "Testing task timeout Tera rendering..."
-output="$(mise run template_timeout 2>&1 || true)"
+output="$(pakro run template_timeout 2>&1 || true)"
 if [[ $output != *"timed out"* ]]; then
   echo "ERROR: Expected rendered task timeout to fire, got: $output"
   exit 1
@@ -185,7 +185,7 @@ fi
 echo "✓ Task timeout Tera rendering works"
 
 # Test global timeout + per-task timeout serve distinct purposes
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [settings]
 task_timeout = "10s"
 
@@ -199,7 +199,7 @@ timeout = "3s"
 EOF
 
 echo "Testing global + per-task timeout interaction..."
-output="$(mise run quick_task ::: slow_task 2>&1 || true)"
+output="$(pakro run quick_task ::: slow_task 2>&1 || true)"
 if [[ $output != *"timed out"* ]]; then
   echo "ERROR: Expected per-task timeout to fire, got: $output"
   exit 1

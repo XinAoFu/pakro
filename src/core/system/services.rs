@@ -264,7 +264,7 @@ impl ServiceRequest {
                 active: false,
             })),
             ResourceAction::Unknown => bail!(
-                "refusing unsafe change to bootstrap service '{}'; inspect `mise bootstrap plan`",
+                "refusing unsafe change to bootstrap service '{}'; inspect `pakro bootstrap plan`",
                 self.name
             ),
             ResourceAction::Create | ResourceAction::Remove => {
@@ -402,11 +402,11 @@ pub fn apply_with_notifications(
     if dry_run {
         let has_unknown = !unknown.is_empty();
         if !actions.is_empty() {
-            miseprintln!("would run systemctl daemon-reload");
+            pakroprintln!("would run systemctl daemon-reload");
         }
         for action in &actions {
             for command in action.commands() {
-                miseprintln!("would run systemctl {}", shell_words::join(command));
+                pakroprintln!("would run systemctl {}", shell_words::join(command));
             }
         }
         for resource in unknown {

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 # tool header comment
 [tools.dummy]
 # version explanation
@@ -12,8 +12,8 @@ foo = "bar" # option comment
 FOO = "bar" # nested comment
 EOF
 
-mise use dummy@2.0.0
-assert "cat mise.toml" '# tool header comment
+pakro use dummy@2.0.0
+assert "cat pakro.toml" '# tool header comment
 [tools.dummy]
 # version explanation
 version = "2.0.0" # selector comment
@@ -23,8 +23,8 @@ foo = "bar" # option comment
 # nested explanation
 FOO = "bar" # nested comment'
 
-mise use 'dummy[foo=baz,install_env.FOO=updated]@1.0.0'
-assert "cat mise.toml" '# tool header comment
+pakro use 'dummy[foo=baz,install_env.FOO=updated]@1.0.0'
+assert "cat pakro.toml" '# tool header comment
 [tools.dummy]
 # version explanation
 version = "1.0.0" # selector comment

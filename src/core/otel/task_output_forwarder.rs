@@ -10,7 +10,7 @@ use crate::cmd::CmdLineRunner;
 
 /// Everything a stdout/stderr hook needs about the task it belongs to.
 ///
-/// `claim`, when present, lets a nested `mise run` take over reporting for
+/// `claim`, when present, lets a nested `pakro run` take over reporting for
 /// this stream — see [`crate::otel::log_claim`].
 #[derive(Clone)]
 struct HookContext {
@@ -24,7 +24,7 @@ struct HookContext {
 
 /// Forwards a task's stdout/stderr lines to the OTEL log pipeline.
 ///
-/// This bridges mise's `CmdLineRunner` line callbacks to the SDK's
+/// This bridges pakro's `CmdLineRunner` line callbacks to the SDK's
 /// `SdkLogger`, which delegates to `BatchLogProcessor` for batching and
 /// export. No background task needed — the SDK manages it.
 #[derive(Clone)]
@@ -38,7 +38,7 @@ impl TaskOutputForwarder {
     /// Create a new output forwarder backed by the given logger provider.
     pub(crate) fn new(provider: SdkLoggerProvider) -> Self {
         use opentelemetry::logs::LoggerProvider;
-        let logger = provider.logger("mise.tasks");
+        let logger = provider.logger("pakro.tasks");
         Self {
             logger: Arc::new(logger),
             logger_provider: Arc::new(Mutex::new(Some(provider))),
@@ -74,7 +74,7 @@ impl TaskOutputForwarder {
             if is_shutdown.load(Ordering::Relaxed) {
                 return;
             }
-            // A nested `mise run` is reporting this stream against its own
+            // A nested `pakro run` is reporting this stream against its own
             // task spans; re-exporting here would duplicate every line.
             if claim.as_ref().is_some_and(|c| c.claimed()) {
                 return;
@@ -107,9 +107,9 @@ impl TaskOutputForwarder {
                 line.to_string().into(),
             ));
             record.set_trace_context(trace_id, span_id, Some(trace_flags));
-            record.add_attribute("mise.task.name", task_name.to_string());
+            record.add_attribute("pakro.task.name", task_name.to_string());
             if !task_args.is_empty() {
-                record.add_attribute("mise.task.args", task_args.to_string());
+                record.add_attribute("pakro.task.args", task_args.to_string());
             }
             record.add_attribute("output.stream", if is_stderr { "stderr" } else { "stdout" });
             logger.emit(record);
@@ -122,7 +122,7 @@ impl TaskOutputForwarder {
     ///
     /// Only call this when the output is actually captured — under `--raw` or
     /// a fully silenced task the hooks never fire, and the claim path handed
-    /// to the child would then tell a nested `mise run` to take over a stream
+    /// to the child would then tell a nested `pakro run` to take over a stream
     /// nobody is reading.
     pub(crate) fn attach_hooks<'a>(
         forwarder: Option<&Self>,
@@ -136,7 +136,7 @@ impl TaskOutputForwarder {
         let (Some(forwarder), Some(span_cx)) = (forwarder, span_cx) else {
             return cmd;
         };
-        // Offer the stream to any nested `mise run` in this task.
+        // Offer the stream to any nested `pakro run` in this task.
         if let Some(claim) = &claim {
             cmd = cmd.env(crate::otel::LOG_CLAIM_ENV, claim.path());
         }
@@ -294,7 +294,7 @@ mod tests {
         assert_eq!(
             cmd.get_env(crate::otel::LOG_CLAIM_ENV),
             Some(claim.path().as_os_str()),
-            "nested mise needs the claim path to take over reporting"
+            "nested pakro needs the claim path to take over reporting"
         );
         collector.shutdown();
     }
@@ -319,7 +319,7 @@ mod tests {
 
         // The outer task's own output is ours to report.
         hook("building");
-        // A nested `mise run` takes over...
+        // A nested `pakro run` takes over...
         let owner = claim.path().join(std::process::id().to_string());
         std::fs::File::create(&owner).unwrap();
         hook("relayed from inner");
@@ -402,7 +402,7 @@ mod tests {
         assert!(
             stdout_attrs
                 .iter()
-                .any(|(k, v)| k.as_str() == "mise.task.name"
+                .any(|(k, v)| k.as_str() == "pakro.task.name"
                     && matches!(v, AnyValue::String(s) if s.as_str() == "build"))
         );
         assert!(
@@ -420,7 +420,7 @@ mod tests {
         assert!(
             stdout_attrs
                 .iter()
-                .any(|(k, v)| k.as_str() == "mise.task.args"
+                .any(|(k, v)| k.as_str() == "pakro.task.args"
                     && matches!(v, AnyValue::String(s) if s.as_str() == "--release"))
         );
     }

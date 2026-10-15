@@ -1,5 +1,5 @@
 use super::*;
-use mise_brew_metadata::cask::{CaskConflicts, CaskDependencies, CaskUrlSpecs};
+use pakro_brew_metadata::cask::{CaskConflicts, CaskDependencies, CaskUrlSpecs};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Mutex;
@@ -14,8 +14,8 @@ struct BrewPrefixGuard {
 
 impl BrewPrefixGuard {
     fn set(prefix: &Path) -> Self {
-        let previous = crate::env::var("MISE_SYSTEM_BREW_PREFIX").ok();
-        crate::env::set_var("MISE_SYSTEM_BREW_PREFIX", prefix);
+        let previous = crate::env::var("PAKRO_SYSTEM_BREW_PREFIX").ok();
+        crate::env::set_var("PAKRO_SYSTEM_BREW_PREFIX", prefix);
         Self { previous }
     }
 }
@@ -23,8 +23,8 @@ impl BrewPrefixGuard {
 impl Drop for BrewPrefixGuard {
     fn drop(&mut self) {
         match &self.previous {
-            Some(previous) => crate::env::set_var("MISE_SYSTEM_BREW_PREFIX", previous),
-            None => crate::env::remove_var("MISE_SYSTEM_BREW_PREFIX"),
+            Some(previous) => crate::env::set_var("PAKRO_SYSTEM_BREW_PREFIX", previous),
+            None => crate::env::remove_var("PAKRO_SYSTEM_BREW_PREFIX"),
         }
     }
 }
@@ -41,7 +41,7 @@ fn trusted_tempdir() -> Result<tempfile::TempDir> {
     let base = &*crate::env::HOME;
     file::create_dir_all(base)?;
     Ok(tempfile::Builder::new()
-        .prefix(".mise-cask-appdir-")
+        .prefix(".pakro-cask-appdir-")
         .tempdir_in(base)?)
 }
 
@@ -66,13 +66,13 @@ fn run_cask_shim_hook(
     std::process::Command::new(ruby)
         .arg(shim)
         .env("LANG", "zz_ZZ.UTF-8")
-        .env("MISE_BREW_CASK_FILE", cask)
-        .env("MISE_BREW_CASK_TOKEN", "example")
-        .env("MISE_BREW_CASK_VERSION", version)
-        .env("MISE_BREW_CASK_STAGED_PATH", staged_path)
-        .env("MISE_BREW_CASK_APPDIR", staged_path)
-        .env("MISE_BREW_PREFIX", staged_path)
-        .env("MISE_BREW_CASK_HOOK", hook)
+        .env("PAKRO_BREW_CASK_FILE", cask)
+        .env("PAKRO_BREW_CASK_TOKEN", "example")
+        .env("PAKRO_BREW_CASK_VERSION", version)
+        .env("PAKRO_BREW_CASK_STAGED_PATH", staged_path)
+        .env("PAKRO_BREW_CASK_APPDIR", staged_path)
+        .env("PAKRO_BREW_PREFIX", staged_path)
+        .env("PAKRO_BREW_CASK_HOOK", hook)
         .output()
 }
 
@@ -289,7 +289,7 @@ fn cask_api_json_keeps_the_top_level_without_a_host_variation() -> Result<()> {
     // no fallback to an older tag: Tahoe has no entry, so the top level applies
     let cask = cask_from_api_json(raycast_api_json(), Some("arm64_tahoe"))?;
     assert_eq!(cask.version, "2.4.1.0");
-    // nor on a macOS release newer than mise knows, which has no tag
+    // nor on a macOS release newer than pakro knows, which has no tag
     let cask = cask_from_api_json(raycast_api_json(), None)?;
     assert_eq!(cask.version, "2.4.1.0");
     assert_eq!(
@@ -362,7 +362,7 @@ fn rejects_unsafe_cask_identity_components() {
         ".",
         "..",
         ".metadata",
-        ".mise-tmp-x",
+        ".pakro-tmp-x",
         "a/b",
         "a\\b",
         "a\\..\\b",
@@ -390,15 +390,15 @@ fn detects_any_foreign_homebrew_metadata_object() -> Result<()> {
 }
 
 #[test]
-fn homebrew_version_ignores_mise_working_directories() -> Result<()> {
+fn homebrew_version_ignores_pakro_working_directories() -> Result<()> {
     let _lock = crate::test::lock_ignoring_poison(&ENV_LOCK);
     let tmp = tempfile::tempdir()?;
     let _guard = BrewPrefixGuard::set(tmp.path());
     let token_dir = caskroom_token_dir(CaskManager::BrewCask, "example");
     file::create_dir_all(token_dir.join(".metadata"))?;
     file::create_dir_all(token_dir.join("1.0.0"))?;
-    file::create_dir_all(token_dir.join(".mise-tmp-interrupted"))?;
-    file::create_dir_all(token_dir.join(".mise-backup-interrupted"))?;
+    file::create_dir_all(token_dir.join(".pakro-tmp-interrupted"))?;
+    file::create_dir_all(token_dir.join(".pakro-backup-interrupted"))?;
 
     assert_eq!(
         homebrew_installed_version("example")?,
@@ -547,9 +547,9 @@ fn both_receipt_types_satisfy_installed_state_without_mutation() -> Result<()> {
         caskroom_token_dir(CaskManager::BrewCask, &cask.token).join(".metadata/receipt.json");
     file::create_dir_all(metadata.parent().unwrap())?;
     file::write(&metadata, "homebrew")?;
-    let mise_receipt = caskroom_version_dir(CaskManager::BrewCask, &cask.token, &cask.version)
-        .join(".mise-cask.toml");
-    let receipt_before = file::read_to_string(&mise_receipt)?;
+    let pakro_receipt = caskroom_version_dir(CaskManager::BrewCask, &cask.token, &cask.version)
+        .join(".pakro-cask.toml");
+    let receipt_before = file::read_to_string(&pakro_receipt)?;
     let request = PackageRequest {
         name: cask.token.clone(),
         version: None,
@@ -563,7 +563,7 @@ fn both_receipt_types_satisfy_installed_state_without_mutation() -> Result<()> {
             version: "1.0.0".to_string()
         }
     );
-    assert_eq!(file::read_to_string(&mise_receipt)?, receipt_before);
+    assert_eq!(file::read_to_string(&pakro_receipt)?, receipt_before);
     assert_eq!(file::read_to_string(&metadata)?, "homebrew");
 
     file::create_dir_all(caskroom_version_dir(
@@ -573,13 +573,13 @@ fn both_receipt_types_satisfy_installed_state_without_mutation() -> Result<()> {
     ))?;
     let error = package_state(&request, &cask).unwrap_err();
     assert!(error.to_string().contains("multiple Caskroom versions"));
-    assert_eq!(file::read_to_string(&mise_receipt)?, receipt_before);
+    assert_eq!(file::read_to_string(&pakro_receipt)?, receipt_before);
     assert_eq!(file::read_to_string(&metadata)?, "homebrew");
     Ok(())
 }
 
 #[test]
-fn mise_owned_state_validates_artifacts_before_receipt() -> Result<()> {
+fn pakro_owned_state_validates_artifacts_before_receipt() -> Result<()> {
     let _lock = crate::test::lock_ignoring_poison(&ENV_LOCK);
     let tmp = tempfile::tempdir()?;
     let _guard = BrewPrefixGuard::set(tmp.path());
@@ -602,7 +602,7 @@ fn mise_owned_state_validates_artifacts_before_receipt() -> Result<()> {
 
 #[cfg(target_os = "linux")]
 #[test]
-fn mise_owned_state_validates_platform_before_receipt() -> Result<()> {
+fn pakro_owned_state_validates_platform_before_receipt() -> Result<()> {
     let _lock = crate::test::lock_ignoring_poison(&ENV_LOCK);
     let tmp = tempfile::tempdir()?;
     let _guard = BrewPrefixGuard::set(tmp.path());
@@ -626,13 +626,13 @@ fn mise_owned_state_validates_platform_before_receipt() -> Result<()> {
 }
 
 #[test]
-fn ownership_race_guard_removes_only_mise_stage() -> Result<()> {
+fn ownership_race_guard_removes_only_pakro_stage() -> Result<()> {
     let _lock = crate::test::lock_ignoring_poison(&ENV_LOCK);
     let tmp = tempfile::tempdir()?;
     let _guard = BrewPrefixGuard::set(tmp.path());
     let stage = tmp.path().join("stage");
     file::create_dir_all(&stage)?;
-    file::write(stage.join("download"), "mise")?;
+    file::write(stage.join("download"), "pakro")?;
     let metadata =
         caskroom_token_dir(CaskManager::BrewCask, "example").join(".metadata/receipt.json");
     file::create_dir_all(metadata.parent().unwrap())?;
@@ -648,13 +648,13 @@ fn ownership_race_guard_removes_only_mise_stage() -> Result<()> {
 
 #[cfg(unix)]
 #[test]
-fn ownership_race_probe_error_removes_mise_stage() -> Result<()> {
+fn ownership_race_probe_error_removes_pakro_stage() -> Result<()> {
     let _lock = crate::test::lock_ignoring_poison(&ENV_LOCK);
     let tmp = tempfile::tempdir()?;
     let _guard = BrewPrefixGuard::set(tmp.path());
     let stage = tmp.path().join("stage");
     file::create_dir_all(&stage)?;
-    file::write(stage.join("download"), "mise")?;
+    file::write(stage.join("download"), "pakro")?;
     let token_dir = caskroom_token_dir(CaskManager::BrewCask, "example");
     file::create_dir_all(token_dir.parent().unwrap())?;
     file::write(&token_dir, "not a directory")?;
@@ -760,14 +760,14 @@ fn completed_receipt_ignores_app_bundle_content_drift() -> Result<()> {
         &[],
     )?;
     assert_eq!(
-        mise_installed_cask_version(&cask)?,
+        pakro_installed_cask_version(&cask)?,
         Some(cask.version.clone())
     );
     crate::file::write(app_target.join("Contents/app"), "changed")?;
     // Content drift must not look like "missing" — that would reinstall the
     // app on the next apply and revoke macOS TCC grants.
     assert_eq!(
-        mise_installed_cask_version(&cask)?,
+        pakro_installed_cask_version(&cask)?,
         Some(cask.version.clone())
     );
     assert!(!cask_target_record_matches(
@@ -809,7 +809,7 @@ fn completed_receipt_missing_app_is_not_installed() -> Result<()> {
         &[],
     )?;
     file::remove_all(&app_target)?;
-    assert_eq!(mise_installed_cask_version(&cask)?, None);
+    assert_eq!(pakro_installed_cask_version(&cask)?, None);
     Ok(())
 }
 
@@ -908,7 +908,7 @@ fn self_updating_receipt_accepts_app_bundle_drift() -> Result<()> {
     crate::file::write(app_target.join("Contents/app"), "updated by app")?;
     cask.version = "2.0.0".to_string();
     assert_eq!(
-        mise_installed_cask_version(&cask)?,
+        pakro_installed_cask_version(&cask)?,
         Some("1.0.0".to_string())
     );
     let receipt = read_receipt(&caskroom)?.unwrap();
@@ -929,11 +929,13 @@ fn self_updating_receipt_accepts_app_bundle_drift() -> Result<()> {
     legacy_receipt.prune_safe = true;
     legacy_receipt.prune_blocker = None;
     file::write(
-        caskroom.join(".mise-cask.toml"),
+        caskroom.join(".pakro-cask.toml"),
         toml::to_string_pretty(&legacy_receipt)?,
     )?;
-    let plan =
-        cask_prune_plan_from_tokens(&BTreeSet::new(), &prefix::prefix().join(".mise-test-state"))?;
+    let plan = cask_prune_plan_from_tokens(
+        &BTreeSet::new(),
+        &prefix::prefix().join(".pakro-test-state"),
+    )?;
     assert!(plan.remove.is_empty());
     assert!(plan.skipped.iter().any(|skip| {
         skip.token == "self-updating" && skip.reason.contains("metadata-only app ownership")
@@ -1102,7 +1104,7 @@ fn stages_command_wrapper_with_args_env_and_expanded_paths() -> Result<()> {
     let prefix = tmp.path().join("homebrew");
     let _guard = BrewPrefixGuard::set(&prefix);
     let cask = test_cask("firefox", "153.0.1");
-    let caskroom = prefix.join("Caskroom/firefox/.mise-tmp");
+    let caskroom = prefix.join("Caskroom/firefox/.pakro-tmp");
     let final_caskroom = caskroom_version_dir(CaskManager::BrewCask, &cask.token, &cask.version);
     let appdir = tmp.path().join("Applications");
     let wrapper = CommandWrapperArtifact {
@@ -1116,7 +1118,7 @@ fn stages_command_wrapper_with_args_env_and_expanded_paths() -> Result<()> {
             "{{version}}".to_string(),
         ],
         env: BTreeMap::from([
-            ("FIREFOX_MODE".to_string(), "mise test".to_string()),
+            ("FIREFOX_MODE".to_string(), "pakro test".to_string()),
             ("FIREFOX_ROOT".to_string(), "{{staged_path}}".to_string()),
         ]),
     };
@@ -1128,7 +1130,7 @@ fn stages_command_wrapper_with_args_env_and_expanded_paths() -> Result<()> {
     let staged = final_caskroom.join(".homebrew-command-wrappers/firefox");
     let contents = file::read_to_string(&staged)?;
     assert!(contents.starts_with("#!/bin/bash\n"));
-    assert!(contents.contains("FIREFOX_MODE='mise test'"));
+    assert!(contents.contains("FIREFOX_MODE='pakro test'"));
     assert!(contents.contains(&format!(
         "FIREFOX_ROOT={}",
         final_caskroom.to_string_lossy()
@@ -1543,7 +1545,7 @@ fn installer_mutations_are_included_in_durable_symlink_sources() -> Result<()> {
     file::make_symlink(&source, &target)?;
     let mut targets = FlightTargetTransaction::default();
     targets.record_installed(target);
-    let temporary_caskroom = tmp.path().join("Caskroom/example/.mise-tmp");
+    let temporary_caskroom = tmp.path().join("Caskroom/example/.pakro-tmp");
 
     run_installers_before_durabilizing(
         &stage,
@@ -2442,7 +2444,7 @@ fn interrupted_new_flight_target_preserves_completed_receipt() -> Result<()> {
         prune_blocker: None,
     };
     file::write(
-        caskroom.join(".mise-cask.toml"),
+        caskroom.join(".pakro-cask.toml"),
         toml::to_string_pretty(&receipt)?,
     )?;
     std::mem::forget(transaction);
@@ -2713,7 +2715,7 @@ fn staged_symlink_sources_become_caskroom_owned() -> Result<()> {
     let source = stage.join("AndroidNDK.app/Contents/NDK");
     file::create_dir_all(&source)?;
     file::write(source.join("ndk-build"), "binary")?;
-    let temporary_caskroom = tmp.path().join("Caskroom/android-ndk/.mise-tmp");
+    let temporary_caskroom = tmp.path().join("Caskroom/android-ndk/.pakro-tmp");
     let target = tmp.path().join("share/android-ndk");
     let mut targets = FlightTargetTransaction::default();
     targets.protect(&target)?;
@@ -2751,7 +2753,7 @@ fn staged_symlink_source_copies_reachable_internal_links() -> Result<()> {
     file::write(shared.join("value"), "content")?;
     file::make_symlink(&shared, &source.join("absolute"))?;
     file::make_symlink(Path::new("../../shared/data"), &source.join("relative"))?;
-    let temporary_caskroom = tmp.path().join("Caskroom/example/.mise-tmp");
+    let temporary_caskroom = tmp.path().join("Caskroom/example/.pakro-tmp");
     let target = tmp.path().join("share/example");
     let mut targets = FlightTargetTransaction::default();
     targets.protect(&target)?;
@@ -2792,7 +2794,7 @@ fn staged_symlink_source_preserves_link_to_external_referent() -> Result<()> {
     file::write(external.join("value"), "content")?;
     let staged_link = stage.join("external-link");
     file::make_symlink(&external, &staged_link)?;
-    let temporary_caskroom = tmp.path().join("Caskroom/example/.mise-tmp");
+    let temporary_caskroom = tmp.path().join("Caskroom/example/.pakro-tmp");
     let target = tmp.path().join("share/example");
     file::create_dir_all(target.parent().unwrap())?;
     file::make_symlink(&staged_link, &target)?;
@@ -2822,7 +2824,7 @@ fn staged_symlink_source_accepts_canonical_stage_spelling() -> Result<()> {
     let alias_parent = tmp.path().join("alias");
     file::make_symlink(&real_parent, &alias_parent)?;
     let stage = alias_parent.join("stage");
-    let temporary_caskroom = tmp.path().join("Caskroom/example/.mise-tmp");
+    let temporary_caskroom = tmp.path().join("Caskroom/example/.pakro-tmp");
     let target = tmp.path().join("share/example");
     file::create_dir_all(target.parent().unwrap())?;
     let mut targets = FlightTargetTransaction::default();
@@ -2920,7 +2922,7 @@ fn internal_staged_symlinks_remain_relative_and_untracked() -> Result<()> {
     file::create_dir_all(&source)?;
     file::create_dir_all(link.parent().unwrap())?;
     file::make_symlink(Path::new("Resources/data"), &link)?;
-    let temporary_caskroom = tmp.path().join("Caskroom/example/.mise-tmp");
+    let temporary_caskroom = tmp.path().join("Caskroom/example/.pakro-tmp");
     let mut targets = FlightTargetTransaction::default();
     targets.record_installed(link.clone());
 
@@ -2934,7 +2936,7 @@ fn internal_staged_symlinks_remain_relative_and_untracked() -> Result<()> {
 #[test]
 fn temporary_caskroom_symlink_sources_follow_activation() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let temporary_caskroom = tmp.path().join("Caskroom/example/.mise-tmp");
+    let temporary_caskroom = tmp.path().join("Caskroom/example/.pakro-tmp");
     let final_caskroom = tmp.path().join("Caskroom/example/1.0.0");
     let source = temporary_caskroom.join("bin/example");
     file::create_dir_all(source.parent().unwrap())?;
@@ -2965,7 +2967,7 @@ fn temporary_caskroom_symlink_sources_follow_activation() -> Result<()> {
 #[test]
 fn internal_temporary_caskroom_symlinks_follow_activation() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let temporary_caskroom = tmp.path().join("Caskroom/example/.mise-tmp");
+    let temporary_caskroom = tmp.path().join("Caskroom/example/.pakro-tmp");
     let final_caskroom = tmp.path().join("Caskroom/example/1.0.0");
     let source = temporary_caskroom.join("share/example/source");
     let target = temporary_caskroom.join("share/example/target");
@@ -3235,14 +3237,14 @@ fn structured_run_expands_paths_args_and_env() -> Result<()> {
             },
             args: vec![
                 "-c".to_string(),
-                "printf '%s' \"$MISE_TEST:$1:$2:$3\" > \"$4\"".to_string(),
+                "printf '%s' \"$PAKRO_TEST:$1:$2:$3\" > \"$4\"".to_string(),
                 "_".to_string(),
                 "{{appdir}}".to_string(),
                 "{{staged_path}}".to_string(),
                 "{{HOMEBREW_PREFIX}}".to_string(),
                 "{{staged_path}}/result".to_string(),
             ],
-            env: BTreeMap::from([("MISE_TEST".to_string(), "version-{{version}}".to_string())]),
+            env: BTreeMap::from([("PAKRO_TEST".to_string(), "version-{{version}}".to_string())]),
             sudo: false,
             guards: Vec::new(),
         }],
@@ -3787,7 +3789,7 @@ fn structured_set_ownership_step_skips_when_no_path_exists() -> Result<()> {
         &[set_ownership_step(
             &[
                 (FlightPathBase::StagedPath, "Missing-*"),
-                (FlightPathBase::Literal, "/nonexistent/mise-set-ownership"),
+                (FlightPathBase::Literal, "/nonexistent/pakro-set-ownership"),
             ],
             None,
             "staff",
@@ -4074,7 +4076,7 @@ end
 "#,
     )?;
 
-    // MISE_BREW_CASK_SUDO is unset, which must behave as "deny".
+    // PAKRO_BREW_CASK_SUDO is unset, which must behave as "deny".
     let output = run_cask_shim(&ruby, &shim, &cask, tmp.path(), "1.0.0")?;
     if nix::unistd::geteuid().is_root() {
         // root never needs to elevate, so the hook succeeds
@@ -5378,7 +5380,7 @@ fn parses_and_installs_generic_artifact() -> Result<()> {
     );
 
     let mut targets = FlightTargetTransaction::default();
-    let temporary_caskroom = tmp.path().join("Caskroom/example/.mise-tmp");
+    let temporary_caskroom = tmp.path().join("Caskroom/example/.pakro-tmp");
     install_generic_artifact(&stage, &temporary_caskroom, &artifact, &mut targets)?;
     assert_eq!(
         file::read_to_string(tmp.path().join("include/cbl/CouchbaseLite.h"))?,
@@ -5424,7 +5426,7 @@ fn generic_artifact_rejects_extraction_source_symlink_escape() -> Result<()> {
 
     let err = install_generic_artifact(
         &stage,
-        &tmp.path().join("Caskroom/example/.mise-tmp"),
+        &tmp.path().join("Caskroom/example/.pakro-tmp"),
         &artifact,
         &mut targets,
     )
@@ -5446,7 +5448,7 @@ fn generic_artifact_rejects_caskroom_source_symlink_escape() -> Result<()> {
     let source = stage.join("payload/include/example");
     file::create_dir_all(&source)?;
     file::write(source.join("example.h"), "header")?;
-    let temporary_caskroom = tmp.path().join("Caskroom/example/.mise-tmp");
+    let temporary_caskroom = tmp.path().join("Caskroom/example/.pakro-tmp");
     let outside = tmp.path().join("outside");
     file::create_dir_all(&temporary_caskroom)?;
     file::create_dir_all(&outside)?;
@@ -5702,7 +5704,7 @@ fn private_staging_cleanup_rejects_replaced_directory() -> Result<()> {
     file::create_dir_all(&library)?;
     let _guard = BrewPrefixGuard::set(&prefix);
     let parent = open_trusted_operation_parent(&library.join("target"), true, false)?;
-    let staging_name = std::ffi::OsStr::new(".mise-copy-test");
+    let staging_name = std::ffi::OsStr::new(".pakro-copy-test");
     let staging_path = library.join(staging_name);
     file::create_dir_all(&staging_path)?;
     std::fs::set_permissions(&staging_path, std::fs::Permissions::from_mode(0o700))?;
@@ -6590,12 +6592,12 @@ fn installed_cask_version_uses_only_recorded_legacy_targets() -> Result<()> {
         prune_blocker: None,
     };
     crate::file::write(
-        caskroom.join(".mise-cask.toml"),
+        caskroom.join(".pakro-cask.toml"),
         toml::to_string_pretty(&receipt)?,
     )?;
 
     assert_eq!(
-        mise_installed_cask_version(&cask)?,
+        pakro_installed_cask_version(&cask)?,
         Some("1.0.0".to_string())
     );
     Ok(())
@@ -6626,11 +6628,11 @@ fn installed_cask_version_rejects_unknown_receipt_schema() -> Result<()> {
         prune_blocker: None,
     };
     file::write(
-        caskroom.join(".mise-cask.toml"),
+        caskroom.join(".pakro-cask.toml"),
         toml::to_string_pretty(&receipt)?,
     )?;
 
-    assert_eq!(mise_installed_cask_version(&cask)?, None);
+    assert_eq!(pakro_installed_cask_version(&cask)?, None);
     Ok(())
 }
 
@@ -6690,7 +6692,7 @@ fn cask_prune_keeps_nonempty_token_directory_and_continues() -> Result<()> {
     let staged_target = write_test_app_receipt(&test_cask("a-staged", "1.0.0"), "Staged.app")?;
     let clean_target = write_test_app_receipt(&test_cask("b-clean", "1.0.0"), "Clean.app")?;
     let staged_token_dir = caskroom_token_dir(CaskManager::BrewCask, "a-staged");
-    file::create_dir_all(staged_token_dir.join(".mise-tmp-interrupted"))?;
+    file::create_dir_all(staged_token_dir.join(".pakro-tmp-interrupted"))?;
 
     let plan = cask_prune_plan_from_tokens(&BTreeSet::new(), &state_dir)?;
     assert_eq!(plan.remove.len(), 2);
@@ -6698,7 +6700,7 @@ fn cask_prune_keeps_nonempty_token_directory_and_continues() -> Result<()> {
     assert_eq!(apply_cask_prune_plan_in(&plan, false, &state_dir)?, 2);
     assert!(!staged_target.exists());
     assert!(!clean_target.exists());
-    assert!(staged_token_dir.join(".mise-tmp-interrupted").is_dir());
+    assert!(staged_token_dir.join(".pakro-tmp-interrupted").is_dir());
     assert!(!caskroom_token_dir(CaskManager::BrewCask, "b-clean").exists());
     assert!(!cask_journal_pending_in(
         &state_dir,
@@ -6771,7 +6773,7 @@ fn cask_prune_skips_configured_drifted_and_legacy_casks() -> Result<()> {
     let legacy_dir = caskroom_version_dir(CaskManager::BrewCask, &legacy.token, &legacy.version);
     file::create_dir_all(&legacy_dir)?;
     file::write(
-        legacy_dir.join(".mise-cask.toml"),
+        legacy_dir.join(".pakro-cask.toml"),
         toml::to_string_pretty(&CaskReceipt {
             schema_version: 2,
             version: legacy.version.clone(),
@@ -6901,7 +6903,7 @@ fn cask_prune_fails_closed_when_a_receipt_is_corrupt() -> Result<()> {
     write_test_app_receipt(&test_cask("clean", "1.0.0"), "Clean.app")?;
     let corrupt_dir = caskroom_version_dir(CaskManager::BrewCask, "corrupt", "1.0.0");
     file::create_dir_all(&corrupt_dir)?;
-    file::write(corrupt_dir.join(".mise-cask.toml"), "not = [valid")?;
+    file::write(corrupt_dir.join(".pakro-cask.toml"), "not = [valid")?;
 
     let plan = cask_prune_plan_from_tokens(&BTreeSet::new(), &state_dir)?;
 
@@ -7037,13 +7039,13 @@ fn installed_cask_version_rejects_binary_state_without_receipt() -> Result<()> {
         &cask.version,
     ))?;
 
-    assert_eq!(mise_installed_cask_version(&cask)?, None);
+    assert_eq!(pakro_installed_cask_version(&cask)?, None);
 
     let target = binary.target_path(Path::new("/Applications"))?;
     file::create_dir_all(target.parent().unwrap())?;
     crate::file::write(&target, "binary")?;
 
-    assert_eq!(mise_installed_cask_version(&cask)?, None);
+    assert_eq!(pakro_installed_cask_version(&cask)?, None);
     Ok(())
 }
 
@@ -7086,19 +7088,19 @@ fn installed_cask_version_does_not_invent_wrapper_from_current_api() -> Result<(
         prune_blocker: None,
     };
     file::write(
-        caskroom.join(".mise-cask.toml"),
+        caskroom.join(".pakro-cask.toml"),
         toml::to_string_pretty(&receipt)?,
     )?;
 
     assert_eq!(
-        mise_installed_cask_version(&cask)?,
+        pakro_installed_cask_version(&cask)?,
         Some(cask.version.clone())
     );
 
     let target = wrapper.target_path()?;
     file::create_dir_all(target.parent().unwrap())?;
     file::write(target, "wrapper")?;
-    assert_eq!(mise_installed_cask_version(&cask)?, Some(cask.version));
+    assert_eq!(pakro_installed_cask_version(&cask)?, Some(cask.version));
     Ok(())
 }
 
@@ -7449,7 +7451,7 @@ fn stages_generic_artifact_through_a_symlinked_stage() -> Result<()> {
     };
 
     let mut targets = FlightTargetTransaction::default();
-    let temporary_caskroom = tmp.path().join("Caskroom/example/.mise-tmp");
+    let temporary_caskroom = tmp.path().join("Caskroom/example/.pakro-tmp");
     install_generic_artifact(&stage, &temporary_caskroom, &artifact, &mut targets)?;
 
     assert_eq!(
@@ -8158,7 +8160,7 @@ fn ditto_into_rejects_preplanted_symlink_destination() -> Result<()> {
 
     let attacker = base.join("attacker");
     file::create_dir_all(&attacker)?;
-    let tmp_name = std::ffi::OsStr::new("Foo.mise-tmp-abc");
+    let tmp_name = std::ffi::OsStr::new("Foo.pakro-tmp-abc");
     std::os::unix::fs::symlink(&attacker, appdir.join(tmp_name))?;
 
     // Fails at `mkdirat` (EEXIST) before `ditto` is ever spawned, so this
@@ -8468,7 +8470,7 @@ fn appdir_upgrade_keeps_an_app_now_claimed_by_another_cask() -> Result<()> {
     let mut legacy_owner = receipt.clone();
     legacy_owner.targets.clear();
     file::write(
-        other.join(".mise-cask.toml"),
+        other.join(".pakro-cask.toml"),
         toml::to_string_pretty(&legacy_owner)?,
     )?;
 
@@ -8517,8 +8519,8 @@ fn failed_app_activation_preserves_caskroom_copy() -> Result<()> {
     let result = activate_app_at(
         &parent,
         std::ffi::OsStr::new("Example.app"),
-        std::ffi::OsStr::new("missing.mise-tmp"),
-        std::ffi::OsStr::new("Example.mise-old-test"),
+        std::ffi::OsStr::new("missing.pakro-tmp"),
+        std::ffi::OsStr::new("Example.pakro-old-test"),
         &caskroom_app,
         &target,
         true,
@@ -8551,19 +8553,19 @@ fn upgrades_app_with_protected_existing_contents() -> Result<()> {
         .status()?;
     assert!(status.success());
 
-    let tmp_target = base.join("Docker.mise-tmp-test");
+    let tmp_target = base.join("Docker.pakro-tmp-test");
     file::create_dir_all(&tmp_target)?;
     crate::file::write(tmp_target.join("version"), "new")?;
 
     // swap_app_at addresses entries by name relative to the verified appdir
     // descriptor, so open the containing directory and use bare names.
     let parent = ensure_trusted_appdir(&base)?;
-    let old_name = std::ffi::OsString::from("Docker.mise-old-test");
+    let old_name = std::ffi::OsString::from("Docker.pakro-old-test");
     let old_target = base.join(&old_name);
     let result = swap_app_at(
         &parent,
         std::ffi::OsStr::new("Docker.app"),
-        std::ffi::OsStr::new("Docker.mise-tmp-test"),
+        std::ffi::OsStr::new("Docker.pakro-tmp-test"),
         &old_name,
         // This repro replaces an app it owns; the no-replace path is covered
         // by activation_refuses_an_app_that_appeared_during_staging.
@@ -8641,12 +8643,12 @@ fn installed_cask_version_does_not_invent_pkg_ids_from_current_api() -> Result<(
         prune_blocker: None,
     };
     crate::file::write(
-        caskroom.join(".mise-cask.toml"),
+        caskroom.join(".pakro-cask.toml"),
         toml::to_string_pretty(&receipt)?,
     )?;
 
     assert_eq!(
-        mise_installed_cask_version(&cask)?,
+        pakro_installed_cask_version(&cask)?,
         Some("1.0.0".to_string())
     );
     Ok(())
@@ -8668,10 +8670,10 @@ fn installed_cask_version_rejects_app_state_without_receipt() -> Result<()> {
         &cask.version,
     ))?;
 
-    assert_eq!(mise_installed_cask_version(&cask)?, None);
+    assert_eq!(pakro_installed_cask_version(&cask)?, None);
 
     file::create_dir_all(app_target_path(app.target_name()?)?)?;
-    assert_eq!(mise_installed_cask_version(&cask)?, None);
+    assert_eq!(pakro_installed_cask_version(&cask)?, None);
     Ok(())
 }
 
@@ -8692,12 +8694,12 @@ fn installed_cask_version_rejects_completion_state_without_receipt() -> Result<(
         &cask.version,
     ))?;
 
-    assert_eq!(mise_installed_cask_version(&cask)?, None);
+    assert_eq!(pakro_installed_cask_version(&cask)?, None);
 
     let target = completion.target_path()?;
     file::create_dir_all(target.parent().unwrap())?;
     crate::file::write(target, "complete")?;
-    assert_eq!(mise_installed_cask_version(&cask)?, None);
+    assert_eq!(pakro_installed_cask_version(&cask)?, None);
     Ok(())
 }
 
@@ -8718,7 +8720,7 @@ fn installed_cask_version_uses_metadata_token() -> Result<()> {
     ))?;
     file::create_dir_all(app_target_path(app.target_name()?)?)?;
 
-    assert_eq!(mise_installed_cask_version(&cask)?, None);
+    assert_eq!(pakro_installed_cask_version(&cask)?, None);
 
     let caskroom = caskroom_version_dir(CaskManager::BrewCask, &cask.token, &cask.version);
     file::create_dir_all(&caskroom)?;
@@ -8741,11 +8743,11 @@ fn installed_cask_version_uses_metadata_token() -> Result<()> {
         prune_blocker: None,
     };
     file::write(
-        caskroom.join(".mise-cask.toml"),
+        caskroom.join(".pakro-cask.toml"),
         toml::to_string_pretty(&receipt)?,
     )?;
     assert_eq!(
-        mise_installed_cask_version(&cask)?,
+        pakro_installed_cask_version(&cask)?,
         Some("2.0.0".to_string())
     );
     Ok(())
@@ -8759,8 +8761,8 @@ fn installed_version_ignores_homebrew_metadata() -> Result<()> {
     let token_dir = caskroom_token_dir(CaskManager::BrewCask, "actual-token");
     file::create_dir_all(token_dir.join("2.0.0"))?;
     file::create_dir_all(token_dir.join(".metadata/2.0.0/timestamp/Casks"))?;
-    file::create_dir_all(token_dir.join(".mise-tmp-interrupted"))?;
-    file::create_dir_all(token_dir.join(".mise-backup-interrupted"))?;
+    file::create_dir_all(token_dir.join(".pakro-tmp-interrupted"))?;
+    file::create_dir_all(token_dir.join(".pakro-backup-interrupted"))?;
 
     assert_eq!(
         installed_version(CaskManager::BrewCask, "actual-token"),
@@ -9723,7 +9725,7 @@ fn structured_run_respects_failure_policy() -> Result<()> {
     ));
     let invalid = serde_json::json!({"type": "run", "command": {"path": "/usr/bin/false"}, "must_succeed": "false"});
     assert!(parse_flight_step(&cask, "postflight_steps", &invalid).is_err());
-    let missing = serde_json::json!({"type": "run", "command": {"path": "/mise-nonexistent-command"}, "must_succeed": false});
+    let missing = serde_json::json!({"type": "run", "command": {"path": "/pakro-nonexistent-command"}, "must_succeed": false});
     let step = parse_flight_step(&cask, "postflight_steps", &missing)?;
     assert!(
         execute_flight_steps(&cask, &[step], tmp.path(), tmp.path(), "postflight_steps").is_err()
@@ -9766,7 +9768,7 @@ fn declared_app_cask_populates_only_the_fields_an_app_install_reads() -> Result<
     );
     assert_eq!(cask.manager, CaskManager::MacosApp);
     assert_eq!(cask.label(), "macos-app");
-    // An inline declaration pins one artifact, so mise always owns the bundle.
+    // An inline declaration pins one artifact, so pakro always owns the bundle.
     assert!(!cask.auto_updates);
     // No Homebrew provenance: nothing to evaluate, fetch, or arbitrate.
     assert!(cask.ruby_source_path.is_none());
@@ -9824,7 +9826,7 @@ fn declared_app_cask_rejects_a_traversing_version() {
 
 #[test]
 fn install_journals_are_scoped_per_manager() {
-    let state = Path::new("/tmp/mise-test-state");
+    let state = Path::new("/tmp/pakro-test-state");
     let cask = cask_journal_path_in(state, CaskManager::BrewCask, "nuvio", "1.0.0");
     let app = cask_journal_path_in(state, CaskManager::MacosApp, "nuvio", "1.0.0");
 
@@ -10602,8 +10604,8 @@ fn activation_refuses_an_app_that_appeared_during_staging() -> Result<()> {
     let root = tmp.path().canonicalize()?;
     let parent = open_trusted_directory(&root, Path::new(""), true, false)?;
 
-    // mise's staged replacement, ready to activate.
-    let staged = root.join("Example.mise-tmp-test");
+    // pakro's staged replacement, ready to activate.
+    let staged = root.join("Example.pakro-tmp-test");
     file::create_dir_all(staged.join("Contents"))?;
     crate::file::write(staged.join("Contents/marker"), "ours")?;
 
@@ -10616,8 +10618,8 @@ fn activation_refuses_an_app_that_appeared_during_staging() -> Result<()> {
     let err = swap_app_at(
         &parent,
         std::ffi::OsStr::new("Example.app"),
-        std::ffi::OsStr::new("Example.mise-tmp-test"),
-        std::ffi::OsStr::new("Example.mise-old-test"),
+        std::ffi::OsStr::new("Example.pakro-tmp-test"),
+        std::ffi::OsStr::new("Example.pakro-old-test"),
         false,
     )
     .unwrap_err()
@@ -10634,7 +10636,7 @@ fn activation_refuses_an_app_that_appeared_during_staging() -> Result<()> {
         std::os::unix::fs::MetadataExt::ino(&before),
         "the foreign app was replaced rather than left alone"
     );
-    assert!(!root.join("Example.mise-old-test").exists());
+    assert!(!root.join("Example.pakro-old-test").exists());
 
     // A rename failure must not leave the placeholder behind: a later apply
     // would read that empty bundle as a foreign app and refuse forever.
@@ -10645,7 +10647,7 @@ fn activation_refuses_an_app_that_appeared_during_staging() -> Result<()> {
             &parent,
             std::ffi::OsStr::new("Example.app"),
             missing_tmp,
-            std::ffi::OsStr::new("Example.mise-old-test"),
+            std::ffi::OsStr::new("Example.pakro-old-test"),
             false,
         )
         .is_err()
@@ -10661,8 +10663,8 @@ fn activation_refuses_an_app_that_appeared_during_staging() -> Result<()> {
     swap_app_at(
         &parent,
         std::ffi::OsStr::new("Example.app"),
-        std::ffi::OsStr::new("Example.mise-tmp-test"),
-        std::ffi::OsStr::new("Example.mise-old-test"),
+        std::ffi::OsStr::new("Example.pakro-tmp-test"),
+        std::ffi::OsStr::new("Example.pakro-old-test"),
         true,
     )?;
     assert_eq!(

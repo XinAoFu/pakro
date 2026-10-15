@@ -27,10 +27,10 @@ impl DotfilesExclude {
 /// Stop excluding paths matching a glob
 ///
 /// Removes the specified glob from `[history] exclude` in the global
-/// configuration. Pass the same pattern used with `mise dot exclude`:
+/// configuration. Pass the same pattern used with `pakro dot exclude`:
 ///
-///     mise dot exclude '~/.codex/sessions/**'
-///     mise dot include '~/.codex/sessions/**'
+///     pakro dot exclude '~/.codex/sessions/**'
+///     pakro dot include '~/.codex/sessions/**'
 ///
 /// Other matching exclusion rules still apply. This command does not edit
 /// a tracked directory's `include` list; change that field in `[dotfiles]`
@@ -38,7 +38,7 @@ impl DotfilesExclude {
 #[derive(Debug, usage_rs::Args)]
 #[usage(verbatim_doc_comment)]
 pub(crate) struct DotfilesInclude {
-    /// The glob as written by `mise dot exclude`
+    /// The glob as written by `pakro dot exclude`
     glob: String,
 }
 

@@ -5,7 +5,7 @@ use crate::{dirs, env, file};
 use confique::{Config, Layer};
 use eyre::{Result, WrapErr, bail, eyre};
 use itertools::Itertools;
-use mise_util::network;
+use pakro_util::network;
 use path_absolutize::Absolutize;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -27,7 +27,7 @@ pub enum CompilePurpose {
     Inspect,
 }
 
-pub use mise_settings::*;
+pub use pakro_settings::*;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SettingsSourcePolicy {
     EnvironmentOnly,
@@ -147,7 +147,7 @@ fn warn_implicit_all_compile_default_deprecated(
     all_compile: Option<bool>,
     compile: Option<bool>,
 ) {
-    if mise_util::testing::in_tests() {
+    if pakro_util::testing::in_tests() {
         return;
     }
     let distro = env::LINUX_DISTRO.as_deref();
@@ -203,7 +203,7 @@ fn parse_boolish_toml_value(value: &toml::Value) -> Option<bool> {
 fn tera_v1_from_env_config(raw: &toml::Value) -> Option<bool> {
     raw.get("env")
         .and_then(toml::Value::as_table)
-        .and_then(|env| env.get("MISE_TERA_V1"))
+        .and_then(|env| env.get("PAKRO_TERA_V1"))
         .and_then(parse_boolish_toml_value)
 }
 
@@ -332,7 +332,7 @@ fn warn_deprecated_now(key: &'static str) {
             let id = Box::leak(format!("setting.{key}").into_boxed_str());
             if crate::output::DEPRECATED.lock().unwrap().insert(id) {
                 warn!(
-                    "deprecated [setting.{key}]: {msg} This will be removed in mise {remove_at}."
+                    "deprecated [setting.{key}]: {msg} This will be removed in pakro {remove_at}."
                 );
             }
         }
@@ -361,9 +361,9 @@ fn normalize_verbosity(settings: &mut Settings) {
             settings.trace = true;
         }
     }
-    // handle the special case of `mise -v` which should show version, not set verbose.
-    // Use the args mise was invoked with (already captured safely in Cli::run and kept
-    // in sync with internal re-dispatch like `mise asdf ...`) rather than re-reading the
+    // handle the special case of `pakro -v` which should show version, not set verbose.
+    // Use the args pakro was invoked with (already captured safely in Cli::run and kept
+    // in sync with internal re-dispatch like `pakro asdf ...`) rather than re-reading the
     // process argv. See also Settings::no_config().
     let is_version_flag = {
         let args = env::ARGS.read().unwrap();
@@ -463,16 +463,16 @@ fn strip_local_only_settings(settings: &mut toml::Table, path: &Path, is_global:
 
 /// Drop settings the config loader consumes *before* any config file is read — the config
 /// filenames and paths. A value written here can never take effect, and leaving it in the
-/// partial makes `mise settings get` report it as if it were live, which is what
+/// partial makes `pakro settings get` report it as if it were live, which is what
 /// <https://github.com/jdx/mise/discussions/5791> ran into. Unlike the global-only strip this
 /// applies to every config, global included: the ordering problem is the same either way.
 fn strip_env_only_settings(settings: &mut toml::Table, path: &Path) {
     for (key, meta) in SETTINGS_META.iter().filter(|(_, meta)| meta.env_only) {
         if remove_nested_toml_value(settings, key).is_some() {
             warn!(
-                "{key} in {} is ignored: mise reads it before config files load. Set {} instead.",
+                "{key} in {} is ignored: pakro reads it before config files load. Set {} instead.",
                 file::display_path(path),
-                meta.env.unwrap_or("the matching MISE_* variable")
+                meta.env.unwrap_or("the matching PAKRO_* variable")
             );
         }
     }
@@ -592,7 +592,7 @@ fn resolve_age_paths(settings: &mut toml::Table, path: &Path) -> Result<()> {
         return Ok(());
     };
     let config_root = crate::config::config_file::config_root::config_root(path);
-    let mut tera = crate::tera::get_miserc_tera();
+    let mut tera = crate::tera::get_pakrorc_tera();
     let mut context = tera::Context::new();
     context.insert("env", &*env::PRISTINE_ENV);
     context.insert("config_root", &config_root);
@@ -652,8 +652,8 @@ fn resolve_age_paths(settings: &mut toml::Table, path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// mise behavior layered on the generated [`Settings`] type, which lives in the
-/// `mise-settings` crate.
+/// pakro behavior layered on the generated [`Settings`] type, which lives in the
+/// `pakro-settings` crate.
 pub trait SettingsExt: Sized {
     /// Returns true only when `--yes` was explicitly supplied on this command
     /// line, excluding implicit confirmation from CI mode or configuration.
@@ -688,7 +688,7 @@ pub trait SettingsExt: Sized {
     /// Initialize a Git credential subprocess without reading project settings.
     fn init_git_credential() -> Result<()>;
 
-    /// Select process-wide query isolation before parsing can trigger lazy settings or miserc reads.
+    /// Select process-wide query isolation before parsing can trigger lazy settings or pakrorc reads.
     fn select_package_query_sources();
 
     /// Report whether this invocation requires environment-only settings and local diagnostics.
@@ -719,7 +719,7 @@ pub trait SettingsExt: Sized {
     /// find the cache empty, and a build that fails leaves the previous settings in place and
     /// reports why. Emptying the cache instead would only defer the failure to the next
     /// `Settings::get()`, which can do nothing but unwrap it — and release builds abort on a
-    /// panic, so a bad setting would end a `mise install` with a SIGABRT and a core dump
+    /// panic, so a bad setting would end a `pakro install` with a SIGABRT and a core dump
     /// rather than an error message.
     fn reload() -> Result<()>;
 
@@ -727,7 +727,7 @@ pub trait SettingsExt: Sized {
     ///
     /// `reset` replaces CLI_SETTINGS wholesale, which would clobber overrides
     /// installed earlier in startup (`--offline`, `--quiet`, etc.). This
-    /// helper merges in-place so a subcommand flag (e.g. `mise ls-remote
+    /// helper merges in-place so a subcommand flag (e.g. `pakro ls-remote
     /// --prerelease`) can layer on top of those without losing them, then
     /// rebuilds the settings with the override applied, like [`Self::reload`].
     /// A rebuild that fails puts the CLI layer back as it was, so the override
@@ -735,7 +735,7 @@ pub trait SettingsExt: Sized {
     fn override_with(updater: impl FnOnce(&mut SettingsPartial)) -> Result<()>;
 
     /// Returns configured lockfile platforms parsed into Platform structs, or None for defaults.
-    /// Errors on invalid platform strings (same validation as `mise lock --platform`).
+    /// Errors on invalid platform strings (same validation as `pakro lock --platform`).
     fn lockfile_platforms(&self) -> Result<Option<Vec<Platform>>>;
 
     fn trusted_config_paths(&self) -> impl Iterator<Item = PathBuf> + '_;
@@ -759,9 +759,9 @@ pub trait SettingsExt: Sized {
 
     /// duration that remote version cache is kept for
     /// for "fast" commands (represented by PREFER_OFFLINE), these are always
-    /// cached. For "slow" commands like `mise ls-remote` or `mise install`:
-    /// - if MISE_FETCH_REMOTE_VERSIONS_CACHE is set, use that
-    /// - if MISE_FETCH_REMOTE_VERSIONS_CACHE is not set, use HOURLY
+    /// cached. For "slow" commands like `pakro ls-remote` or `pakro install`:
+    /// - if PAKRO_FETCH_REMOTE_VERSIONS_CACHE is set, use that
+    /// - if PAKRO_FETCH_REMOTE_VERSIONS_CACHE is not set, use HOURLY
     fn fetch_remote_versions_cache(&self) -> Option<Duration>;
 
     fn http_timeout(&self) -> Duration;
@@ -807,18 +807,18 @@ pub trait SettingsExt: Sized {
 
     fn no_hooks() -> bool;
 
-    /// Whether safe mode (`MISE_SAFE=1` or the `safe` setting) is active.
+    /// Whether safe mode (`PAKRO_SAFE=1` or the `safe` setting) is active.
     ///
     /// Safe to call during the config parse pass: it reads the loaded setting
-    /// when settings are available, otherwise falls back to the `MISE_SAFE`
+    /// when settings are available, otherwise falls back to the `PAKRO_SAFE`
     /// environment variable. This avoids triggering a recursive settings load
     /// from `trust_check` (which runs while config files are being parsed,
     /// before settings are loaded, e.g. after `Config::reset`). `safe` is
     /// global-only, so it can only come from the environment or global config;
-    /// the env fallback covers the common `MISE_SAFE=1` case in that window.
+    /// the env fallback covers the common `PAKRO_SAFE=1` case in that window.
     fn safe_mode() -> bool;
 
-    /// Errors when safe mode (`MISE_SAFE=1`) is enabled. Call this before any
+    /// Errors when safe mode (`PAKRO_SAFE=1`) is enabled. Call this before any
     /// operation that would execute code controlled by project configuration.
     /// Safe mode is a security boundary: blocked operations must fail loudly,
     /// never silently fall back to something that executes.
@@ -848,7 +848,7 @@ impl SettingsExt for Settings {
 
     fn all_compile(&self) -> bool {
         self.all_compile.unwrap_or_else(|| {
-            !mise_util::testing::in_tests()
+            !pakro_util::testing::in_tests()
                 && default_all_compile(env::LINUX_DISTRO.as_ref().map(|distro| distro.as_str()))
         })
     }
@@ -881,7 +881,7 @@ impl SettingsExt for Settings {
         {
             return None;
         }
-        // Environment-only: the CLI layer plus `MISE_*`. It skips config discovery, which is both
+        // Environment-only: the CLI layer plus `PAKRO_*`. It skips config discovery, which is both
         // what makes it survive the failure that sent us here and why its answer is a fallback
         // rather than the real one.
         let mut settings =
@@ -891,7 +891,7 @@ impl SettingsExt for Settings {
     }
 
     fn init_git_credential() -> Result<()> {
-        super::miserc::init_global_only();
+        super::pakrorc::init_global_only();
         let mut builder = Self::builder().env();
         // Reuse operator-owned authentication settings, including the OAuth
         // client ID needed to locate cached tokens. Never discover project files.
@@ -907,7 +907,7 @@ impl SettingsExt for Settings {
             }
         }
         let settings = builder.load()?;
-        mise_settings::store(Arc::new(settings));
+        pakro_settings::store(Arc::new(settings));
         Ok(())
     }
 
@@ -937,7 +937,7 @@ impl SettingsExt for Settings {
     }
 
     fn add_cli_matches(cli: SettingsPartial) {
-        // Don't process mise-specific flags when running as a shim
+        // Don't process pakro-specific flags when running as a shim
         if *crate::env::IS_RUNNING_AS_SHIM {
             Self::reset(Some(SettingsPartial::empty()));
             return;
@@ -971,7 +971,7 @@ impl SettingsExt for Settings {
     fn reset(cli_settings: Option<SettingsPartial>) {
         *EXPLICIT_INLINE_SHELL.write().unwrap() = None;
         *CLI_SETTINGS.lock().unwrap() = cli_settings;
-        mise_settings::clear();
+        pakro_settings::clear();
         // Clear caches that depend on settings and environment
         crate::config::config_file::config_root::reset();
         crate::toolset::install_state::reset_tools();
@@ -1016,11 +1016,11 @@ impl SettingsExt for Settings {
     }
 
     fn global_tools_file(&self) -> PathBuf {
-        env::var_path("MISE_GLOBAL_CONFIG_FILE")
-            .or_else(|| env::var_path("MISE_CONFIG_FILE"))
+        env::var_path("PAKRO_GLOBAL_CONFIG_FILE")
+            .or_else(|| env::var_path("PAKRO_CONFIG_FILE"))
             .unwrap_or_else(|| {
                 if self.asdf_compat {
-                    env::HOME.join(&*env::MISE_DEFAULT_TOOL_VERSIONS_FILENAME)
+                    env::HOME.join(&*env::PAKRO_DEFAULT_TOOL_VERSIONS_FILENAME)
                 } else {
                     dirs::CONFIG.join("config.toml")
                 }
@@ -1131,7 +1131,7 @@ impl SettingsExt for Settings {
     }
 
     fn default_inline_shell(&self) -> Result<Vec<String>> {
-        mise_util::shells::default_inline_shell(self)
+        pakro_util::shells::default_inline_shell(self)
     }
 
     fn implicit_inline_shell(&self) -> bool {
@@ -1141,7 +1141,7 @@ impl SettingsExt for Settings {
         if let Some(explicit) = *EXPLICIT_INLINE_SHELL.read().unwrap() {
             return !explicit;
         }
-        let explicit = std::env::var_os("MISE_UNIX_DEFAULT_INLINE_SHELL_ARGS").is_some()
+        let explicit = std::env::var_os("PAKRO_UNIX_DEFAULT_INLINE_SHELL_ARGS").is_some()
             || Self::cli_settings_layer()
                 .unix_default_inline_shell_args
                 .is_some()
@@ -1153,15 +1153,15 @@ impl SettingsExt for Settings {
     }
 
     fn default_file_shell(&self) -> Result<Vec<String>> {
-        mise_util::shells::default_file_shell(self)
+        pakro_util::shells::default_file_shell(self)
     }
 
     fn maybe_no_profile(&self, shell: &mut Vec<String>) {
-        mise_util::shells::maybe_no_profile(self, shell)
+        pakro_util::shells::maybe_no_profile(self, shell)
     }
 
     fn no_config() -> bool {
-        *env::MISE_NO_CONFIG
+        *env::PAKRO_NO_CONFIG
             || !*crate::env::IS_RUNNING_AS_SHIM
                 && env::ARGS
                     .read()
@@ -1172,7 +1172,7 @@ impl SettingsExt for Settings {
     }
 
     fn no_env() -> bool {
-        *env::MISE_NO_ENV
+        *env::PAKRO_NO_ENV
             || !*crate::env::IS_RUNNING_AS_SHIM
                 && env::ARGS
                     .read()
@@ -1183,7 +1183,7 @@ impl SettingsExt for Settings {
     }
 
     fn no_hooks() -> bool {
-        *env::MISE_NO_HOOKS
+        *env::PAKRO_NO_HOOKS
             || !*crate::env::IS_RUNNING_AS_SHIM
                 && env::ARGS
                     .read()
@@ -1200,16 +1200,16 @@ impl SettingsExt for Settings {
         // Settings not loaded (e.g. the config parse pass after Config::reset).
         // Use the last settings that were cached, which capture `safe` set via
         // global config; before any load, fall back to the env var.
-        match mise_settings::last_cached() {
+        match pakro_settings::last_cached() {
             Some(settings) => settings.safe,
-            None => crate::env::var_is_true("MISE_SAFE"),
+            None => crate::env::var_is_true("PAKRO_SAFE"),
         }
     }
 
     fn ensure_not_safe(operation: &str) -> Result<()> {
         if Settings::safe_mode() {
             bail!(
-                "{operation} is disabled in safe mode (MISE_SAFE=1)\nSee https://mise.jdx.dev/configuration/settings.html#safe"
+                "{operation} is disabled in safe mode (PAKRO_SAFE=1)\nSee https://mise.jdx.dev/configuration/settings.html#safe"
             );
         }
         Ok(())
@@ -1301,7 +1301,7 @@ impl SettingsInternal for Settings {
         trust_policy: SettingsTrustPolicy,
     ) -> Vec<SettingsPartial> {
         // In safe mode, ignore `[settings]` from project (non-global) config so
-        // an untrusted repo cannot change mise's behavior during resolution
+        // an untrusted repo cannot change pakro's behavior during resolution
         // (e.g. disable verification, redirect a backend/registry). Global and
         // system config is operator-owned and still applies.
         let safe_mode = Settings::safe_mode();
@@ -1322,7 +1322,7 @@ impl SettingsInternal for Settings {
             .filter_map(|path| match Self::parse_settings_file(&path) {
                 Ok(config) => Some(config),
                 Err(err) => {
-                    // Name the file. mise reads several settings files and two of them can fail
+                    // Name the file. pakro reads several settings files and two of them can fail
                     // with byte-identical parser text, which leaves the reports
                     // indistinguishable -- to the reader, and to the queue that collapses repeats.
                     warn_settings_file_error(format!(
@@ -1448,7 +1448,7 @@ impl SettingsInternal for Settings {
 /// Point [`Settings::try_get`] at [`load`]. Runs first thing in `main` and in the test
 /// harness's constructor, before anything reads settings.
 pub(crate) fn register_loader() {
-    mise_settings::set_loader(load);
+    pakro_settings::set_loader(load);
 }
 
 /// Build settings from every source and make them the ones [`Settings::get`] returns.
@@ -1457,11 +1457,11 @@ pub(crate) fn register_loader() {
 /// nothing between here and the exit has to cope with an empty cache.
 fn rebuild() -> Result<()> {
     let settings = load().wrap_err("failed to reload settings")?;
-    mise_settings::store(settings);
+    pakro_settings::store(settings);
     Ok(())
 }
 
-/// Build settings from every source. Registered with [`mise_settings::set_loader`], so
+/// Build settings from every source. Registered with [`pakro_settings::set_loader`], so
 /// [`Settings::try_get`] runs this, and caches the result, when nothing is cached.
 fn load() -> Result<Arc<Settings>> {
     time!("try_get");
@@ -1510,7 +1510,7 @@ fn load() -> Result<Arc<Settings>> {
     } else if *env::CLICOLOR == Some(false) {
         console::set_colors_enabled(false);
         console::set_colors_enabled_stderr(false);
-    } else if ci_info::is_ci() && !mise_util::testing::in_tests() {
+    } else if ci_info::is_ci() && !pakro_util::testing::in_tests() {
         console::set_colors_enabled_stderr(true);
     }
     if settings.ci {
@@ -1521,12 +1521,12 @@ fn load() -> Result<Arc<Settings>> {
         settings.swift.gpg_verify = settings.swift.gpg_verify.or(settings.gpg_verify);
     }
     settings.set_hidden_configs();
-    if mise_util::testing::in_tests() {
+    if pakro_util::testing::in_tests() {
         settings.experimental = true;
     }
     trace!("Settings: {:#?}", redacted_settings_for_debug(&settings));
     let settings = Arc::new(settings);
-    let system_installs_changed = settings.system_installs_dir() != *env::MISE_SYSTEM_INSTALLS_DIR;
+    let system_installs_changed = settings.system_installs_dir() != *env::PAKRO_SYSTEM_INSTALLS_DIR;
     if system_installs_changed {
         crate::toolset::install_state::reset_tools();
     }
@@ -1983,17 +1983,17 @@ mod tests {
     }
 
     /// The shape #5791 reported: the setting is accepted into the file, so without this it
-    /// survives into the partial and `mise settings get` echoes it back while the config
+    /// survives into the partial and `pakro settings get` echoes it back while the config
     /// loader — which already ran — never saw it.
     #[test]
     fn test_parse_settings_file_strips_env_only_settings() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".mise.toml");
+        let path = dir.path().join(".pakro.toml");
         std::fs::write(
             &path,
             r#"
             [settings]
-            default_config_filename = ".mise.toml"
+            default_config_filename = ".pakro.toml"
             default_tool_versions_filename = ".tool-versions-custom"
             "#,
         )
@@ -2008,7 +2008,7 @@ mod tests {
     #[test]
     fn test_parse_settings_file_resolves_task_disable_paths_from_config_root() {
         let dir = tempfile::tempdir().unwrap();
-        let config_dir = dir.path().join(".mise");
+        let config_dir = dir.path().join(".pakro");
         std::fs::create_dir_all(&config_dir).unwrap();
         let path = config_dir.join("config.toml");
         let absolute = dir.path().join("absolute");
@@ -2052,7 +2052,7 @@ mod tests {
     #[test]
     fn test_parse_settings_file_strips_local_credential_commands() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".mise.toml");
+        let path = dir.path().join(".pakro.toml");
         std::fs::write(
             &path,
             r#"
@@ -2078,7 +2078,7 @@ mod tests {
     #[test]
     fn test_parse_settings_file_strips_local_history_describe_command() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".mise.toml");
+        let path = dir.path().join(".pakro.toml");
         std::fs::write(
             &path,
             r#"
@@ -2096,13 +2096,13 @@ mod tests {
     #[test]
     fn test_parse_settings_file_strips_local_self_update_sources() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("mise.toml");
+        let path = dir.path().join("pakro.toml");
         std::fs::write(
             &path,
             r#"
             [settings.self_update]
             api_url = "https://github.example.com/api/v3"
-            repository = "acme/mise"
+            repository = "acme/pakro"
             "#,
         )
         .unwrap();
@@ -2158,7 +2158,7 @@ mod tests {
 
     #[test]
     fn test_local_config_strips_default_shell_args() {
-        let path = Path::new("/tmp/.mise.toml");
+        let path = Path::new("/tmp/.pakro.toml");
         let mut settings = default_shell_args_settings_table();
         strip_local_only_settings(&mut settings, path, false);
         let partial = settings_partial_from_table(settings);
@@ -2197,7 +2197,7 @@ mod tests {
     #[test]
     fn test_parse_settings_file_strips_non_global_trust_controls() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".mise.toml");
+        let path = dir.path().join(".pakro.toml");
         std::fs::write(
             &path,
             r#"
@@ -2221,11 +2221,11 @@ mod tests {
     #[test]
     fn test_parse_settings_file_reads_tera_v1_from_env_directive() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".mise.toml");
+        let path = dir.path().join(".pakro.toml");
         std::fs::write(
             &path,
             r#"
-            env.MISE_TERA_V1 = true
+            env.PAKRO_TERA_V1 = true
             "#,
         )
         .unwrap();
@@ -2238,12 +2238,12 @@ mod tests {
     #[test]
     fn test_parse_settings_file_reads_tera_v1_from_env_value_directive() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".mise.toml");
+        let path = dir.path().join(".pakro.toml");
         std::fs::write(
             &path,
             r#"
             [env]
-            MISE_TERA_V1 = { value = "1" }
+            PAKRO_TERA_V1 = { value = "1" }
             "#,
         )
         .unwrap();
@@ -2256,7 +2256,7 @@ mod tests {
     #[test]
     fn test_parse_settings_file_prefers_explicit_tera_v1_setting() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".mise.toml");
+        let path = dir.path().join(".pakro.toml");
         std::fs::write(
             &path,
             r#"
@@ -2264,7 +2264,7 @@ mod tests {
             tera_v1 = false
 
             [env]
-            MISE_TERA_V1 = true
+            PAKRO_TERA_V1 = true
             "#,
         )
         .unwrap();
@@ -2278,7 +2278,7 @@ mod tests {
     /// `aqua.registries` entries, as `parse_settings_file` would see them.
     fn rewritten_registries(dir: &Path, body: &str) -> Vec<String> {
         let mut settings = toml::from_str::<toml::Table>(body).unwrap();
-        resolve_aqua_registry_paths(&mut settings, &dir.join(".mise.toml"));
+        resolve_aqua_registry_paths(&mut settings, &dir.join(".pakro.toml"));
         settings["aqua"]["registries"]
             .as_array()
             .unwrap()
@@ -2361,14 +2361,14 @@ mod tests {
     fn registries_without_aqua_table_are_untouched() {
         let dir = tempfile::tempdir().unwrap();
         let mut settings = toml::from_str::<toml::Table>("offline = true").unwrap();
-        resolve_aqua_registry_paths(&mut settings, &dir.path().join(".mise.toml"));
+        resolve_aqua_registry_paths(&mut settings, &dir.path().join(".pakro.toml"));
         assert_eq!(settings["offline"].as_bool(), Some(true));
     }
 
     #[test]
     fn age_paths_resolve_against_the_declaring_config_root() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("mise.toml");
+        let config_path = dir.path().join("pakro.toml");
         let mut settings = toml::from_str::<toml::Table>(
             r#"
             [age]
@@ -2415,7 +2415,7 @@ mod tests {
         let mut settings = toml::Table::new();
         settings.insert("age".into(), toml::Value::Table(age));
 
-        resolve_age_paths(&mut settings, &dir.path().join("mise.toml")).unwrap();
+        resolve_age_paths(&mut settings, &dir.path().join("pakro.toml")).unwrap();
 
         assert_eq!(
             settings["age"]["key_file"].as_str(),
@@ -2430,7 +2430,7 @@ mod tests {
     #[test]
     fn invalid_age_path_template_names_the_setting_and_file() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("mise.toml");
+        let config_path = dir.path().join("pakro.toml");
         let mut settings = toml::from_str::<toml::Table>(
             r#"
             [age]
@@ -2443,7 +2443,7 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("settings.age.key_file"), "{err}");
-        assert!(err.contains("mise.toml"), "{err}");
+        assert!(err.contains("pakro.toml"), "{err}");
     }
 
     /// A drive-letter path parses as a URL whose scheme is one character, so it
@@ -2489,7 +2489,7 @@ mod tests {
         let raw = toml::from_str::<toml::Value>(
             r#"
             [env]
-            MISE_TERA_V1 = true
+            PAKRO_TERA_V1 = true
             "#,
         )
         .unwrap();
@@ -2502,7 +2502,7 @@ mod tests {
         let raw = toml::from_str::<toml::Value>(
             r#"
             [env]
-            MISE_TERA_V1 = { unset = true }
+            PAKRO_TERA_V1 = { unset = true }
             "#,
         )
         .unwrap();
@@ -2515,7 +2515,7 @@ mod tests {
         let raw = toml::from_str::<toml::Value>(
             r#"
             [env]
-            MISE_SHORTHANDS_FILE = "~/.mise-shorthands"
+            PAKRO_SHORTHANDS_FILE = "~/.pakro-shorthands"
             "#,
         )
         .unwrap();
@@ -2589,7 +2589,7 @@ mod tests {
         let meta = SETTINGS_META
             .get("cargo.binstall_quickinstall")
             .expect("cargo.binstall_quickinstall setting should exist");
-        assert_eq!(meta.env, Some("MISE_CARGO_BINSTALL_QUICKINSTALL"));
+        assert_eq!(meta.env, Some("PAKRO_CARGO_BINSTALL_QUICKINSTALL"));
     }
 
     #[test]
@@ -2603,7 +2603,7 @@ mod tests {
         let meta = SETTINGS_META
             .get("task.cache.remote_mode")
             .expect("task.cache.remote_mode setting should exist");
-        assert_eq!(meta.env, Some("MISE_TASK_CACHE_REMOTE_MODE"));
+        assert_eq!(meta.env, Some("PAKRO_TASK_CACHE_REMOTE_MODE"));
     }
 
     #[test]
@@ -2637,11 +2637,11 @@ mod tests {
         let before = Settings::get();
 
         let mut env = crate::test::EnvVarGuard::new();
-        env.set("MISE_YES", "maybe");
+        env.set("PAKRO_YES", "maybe");
         let err = Settings::reload().unwrap_err();
-        assert!(format!("{err:#}").contains("MISE_YES"), "{err:#}");
+        assert!(format!("{err:#}").contains("PAKRO_YES"), "{err:#}");
         let err = Settings::override_with(|s| s.offline = Some(true)).unwrap_err();
-        assert!(format!("{err:#}").contains("MISE_YES"), "{err:#}");
+        assert!(format!("{err:#}").contains("PAKRO_YES"), "{err:#}");
 
         let after = Settings::get();
         assert!(Arc::ptr_eq(&before, &after));

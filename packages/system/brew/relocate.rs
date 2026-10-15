@@ -6,14 +6,14 @@ use eyre::bail;
 
 use crate::result::Result;
 
-pub(super) use mise_brew_relocation::RelocationReport;
+pub(super) use pakro_brew_relocation::RelocationReport;
 
 pub(super) fn relocate_keg(
     keg: &Path,
     formula_name: &str,
     skip_linkage: bool,
 ) -> Result<RelocationReport> {
-    mise_brew_relocation::relocate_keg(
+    pakro_brew_relocation::relocate_keg(
         keg,
         formula_name,
         skip_linkage,

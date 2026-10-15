@@ -1,0 +1,15 @@
+[package]
+name = "pakro-brew-metadata"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+description = "Homebrew formula metadata models for pakro"
+readme = "README.md"
+
+[dependencies]
+eyre = "0.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]

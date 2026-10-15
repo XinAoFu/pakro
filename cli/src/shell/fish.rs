@@ -20,7 +20,7 @@ impl Shell for Fish {
 
         let exe = exe.to_string_lossy();
         let exe = escape(crate::windows_posix::executable_for_shell(&exe));
-        let description = "'Update mise environment when changing directories'";
+        let description = "'Update pakro environment when changing directories'";
         let mut out = String::new();
 
         out.push_str(&shell::build_deactivation_script(self));
@@ -30,12 +30,12 @@ impl Shell for Fish {
         // much of this is from direnv
         // https://github.com/direnv/direnv/blob/cb5222442cb9804b1574954999f6073cc636eff0/internal/cmd/shell_fish.go#L14-L36
         out.push_str(&formatdoc! {r#"
-            set -gx MISE_SHELL fish
-            if not set -q __MISE_ORIG_PATH
-                set -gx __MISE_ORIG_PATH $PATH
+            set -gx PAKRO_SHELL fish
+            if not set -q __PAKRO_ORIG_PATH
+                set -gx __PAKRO_ORIG_PATH $PATH
             end
 
-            function mise
+            function pakro
               if test (count $argv) -eq 0
                 command {exe}
                 return
@@ -68,13 +68,13 @@ impl Shell for Fish {
         if !opts.no_hook_env {
             out.push_str(&formatdoc! {r#"
 
-            function __mise_env_eval --description {description};
+            function __pakro_env_eval --description {description};
                 {exe} hook-env{flags} --shell-pid $fish_pid -s fish $argv | source;
 
-                if test "$mise_fish_mode" != "disable_arrow";
-                    function __mise_cd_hook --on-variable PWD --description {description};
-                        if test "$mise_fish_mode" = "eval_after_arrow";
-                            set -g __mise_env_again 0;
+                if test "$pakro_fish_mode" != "disable_arrow";
+                    function __pakro_cd_hook --on-variable PWD --description {description};
+                        if test "$pakro_fish_mode" = "eval_after_arrow";
+                            set -g __pakro_env_again 0;
                         else;
                             {exe} hook-env{flags} --shell-pid $fish_pid -s fish | source;
                         end;
@@ -82,47 +82,47 @@ impl Shell for Fish {
                 end;
             end;
 
-            function __mise_env_eval_on_prompt --on-event fish_prompt --description {description};
-                if set -q __mise_skip_first_prompt_pwd;
-                    set -l activate_pwd "$__mise_skip_first_prompt_pwd";
-                    set -e __mise_skip_first_prompt_pwd;
+            function __pakro_env_eval_on_prompt --on-event fish_prompt --description {description};
+                if set -q __pakro_skip_first_prompt_pwd;
+                    set -l activate_pwd "$__pakro_skip_first_prompt_pwd";
+                    set -e __pakro_skip_first_prompt_pwd;
                     if test "$PWD" = "$activate_pwd";
                         return;
                     end;
                 end;
 
-                __mise_env_eval;
+                __pakro_env_eval;
             end;
 
-            function __mise_env_eval_2 --on-event fish_preexec --description {description};
-                if set -q __mise_env_again;
-                    set -e __mise_env_again;
+            function __pakro_env_eval_2 --on-event fish_preexec --description {description};
+                if set -q __pakro_env_again;
+                    set -e __pakro_env_again;
                     {exe} hook-env{flags} --shell-pid $fish_pid -s fish | source;
                     echo;
                 end;
 
-                if test "$mise_fish_mode" = "eval_after_arrow";
-                    functions --erase __mise_cd_hook;
+                if test "$pakro_fish_mode" = "eval_after_arrow";
+                    functions --erase __pakro_cd_hook;
                 end;
             end;
 
-            __mise_env_eval --force
-            set -g __mise_skip_first_prompt_pwd "$PWD"
+            __pakro_env_eval --force
+            set -g __pakro_skip_first_prompt_pwd "$PWD"
         "#});
         }
         if Settings::get().not_found_auto_install {
             out.push_str(&formatdoc! {r#"
-            if functions -q fish_command_not_found; and not functions -q __mise_fish_command_not_found
-                functions -e __mise_fish_command_not_found
-                functions -c fish_command_not_found __mise_fish_command_not_found
+            if functions -q fish_command_not_found; and not functions -q __pakro_fish_command_not_found
+                functions -e __pakro_fish_command_not_found
+                functions -c fish_command_not_found __pakro_fish_command_not_found
             end
 
             function fish_command_not_found
-                if string match -qrv -- '^(?:mise$|mise-)' $argv[1] &&
+                if string match -qrv -- '^(?:pakro$|pakro-)' $argv[1] &&
                     {exe} hook-not-found -s fish -- $argv[1]
                     {exe} hook-env{flags} --shell-pid $fish_pid -s fish | source
-                else if functions -q __mise_fish_command_not_found
-                    __mise_fish_command_not_found $argv
+                else if functions -q __pakro_fish_command_not_found
+                    __pakro_fish_command_not_found $argv
                 else
                     __fish_default_command_not_found_handler $argv
                 end
@@ -135,23 +135,23 @@ impl Shell for Fish {
 
     fn deactivate(&self) -> String {
         formatdoc! {r#"
-          functions --erase __mise_env_eval
-          functions --erase __mise_env_eval_on_prompt
-          functions --erase __mise_env_eval_2
-          functions --erase __mise_cd_hook
-          functions --erase mise
-          set -e __mise_skip_first_prompt_pwd
-          set -e MISE_SHELL
-          set -e __MISE_DIFF
-          set -e __MISE_SESSION
+          functions --erase __pakro_env_eval
+          functions --erase __pakro_env_eval_on_prompt
+          functions --erase __pakro_env_eval_2
+          functions --erase __pakro_cd_hook
+          functions --erase pakro
+          set -e __pakro_skip_first_prompt_pwd
+          set -e PAKRO_SHELL
+          set -e __PAKRO_DIFF
+          set -e __PAKRO_SESSION
         "#}
     }
 
     fn set_env(&self, key: &str, v: &str) -> String {
-        if cfg!(windows) && key == "__MISE_ORIG_PATH" {
+        if cfg!(windows) && key == "__PAKRO_ORIG_PATH" {
             // An opaque native snapshot, not a Fish path list. MSYS must not
-            // reinterpret it before mise reads it back.
-            return format!("set --unpath -gx __MISE_ORIG_PATH {}\n", escape(v.into()));
+            // reinterpret it before pakro reads it back.
+            return format!("set --unpath -gx __PAKRO_ORIG_PATH {}\n", escape(v.into()));
         }
         let k = if env::is_path_key(key) {
             "PATH".into()
@@ -166,7 +166,7 @@ impl Shell for Fish {
         // Empty entries are dropped, as they are in `prepend_env` and in `env::split_colon_list`:
         // an empty element of a fish list is the current directory, and a Windows PATH ending in
         // `;` -- the usual shape -- yields one from `split_paths`.
-        if env::is_path_key(key) || !cfg!(windows) && key == "__MISE_ORIG_PATH" {
+        if env::is_path_key(key) || !cfg!(windows) && key == "__PAKRO_ORIG_PATH" {
             let paths = crate::windows_posix::windows_path_entries_for_shell(v)
                 .into_iter()
                 .filter_map(|p| {
@@ -269,14 +269,14 @@ mod tests {
 
     #[test]
     fn test_activate() {
-        // Unset __MISE_ORIG_PATH to avoid PATH restoration logic in output
+        // Unset __PAKRO_ORIG_PATH to avoid PATH restoration logic in output
         unsafe {
-            std::env::remove_var("__MISE_ORIG_PATH");
-            std::env::remove_var("__MISE_DIFF");
+            std::env::remove_var("__PAKRO_ORIG_PATH");
+            std::env::remove_var("__PAKRO_DIFF");
         }
 
         let fish = Fish::default();
-        let exe = Path::new("/some/dir/mise");
+        let exe = Path::new("/some/dir/pakro");
         let opts = ActivateOptions {
             exe: exe.to_path_buf(),
             flags: " --status".into(),
@@ -328,8 +328,8 @@ mod tests {
     #[test]
     fn original_path_is_emitted_as_a_fish_path_list() {
         assert_eq!(
-            Fish::default().set_env("__MISE_ORIG_PATH", "/a path:/say'hi"),
-            concat!(r"set -gx __MISE_ORIG_PATH '/a path' '/say'\''hi'", "\n")
+            Fish::default().set_env("__PAKRO_ORIG_PATH", "/a path:/say'hi"),
+            concat!(r"set -gx __PAKRO_ORIG_PATH '/a path' '/say'\''hi'", "\n")
         );
     }
 
@@ -367,7 +367,7 @@ mod windows_tests {
 
     use super::*;
 
-    /// The reproduction. `mise env -s fish` on Windows printed
+    /// The reproduction. `pakro env -s fish` on Windows printed
     /// `set -gx PATH C '\a\bin;C' '\b\bin'` -- every drive letter severed from its path, because
     /// the split was on `:` while a Windows PATH is separated by `;`.
     #[test]
@@ -400,7 +400,7 @@ mod windows_tests {
     }
 
     /// The control. Only PATH is a list; any other variable holding a `;` has to survive whole,
-    /// or this would read as "mise now splits everything on the path separator".
+    /// or this would read as "pakro now splits everything on the path separator".
     #[test]
     fn a_semicolon_in_any_other_variable_is_left_alone() {
         assert_eq!(Fish::default().set_env("FOO", "a;b"), "set -gx FOO 'a;b'\n");

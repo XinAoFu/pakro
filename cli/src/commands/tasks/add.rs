@@ -7,13 +7,13 @@ use toml_edit::Item;
 
 /// Create a new task
 ///
-/// Adds a task to the local mise.toml file.
+/// Adds a task to the local pakro.toml file.
 /// See https://mise.jdx.dev/configuration.html#target-file-for-write-operations
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise tasks add pre-commit --depends "test" --depends "render" -- echo pre-commit"###
+        r###"pakro tasks add pre-commit --depends "test" --depends "render" -- echo pre-commit"###
     )
 )]
 pub(super) struct TasksAdd {
@@ -37,7 +37,7 @@ pub(super) struct TasksAdd {
     /// Create a file task instead of a toml task
     #[usage(long, short)]
     file: bool,
-    /// Hide the task from `mise tasks` and completions
+    /// Hide the task from `pakro tasks` and completions
     #[usage(long, short = 'H')]
     hide: bool,
     /// Do not print the command before running
@@ -90,45 +90,46 @@ impl TasksAdd {
                 self.shell.clone().unwrap_or("bash".into())
             )];
             if !self.depends.is_empty() {
-                lines.push("#MISE depends=[\"".to_string() + &self.depends.join("\", \"") + "\"]");
+                lines.push("#PAKRO depends=[\"".to_string() + &self.depends.join("\", \"") + "\"]");
             }
             if !self.depends_post.is_empty() {
                 lines.push(
-                    "#MISE depends_post=[\"".to_string()
+                    "#PAKRO depends_post=[\"".to_string()
                         + &self.depends_post.join("\", \"")
                         + "\"]",
                 );
             }
             if !self.wait_for.is_empty() {
-                lines
-                    .push("#MISE wait_for=[\"".to_string() + &self.wait_for.join("\", \"") + "\"]");
+                lines.push(
+                    "#PAKRO wait_for=[\"".to_string() + &self.wait_for.join("\", \"") + "\"]",
+                );
             }
             if !self.alias.is_empty() {
-                lines.push("#MISE alias=[\"".to_string() + &self.alias.join("\", \"") + "\"]");
+                lines.push("#PAKRO alias=[\"".to_string() + &self.alias.join("\", \"") + "\"]");
             }
             if let Some(description) = &self.description {
-                lines.push("#MISE description=\"".to_string() + description + "\"");
+                lines.push("#PAKRO description=\"".to_string() + description + "\"");
             }
             if let Some(dir) = &self.dir {
-                lines.push("#MISE dir=".to_string() + dir);
+                lines.push("#PAKRO dir=".to_string() + dir);
             }
             if self.hide {
-                lines.push("#MISE hide=true".to_string());
+                lines.push("#PAKRO hide=true".to_string());
             }
             if self.raw {
-                lines.push("#MISE raw=true".to_string());
+                lines.push("#PAKRO raw=true".to_string());
             }
             if !self.sources.is_empty() {
-                lines.push("#MISE sources=[\"".to_string() + &self.sources.join("\", \"") + "\"]");
+                lines.push("#PAKRO sources=[\"".to_string() + &self.sources.join("\", \"") + "\"]");
             }
             if !self.outputs.is_empty() {
-                lines.push("#MISE outputs=[\"".to_string() + &self.outputs.join("\", \"") + "\"]");
+                lines.push("#PAKRO outputs=[\"".to_string() + &self.outputs.join("\", \"") + "\"]");
             }
             if self.quiet {
-                lines.push("#MISE quiet=true".to_string());
+                lines.push("#PAKRO quiet=true".to_string());
             }
             if self.silent {
-                lines.push("#MISE silent=true".to_string());
+                lines.push("#PAKRO silent=true".to_string());
             }
             lines.push("set -euxo pipefail".into());
             lines.push("".into());

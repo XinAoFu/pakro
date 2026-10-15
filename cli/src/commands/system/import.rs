@@ -12,7 +12,7 @@ use crate::config::Settings;
 #[cfg(unix)]
 use crate::config::config_file::ConfigFile;
 #[cfg(unix)]
-use crate::config::config_file::mise_toml::MiseToml;
+use crate::config::config_file::pakro_toml::PakroToml;
 #[cfg(unix)]
 use crate::config::{ConfigPathOptions, resolve_target_config_path};
 #[cfg(unix)]
@@ -38,18 +38,18 @@ use toml_edit::{Array, InlineTable, Value};
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise bootstrap packages import --manager brew
-mise bootstrap packages import --manager brew --all
-mise bootstrap packages import --manager brew --global
-mise bootstrap packages import --manager brew --dry-run"###
+        r###"pakro bootstrap packages import --manager brew
+pakro bootstrap packages import --manager brew --all
+pakro bootstrap packages import --manager brew --global
+pakro bootstrap packages import --manager brew --dry-run"###
     )
 )]
 pub(crate) struct SystemImport {
-    /// Write to the config file for this environment (mise.<ENV>.toml)
+    /// Write to the config file for this environment (pakro.<ENV>.toml)
     #[usage(long, short, value_name = "ENV", conflicts = ["global", "path"])]
     env: Option<String>,
 
-    /// Write to the global config (~/.config/mise/config.toml)
+    /// Write to the global config (~/.config/pakro/config.toml)
     #[usage(long, short, conflicts = ["env", "path"])]
     global: bool,
 
@@ -136,7 +136,7 @@ impl SystemImport {
 
         if self.dry_run {
             for (tap, url) in &taps {
-                miseprintln!(
+                pakroprintln!(
                     "{}: [bootstrap.brew.taps].\"{}\" = \"{}\"",
                     display_path(&path),
                     tap,
@@ -155,15 +155,15 @@ impl SystemImport {
                     target_packages.get(&key),
                     configured_packages.get(&key),
                 );
-                miseprintln!("{}: \"{}\" = {}", display_path(&path), key, package);
+                pakroprintln!("{}: \"{}\" = {}", display_path(&path), key, package);
             }
             return Ok(());
         }
 
         let mut cf = if path.exists() {
-            MiseToml::from_file(&path)?
+            PakroToml::from_file(&path)?
         } else {
-            MiseToml::init(&path)
+            PakroToml::init(&path)
         };
         for (tap, url) in &taps {
             cf.update_bootstrap_brew_tap(tap, url)?;
@@ -253,7 +253,7 @@ async fn configured_brew_taps(path: &Path) -> Result<BTreeMap<String, String>> {
 fn target_brew_taps(path: &Path) -> Result<BTreeMap<String, String>> {
     let mut taps = BTreeMap::new();
     if path.exists() {
-        let cf = MiseToml::from_file(path)?;
+        let cf = PakroToml::from_file(path)?;
         if let Some(sys) = cf.bootstrap_config() {
             for (tap, url) in sys.brew.taps {
                 taps.insert(tap, url);
@@ -267,7 +267,7 @@ fn target_brew_taps(path: &Path) -> Result<BTreeMap<String, String>> {
 fn target_bootstrap_packages(path: &Path) -> Result<BTreeMap<String, PackageTomlConfig>> {
     let mut packages = BTreeMap::new();
     if path.exists() {
-        let cf = MiseToml::from_file(path)?;
+        let cf = PakroToml::from_file(path)?;
         if let Some(sys) = cf.bootstrap_config() {
             for (spec, package) in sys.packages {
                 packages.insert(spec, package);

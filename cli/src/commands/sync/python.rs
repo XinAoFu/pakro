@@ -7,9 +7,9 @@ use crate::{config::Config, env::PYENV_ROOT};
 
 use super::reconcile;
 
-/// Symlink python versions installed by pyenv or uv into mise
+/// Symlink python versions installed by pyenv or uv into pakro
 ///
-/// Use this to make versions installed by another version manager available to mise.
+/// Use this to make versions installed by another version manager available to pakro.
 ///
 /// This won't overwrite managed installs, runtime aliases, or links from other providers.
 #[derive(Debug, usage_rs::Args)]
@@ -17,15 +17,15 @@ use super::reconcile;
     verbatim_doc_comment,
     example(
         r###"pyenv install 3.11.0
-mise sync python --pyenv
-mise use -g python@3.11.0 # uses pyenv-provided python"###
+pakro sync python --pyenv
+pakro use -g python@3.11.0 # uses pyenv-provided python"###
     ),
     example(
         r###"uv python install 3.11.0
-mise install python@3.10.0
-mise sync python --uv
-mise x python@3.11.0 -- python -V # uses uv-provided python
-uv run -p 3.10.0 -- python -V # uses mise-provided python"###
+pakro install python@3.10.0
+pakro sync python --uv
+pakro x python@3.11.0 -- python -V # uses uv-provided python
+uv run -p 3.10.0 -- python -V # uses pakro-provided python"###
     )
 )]
 pub(super) struct SyncPython {
@@ -51,14 +51,14 @@ impl SyncPython {
         let mut changed = reconcile::reconcile_all(python.ba(), providers)?.into_iter();
         if self.pyenv {
             for v in changed.next().unwrap_or_default() {
-                miseprintln!("Synced python@{} from pyenv", v);
+                pakroprintln!("Synced python@{} from pyenv", v);
             }
         }
         if self.uv {
             for v in changed.next().unwrap_or_default() {
-                miseprintln!("Synced python@{v} from uv to mise");
+                pakroprintln!("Synced python@{v} from uv to pakro");
             }
-            self.sync_mise_installs_to_uv()?;
+            self.sync_pakro_installs_to_uv()?;
         }
         let config = Config::get().await?;
         let ts = config.get_toolset().await?;
@@ -107,7 +107,7 @@ impl SyncPython {
         Ok(reconcile::ProviderLinks::new(ownership, links))
     }
 
-    fn sync_mise_installs_to_uv(&self) -> Result<()> {
+    fn sync_pakro_installs_to_uv(&self) -> Result<()> {
         let uv_versions_path = &*env::UV_PYTHON_INSTALL_DIR;
         let installed_python_versions_path = dirs::INSTALLS.join("python");
         let subdirs = file::dir_subdirs(&installed_python_versions_path)?;
@@ -141,7 +141,7 @@ impl SyncPython {
                 // TODO: uv doesn't support symlinked dirs
                 // https://github.com/astral-sh/uv/blob/e65a273f1b6b7c3ab129d902e93adeda4da20636/crates/uv-python/src/managed.rs#L196
                 file::clone_dir(&src, &dst)?;
-                miseprintln!("Synced python@{v} from mise to uv");
+                pakroprintln!("Synced python@{v} from pakro to uv");
             }
         }
         Ok(())

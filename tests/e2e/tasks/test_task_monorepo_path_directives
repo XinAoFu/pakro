@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Test that _.path directives from subdirectory configs work correctly
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 
 # Create monorepo root config
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 monorepo_root = true
 
 [monorepo]
@@ -21,7 +21,7 @@ echo "root-bin-file" >root-bin/root-tool
 
 # Create frontend project with its own _.path
 mkdir -p projects/frontend
-cat <<EOF >projects/frontend/mise.toml
+cat <<EOF >projects/frontend/pakro.toml
 [env]
 _.path = ["./bin", "./node_modules/.bin"]
 
@@ -38,7 +38,7 @@ echo "node-module" >projects/frontend/node_modules/.bin/npm
 
 # Create backend project with _.path
 mkdir -p projects/backend
-cat <<EOF >projects/backend/mise.toml
+cat <<EOF >projects/backend/pakro.toml
 [env]
 _.path = ["./scripts"]
 
@@ -51,7 +51,7 @@ echo "backend-script" >projects/backend/scripts/deploy
 
 # Test 1: Frontend task should have both root-bin and frontend paths
 echo "=== Test 1: Frontend _.path includes subdirectory paths ==="
-output=$(mise run '//projects/frontend:build')
+output=$(pakro run '//projects/frontend:build')
 echo "$output"
 echo "$output" | grep -q "projects/frontend/bin" || (echo "FAIL: frontend/bin not in PATH" && exit 1)
 echo "$output" | grep -q "projects/frontend/node_modules/.bin" || (echo "FAIL: node_modules/.bin not in PATH" && exit 1)
@@ -59,14 +59,14 @@ echo "$output" | grep -q "root-bin" || (echo "FAIL: root-bin not in PATH" && exi
 
 # Test 2: Backend task should have root-bin and backend scripts
 echo "=== Test 2: Backend _.path includes subdirectory paths ==="
-output=$(mise run '//projects/backend:build')
+output=$(pakro run '//projects/backend:build')
 echo "$output"
 echo "$output" | grep -q "projects/backend/scripts" || (echo "FAIL: backend/scripts not in PATH" && exit 1)
 echo "$output" | grep -q "root-bin" || (echo "FAIL: root-bin not inherited in backend" && exit 1)
 
 # Test 3: Root task should only have root-bin
 echo "=== Test 3: Root task has only root _.path ==="
-output=$(mise run //:root-task)
+output=$(pakro run //:root-task)
 echo "$output"
 echo "$output" | grep -q "root-bin" || (echo "FAIL: root-bin not in root task" && exit 1)
 

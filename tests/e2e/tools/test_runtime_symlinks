@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-mise i dummy@1.0.1 dummy@1.0.2 dummy@1.10.0 dummy@2.0.0 dummy@2.1.0
-assert "ls -l $MISE_DATA_DIR/installs/dummy | grep '\->' | awk '{print \$(NF-2),\$(NF)}'" "1 ./1.10.0
+pakro i dummy@1.0.1 dummy@1.0.2 dummy@1.10.0 dummy@2.0.0 dummy@2.1.0
+assert "ls -l $PAKRO_DATA_DIR/installs/dummy | grep '\->' | awk '{print \$(NF-2),\$(NF)}'" "1 ./1.10.0
 1.0 ./1.0.2
 1.10 ./1.10.0
 2 ./2.1.0
@@ -9,11 +9,11 @@ assert "ls -l $MISE_DATA_DIR/installs/dummy | grep '\->' | awk '{print \$(NF-2),
 2.1 ./2.1.0
 latest ./2.1.0"
 
-assert "mise bin-paths dummy@1.0" "$MISE_DATA_DIR/installs/dummy/1.0/bin"
-assert "mise bin-paths dummy@prefix:1" "$MISE_DATA_DIR/installs/dummy/1/bin"
+assert "pakro bin-paths dummy@1.0" "$PAKRO_DATA_DIR/installs/dummy/1.0/bin"
+assert "pakro bin-paths dummy@prefix:1" "$PAKRO_DATA_DIR/installs/dummy/1/bin"
 
-mise use dummy@sub-1:latest
-mise install
-assert "ls -l $MISE_DATA_DIR/installs/dummy | grep 'sub-1-latest' | awk '{print \$(NF-2),\$(NF)}'" "sub-1-latest ./1.10.0"
-assert_contains "mise hook-env -s bash --force" "$MISE_DATA_DIR/installs/dummy/sub-1-latest/bin"
-assert_not_contains "mise hook-env -s bash --force 2>&1" "missing: dummy@sub-1:latest"
+pakro use dummy@sub-1:latest
+pakro install
+assert "ls -l $PAKRO_DATA_DIR/installs/dummy | grep 'sub-1-latest' | awk '{print \$(NF-2),\$(NF)}'" "sub-1-latest ./1.10.0"
+assert_contains "pakro hook-env -s bash --force" "$PAKRO_DATA_DIR/installs/dummy/sub-1-latest/bin"
+assert_not_contains "pakro hook-env -s bash --force 2>&1" "missing: dummy@sub-1:latest"

@@ -2,7 +2,7 @@ use eyre::Result;
 
 use super::{display_arg, local_time};
 use crate::system::history::store::Trigger;
-use crate::ui::table::MiseTable;
+use crate::ui::table::PakroTable;
 
 /// List checkpoints, newest first
 #[derive(Debug, usage_rs::Args)]
@@ -66,14 +66,14 @@ impl HistoryLs {
             entries.truncate(self.limit);
         }
         if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&entries)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&entries)?);
             return Ok(());
         }
         if entries.is_empty() {
             info!("no history checkpoints recorded");
             return Ok(());
         }
-        let mut table = MiseTable::new(false, &["ID", "When", "Trigger", "Description", "Files"]);
+        let mut table = PakroTable::new(false, &["ID", "When", "Trigger", "Description", "Files"]);
         for entry in &entries {
             let checkpoint = &entry.checkpoint;
             let files = if checkpoint.tree.available {

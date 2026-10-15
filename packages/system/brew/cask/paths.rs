@@ -169,7 +169,7 @@ pub(super) fn cask_target_app_dir(cask: &Cask) -> Result<PathBuf> {
 /// The override is validated here rather than at the point of use because
 /// `app_target_path` treats the result as a containment boundary for symlinks
 /// that may be created with elevated privileges. An empty value falls back to
-/// the default so that exporting `MISE_BREW_CASK_OPT_APPDIR=` cannot disable
+/// the default so that exporting `PAKRO_BREW_CASK_OPT_APPDIR=` cannot disable
 /// that boundary: `Path::starts_with("")` is true for every path.
 pub(super) fn target_app_dir() -> Result<PathBuf> {
     let Ok(dir) = crate::env::var(APP_DIR_ENV) else {
@@ -264,7 +264,7 @@ pub(super) fn app_bundle_name(target_name: &str) -> Result<&str> {
 /// always allowed. `/usr/local` is additionally allowed even on arm64 because
 /// some casks (e.g. docker-desktop) hardcode absolute `/usr/local/bin` targets
 /// so their CLIs land on PATH regardless of architecture. Homebrew honors those
-/// targets, so mise does too.
+/// targets, so pakro does too.
 pub(super) fn allowed_binary_target_roots() -> Vec<PathBuf> {
     let prefix = prefix::prefix();
     let mut roots = vec![prefix.clone()];

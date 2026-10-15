@@ -8,7 +8,7 @@
 # These installs are linked, not downloaded, and the project they name has no
 # releases to discover: discovery and verification are test_packslip's. Offline
 # keeps resolution to what is installed here.
-export MISE_OFFLINE=1
+export PAKRO_OFFLINE=1
 
 python3 <<'PY'
 import json
@@ -53,9 +53,9 @@ for version in ("1.0.0", "2.0.0"):
     (root / "skill/SKILL.md").write_text("# probe %s\n" % version)
     (root / "docs").mkdir()
     (root / "docs/probe.1").write_text("probe %s\n" % version)
-    # `mise link` starts after installation, so mirror the normalized layout
+    # `pakro link` starts after installation, so mirror the normalized layout
     # the Packslip installer creates from the resource above.
-    man = root / ".mise-packslip/man/man1"
+    man = root / ".pakro-packslip/man/man1"
     man.mkdir(parents=True)
     (man / "probe.1").write_text("probe %s\n" % version)
     (root / "empty.fish").write_text("  \n")
@@ -82,10 +82,10 @@ for version in ("1.0.0", "2.0.0"):
             },
         },
     }
-    (root / ".mise-packslip.json").write_text(json.dumps(statement))
+    (root / ".pakro-packslip.json").write_text(json.dumps(statement))
 
 # An install whose only completion is a file it ships, for the read-only
-# system and shared installs mise is expected to serve completions from.
+# system and shared installs pakro is expected to serve completions from.
 static = Path("3.0.0")
 (static / "bin").mkdir(parents=True)
 (static / "_probe.bash").write_text("complete -W 'shipped' probe\n")
@@ -93,7 +93,7 @@ static = Path("3.0.0")
 program = static / "bin/probe"
 program.write_text("#!/usr/bin/env sh\nexit 1\n")
 program.chmod(0o755)
-(static / ".mise-packslip.json").write_text(json.dumps({
+(static / ".pakro-packslip.json").write_text(json.dumps({
     "_type": "https://in-toto.io/Statement/v1",
     "subject": [{"name": "probe.tar.gz", "digest": {"sha256": "a" * 64}}],
     "predicateType": "https://packslip.dev/release/v1",
@@ -117,12 +117,12 @@ program.chmod(0o755)
 PY
 
 for version in 1.0.0 2.0.0 3.0.0; do
-  mise link "packslip:test/probe@$version" "$PWD/$version"
+  pakro link "packslip:test/probe@$version" "$PWD/$version"
   mkdir "project-$version"
-  printf '[tools]\n"packslip:test/probe" = "%s"\n' "$version" >"project-$version/mise.toml"
+  printf '[tools]\n"packslip:test/probe" = "%s"\n' "$version" >"project-$version/pakro.toml"
 done
 mkdir project-tools-manpath
-cat >project-tools-manpath/mise.toml <<'EOF_TOOLS_MANPATH'
+cat >project-tools-manpath/pakro.toml <<'EOF_TOOLS_MANPATH'
 [tools]
 "packslip:test/probe" = "1.0.0"
 
@@ -130,7 +130,7 @@ cat >project-tools-manpath/mise.toml <<'EOF_TOOLS_MANPATH'
 MANPATH = { value = "/tools-aware-man:", tools = true }
 EOF_TOOLS_MANPATH
 mkdir project-unset-manpath
-cat >project-unset-manpath/mise.toml <<'EOF_UNSET_MANPATH'
+cat >project-unset-manpath/pakro.toml <<'EOF_UNSET_MANPATH'
 [tools]
 "packslip:test/probe" = "1.0.0"
 
@@ -152,45 +152,45 @@ cd project-1.0.0
 # The active version's normalized man root leads MANPATH without hiding a
 # caller's entries or the empty component that preserves system defaults.
 existing_manpath="$PWD/existing-man"
-active_manpath="$(mise where packslip:test/probe@1.0.0)/.mise-packslip/man"
-actual_manpath="$(MANPATH="$existing_manpath:" mise x -- env | sed -n 's/^MANPATH=//p')"
+active_manpath="$(pakro where packslip:test/probe@1.0.0)/.pakro-packslip/man"
+actual_manpath="$(MANPATH="$existing_manpath:" pakro x -- env | sed -n 's/^MANPATH=//p')"
 [[ $actual_manpath == "$active_manpath:$existing_manpath:" ]] ||
   fail "unexpected MANPATH for probe 1.0.0: $actual_manpath"
-actual_manpath="$(env -u MANPATH mise x -- env | sed -n 's/^MANPATH=//p')"
+actual_manpath="$(env -u MANPATH pakro x -- env | sed -n 's/^MANPATH=//p')"
 [[ $actual_manpath == "$active_manpath:" ]] ||
   fail "MANPATH should retain system defaults: $actual_manpath"
 
 # The environment cache must not reuse the caller MANPATH captured by an
 # earlier process.
-export MISE_ENV_CACHE=1
-export __MISE_ENV_CACHE_KEY="dGVzdGtleXRlc3RrZXl0ZXN0a2V5dGVzdGtleXRlc3Q="
-actual_manpath="$(MANPATH="/caller-one:" mise x -- env | sed -n 's/^MANPATH=//p')"
+export PAKRO_ENV_CACHE=1
+export __PAKRO_ENV_CACHE_KEY="dGVzdGtleXRlc3RrZXl0ZXN0a2V5dGVzdGtleXRlc3Q="
+actual_manpath="$(MANPATH="/caller-one:" pakro x -- env | sed -n 's/^MANPATH=//p')"
 [[ $actual_manpath == "$active_manpath:/caller-one:" ]] ||
   fail "unexpected cached MANPATH for first caller: $actual_manpath"
-actual_manpath="$(MANPATH="/caller-two:" mise x -- env | sed -n 's/^MANPATH=//p')"
+actual_manpath="$(MANPATH="/caller-two:" pakro x -- env | sed -n 's/^MANPATH=//p')"
 [[ $actual_manpath == "$active_manpath:/caller-two:" ]] ||
   fail "environment cache reused another caller's MANPATH: $actual_manpath"
-unset MISE_ENV_CACHE __MISE_ENV_CACHE_KEY
+unset PAKRO_ENV_CACHE __PAKRO_ENV_CACHE_KEY
 
 # A tools-aware environment value resolves after the first tool environment
 # pass, but it must not replace the active Packslip man root.
 cd ../project-tools-manpath
-actual_manpath="$(env -u MANPATH mise x -- env | sed -n 's/^MANPATH=//p')"
+actual_manpath="$(env -u MANPATH pakro x -- env | sed -n 's/^MANPATH=//p')"
 [[ $actual_manpath == "$active_manpath:/tools-aware-man:" ]] ||
   fail "tools-aware MANPATH replaced Packslip pages: $actual_manpath"
 cd ../project-unset-manpath
-if env -u MANPATH mise x -- env | grep -q '^MANPATH='; then
+if env -u MANPATH pakro x -- env | grep -q '^MANPATH='; then
   fail "a tools-aware MANPATH unset should be honored"
 fi
 cd ../project-1.0.0
 
 # What an interrupted generation leaves is not a completion, and the shells
 # asking at once run the tool once between them rather than once each.
-cache="../1.0.0/.mise-packslip/completions-v2/probe"
+cache="../1.0.0/.pakro-packslip/completions-v2/probe"
 mkdir -p "$cache"
 printf ' \n' >"$cache/fish.completion"
 for i in 1 2 3 4; do
-  mise completion fish --tool probe >"completion-$i" &
+  pakro completion fish --tool probe >"completion-$i" &
 done
 wait
 for i in 1 2 3 4; do
@@ -200,30 +200,30 @@ assert "wc -l <../1.0.0/calls-fish | tr -d ' '" "1"
 
 # A spec generated for one shell is not the spec for another, and neither
 # generation reads the other's half-written file.
-mise completion bash --tool probe >bash.completion &
-mise completion zsh --tool probe >zsh.completion
+pakro completion bash --tool probe >bash.completion &
+pakro completion zsh --tool probe >zsh.completion
 wait
 assert_contains "cat bash.completion" "__usage_complete_word"
 assert_contains "cat zsh.completion" "__usage_complete_word"
-assert_contains "cat ../1.0.0/.mise-packslip/specs/bash/probe.usage" "// bash 1.0.0"
-assert_contains "cat ../1.0.0/.mise-packslip/specs/zsh/probe.usage" "// zsh 1.0.0"
+assert_contains "cat ../1.0.0/.pakro-packslip/specs/bash/probe.usage" "// bash 1.0.0"
+assert_contains "cat ../1.0.0/.pakro-packslip/specs/zsh/probe.usage" "// zsh 1.0.0"
 
 # The skill the release ships is the skill, and the link follows the
 # version that is active here.
-assert_contains "mise skills ls" "probe"
-assert_contains "mise skills ls --json" "1.0.0"
-mise skills sync --dir ../skills
+assert_contains "pakro skills ls" "probe"
+assert_contains "pakro skills ls --json" "1.0.0"
+pakro skills sync --dir ../skills
 assert_contains "cat ../skills/probe/SKILL.md" "# probe 1.0.0"
 
 # Paths under $HOME print as ~, in the link row and in the table.
-assert_contains "mise skills sync --dir $HOME/agent-skills" "linked ~/agent-skills/probe -> "
-assert_contains "mise skills sync --dir $HOME/agent-skills" "skill(s) already linked in ~/agent-skills"
-assert_contains "mise skills ls" "~/"
-assert_not_contains "mise skills ls" "$HOME"
-assert_contains "mise skills ls --json" "$HOME"
+assert_contains "pakro skills sync --dir $HOME/agent-skills" "linked ~/agent-skills/probe -> "
+assert_contains "pakro skills sync --dir $HOME/agent-skills" "skill(s) already linked in ~/agent-skills"
+assert_contains "pakro skills ls" "~/"
+assert_not_contains "pakro skills ls" "$HOME"
+assert_contains "pakro skills ls --json" "$HOME"
 
 if command -v fish >/dev/null; then
-  mise completion fish --tool probe --install
+  pakro completion fish --tool probe --install
   stub="$HOME/.config/fish/completions/probe.fish"
   assert_contains "cat $stub" "complete -c 'probe'"
   rm -f ../2.0.0/calls-fish
@@ -241,7 +241,7 @@ if command -v fish >/dev/null; then
 fi
 
 if command -v pwsh >/dev/null; then
-  mise completion powershell --tool probe --install 2>pwsh.install
+  pakro completion powershell --tool probe --install 2>pwsh.install
   stub="$(sed -n 's/^installing to //p' pwsh.install)"
   rm -f ../2.0.0/calls-powershell
   # shellcheck disable=SC2016 # the $ names below are PowerShell's, not bash's
@@ -258,26 +258,26 @@ fi
 
 # A version switch is a different install, with its own cache and skill.
 cd ../project-2.0.0
-active_manpath="$(mise where packslip:test/probe@2.0.0)/.mise-packslip/man"
-actual_manpath="$(MANPATH="$existing_manpath:" mise x -- env | sed -n 's/^MANPATH=//p')"
+active_manpath="$(pakro where packslip:test/probe@2.0.0)/.pakro-packslip/man"
+actual_manpath="$(MANPATH="$existing_manpath:" pakro x -- env | sed -n 's/^MANPATH=//p')"
 [[ $actual_manpath == "$active_manpath:$existing_manpath:" ]] ||
   fail "unexpected MANPATH for probe 2.0.0: $actual_manpath"
-assert_contains "mise completion fish --tool probe" "version2.0.0"
-mise skills sync --dir ../skills
+assert_contains "pakro completion fish --tool probe" "version2.0.0"
+pakro skills sync --dir ../skills
 assert_contains "cat ../skills/probe/SKILL.md" "# probe 2.0.0"
 cd ../project-1.0.0
-mise skills sync --dir ../skills
+pakro skills sync --dir ../skills
 assert_contains "cat ../skills/probe/SKILL.md" "# probe 1.0.0"
 
 # A completion the release ships is read, not generated, so it asks nothing
 # of the install: no lock, no directory, and no write. That is what lets a
 # system or shared install, which is read-only, complete at all.
 cd ../project-3.0.0
-assert_contains "mise completion bash --tool probe" "complete -W 'shipped' probe"
-assert "test ! -e ../3.0.0/.mise-packslip/completions-v2 && echo clean" "clean"
+assert_contains "pakro completion bash --tool probe" "complete -W 'shipped' probe"
+assert "test ! -e ../3.0.0/.pakro-packslip/completions-v2 && echo clean" "clean"
 if [ "$(id -u)" != 0 ]; then
   chmod -R a-w ../3.0.0
-  assert_contains "mise completion bash --tool probe" "complete -W 'shipped' probe"
+  assert_contains "pakro completion bash --tool probe" "complete -W 'shipped' probe"
   chmod -R u+w ../3.0.0
 fi
 
@@ -286,11 +286,11 @@ fi
 # which is what a fetch that failed at install time leaves behind.
 cd ../project-1.0.0
 mv ../1.0.0/skill/SKILL.md ../1.0.0/skill/SKILL.md.gone
-assert_contains "mise skills ls 2>&1" "declares a skill probe that is not installed"
-assert_contains "mise skills ls 2>&1" "the active tools declare skills, but none are installed"
-assert "mise skills ls --json 2>/dev/null" "[]"
-assert_contains "mise skills sync --dir ../skills 2>&1" "declares a skill probe that is not installed"
+assert_contains "pakro skills ls 2>&1" "declares a skill probe that is not installed"
+assert_contains "pakro skills ls 2>&1" "the active tools declare skills, but none are installed"
+assert "pakro skills ls --json 2>/dev/null" "[]"
+assert_contains "pakro skills sync --dir ../skills 2>&1" "declares a skill probe that is not installed"
 # The setting that kept it off disk is the reason worth naming.
-assert_contains "env MISE_SKILLS_FETCH=0 mise skills ls 2>&1" "skills.fetch is off"
+assert_contains "env PAKRO_SKILLS_FETCH=0 pakro skills ls 2>&1" "skills.fetch is off"
 mv ../1.0.0/skill/SKILL.md.gone ../1.0.0/skill/SKILL.md
-assert_contains "mise skills ls" "probe"
+assert_contains "pakro skills ls" "probe"

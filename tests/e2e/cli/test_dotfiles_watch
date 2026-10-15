@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# `mise bootstrap dotfiles watch`: edits to tracked files are saved automatically once
+# `pakro bootstrap dotfiles watch`: edits to tracked files are saved automatically once
 # they are quiet, configuration changes replan the watches, one watcher runs
 # per store, and `--once` reconciles for timers.
 # shellcheck disable=SC2016
 
 require_cmd git
 
-export MISE_HISTORY_WATCH_DEBOUNCE=1s
-export MISE_HISTORY_WATCH_MAX_INTERVAL=5s
+export PAKRO_HISTORY_WATCH_DEBOUNCE=1s
+export PAKRO_HISTORY_WATCH_MAX_INTERVAL=5s
 
-count="mise bootstrap dotfiles history --json -n 0 | jq length"
+count="pakro bootstrap dotfiles history --json -n 0 | jq length"
 
 # Waits until the shell condition $1 holds, for at most $2 seconds (default
 # 30). The budget is wall clock rather than a fixed number of iterations: a
 # loaded CI runner can take seconds to start the watcher or to answer one
-# `mise` invocation, which a count of sleeps silently turns into a much
+# `pakro` invocation, which a count of sleeps silently turns into a much
 # shorter timeout.
 wait_until() {
   local deadline=$((SECONDS + ${2:-30}))
@@ -39,8 +39,8 @@ wait_for_count() {
 
 # With no enrollment the service still watches policy changes, but creates
 # no file-history commits or implicit config enrollment.
-mkdir -p "$MISE_CONFIG_DIR"
-mise bootstrap dotfiles watch --json >watch.log 2>&1 &
+mkdir -p "$PAKRO_CONFIG_DIR"
+pakro bootstrap dotfiles watch --json >watch.log 2>&1 &
 empty_watcher=$!
 trap 'kill "$empty_watcher" 2>/dev/null || true; wait "$empty_watcher" 2>/dev/null || true' EXIT
 wait_until "grep -q '\"event\":\"started\"' watch.log"
@@ -51,38 +51,38 @@ assert "$count" "0"
 
 mkdir -p ~/.config/hypr
 echo 'monitor=DP-1' >~/.config/hypr/monitors.lua
-assert_succeed "mise bootstrap dotfiles track ~/.config/hypr"
+assert_succeed "pakro bootstrap dotfiles track ~/.config/hypr"
 assert "$count" "1"
-assert_contains "mise bootstrap dotfiles status" "automatic capture: not declared"
+assert_contains "pakro bootstrap dotfiles status" "automatic capture: not declared"
 
 # a declared but not running watcher is reported with the next command
-cat <<'EOF' >>"$MISE_CONFIG_DIR/config.toml"
+cat <<'EOF' >>"$PAKRO_CONFIG_DIR/config.toml"
 
-[bootstrap.services.mise-history]
+[bootstrap.services.pakro-history]
 builtin = "history-watch"
 EOF
-assert_contains "mise bootstrap dotfiles status" "declared but not running"
-assert_contains "mise bootstrap dotfiles status" "mise bootstrap services apply"
-assert "mise bootstrap dotfiles status --json | jq -r .history.watcher" "declared-not-running"
+assert_contains "pakro bootstrap dotfiles status" "declared but not running"
+assert_contains "pakro bootstrap dotfiles status" "pakro bootstrap services apply"
+assert "pakro bootstrap dotfiles status --json | jq -r .history.watcher" "declared-not-running"
 
 # --once reconciles and exits: an edit made while nothing watched is saved
 echo 'monitor=DP-2' >~/.config/hypr/monitors.lua
-assert_succeed "mise bootstrap dotfiles watch --once"
+assert_succeed "pakro bootstrap dotfiles watch --once"
 assert "$count" "2"
-assert "mise bootstrap dotfiles history --json | jq -r '.[0].trigger'" "edit"
-assert "mise bootstrap dotfiles history --json | jq -r '.[0].description'" "edited hypr/monitors.lua"
+assert "pakro bootstrap dotfiles history --json | jq -r '.[0].trigger'" "edit"
+assert "pakro bootstrap dotfiles history --json | jq -r '.[0].description'" "edited hypr/monitors.lua"
 
 # the foreground watcher saves an edit once the file is quiet
-mise bootstrap dotfiles watch --json >watch.log 2>&1 &
+pakro bootstrap dotfiles watch --json >watch.log 2>&1 &
 watcher=$!
 cleanup() { kill "$watcher" 2>/dev/null || true; }
 trap cleanup EXIT
 wait_until "grep -q '\"event\":\"started\"' watch.log"
-assert "mise bootstrap dotfiles status --json | jq -r .history.watcher" "running"
-assert_contains "mise bootstrap dotfiles status" "automatic capture: running"
+assert "pakro bootstrap dotfiles status --json | jq -r .history.watcher" "running"
+assert_contains "pakro bootstrap dotfiles status" "automatic capture: running"
 
 # one watcher per store: a second one exits 0 immediately
-assert_contains "mise bootstrap dotfiles watch --json" '"event":"already-running"'
+assert_contains "pakro bootstrap dotfiles watch --json" '"event":"already-running"'
 
 saved="$(eval "$count")"
 echo 'monitor=DP-3' >~/.config/hypr/monitors.lua
@@ -92,29 +92,29 @@ echo 'bind = SUPER, Q' >~/.config/hypr/bindings.lua
 # in separate debounce windows, and a path that is not due yet is held back
 # from another path's capture on purpose — so assert over every checkpoint
 # saved since, and only those: an older one names monitors.lua too.
-new_checkpoints="mise bootstrap dotfiles history --json -n 0 | jq -e --argjson saved $saved '.[0:(length - \$saved)] | map(.description) | join(\"; \") | test(\"edited hypr/monitors.lua\") and test(\"added hypr/bindings.lua\")'"
+new_checkpoints="pakro bootstrap dotfiles history --json -n 0 | jq -e --argjson saved $saved '.[0:(length - \$saved)] | map(.description) | join(\"; \") | test(\"edited hypr/monitors.lua\") and test(\"added hypr/bindings.lua\")'"
 wait_until "$new_checkpoints"
 assert_contains "cat watch.log" '"event":"captured"'
 
 # a configuration change replans: an excluded file stops being captured
 n="$(eval "$count")"
-assert_succeed "mise bootstrap dotfiles exclude '~/.config/hypr/bindings.lua'"
+assert_succeed "pakro bootstrap dotfiles exclude '~/.config/hypr/bindings.lua'"
 wait_for_count $((n + 1))
 assert_contains "cat watch.log" '"event":"replan"'
-assert "mise bootstrap dotfiles history --json | jq -r '.[0].description'" "removed hypr/bindings.lua"
+assert "pakro bootstrap dotfiles history --json | jq -r '.[0].description'" "removed hypr/bindings.lua"
 n="$(eval "$count")"
 echo 'bind = SUPER, W' >~/.config/hypr/bindings.lua
 echo 'monitor=DP-4' >~/.config/hypr/monitors.lua
 wait_for_count $((n + 1))
-assert "mise bootstrap dotfiles history --json | jq -r '.[0].description'" "edited hypr/monitors.lua"
+assert "pakro bootstrap dotfiles history --json | jq -r '.[0].description'" "edited hypr/monitors.lua"
 n="$(eval "$count")"
-assert_succeed "mise bootstrap dotfiles include '~/.config/hypr/bindings.lua'"
+assert_succeed "pakro bootstrap dotfiles include '~/.config/hypr/bindings.lua'"
 wait_for_count $((n + 1))
 
 # a running history operation defers the watcher instead of racing it: the
 # rollback records its own pair and the watcher saves nothing extra
 n="$(eval "$count")"
-assert_succeed "mise bootstrap dotfiles rollback ~/.config/hypr/monitors.lua --yes"
+assert_succeed "pakro bootstrap dotfiles rollback ~/.config/hypr/monitors.lua --yes"
 sleep 2.5
 assert "cat ~/.config/hypr/monitors.lua" "monitor=DP-3"
 assert "$count" "$((n + 2))"
@@ -130,15 +130,15 @@ printf 'agent: %s\n' "$(printf '%s' "$input" | jq -r '(.added + .modified + .rem
 EOF
 chmod +x "$PWD/describe"
 replans="$(grep -c 'configuration changed; watching' watch.log || true)"
-cat <<EOF >>"$MISE_CONFIG_DIR/config.toml"
+cat <<EOF >>"$PAKRO_CONFIG_DIR/config.toml"
 
 [settings]
 history.describe_command = "$PWD/describe"
 EOF
 wait_until "[[ \$(grep -c 'configuration changed; watching' watch.log) -gt $replans ]]"
-echo 'token = "s3cret"' >"$MISE_CONFIG_DIR/github_tokens.toml"
+echo 'token = "s3cret"' >"$PAKRO_CONFIG_DIR/github_tokens.toml"
 echo 'monitor=DP-4' >~/.config/hypr/monitors.lua
-wait_until "mise bootstrap dotfiles history --json | jq -e '.[0].description_source == \"command\" and (.[0].description | test(\"^agent: .*monitors.lua\"))'"
+wait_until "pakro bootstrap dotfiles history --json | jq -e '.[0].description_source == \"command\" and (.[0].description | test(\"^agent: .*monitors.lua\"))'"
 assert_contains "cat ~/describe-input" "monitors.lua"
 assert_contains "cat ~/describe-input" "DP-4"
 assert_not_contains "cat ~/describe-input" "github_tokens"
@@ -152,15 +152,15 @@ exit 0
 EOF
 echo 'monitor=DP-5' >~/.config/hypr/monitors.lua
 wait_until "grep -q 'kept its output open' watch.log"
-assert "mise bootstrap dotfiles history --json | jq -r '.[0].description'" "edited hypr/monitors.lua"
-assert "mise bootstrap dotfiles history --json | jq -r '.[0].description_source'" "computed"
+assert "pakro bootstrap dotfiles history --json | jq -r '.[0].description'" "edited hypr/monitors.lua"
+assert "pakro bootstrap dotfiles history --json | jq -r '.[0].description_source'" "computed"
 # a failing command keeps the computed description
 printf '#!/usr/bin/env bash\nexit 3\n' >"$PWD/describe"
 errors="$(grep -Fc '"event":"describe-error"' watch.log || true)"
 echo 'monitor=DP-6' >~/.config/hypr/monitors.lua
 wait_until "[[ \$(grep -Fc '\"event\":\"describe-error\"' watch.log) -gt $errors ]]"
-assert "mise bootstrap dotfiles history --json | jq -r '.[0].description'" "edited hypr/monitors.lua"
-assert "mise bootstrap dotfiles history --json | jq -r '.[0].description_source'" "computed"
+assert "pakro bootstrap dotfiles history --json | jq -r '.[0].description'" "edited hypr/monitors.lua"
+assert "pakro bootstrap dotfiles history --json | jq -r '.[0].description_source'" "computed"
 
 # stopping saves what is still pending
 echo 'monitor=DP-7' >~/.config/hypr/monitors.lua
@@ -168,10 +168,10 @@ sleep 0.3
 kill -TERM "$watcher"
 wait "$watcher" || true
 assert_contains "cat watch.log" '"event":"stopped"'
-assert_succeed "mise bootstrap dotfiles history diff --path ~/.config/hypr/monitors.lua --exit-code"
-assert "mise bootstrap dotfiles history --json | jq -r '.[0].description'" "edited hypr/monitors.lua"
-assert_contains "mise bootstrap dotfiles status" "declared but not running"
+assert_succeed "pakro bootstrap dotfiles history diff --path ~/.config/hypr/monitors.lua --exit-code"
+assert "pakro bootstrap dotfiles history --json | jq -r '.[0].description'" "edited hypr/monitors.lua"
+assert_contains "pakro bootstrap dotfiles status" "declared but not running"
 
 # The watcher is a no-op when history is disabled.
-assert_contains "MISE_HISTORY_ENABLED=0 mise bootstrap dotfiles watch --json" '"event":"disabled"'
-assert_succeed "MISE_HISTORY_ENABLED=0 mise bootstrap dotfiles watch"
+assert_contains "PAKRO_HISTORY_ENABLED=0 pakro bootstrap dotfiles watch --json" '"event":"disabled"'
+assert_succeed "PAKRO_HISTORY_ENABLED=0 pakro bootstrap dotfiles watch"

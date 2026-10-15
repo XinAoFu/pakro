@@ -36,7 +36,7 @@ pub(crate) struct CargoBackend {
 
 const CARGO_BINSTALL_NO_FALLBACK_EXIT_CODE: i32 = 94;
 const CARGO_BINSTALL_DEFAULT_DISABLED_STRATEGIES: &[&str] = &["compile"];
-const CARGO_INSTALL_STATE_FILENAME: &str = ".mise-cargo-install.toml";
+const CARGO_INSTALL_STATE_FILENAME: &str = ".pakro-cargo-install.toml";
 
 #[derive(Debug, Clone, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(default)]
@@ -230,8 +230,8 @@ impl Backend for CargoBackend {
             &ctx.config,
             "cargo",
             &["rust", "cargo"],
-            "To use cargo packages with mise, you need to install Rust first:\n\
-              mise use rust@latest\n\n\
+            "To use cargo packages with pakro, you need to install Rust first:\n\
+              pakro use rust@latest\n\n\
             Or install Rust via https://rustup.rs/",
         )
         .await;
@@ -331,8 +331,8 @@ impl Backend for CargoBackend {
             } else if tv.version != "HEAD" {
                 Err(eyre!("Invalid cargo git version: {}", tv.version).note(
                     r#"You can specify "rev:", "branch:", or "tag:", e.g.:
-      * mise use cargo:eza-community/eza@tag:v0.18.0
-      * mise use cargo:eza-community/eza@branch:main"#,
+      * pakro use cargo:eza-community/eza@tag:v0.18.0
+      * pakro use cargo:eza-community/eza@branch:main"#,
                 ))?;
             }
         } else {

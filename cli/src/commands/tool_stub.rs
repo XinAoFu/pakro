@@ -300,7 +300,7 @@ async fn execute_with_tool_request(
     toolset.add_version(tool_request);
 
     // Resolve the toolset to populate current versions. Lock data comes
-    // from the stub's project mise.lock (see `lockfile_path_for_tool_stub`).
+    // from the stub's project pakro.lock (see `lockfile_path_for_tool_stub`).
     toolset.resolve(config).await?;
 
     // Ensure we have current versions after resolving
@@ -396,14 +396,14 @@ async fn execute_with_tool_request(
 ///
 /// A tool stub consists of:
 ///
-/// - A shebang line: #!/usr/bin/env -S mise tool-stub
+/// - A shebang line: #!/usr/bin/env -S pakro tool-stub
 /// - TOML configuration specifying the tool, version, and options
 /// - Optional comments describing the tool's purpose
 ///
 /// Example stub file:
 ///
 /// ```toml
-/// #!/usr/bin/env -S mise tool-stub
+/// #!/usr/bin/env -S pakro tool-stub
 /// # Node.js v20 development environment
 ///
 /// tool = "node"
@@ -433,7 +433,7 @@ pub(crate) struct ToolStub {
     /// Arguments to pass to the tool
     ///
     /// All arguments after the stub file path will be forwarded to the
-    /// underlying tool. Use '--' to separate mise arguments from tool arguments
+    /// underlying tool. Use '--' to separate pakro arguments from tool arguments
     /// if needed.
     #[usage(trailing_var_arg = true, allow_hyphen_values = true)]
     pub args: Vec<String>,
@@ -457,7 +457,7 @@ impl ToolStub {
 
         let stub = ToolStubFile::from_file(&self.file)?;
 
-        // Track the stub so `mise prune` knows its tool is still needed. Stubs
+        // Track the stub so `pakro prune` knows its tool is still needed. Stubs
         // can live anywhere, so execution time is the only chance to find them.
         // absolute() rather than canonicalize() so a symlinked stub keeps its
         // invoked filename, which the tool name can be derived from.

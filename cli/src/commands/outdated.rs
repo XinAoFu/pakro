@@ -16,19 +16,19 @@ use tabled::settings::location::ByColumnName;
 
 /// Show outdated tool versions
 ///
-/// See `mise upgrade` to upgrade these versions.
+/// See `pakro upgrade` to upgrade these versions.
 #[derive(Debug, usage_rs::Args)]
 #[usage(verbatim_doc_comment, after_long_help = AFTER_LONG_HELP,
-    example(r###"mise outdated
+    example(r###"pakro outdated
 Plugin  Requested  Current  Latest
 python  3.11       3.11.0   3.11.1
 node    20         20.0.0   20.1.0"###),
-    example(r###"mise outdated node
+    example(r###"pakro outdated node
 Plugin  Requested  Current  Latest
 node    20         20.0.0   20.1.0"###),
-    example(r###"mise outdated --json
+    example(r###"pakro outdated --json
 {"python": {"requested": "3.11", "current": "3.11.0", "latest": "3.11.1"}, ...}"###),
-    example(r###"mise outdated --local
+    example(r###"pakro outdated --local
 Plugin  Requested  Current  Latest
 node    20         20.0.0   20.1.0"###))]
 pub(crate) struct Outdated {
@@ -40,7 +40,7 @@ pub(crate) struct Outdated {
 
     /// Compare against the latest versions available, not just those matching the current config
     ///
-    /// For example, with `node = "20"` in your config, `mise outdated` normally only reports newer
+    /// For example, with `node = "20"` in your config, `pakro outdated` normally only reports newer
     /// 20.x versions. With this flag it reports the newest version overall, such as 22.x.
     #[usage(long, short = 'b', verbatim_doc_comment)]
     pub bump: bool,
@@ -55,18 +55,18 @@ pub(crate) struct Outdated {
 
     /// Show outdated tools including installed-but-inactive tools not present in the current config
     ///
-    /// By default, `mise outdated` only shows tools that come from the current config.
+    /// By default, `pakro outdated` only shows tools that come from the current config.
     #[usage(long, verbatim_doc_comment, conflicts = "local")]
     pub inactive: bool,
 
     /// Only show outdated tools defined in local config files
     ///
-    /// This will only show tools that are defined in project-local mise.toml and
-    /// will skip tools defined in the global config (~/.config/mise/config.toml).
+    /// This will only show tools that are defined in project-local pakro.toml and
+    /// will skip tools defined in the global config (~/.config/pakro/config.toml).
     #[usage(long, verbatim_doc_comment)]
     pub local: bool,
 
-    /// Placeholder for future monorepo outdated checks; `mise outdated --monorepo` is not implemented yet.
+    /// Placeholder for future monorepo outdated checks; `pakro outdated --monorepo` is not implemented yet.
     #[usage(long, verbatim_doc_comment)]
     pub monorepo: bool,
 
@@ -82,12 +82,12 @@ impl Outdated {
                 "2026.8.5",
                 "2027.8.5",
                 "cli.outdated.bump-l",
-                "`mise outdated -l` is deprecated. Use `mise outdated -b` or `mise outdated --bump` instead. After removal, `-l` will become shorthand for `--local`."
+                "`pakro outdated -l` is deprecated. Use `pakro outdated -b` or `pakro outdated --bump` instead. After removal, `-l` will become shorthand for `--local`."
             );
             self.bump = true;
         }
         if self.monorepo {
-            unimplemented!("mise outdated --monorepo is not implemented yet");
+            unimplemented!("pakro outdated --monorepo is not implemented yet");
         }
         let config = Config::get().await?;
         let scope = if self.local {
@@ -164,11 +164,11 @@ impl Outdated {
         if requests.is_empty() {
             return Ok(());
         }
-        let index = Arc::new(mise_index::Index::from_env(
+        let index = Arc::new(pakro_index::Index::from_env(
             crate::dirs::CACHE.join("index"),
         ));
         let offline = Settings::get().offline();
-        miseprintln!("\nPackages:");
+        pakroprintln!("\nPackages:");
         for request in &requests {
             let (latest, marker) = match request.runtime_name.as_str() {
                 "python" => python_package_display(
@@ -197,7 +197,7 @@ impl Outdated {
                 }
                 _ => ("unavailable: unsupported package ecosystem".into(), ""),
             };
-            miseprintln!(
+            pakroprintln!(
                 "  {}@{} {} {} -> {}{marker}",
                 request.runtime_name,
                 request.runtime_version,
@@ -214,7 +214,7 @@ impl Outdated {
             info!("All tools are up to date");
             if bump_available {
                 info!(
-                    "Newer versions are available outside the configured version ranges. Use `mise outdated --bump` to view them."
+                    "Newer versions are available outside the configured version ranges. Use `pakro outdated --bump` to view them."
                 );
             }
             return Ok(());
@@ -232,7 +232,7 @@ impl Outdated {
         for o in outdated {
             map.insert(o.name.to_string(), o);
         }
-        miseprintln!("{}", serde_json::to_string_pretty(&map)?);
+        pakroprintln!("{}", serde_json::to_string_pretty(&map)?);
         Ok(())
     }
 }
@@ -261,7 +261,7 @@ fn python_package_display(
 static AFTER_LONG_HELP: &str = color_print::cstr!(
     r###"<bold><underline>Deprecation:</underline></bold>
 
-The `-l` shorthand for `--bump` is deprecated and will be removed in mise 2027.8.5.
+The `-l` shorthand for `--bump` is deprecated and will be removed in pakro 2027.8.5.
 After removal, `-l` will become shorthand for `--local`. Use `-b` or `--bump` instead."###
 );
 

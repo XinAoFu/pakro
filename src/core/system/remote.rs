@@ -8,19 +8,16 @@ use indexmap::{IndexMap, IndexSet};
 use serde::Deserialize;
 
 use crate::config::Config;
-use crate::http::HTTP;
-use crate::ui::multi_progress_report::MultiProgressReport;
 
-const RELEASE_BASE_URL: &str = "https://github.com/jdx/mise/releases/download";
-/// Where `install_mise = true` puts the executable. This matches the default
-/// used by <https://mise.run> and is already searched by remote mise discovery.
-pub(crate) const DEFAULT_INSTALL_MISE_PATH: &str = "~/.local/bin/mise";
+/// Where `install_pakro = true` puts the executable. This matches the default
+/// searched by remote pakro discovery.
+pub(crate) const DEFAULT_INSTALL_PAKRO_PATH: &str = "~/.local/bin/pakro";
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct RemoteTomlConfig {
     pub source: Option<PathBuf>,
-    pub mise_env: Option<Vec<String>>,
-    pub install_mise: Option<InstallMiseTomlConfig>,
+    pub pakro_env: Option<Vec<String>>,
+    pub install_pakro: Option<InstallPakroTomlConfig>,
     #[serde(default)]
     pub copy_links: bool,
     #[serde(default)]
@@ -38,7 +35,7 @@ pub struct RemoteHostTomlConfig {
     pub port: Option<u16>,
     pub identity_file: Option<PathBuf>,
     pub source: Option<PathBuf>,
-    pub mise_env: Option<Vec<String>>,
+    pub pakro_env: Option<Vec<String>>,
     pub copy_links: Option<bool>,
     #[serde(default)]
     pub copy_link: Vec<PathBuf>,
@@ -48,25 +45,25 @@ pub struct RemoteHostTomlConfig {
     pub ssh_options: Vec<String>,
     #[serde(default)]
     pub tags: Vec<String>,
-    pub install_mise: Option<InstallMiseTomlConfig>,
-    pub mise_bin: Option<PathBuf>,
-    pub remote_mise: Option<String>,
+    pub install_pakro: Option<InstallPakroTomlConfig>,
+    pub pakro_bin: Option<PathBuf>,
+    pub remote_pakro: Option<String>,
     pub bootstrap_command: Option<String>,
 }
 
-/// `install_mise = true` or `install_mise = "~/bin/mise"`.
+/// `install_pakro = true` or `install_pakro = "~/bin/pakro"`.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(untagged)]
-pub enum InstallMiseTomlConfig {
+pub enum InstallPakroTomlConfig {
     Enabled(bool),
     Path(String),
 }
 
-impl InstallMiseTomlConfig {
+impl InstallPakroTomlConfig {
     fn path(self) -> Option<String> {
         match self {
             Self::Enabled(false) => None,
-            Self::Enabled(true) => Some(DEFAULT_INSTALL_MISE_PATH.to_string()),
+            Self::Enabled(true) => Some(DEFAULT_INSTALL_PAKRO_PATH.to_string()),
             Self::Path(path) => Some(path),
         }
     }
@@ -80,17 +77,17 @@ pub struct RemoteHost {
     pub port: Option<u16>,
     pub identity_file: Option<PathBuf>,
     pub source: PathBuf,
-    pub mise_env: Vec<String>,
+    pub pakro_env: Vec<String>,
     pub copy_links: bool,
     pub copy_link: Vec<PathBuf>,
     pub exclude: Vec<String>,
     pub ssh_options: Vec<String>,
     pub tags: IndexSet<String>,
-    /// Remote path the provisioned executable is installed to, keeping mise on
+    /// Remote path the provisioned executable is installed to, keeping pakro on
     /// the host after the staging directory is removed.
-    pub install_mise: Option<String>,
-    pub mise_bin: Option<PathBuf>,
-    pub remote_mise: Option<String>,
+    pub install_pakro: Option<String>,
+    pub pakro_bin: Option<PathBuf>,
+    pub remote_pakro: Option<String>,
     pub bootstrap_command: Option<String>,
 }
 
@@ -99,17 +96,17 @@ pub struct RemoteOverrides {
     /// Git onboarding does not use the inventory's archive source.
     pub from_git: bool,
     pub source: Option<PathBuf>,
-    pub mise_env: Option<Vec<String>>,
+    pub pakro_env: Option<Vec<String>>,
     pub copy_links: bool,
     pub copy_link: Vec<PathBuf>,
     pub port: Option<u16>,
     pub identity_file: Option<PathBuf>,
     pub exclude: Vec<String>,
     pub ssh_options: Vec<String>,
-    pub install_mise: Option<String>,
-    pub no_install_mise: bool,
-    pub mise_bin: Option<PathBuf>,
-    pub remote_mise: Option<String>,
+    pub install_pakro: Option<String>,
+    pub no_install_pakro: bool,
+    pub pakro_bin: Option<PathBuf>,
+    pub remote_pakro: Option<String>,
     pub bootstrap_command: Option<String>,
 }
 
@@ -127,14 +124,11 @@ pub struct RemoteRunOptions {
     pub connect_timeout: u16,
 }
 
+/// Automatic release downloads stay disabled until pakro has a published identity.
 #[derive(Default)]
-pub struct RemoteArtifactResolver {
-    directory: Option<tempfile::TempDir>,
-    manifest: Option<ReleaseManifest>,
-    artifacts: IndexMap<String, PathBuf>,
-    official_local_verified: bool,
-}
+pub struct RemoteArtifactResolver {}
 
+#[cfg(test)]
 #[derive(Clone, Debug)]
 struct ReleaseManifest {
     checksums: std::collections::HashMap<String, String>,
@@ -159,8 +153,8 @@ pub fn hosts_from_config(
         let remote = bootstrap.remote;
         let base = cf.get_path().parent().unwrap_or_else(|| Path::new("."));
         let default_source = resolve_local_path(base, remote.source.as_deref())?;
-        let default_mise_env = remote.mise_env;
-        let default_install_mise = remote.install_mise.and_then(InstallMiseTomlConfig::path);
+        let default_pakro_env = remote.pakro_env;
+        let default_install_pakro = remote.install_pakro.and_then(InstallPakroTomlConfig::path);
         let default_copy_links = remote.copy_links;
         let default_copy_link = remote.copy_link;
         for (name, host) in remote.hosts {
@@ -173,7 +167,7 @@ pub fn hosts_from_config(
                 None => default_source.clone().unwrap_or(std::env::current_dir()?),
             };
             let identity_file = resolve_local_path(base, host.identity_file.as_deref())?;
-            let mise_bin = resolve_local_path(base, host.mise_bin.as_deref())?;
+            let pakro_bin = resolve_local_path(base, host.pakro_bin.as_deref())?;
             let mut exclude = default_excludes();
             exclude.extend_from_slice(layered_excludes);
             exclude.extend(host.exclude);
@@ -186,20 +180,20 @@ pub fn hosts_from_config(
                 port: host.port,
                 identity_file,
                 source,
-                mise_env: host
-                    .mise_env
-                    .unwrap_or_else(|| default_mise_env.clone().unwrap_or_default()),
+                pakro_env: host
+                    .pakro_env
+                    .unwrap_or_else(|| default_pakro_env.clone().unwrap_or_default()),
                 copy_links: host.copy_links.unwrap_or(default_copy_links),
                 copy_link: dedupe_paths(copy_link),
                 exclude: dedupe(exclude),
                 ssh_options: dedupe(host.ssh_options),
                 tags: host.tags.into_iter().collect(),
-                install_mise: match host.install_mise {
-                    Some(install_mise) => install_mise.path(),
-                    None => default_install_mise.clone(),
+                install_pakro: match host.install_pakro {
+                    Some(install_pakro) => install_pakro.path(),
+                    None => default_install_pakro.clone(),
                 },
-                mise_bin,
-                remote_mise: host.remote_mise,
+                pakro_bin,
+                remote_pakro: host.remote_pakro,
                 bootstrap_command: host.bootstrap_command,
             };
             hosts.insert(name, host);
@@ -233,7 +227,7 @@ pub fn ad_hoc_host(
         port: None,
         identity_file: None,
         source,
-        mise_env: vec![],
+        pakro_env: vec![],
         copy_links: false,
         copy_link: vec![],
         exclude: dedupe(
@@ -244,9 +238,9 @@ pub fn ad_hoc_host(
         ),
         ssh_options: vec![],
         tags: IndexSet::new(),
-        install_mise: None,
-        mise_bin: None,
-        remote_mise: None,
+        install_pakro: None,
+        pakro_bin: None,
+        remote_pakro: None,
         bootstrap_command: None,
     };
     target.validate()?;
@@ -258,8 +252,8 @@ impl RemoteHost {
         if let Some(source) = &overrides.source {
             self.source = absolutize(source)?;
         }
-        if let Some(mise_env) = &overrides.mise_env {
-            self.mise_env.clone_from(mise_env);
+        if let Some(pakro_env) = &overrides.pakro_env {
+            self.pakro_env.clone_from(pakro_env);
         }
         if overrides.copy_links {
             self.copy_links = true;
@@ -276,32 +270,32 @@ impl RemoteHost {
         self.exclude = dedupe(std::mem::take(&mut self.exclude));
         self.ssh_options.extend(overrides.ssh_options.clone());
         self.ssh_options = dedupe(std::mem::take(&mut self.ssh_options));
-        if overrides.mise_bin.is_some()
-            || overrides.remote_mise.is_some()
+        if overrides.pakro_bin.is_some()
+            || overrides.remote_pakro.is_some()
             || overrides.bootstrap_command.is_some()
         {
-            self.mise_bin = overrides
-                .mise_bin
+            self.pakro_bin = overrides
+                .pakro_bin
                 .as_ref()
                 .map(|binary| absolutize(&crate::file::replace_path(binary)))
                 .transpose()?;
-            self.remote_mise.clone_from(&overrides.remote_mise);
+            self.remote_pakro.clone_from(&overrides.remote_pakro);
             self.bootstrap_command
                 .clone_from(&overrides.bootstrap_command);
-            // A command-line strategy that provides its own mise replaces a
+            // A command-line strategy that provides its own pakro replaces a
             // configured install rather than conflicting with it.
-            if overrides.remote_mise.is_some() || overrides.bootstrap_command.is_some() {
-                self.install_mise = None;
+            if overrides.remote_pakro.is_some() || overrides.bootstrap_command.is_some() {
+                self.install_pakro = None;
             }
         }
-        if let Some(install_mise) = &overrides.install_mise {
-            // Both of these provide their own mise, so an explicit install
+        if let Some(install_pakro) = &overrides.install_pakro {
+            // Both of these provide their own pakro, so an explicit install
             // replaces them the same way a command-line strategy would.
-            self.remote_mise = None;
+            self.remote_pakro = None;
             self.bootstrap_command = None;
-            self.install_mise = Some(install_mise.clone());
-        } else if overrides.no_install_mise {
-            self.install_mise = None;
+            self.install_pakro = Some(install_pakro.clone());
+        } else if overrides.no_install_pakro {
+            self.install_pakro = None;
         }
         self.validate_with_source(!overrides.from_git)
     }
@@ -348,18 +342,18 @@ impl RemoteHost {
                 identity.display()
             );
         }
-        if let Some(binary) = &self.mise_bin
+        if let Some(binary) = &self.pakro_bin
             && !binary.is_file()
         {
             bail!(
-                "remote host '{}' mise binary does not exist: {}",
+                "remote host '{}' pakro binary does not exist: {}",
                 self.name,
                 binary.display()
             );
         }
         let provisioning_strategies = [
-            self.mise_bin.is_some(),
-            self.remote_mise.is_some(),
+            self.pakro_bin.is_some(),
+            self.remote_pakro.is_some(),
             self.bootstrap_command.is_some(),
         ]
         .into_iter()
@@ -367,19 +361,19 @@ impl RemoteHost {
         .count();
         if provisioning_strategies > 1 {
             bail!(
-                "remote host '{}' must set at most one of mise_bin, remote_mise, or bootstrap_command",
+                "remote host '{}' must set at most one of pakro_bin, remote_pakro, or bootstrap_command",
                 self.name
             );
         }
-        if let Some(install_mise) = &self.install_mise {
-            if self.remote_mise.is_some() || self.bootstrap_command.is_some() {
+        if let Some(install_pakro) = &self.install_pakro {
+            if self.remote_pakro.is_some() || self.bootstrap_command.is_some() {
                 bail!(
-                    "remote host '{}' cannot combine install_mise with remote_mise or bootstrap_command, which already provide mise on the host",
+                    "remote host '{}' cannot combine install_pakro with remote_pakro or bootstrap_command, which already provide pakro on the host",
                     self.name
                 );
             }
-            validate_install_mise_path(install_mise).wrap_err_with(|| {
-                format!("remote host '{}' has an invalid install_mise", self.name)
+            validate_install_pakro_path(install_pakro).wrap_err_with(|| {
+                format!("remote host '{}' has an invalid install_pakro", self.name)
             })?;
         }
         for option in &self.ssh_options {
@@ -388,14 +382,14 @@ impl RemoteHost {
         for exclude in &self.exclude {
             validate_value("archive exclude", exclude)?;
         }
-        for env in &self.mise_env {
-            validate_value("mise environment", env)?;
+        for env in &self.pakro_env {
+            validate_value("pakro environment", env)?;
             if env.contains(',') {
-                bail!("remote mise environment cannot contain a comma: {env}");
+                bail!("remote pakro environment cannot contain a comma: {env}");
             }
         }
-        if let Some(remote_mise) = &self.remote_mise {
-            validate_remote_executable(remote_mise)?;
+        if let Some(remote_pakro) = &self.remote_pakro {
+            validate_remote_executable(remote_pakro)?;
         }
         if self
             .bootstrap_command
@@ -447,7 +441,7 @@ async fn run_inner(
     let control_directory = if cfg!(unix) {
         Some(
             tempfile::Builder::new()
-                .prefix("mise-ssh-")
+                .prefix("pakro-ssh-")
                 .tempdir_in("/tmp")?,
         )
     } else {
@@ -535,16 +529,16 @@ async fn remote_directory_exists(session: &SshSession<'_>, path: &str) -> Result
 
 fn staging_creation_script() -> &'static str {
     r#"set -eu
-staging=$(mktemp -d /tmp/mise-bootstrap.XXXXXXXXXX)
+staging=$(mktemp -d /tmp/pakro-bootstrap.XXXXXXXXXX)
 case "$staging" in
-  /tmp/mise-bootstrap.?*)
+  /tmp/pakro-bootstrap.?*)
     case "$staging" in
       *[[:space:]]*) ;;
       *) printf '%s\n' "$staging"; exit 0 ;;
     esac
     ;;
 esac
-case "$staging" in /tmp/mise-bootstrap.?*) rmdir "$staging" 2>/dev/null || true ;; esac
+case "$staging" in /tmp/pakro-bootstrap.?*) rmdir "$staging" 2>/dev/null || true ;; esac
 printf 'mktemp returned an unsafe staging path: %s\n' "$staging" >&2
 exit 1"#
 }
@@ -573,7 +567,7 @@ async fn run_staged(
     if repository.is_none() {
         upload_source(session, tar, &project).await?;
     }
-    let mise = provision_mise(session, staging, &project, options.dry_run, artifacts).await?;
+    let pakro = provision_pakro(session, staging, &project, options.dry_run, artifacts).await?;
     #[cfg(unix)]
     let relay = match &options.relay {
         Some(scope) => Some(start_relay(session, staging, scope.clone()).await?),
@@ -588,7 +582,7 @@ async fn run_staged(
             )
             .await?;
         let mut install = vec![
-            mise.as_str(),
+            pakro.as_str(),
             "ssh",
             "--repository-bundle",
             bundle.as_str(),
@@ -614,7 +608,7 @@ async fn run_staged(
         // The helper uses the target's XDG/global-config environment. Only its
         // absolute result, never the staging directory, becomes trusted config.
         let path = session
-            .output_async(&[&mise, "ssh", "--global-config-directory"])
+            .output_async(&[&pakro, "ssh", "--global-config-directory"])
             .await?
             .trim()
             .to_string();
@@ -625,8 +619,8 @@ async fn run_staged(
         if options.dry_run && !preview_setup && !remote_directory_exists(session, &path).await? {
             // nothing was written, so there is no configuration to preview the
             // bootstrap against yet
-            miseprintln!(
-                "Would then run `mise bootstrap --dry-run` in {path} on {} once the configuration exists there",
+            pakroprintln!(
+                "Would then run `pakro bootstrap --dry-run` in {path} on {} once the configuration exists there",
                 session.host.name
             );
             if options.relay.is_some() {
@@ -646,24 +640,24 @@ async fn run_staged(
     };
     let mut argv = vec![
         "env".to_string(),
-        format!("MISE_TRUSTED_CONFIG_PATHS={project}"),
+        format!("PAKRO_TRUSTED_CONFIG_PATHS={project}"),
     ];
-    argv.push(format!("MISE_ENV={}", session.host.mise_env.join(",")));
+    argv.push(format!("PAKRO_ENV={}", session.host.pakro_env.join(",")));
     if preview_setup {
-        argv.push(format!("MISE_CONFIG_DIR={project}"));
-        argv.push(format!("MISE_GLOBAL_CONFIG_FILE={project}/config.toml"));
+        argv.push(format!("PAKRO_CONFIG_DIR={project}"));
+        argv.push(format!("PAKRO_GLOBAL_CONFIG_FILE={project}/config.toml"));
     }
     #[cfg(unix)]
     if relay.is_some() {
         argv.extend([
-            mise.clone(),
+            pakro.clone(),
             "ssh".into(),
             "--relay-session".into(),
             format!("{staging}/github.sock"),
             "--".into(),
         ]);
     }
-    argv.extend([mise, "--cd".to_string(), project, "bootstrap".to_string()]);
+    argv.extend([pakro, "--cd".to_string(), project, "bootstrap".to_string()]);
     if options.dry_run {
         argv.push("--dry-run".to_string());
     }
@@ -732,7 +726,7 @@ pub async fn ssh(
 ) -> Result<()> {
     crate::ui::ctrlc::exit_on_ctrl_c(false);
     let directory = tempfile::Builder::new()
-        .prefix("mise-ssh-")
+        .prefix("pakro-ssh-")
         .tempdir_in("/tmp")?;
     let session = SshSession {
         ssh: crate::file::which_spawnable("ssh").ok_or_else(|| eyre!("ssh not found"))?,
@@ -755,7 +749,7 @@ pub async fn ssh(
         session
             .status_async(&["mkdir", "-p", &project], false)
             .await?;
-        let mise = provision_mise(
+        let pakro = provision_pakro(
             &session,
             staging,
             &project,
@@ -765,7 +759,7 @@ pub async fn ssh(
         .await?;
         let _relay = start_relay(&session, staging, scope).await?;
         let mut argv = vec![
-            mise,
+            pakro,
             "ssh".into(),
             "--relay-session".into(),
             format!("{staging}/github.sock"),
@@ -950,56 +944,56 @@ fn clear_readonly_attribute(path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-async fn provision_mise(
+async fn provision_pakro(
     session: &SshSession<'_>,
     staging: &str,
     project: &str,
     dry_run: bool,
     artifacts: &mut RemoteArtifactResolver,
 ) -> Result<String> {
-    if let Some(remote_mise) = &session.host.remote_mise {
-        let remote_mise = resolve_configured_remote_mise(session, remote_mise, project)
+    if let Some(remote_pakro) = &session.host.remote_pakro {
+        let remote_pakro = resolve_configured_remote_pakro(session, remote_pakro, project)
             .await
             .wrap_err_with(|| {
                 format!(
-                    "remote host '{}' has an invalid remote_mise value",
+                    "remote host '{}' has an invalid remote_pakro value",
                     session.host.name
                 )
             })?;
         session
-            .status_async(&[&remote_mise, "version"], false)
+            .status_async(&[&remote_pakro, "version"], false)
             .await?;
-        return Ok(remote_mise);
+        return Ok(remote_pakro);
     }
     if let Some(command) = &session.host.bootstrap_command {
         if dry_run {
-            let mise = resolve_remote_mise(session).await.wrap_err_with(|| {
+            let pakro = resolve_remote_pakro(session).await.wrap_err_with(|| {
                 format!(
-                    "remote host '{}' has no existing mise executable; --dry-run does not execute bootstrap_command, so install mise first or set remote_mise or mise_bin",
+                    "remote host '{}' has no existing pakro executable; --dry-run does not execute bootstrap_command, so install pakro first or set remote_pakro or pakro_bin",
                     session.host.name
                 )
             })?;
-            session.status_async(&[&mise, "version"], false).await?;
-            return Ok(mise);
+            session.status_async(&[&pakro, "version"], false).await?;
+            return Ok(pakro);
         }
-        let before = discover_remote_mise_candidates(session).await?;
-        let before_identities = remote_mise_candidate_identities(session, &before).await;
-        let candidates_file = format!("{staging}/mise-candidates");
-        let lookup = remote_mise_candidate_union_script();
+        let before = discover_remote_pakro_candidates(session).await?;
+        let before_identities = remote_pakro_candidate_identities(session, &before).await;
+        let candidates_file = format!("{staging}/pakro-candidates");
+        let lookup = remote_pakro_candidate_union_script();
         let script = format!(
             "set -e\n{command}\n{lookup} > {}",
             shell_quote(&candidates_file),
         );
         session.status_async(&["sh", "-lc", &script], true).await?;
         let candidates = session.output_async(&["cat", &candidates_file]).await?;
-        let candidates = parse_remote_mise_candidates(&candidates)?;
-        let after_identities = remote_mise_candidate_identities(session, &candidates).await;
-        let mise =
-            select_bootstrapped_mise(&before, &before_identities, &candidates, &after_identities)?;
-        session.status_async(&[&mise, "version"], false).await?;
-        return Ok(mise);
+        let candidates = parse_remote_pakro_candidates(&candidates)?;
+        let after_identities = remote_pakro_candidate_identities(session, &candidates).await;
+        let pakro =
+            select_bootstrapped_pakro(&before, &before_identities, &candidates, &after_identities)?;
+        session.status_async(&[&pakro, "version"], false).await?;
+        return Ok(pakro);
     }
-    let binary = if let Some(binary) = &session.host.mise_bin {
+    let binary = if let Some(binary) = &session.host.pakro_bin {
         binary.clone()
     } else {
         let platform = detect_remote_platform(session).await?;
@@ -1008,7 +1002,7 @@ async fn provision_mise(
         let local = std::env::current_exe()?;
         let local_incompatibility = if platform.os != local_os || platform.arch != local_arch {
             Some(format!(
-                "local mise is {local_os}/{local_arch}, while the remote target is {}",
+                "local pakro is {local_os}/{local_arch}, while the remote target is {}",
                 platform.description()
             ))
         } else {
@@ -1025,43 +1019,42 @@ async fn provision_mise(
                 .await
                 .wrap_err_with(|| {
                     format!(
-                        "local mise could not run on remote host '{}' ({}) because {}; official mise {} artifact fallback also failed",
+                        "local pakro could not run on remote host '{}' ({}) because {}; automatic pakro artifact download is unavailable",
                         session.host.name,
                         platform.description(),
                         local_incompatibility.expect("incompatibility was identified"),
-                        env!("CARGO_PKG_VERSION"),
                     )
                 })?
         }
     };
-    let remote = match &session.host.install_mise {
+    let remote = match &session.host.install_pakro {
         // A dry run stays inside the staging directory it already cleans up.
-        Some(install_mise) if dry_run => {
-            let target = resolve_remote_install_path(session, install_mise).await?;
-            info!("would install mise to {} on {}", target, session.host.name);
-            stage_mise(session, &binary, staging).await?
+        Some(install_pakro) if dry_run => {
+            let target = resolve_remote_install_path(session, install_pakro).await?;
+            info!("would install pakro to {} on {}", target, session.host.name);
+            stage_pakro(session, &binary, staging).await?
         }
-        Some(install_mise) => {
-            let target = resolve_remote_install_path(session, install_mise).await?;
-            install_remote_mise(session, &binary, &target).await?;
+        Some(install_pakro) => {
+            let target = resolve_remote_install_path(session, install_pakro).await?;
+            install_remote_pakro(session, &binary, &target).await?;
             target
         }
-        None => stage_mise(session, &binary, staging).await?,
+        None => stage_pakro(session, &binary, staging).await?,
     };
     session.status_async(&[&remote, "version"], false).await.wrap_err_with(|| {
         format!(
-            "provisioned mise cannot run on remote host '{}'; set mise_bin, remote_mise, or bootstrap_command",
+            "provisioned pakro cannot run on remote host '{}'; set pakro_bin, remote_pakro, or bootstrap_command",
             session.host.name
         )
     })?;
-    if session.host.install_mise.is_some() && !dry_run {
-        warn_when_installed_mise_is_off_login_path(session, &remote).await;
+    if session.host.install_pakro.is_some() && !dry_run {
+        warn_when_installed_pakro_is_off_login_path(session, &remote).await;
     }
     Ok(remote)
 }
 
-async fn stage_mise(session: &SshSession<'_>, binary: &Path, staging: &str) -> Result<String> {
-    let remote = format!("{staging}/mise");
+async fn stage_pakro(session: &SshSession<'_>, binary: &Path, staging: &str) -> Result<String> {
+    let remote = format!("{staging}/pakro");
     session.upload_executable(binary, &remote).await?;
     Ok(remote)
 }
@@ -1075,28 +1068,28 @@ async fn resolve_remote_install_path(session: &SshSession<'_>, path: &str) -> Re
         .await?;
     let home = validated_absolute_remote_path_output(&output, "remote login home")?;
     let target = format!("{}/{suffix}", home.trim_end_matches('/'));
-    validate_install_mise_path(&target)?;
+    validate_install_pakro_path(&target)?;
     Ok(target)
 }
 
 /// Installs the provisioned executable at a persistent remote path so the host
-/// keeps a usable mise once the staging directory is removed.
-async fn install_remote_mise(session: &SshSession<'_>, binary: &Path, target: &str) -> Result<()> {
+/// keeps a usable pakro once the staging directory is removed.
+async fn install_remote_pakro(session: &SshSession<'_>, binary: &Path, target: &str) -> Result<()> {
     let expected = crate::hash::file_hash_sha256(binary, None)?;
     if remote_executable_sha256(session, target)
         .await?
         .is_some_and(|installed| installed == expected)
     {
         info!(
-            "mise is already installed at {target} on {}",
+            "pakro is already installed at {target} on {}",
             session.host.name
         );
         return Ok(());
     }
     let file = File::open(binary)
-        .wrap_err_with(|| format!("failed to open mise binary {}", binary.display()))?;
+        .wrap_err_with(|| format!("failed to open pakro binary {}", binary.display()))?;
     session
-        .status_with_stdin_async(&["sh", "-c", &install_mise_script(target)], file)
+        .status_with_stdin_async(&["sh", "-c", &install_pakro_script(target)], file)
         .await?;
     // An install path can be writable by more than the SSH account, so confirm
     // the executable about to run is the one that was just written.
@@ -1107,11 +1100,11 @@ async fn install_remote_mise(session: &SshSession<'_>, binary: &Path, target: &s
         ),
         Some(_) => {}
         None => warn!(
-            "cannot verify the mise installed at {target} on {}; the host returned no SHA-256 digest",
+            "cannot verify the pakro installed at {target} on {}; the host returned no SHA-256 digest",
             session.host.name
         ),
     }
-    info!("installed mise to {target} on {}", session.host.name);
+    info!("installed pakro to {target} on {}", session.host.name);
     Ok(())
 }
 
@@ -1123,25 +1116,25 @@ async fn install_remote_mise(session: &SshSession<'_>, binary: &Path, target: &s
 /// the target is refused before the rename, and again after it in case one
 /// appears in between — `mv` would otherwise move the executable inside it and
 /// report success.
-fn install_mise_script(target: &str) -> String {
+fn install_pakro_script(target: &str) -> String {
     format!(
         r#"set -eu
 target={}
 directory={}
 mkdir -p "$directory"
 if [ -d "$target" ]; then
-  printf 'mise install path is a directory: %s\n' "$target" >&2
+  printf 'pakro install path is a directory: %s\n' "$target" >&2
   exit 1
 fi
-staging=$(mktemp -d "$directory/.mise-install.XXXXXXXXXX")
+staging=$(mktemp -d "$directory/.pakro-install.XXXXXXXXXX")
 trap 'rm -rf -- "$staging"' EXIT
-temporary="$staging/mise"
+temporary="$staging/pakro"
 cat > "$temporary"
 chmod 755 "$temporary"
 mv -f "$temporary" "$target"
 if [ ! -f "$target" ]; then
-  rm -f "$target/mise"
-  printf 'mise install path is not a regular file: %s\n' "$target" >&2
+  rm -f "$target/pakro"
+  printf 'pakro install path is not a regular file: %s\n' "$target" >&2
   exit 1
 fi"#,
         shell_quote(target),
@@ -1187,7 +1180,7 @@ fi"#,
 
 /// An installed executable is only reachable later when its directory is on the
 /// login PATH, so report that once instead of leaving a silent surprise.
-async fn warn_when_installed_mise_is_off_login_path(session: &SshSession<'_>, target: &str) {
+async fn warn_when_installed_pakro_is_off_login_path(session: &SshSession<'_>, target: &str) {
     let script = format!(
         r#"case ":$PATH:" in
   *:{}:*) printf 'yes\n' ;;
@@ -1197,7 +1190,7 @@ esac"#,
     );
     match session.output_async(&["sh", "-lc", &script]).await {
         Ok(output) if output.trim() == "no" => warn!(
-            "{target} is not on {}'s login PATH; add its directory to PATH or declare [bootstrap.mise_shell_activate] in the bootstrap project",
+            "{target} is not on {}'s login PATH; add its directory to PATH or declare [bootstrap.pakro_shell_activate] in the bootstrap project",
             session.host.name
         ),
         Ok(_) => {}
@@ -1208,13 +1201,13 @@ esac"#,
     }
 }
 
-async fn resolve_remote_mise(session: &SshSession<'_>) -> Result<String> {
-    let script = remote_mise_output_script();
-    let mise = session.output_async(&["sh", "-lc", &script]).await?;
-    validated_remote_command_output(&mise)
+async fn resolve_remote_pakro(session: &SshSession<'_>) -> Result<String> {
+    let script = remote_pakro_output_script();
+    let pakro = session.output_async(&["sh", "-lc", &script]).await?;
+    validated_remote_command_output(&pakro)
 }
 
-async fn resolve_configured_remote_mise(
+async fn resolve_configured_remote_pakro(
     session: &SshSession<'_>,
     command: &str,
     project: &str,
@@ -1234,7 +1227,7 @@ async fn resolve_configured_remote_mise(
     } else {
         None
     };
-    resolve_remote_mise_path(command, project, remote_home.as_deref())
+    resolve_remote_pakro_path(command, project, remote_home.as_deref())
 }
 
 async fn resolve_login_path_executable(session: &SshSession<'_>, command: &str) -> Result<String> {
@@ -1251,7 +1244,7 @@ esac"#,
     validated_absolute_remote_path_output(&output, "remote login executable")
 }
 
-fn resolve_remote_mise_path(
+fn resolve_remote_pakro_path(
     command: &str,
     project: &str,
     remote_home: Option<&str>,
@@ -1261,7 +1254,7 @@ fn resolve_remote_mise_path(
     }
     if let Some(suffix) = command.strip_prefix("~/") {
         if suffix.is_empty() {
-            bail!("remote mise path does not name an executable: {command:?}");
+            bail!("remote pakro path does not name an executable: {command:?}");
         }
         let home = remote_home.ok_or_else(|| eyre!("remote login home was not resolved"))?;
         return Ok(format!("{}/{suffix}", home.trim_end_matches('/')));
@@ -1273,53 +1266,53 @@ fn resolve_remote_mise_path(
             "" | "." => {}
             ".." => {
                 if components.pop().is_none() {
-                    bail!("relative remote mise path escapes the staged project: {command:?}");
+                    bail!("relative remote pakro path escapes the staged project: {command:?}");
                 }
             }
             component => components.push(component),
         }
     }
     if components.is_empty() {
-        bail!("relative remote mise path does not name an executable: {command:?}");
+        bail!("relative remote pakro path does not name an executable: {command:?}");
     }
     Ok(format!("{project}/{}", components.join("/")))
 }
 
-fn remote_mise_find_script() -> &'static str {
-    r#"mise_path=$(command -v mise 2>/dev/null || true)
-case "$mise_path" in /*) ;; *) mise_path= ;; esac
-if [ -z "$mise_path" ]; then
-  for candidate in "$HOME/.local/bin/mise" "$HOME/.local/share/mise/bin/mise" "$HOME/.cargo/bin/mise" /usr/local/bin/mise /opt/homebrew/bin/mise; do
+fn remote_pakro_find_script() -> &'static str {
+    r#"pakro_path=$(command -v pakro 2>/dev/null || true)
+case "$pakro_path" in /*) ;; *) pakro_path= ;; esac
+if [ -z "$pakro_path" ]; then
+  for candidate in "$HOME/.local/bin/pakro" "$HOME/.local/share/pakro/bin/pakro" "$HOME/.cargo/bin/pakro" /usr/local/bin/pakro /opt/homebrew/bin/pakro; do
     if [ -x "$candidate" ]; then
-      mise_path=$candidate
+      pakro_path=$candidate
       break
     fi
   done
 fi"#
 }
 
-fn remote_mise_output_script() -> String {
+fn remote_pakro_output_script() -> String {
     format!(
-        "{}\nif [ -z \"$mise_path\" ]; then\n  echo \"mise executable not found after bootstrap_command\" >&2\n  exit 127\nfi\nprintf '%s\\n' \"$mise_path\"",
-        remote_mise_find_script()
+        "{}\nif [ -z \"$pakro_path\" ]; then\n  echo \"pakro executable not found after bootstrap_command\" >&2\n  exit 127\nfi\nprintf '%s\\n' \"$pakro_path\"",
+        remote_pakro_find_script()
     )
 }
 
-async fn discover_remote_mise_candidates(session: &SshSession<'_>) -> Result<Vec<String>> {
-    let script = remote_mise_candidate_union_script();
+async fn discover_remote_pakro_candidates(session: &SshSession<'_>) -> Result<Vec<String>> {
+    let script = remote_pakro_candidate_union_script();
     let output = session.output_async(&["sh", "-lc", &script]).await?;
-    parse_remote_mise_candidates(&output)
+    parse_remote_pakro_candidates(&output)
 }
 
-fn remote_mise_candidate_union_script() -> String {
-    let lookup = remote_mise_candidates_script();
+fn remote_pakro_candidate_union_script() -> String {
+    let lookup = remote_pakro_candidates_script();
     let fresh_login_lookup = shell_words::join(["sh", "-lc", lookup]);
     format!("{{\n{lookup}\n{fresh_login_lookup}\n}}")
 }
 
-fn remote_mise_candidates_script() -> &'static str {
+fn remote_pakro_candidates_script() -> &'static str {
     r#"set -f
-emit_mise_candidate() {
+emit_pakro_candidate() {
   case "$1" in
     /*) if [ -x "$1" ]; then printf '%s\000' "$1"; fi ;;
   esac
@@ -1328,17 +1321,17 @@ old_ifs=$IFS
 IFS=:
 for directory in $PATH; do
   if [ -z "$directory" ]; then directory=.; fi
-  emit_mise_candidate "$directory/mise"
+  emit_pakro_candidate "$directory/pakro"
 done
 IFS=$old_ifs
-for candidate in "$HOME/.local/bin/mise" "$HOME/.local/share/mise/bin/mise" "$HOME/.cargo/bin/mise" /usr/local/bin/mise /opt/homebrew/bin/mise; do
-  emit_mise_candidate "$candidate"
+for candidate in "$HOME/.local/bin/pakro" "$HOME/.local/share/pakro/bin/pakro" "$HOME/.cargo/bin/pakro" /usr/local/bin/pakro /opt/homebrew/bin/pakro; do
+  emit_pakro_candidate "$candidate"
 done"#
 }
 
-fn parse_remote_mise_candidates(output: &str) -> Result<Vec<String>> {
+fn parse_remote_pakro_candidates(output: &str) -> Result<Vec<String>> {
     if !output.is_empty() && !output.ends_with('\0') {
-        bail!("remote mise candidate discovery returned a truncated response");
+        bail!("remote pakro candidate discovery returned a truncated response");
     }
     output
         .split_terminator('\0')
@@ -1349,21 +1342,21 @@ fn parse_remote_mise_candidates(output: &str) -> Result<Vec<String>> {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct RemoteMiseIdentity {
+struct RemotePakroIdentity {
     version: String,
     fingerprint: String,
 }
 
-async fn remote_mise_candidate_identities(
+async fn remote_pakro_candidate_identities(
     session: &SshSession<'_>,
     candidates: &[String],
-) -> IndexMap<String, Option<RemoteMiseIdentity>> {
+) -> IndexMap<String, Option<RemotePakroIdentity>> {
     let mut identities = IndexMap::new();
     for candidate in candidates {
-        let identity: Result<RemoteMiseIdentity> = async {
+        let identity: Result<RemotePakroIdentity> = async {
             let version = session.output_async(&[candidate, "version"]).await?;
-            let fingerprint = remote_mise_fingerprint(session, candidate).await?;
-            Ok(RemoteMiseIdentity {
+            let fingerprint = remote_pakro_fingerprint(session, candidate).await?;
+            Ok(RemotePakroIdentity {
                 version: version.trim().to_string(),
                 fingerprint,
             })
@@ -1374,7 +1367,7 @@ async fn remote_mise_candidate_identities(
     identities
 }
 
-async fn remote_mise_fingerprint(session: &SshSession<'_>, candidate: &str) -> Result<String> {
+async fn remote_pakro_fingerprint(session: &SshSession<'_>, candidate: &str) -> Result<String> {
     let candidate = shell_quote(candidate);
     let script = format!(
         "if command -v sha256sum >/dev/null 2>&1; then sha256sum {candidate}; elif command -v shasum >/dev/null 2>&1; then shasum -a 256 {candidate}; else cksum {candidate}; fi"
@@ -1386,17 +1379,17 @@ async fn remote_mise_fingerprint(session: &SshSession<'_>, candidate: &str) -> R
         .to_string())
 }
 
-fn select_bootstrapped_mise(
+fn select_bootstrapped_pakro(
     before: &[String],
-    before_identities: &IndexMap<String, Option<RemoteMiseIdentity>>,
+    before_identities: &IndexMap<String, Option<RemotePakroIdentity>>,
     after: &[String],
-    after_identities: &IndexMap<String, Option<RemoteMiseIdentity>>,
+    after_identities: &IndexMap<String, Option<RemotePakroIdentity>>,
 ) -> Result<String> {
     let new_candidates = after
         .iter()
         .filter(|candidate| !before.contains(candidate))
         .collect::<Vec<_>>();
-    if let Some(candidate) = select_unique_remote_mise_candidate(new_candidates, "new")? {
+    if let Some(candidate) = select_unique_remote_pakro_candidate(new_candidates, "new")? {
         return Ok(candidate);
     }
     let changed_candidates = after
@@ -1408,7 +1401,7 @@ fn select_bootstrapped_mise(
                     .is_some_and(Option::is_some)
         })
         .collect::<Vec<_>>();
-    if let Some(candidate) = select_unique_remote_mise_candidate(changed_candidates, "changed")? {
+    if let Some(candidate) = select_unique_remote_pakro_candidate(changed_candidates, "changed")? {
         return Ok(candidate);
     }
     let version_candidates = after
@@ -1425,7 +1418,7 @@ fn select_bootstrapped_mise(
         })
         .collect::<Vec<_>>();
     if let Some(candidate) =
-        select_unique_remote_mise_candidate(version_candidates, "version-matching")?
+        select_unique_remote_pakro_candidate(version_candidates, "version-matching")?
     {
         return Ok(candidate);
     }
@@ -1433,15 +1426,15 @@ fn select_bootstrapped_mise(
         return Ok(candidate.clone());
     }
     if after.is_empty() {
-        bail!("mise executable not found after bootstrap_command");
+        bail!("pakro executable not found after bootstrap_command");
     }
     bail!(
-        "bootstrap_command left multiple unchanged mise executables and the installed path is ambiguous: {}; set remote_mise or mise_bin explicitly",
+        "bootstrap_command left multiple unchanged pakro executables and the installed path is ambiguous: {}; set remote_pakro or pakro_bin explicitly",
         after.join(", ")
     )
 }
 
-fn select_unique_remote_mise_candidate(
+fn select_unique_remote_pakro_candidate(
     candidates: Vec<&String>,
     kind: &str,
 ) -> Result<Option<String>> {
@@ -1449,7 +1442,7 @@ fn select_unique_remote_mise_candidate(
         [] => Ok(None),
         [candidate] => Ok(Some((*candidate).clone())),
         _ => bail!(
-            "bootstrap_command left multiple {kind} mise executables and the installed path is ambiguous: {}; set remote_mise or mise_bin explicitly",
+            "bootstrap_command left multiple {kind} pakro executables and the installed path is ambiguous: {}; set remote_pakro or pakro_bin explicitly",
             candidates
                 .iter()
                 .map(|candidate| candidate.as_str())
@@ -1472,10 +1465,6 @@ impl RemotePlatform {
             None => format!("{}/{}", self.os, self.arch),
         }
     }
-
-    fn release_asset_name(&self) -> Result<String> {
-        release_asset_name(&self.os, &self.arch, self.libc)
-    }
 }
 
 impl fmt::Display for LibcFlavor {
@@ -1487,22 +1476,23 @@ impl fmt::Display for LibcFlavor {
     }
 }
 
+#[cfg(test)]
 impl ReleaseManifest {
     fn verified(contents: &str, signature: &str) -> Result<Self> {
         crate::minisign::verify(
-            &crate::minisign::MISE_PUB_KEY,
+            &crate::minisign::UPSTREAM_RELEASE_PUB_KEY,
             contents.as_bytes(),
             signature,
         )
-        .wrap_err("mise release checksum signature is invalid")?;
+        .wrap_err("pakro release checksum signature is invalid")?;
         let checksums = crate::hash::parse_shasums(contents);
         if checksums.is_empty() {
-            bail!("signed mise release checksum manifest is empty");
+            bail!("signed pakro release checksum manifest is empty");
         }
         if checksums.values().any(|checksum| {
             checksum.len() != 64 || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit())
         }) {
-            bail!("signed mise release checksum manifest contains an invalid SHA-256 checksum");
+            bail!("signed pakro release checksum manifest contains an invalid SHA-256 checksum");
         }
         Ok(Self { checksums })
     }
@@ -1512,111 +1502,20 @@ impl ReleaseManifest {
             .get(asset)
             .or_else(|| self.checksums.get(&format!("./{asset}")))
             .map(String::as_str)
-            .ok_or_else(|| eyre!("signed mise release manifest does not contain {asset}"))
+            .ok_or_else(|| eyre!("signed pakro release manifest does not contain {asset}"))
     }
 }
 
 impl RemoteArtifactResolver {
-    async fn resolve(&mut self, platform: &RemotePlatform, local: &Path) -> Result<PathBuf> {
-        let asset = platform.release_asset_name()?;
-        if let Some(path) = self.artifacts.get(&asset) {
-            return Ok(path.clone());
-        }
-        self.ensure_official_local(local).await?;
-        let checksum = self.manifest().await?.checksum(&asset)?.to_string();
-        if self.directory.is_none() {
-            self.directory = Some(tempfile::tempdir()?);
-        }
-        let path = self
-            .directory
-            .as_ref()
-            .expect("artifact directory was initialized")
-            .path()
-            .join(&asset);
-        let progress = MultiProgressReport::get().add("mise bootstrap");
-        progress.set_message(format!("downloading {asset}"));
-        if let Err(error) = HTTP
-            .download_file(release_url(&asset), &path, Some(progress.as_ref()))
-            .await
-        {
-            progress.abandon();
-            return Err(error).wrap_err_with(|| {
-                format!("failed to download official mise release artifact {asset}")
-            });
-        }
-        progress.set_message(format!("verifying {asset}"));
-        if let Err(error) =
-            crate::hash::ensure_checksum(&path, &checksum, Some(progress.as_ref()), "sha256")
-        {
-            progress.abandon();
-            return Err(error).wrap_err_with(|| {
-                format!("official mise release artifact {asset} failed verification")
-            });
-        }
-        progress.finish();
-        info!(
-            "using signed official mise {} artifact {asset}",
-            env!("CARGO_PKG_VERSION")
-        );
-        self.artifacts.insert(asset, path.clone());
-        Ok(path)
-    }
-
-    async fn ensure_official_local(&mut self, local: &Path) -> Result<()> {
-        if self.official_local_verified {
-            return Ok(());
-        }
-        if cfg!(debug_assertions) {
-            bail!(
-                "automatic cross-platform provisioning is unavailable from a debug mise build; set mise_bin, remote_mise, or bootstrap_command"
-            );
-        }
-        let local_os = normalize_os(std::env::consts::OS);
-        let local_arch = normalize_arch(std::env::consts::ARCH);
-        let candidates = official_release_assets(&local_os, &local_arch)?;
-        let actual = crate::hash::file_hash_sha256(local, None)?;
-        let manifest = self.manifest().await?;
-        let official = candidates.iter().any(|asset| {
-            manifest
-                .checksum(asset)
-                .is_ok_and(|expected| expected.eq_ignore_ascii_case(&actual))
-        });
-        if !official {
-            bail!(
-                "automatic cross-platform provisioning refuses to replace a custom mise build with an official binary because {} does not match the signed mise {} release checksums; set mise_bin, remote_mise, or bootstrap_command",
-                local.display(),
-                env!("CARGO_PKG_VERSION")
-            );
-        }
-        self.official_local_verified = true;
-        Ok(())
-    }
-
-    async fn manifest(&mut self) -> Result<&ReleaseManifest> {
-        if self.manifest.is_none() {
-            let manifest_url = release_url("SHASUMS256.txt");
-            let signature_url = release_url("SHASUMS256.txt.minisig");
-            let (contents, signature) = tokio::try_join!(
-                HTTP.get_text_cached(&manifest_url),
-                HTTP.get_text_cached(&signature_url)
-            )
-            .wrap_err_with(|| {
-                format!(
-                    "failed to fetch signed mise {} release checksums",
-                    env!("CARGO_PKG_VERSION")
-                )
-            })?;
-            self.manifest = Some(ReleaseManifest::verified(&contents, &signature)?);
-        }
-        Ok(self.manifest.as_ref().expect("release manifest was loaded"))
+    async fn resolve(&mut self, platform: &RemotePlatform, _local: &Path) -> Result<PathBuf> {
+        bail!(
+            "automatic pakro artifact download is not configured for {}; set pakro_bin to a compatible local build, remote_pakro to an installed executable, or bootstrap_command",
+            platform.description()
+        )
     }
 }
 
-fn release_url(filename: &str) -> String {
-    let version = env!("CARGO_PKG_VERSION");
-    format!("{RELEASE_BASE_URL}/v{version}/{filename}")
-}
-
+#[cfg(test)]
 fn release_asset_name(os: &str, arch: &str, libc: Option<LibcFlavor>) -> Result<String> {
     let release_arch = match arch {
         "x86_64" => "x64",
@@ -1624,7 +1523,7 @@ fn release_asset_name(os: &str, arch: &str, libc: Option<LibcFlavor>) -> Result<
         "armv7" => "armv7",
         _ => {
             bail!(
-                "mise {} has no official precompiled artifact for {os}/{arch}; set mise_bin, remote_mise, or bootstrap_command",
+                "pakro {} has no official precompiled artifact for {os}/{arch}; set pakro_bin, remote_pakro, or bootstrap_command",
                 env!("CARGO_PKG_VERSION")
             )
         }
@@ -1643,14 +1542,15 @@ fn release_asset_name(os: &str, arch: &str, libc: Option<LibcFlavor>) -> Result<
         },
         _ => {
             bail!(
-                "mise {} has no official precompiled artifact for {os}/{arch}; set mise_bin, remote_mise, or bootstrap_command",
+                "pakro {} has no official precompiled artifact for {os}/{arch}; set pakro_bin, remote_pakro, or bootstrap_command",
                 env!("CARGO_PKG_VERSION")
             )
         }
     };
-    Ok(format!("mise-v{}-{suffix}", env!("CARGO_PKG_VERSION")))
+    Ok(format!("pakro-v{}-{suffix}", env!("CARGO_PKG_VERSION")))
 }
 
+#[cfg(test)]
 fn official_release_assets(os: &str, arch: &str) -> Result<Vec<String>> {
     match os {
         "linux" => [LibcFlavor::Glibc, LibcFlavor::Musl]
@@ -1664,18 +1564,18 @@ fn official_release_assets(os: &str, arch: &str) -> Result<Vec<String>> {
                 "aarch64" => "arm64",
                 _ => {
                     bail!(
-                        "mise {} has no official precompiled artifact for {os}/{arch}; set mise_bin, remote_mise, or bootstrap_command",
+                        "pakro {} has no official precompiled artifact for {os}/{arch}; set pakro_bin, remote_pakro, or bootstrap_command",
                         env!("CARGO_PKG_VERSION")
                     )
                 }
             };
             Ok(vec![format!(
-                "mise-v{}-windows-{release_arch}.exe",
+                "pakro-v{}-windows-{release_arch}.exe",
                 env!("CARGO_PKG_VERSION")
             )])
         }
         _ => bail!(
-            "mise {} has no official precompiled artifact for {os}/{arch}; set mise_bin, remote_mise, or bootstrap_command",
+            "pakro {} has no official precompiled artifact for {os}/{arch}; set pakro_bin, remote_pakro, or bootstrap_command",
             env!("CARGO_PKG_VERSION")
         ),
     }
@@ -1687,7 +1587,7 @@ async fn detect_remote_platform(session: &SshSession<'_>) -> Result<RemotePlatfo
         .await?;
     parse_remote_platform(&output).wrap_err_with(|| {
         format!(
-            "could not detect the platform for remote host '{}'; set mise_bin, remote_mise, or bootstrap_command",
+            "could not detect the platform for remote host '{}'; set pakro_bin, remote_pakro, or bootstrap_command",
             session.host.name
         )
     })
@@ -1771,45 +1671,45 @@ async fn validate_default_binary_compatibility(
     let local_output = Command::new(&interpreter).arg("--version").output()?;
     let local_libc = parse_libc_flavor(&combined_output(&local_output)).ok_or_else(|| {
         eyre!(
-            "could not identify the libc used by local mise loader {interpreter}; set mise_bin, remote_mise, or bootstrap_command"
+            "could not identify the libc used by local pakro loader {interpreter}; set pakro_bin, remote_pakro, or bootstrap_command"
         )
     })?;
     let check = format!(
-        "if test -x {loader}; then {loader} --version 2>&1 || true; else printf '%s\\n' MISE_LOADER_MISSING; fi",
+        "if test -x {loader}; then {loader} --version 2>&1 || true; else printf '%s\\n' PAKRO_LOADER_MISSING; fi",
         loader = shell_quote(&interpreter),
     );
     let remote_output = session.output_async(&["sh", "-c", &check]).await?;
     if remote_output
         .lines()
-        .any(|line| line == "MISE_LOADER_MISSING")
+        .any(|line| line == "PAKRO_LOADER_MISSING")
     {
         bail!(
-            "remote host '{}' does not provide the dynamic loader required by local mise: {interpreter}; set mise_bin, remote_mise, or bootstrap_command",
+            "remote host '{}' does not provide the dynamic loader required by local pakro: {interpreter}; set pakro_bin, remote_pakro, or bootstrap_command",
             session.host.name
         );
     }
     let remote_libc = parse_libc_flavor(&remote_output).ok_or_else(|| {
         eyre!(
-            "could not identify the libc provided by remote loader {interpreter} on '{}'; set mise_bin, remote_mise, or bootstrap_command",
+            "could not identify the libc provided by remote loader {interpreter} on '{}'; set pakro_bin, remote_pakro, or bootstrap_command",
             session.host.name
         )
     })?;
     if local_libc != remote_libc {
         bail!(
-            "remote host '{}' libc {remote_libc:?} is incompatible with local mise libc {local_libc:?}; set mise_bin, remote_mise, or bootstrap_command",
+            "remote host '{}' libc {remote_libc:?} is incompatible with local pakro libc {local_libc:?}; set pakro_bin, remote_pakro, or bootstrap_command",
             session.host.name
         );
     }
     let required = match local_libc {
         LibcFlavor::Glibc => max_required_glibc_version(&binary_bytes).ok_or_else(|| {
             eyre!(
-                "could not determine the glibc ABI required by local mise; set mise_bin, remote_mise, or bootstrap_command"
+                "could not determine the glibc ABI required by local pakro; set pakro_bin, remote_pakro, or bootstrap_command"
             )
         })?,
         LibcFlavor::Musl => parse_musl_runtime_version(&combined_output(&local_output))
             .ok_or_else(|| {
                 eyre!(
-                    "could not determine the musl version used by local mise loader {interpreter}; set mise_bin, remote_mise, or bootstrap_command"
+                    "could not determine the musl version used by local pakro loader {interpreter}; set pakro_bin, remote_pakro, or bootstrap_command"
                 )
             })?,
     };
@@ -1819,13 +1719,13 @@ async fn validate_default_binary_compatibility(
     }
     .ok_or_else(|| {
         eyre!(
-            "could not determine the {remote_libc:?} version provided by remote loader {interpreter} on '{}'; set mise_bin, remote_mise, or bootstrap_command",
+            "could not determine the {remote_libc:?} version provided by remote loader {interpreter} on '{}'; set pakro_bin, remote_pakro, or bootstrap_command",
             session.host.name
         )
     })?;
     if available < required {
         bail!(
-            "remote host '{}' provides {remote_libc:?} {available}, but local mise requires {remote_libc:?} {required}; set mise_bin, remote_mise, or bootstrap_command",
+            "remote host '{}' provides {remote_libc:?} {available}, but local pakro requires {remote_libc:?} {required}; set pakro_bin, remote_pakro, or bootstrap_command",
             session.host.name
         );
     }
@@ -1899,7 +1799,7 @@ fn elf_interpreter(bytes: &[u8]) -> Result<Option<String>> {
     const ELF_MAGIC: &[u8] = b"\x7fELF";
     const PT_INTERP: u64 = 3;
     if !bytes.starts_with(ELF_MAGIC) {
-        bail!("local mise is not an ELF executable");
+        bail!("local pakro is not an ELF executable");
     }
     let class = *bytes.get(4).ok_or_else(|| eyre!("truncated ELF header"))?;
     let little_endian = match bytes.get(5) {
@@ -2100,7 +2000,7 @@ impl SshSession<'_> {
 
     async fn upload_executable(&self, local: &Path, remote: &str) -> Result<()> {
         let file = File::open(local)
-            .wrap_err_with(|| format!("failed to open mise binary {}", local.display()))?;
+            .wrap_err_with(|| format!("failed to open pakro binary {}", local.display()))?;
         self.status_with_stdin_async(
             &[
                 "sh",
@@ -2204,8 +2104,8 @@ fn validate_value(kind: &str, value: &str) -> Result<()> {
 }
 
 fn validate_staging_path(path: &str) -> Result<()> {
-    if !path.starts_with("/tmp/mise-bootstrap.")
-        || path["/tmp/mise-bootstrap.".len()..].is_empty()
+    if !path.starts_with("/tmp/pakro-bootstrap.")
+        || path["/tmp/pakro-bootstrap.".len()..].is_empty()
         || path.chars().any(char::is_whitespace)
     {
         bail!("remote mktemp returned an unsafe staging path: {path:?}");
@@ -2215,7 +2115,7 @@ fn validate_staging_path(path: &str) -> Result<()> {
 
 fn validated_remote_command(command: &str) -> Result<String> {
     if !command.starts_with('/') || command.contains(['\0', '\n', '\r']) {
-        bail!("bootstrap_command returned an unsafe mise path: {command:?}");
+        bail!("bootstrap_command returned an unsafe pakro path: {command:?}");
     }
     Ok(command.to_string())
 }
@@ -2232,34 +2132,34 @@ fn validated_absolute_remote_path_output(output: &str, kind: &str) -> Result<Str
     Ok(path.to_string())
 }
 
-fn validate_install_mise_path(path: &str) -> Result<()> {
-    validate_value("mise install path", path)?;
+fn validate_install_pakro_path(path: &str) -> Result<()> {
+    validate_value("pakro install path", path)?;
     if path.contains(['\n', '\r']) {
-        bail!("install_mise must not contain a newline: {path:?}");
+        bail!("install_pakro must not contain a newline: {path:?}");
     }
     if !path.starts_with('/') && !path.starts_with("~/") {
-        bail!("install_mise must be an absolute path or start with ~/: {path:?}");
+        bail!("install_pakro must be an absolute path or start with ~/: {path:?}");
     }
     if path.split('/').any(|component| component == "..") {
-        bail!("install_mise must not contain '..': {path:?}");
+        bail!("install_pakro must not contain '..': {path:?}");
     }
     if matches!(
         path.rsplit('/').next(),
         None | Some("") | Some(".") | Some("~")
     ) {
-        bail!("install_mise must name an executable file: {path:?}");
+        bail!("install_pakro must name an executable file: {path:?}");
     }
     Ok(())
 }
 
 fn validate_remote_executable(command: &str) -> Result<()> {
-    validate_value("mise command", command)?;
+    validate_value("pakro command", command)?;
     let is_path = command.contains('/');
     if command.starts_with('-')
         || command.contains(['\n', '\r'])
         || (!is_path && command.chars().any(char::is_whitespace))
     {
-        bail!("remote mise command must be an executable name or path: {command:?}");
+        bail!("remote pakro command must be an executable name or path: {command:?}");
     }
     Ok(())
 }
@@ -2523,10 +2423,10 @@ mod tests {
 
     #[test]
     fn validates_remote_staging_paths() {
-        assert!(validate_staging_path("/tmp/mise-bootstrap.abc123").is_ok());
-        assert!(validate_staging_path("/tmp/mise-bootstrap.").is_err());
+        assert!(validate_staging_path("/tmp/pakro-bootstrap.abc123").is_ok());
+        assert!(validate_staging_path("/tmp/pakro-bootstrap.").is_err());
         assert!(validate_staging_path("/tmp/other").is_err());
-        assert!(validate_staging_path("/tmp/mise-bootstrap.a b").is_err());
+        assert!(validate_staging_path("/tmp/pakro-bootstrap.a b").is_err());
     }
 
     #[test]
@@ -2539,110 +2439,110 @@ mod tests {
     #[test]
     fn provisioning_override_replaces_inventory_strategy() {
         let mut host = ad_hoc_host("example.com", std::env::current_dir().unwrap(), &[]).unwrap();
-        host.remote_mise = Some("mise".to_string());
+        host.remote_pakro = Some("pakro".to_string());
         host.apply_overrides(&RemoteOverrides {
-            mise_bin: Some(std::env::current_exe().unwrap()),
+            pakro_bin: Some(std::env::current_exe().unwrap()),
             ..Default::default()
         })
         .unwrap();
-        assert!(host.mise_bin.is_some());
-        assert!(host.remote_mise.is_none());
+        assert!(host.pakro_bin.is_some());
+        assert!(host.remote_pakro.is_none());
         assert!(host.bootstrap_command.is_none());
 
-        host.bootstrap_command = Some("install-mise".to_string());
+        host.bootstrap_command = Some("install-pakro".to_string());
         assert!(host.validate().is_err());
     }
 
     #[test]
-    fn parses_install_mise_as_a_flag_or_a_path() {
-        let enabled: RemoteTomlConfig = toml::from_str("install_mise = true").unwrap();
+    fn parses_install_pakro_as_a_flag_or_a_path() {
+        let enabled: RemoteTomlConfig = toml::from_str("install_pakro = true").unwrap();
         assert_eq!(
-            enabled.install_mise.unwrap().path().as_deref(),
-            Some(DEFAULT_INSTALL_MISE_PATH)
+            enabled.install_pakro.unwrap().path().as_deref(),
+            Some(DEFAULT_INSTALL_PAKRO_PATH)
         );
-        let disabled: RemoteTomlConfig = toml::from_str("install_mise = false").unwrap();
-        assert!(disabled.install_mise.unwrap().path().is_none());
+        let disabled: RemoteTomlConfig = toml::from_str("install_pakro = false").unwrap();
+        assert!(disabled.install_pakro.unwrap().path().is_none());
         let path: RemoteTomlConfig =
-            toml::from_str(r#"install_mise = "/usr/local/bin/mise""#).unwrap();
+            toml::from_str(r#"install_pakro = "/usr/local/bin/pakro""#).unwrap();
         assert_eq!(
-            path.install_mise.unwrap().path().as_deref(),
-            Some("/usr/local/bin/mise")
+            path.install_pakro.unwrap().path().as_deref(),
+            Some("/usr/local/bin/pakro")
         );
     }
 
     #[test]
-    fn validates_install_mise_paths() {
-        assert!(validate_install_mise_path("~/.local/bin/mise").is_ok());
-        assert!(validate_install_mise_path("/usr/local/bin/mise").is_ok());
-        assert!(validate_install_mise_path("bin/mise").is_err());
-        assert!(validate_install_mise_path("./mise").is_err());
-        assert!(validate_install_mise_path("~/bin/../../mise").is_err());
-        assert!(validate_install_mise_path("~/.local/bin/").is_err());
-        assert!(validate_install_mise_path("~/").is_err());
-        assert!(validate_install_mise_path("/usr/local/bin/mise\nrm -rf /").is_err());
-        assert!(validate_install_mise_path("").is_err());
+    fn validates_install_pakro_paths() {
+        assert!(validate_install_pakro_path("~/.local/bin/pakro").is_ok());
+        assert!(validate_install_pakro_path("/usr/local/bin/pakro").is_ok());
+        assert!(validate_install_pakro_path("bin/pakro").is_err());
+        assert!(validate_install_pakro_path("./pakro").is_err());
+        assert!(validate_install_pakro_path("~/bin/../../pakro").is_err());
+        assert!(validate_install_pakro_path("~/.local/bin/").is_err());
+        assert!(validate_install_pakro_path("~/").is_err());
+        assert!(validate_install_pakro_path("/usr/local/bin/pakro\nrm -rf /").is_err());
+        assert!(validate_install_pakro_path("").is_err());
     }
 
     #[test]
-    fn install_mise_composes_only_with_an_uploaded_binary() {
+    fn install_pakro_composes_only_with_an_uploaded_binary() {
         let mut host = ad_hoc_host("example.com", std::env::current_dir().unwrap(), &[]).unwrap();
-        host.install_mise = Some(DEFAULT_INSTALL_MISE_PATH.to_string());
+        host.install_pakro = Some(DEFAULT_INSTALL_PAKRO_PATH.to_string());
         host.validate().unwrap();
 
-        host.mise_bin = Some(std::env::current_exe().unwrap());
+        host.pakro_bin = Some(std::env::current_exe().unwrap());
         host.validate().unwrap();
 
-        host.mise_bin = None;
-        host.remote_mise = Some("mise".to_string());
+        host.pakro_bin = None;
+        host.remote_pakro = Some("pakro".to_string());
         assert!(host.validate().is_err());
 
-        host.remote_mise = None;
-        host.bootstrap_command = Some("curl https://mise.run | sh".to_string());
+        host.remote_pakro = None;
+        host.bootstrap_command = Some("install-pakro".to_string());
         assert!(host.validate().is_err());
     }
 
     #[test]
-    fn install_mise_overrides_replace_and_clear_the_configured_path() {
+    fn install_pakro_overrides_replace_and_clear_the_configured_path() {
         let mut host = ad_hoc_host("example.com", std::env::current_dir().unwrap(), &[]).unwrap();
-        host.install_mise = Some(DEFAULT_INSTALL_MISE_PATH.to_string());
+        host.install_pakro = Some(DEFAULT_INSTALL_PAKRO_PATH.to_string());
         host.apply_overrides(&RemoteOverrides {
-            install_mise: Some("/usr/local/bin/mise".to_string()),
+            install_pakro: Some("/usr/local/bin/pakro".to_string()),
             ..Default::default()
         })
         .unwrap();
-        assert_eq!(host.install_mise.as_deref(), Some("/usr/local/bin/mise"));
+        assert_eq!(host.install_pakro.as_deref(), Some("/usr/local/bin/pakro"));
 
         host.apply_overrides(&RemoteOverrides {
-            no_install_mise: true,
+            no_install_pakro: true,
             ..Default::default()
         })
         .unwrap();
-        assert!(host.install_mise.is_none());
+        assert!(host.install_pakro.is_none());
 
-        host.install_mise = Some(DEFAULT_INSTALL_MISE_PATH.to_string());
+        host.install_pakro = Some(DEFAULT_INSTALL_PAKRO_PATH.to_string());
         host.apply_overrides(&RemoteOverrides {
-            remote_mise: Some("mise".to_string()),
+            remote_pakro: Some("pakro".to_string()),
             ..Default::default()
         })
         .unwrap();
-        assert!(host.install_mise.is_none());
-        assert_eq!(host.remote_mise.as_deref(), Some("mise"));
+        assert!(host.install_pakro.is_none());
+        assert_eq!(host.remote_pakro.as_deref(), Some("pakro"));
 
         host.apply_overrides(&RemoteOverrides {
-            install_mise: Some(DEFAULT_INSTALL_MISE_PATH.to_string()),
+            install_pakro: Some(DEFAULT_INSTALL_PAKRO_PATH.to_string()),
             ..Default::default()
         })
         .unwrap();
         assert_eq!(
-            host.install_mise.as_deref(),
-            Some(DEFAULT_INSTALL_MISE_PATH)
+            host.install_pakro.as_deref(),
+            Some(DEFAULT_INSTALL_PAKRO_PATH)
         );
-        assert!(host.remote_mise.is_none());
+        assert!(host.remote_pakro.is_none());
 
-        host.bootstrap_command = Some("curl https://mise.run | sh".to_string());
-        host.install_mise = None;
+        host.bootstrap_command = Some("install-pakro".to_string());
+        host.install_pakro = None;
         host.apply_overrides(&RemoteOverrides {
-            install_mise: Some(DEFAULT_INSTALL_MISE_PATH.to_string()),
+            install_pakro: Some(DEFAULT_INSTALL_PAKRO_PATH.to_string()),
             ..Default::default()
         })
         .unwrap();
@@ -2658,13 +2558,13 @@ mod tests {
 
         let temp = tempfile::tempdir()?;
         let directory = temp.path().join("bin");
-        let target = directory.join("mise");
+        let target = directory.join("pakro");
         let payload = temp.path().join("payload");
         let install = |target: &Path, contents: &str| -> Result<Output> {
             fs::write(&payload, contents)?;
             Ok(Command::new("sh")
                 .arg("-c")
-                .arg(install_mise_script(
+                .arg(install_pakro_script(
                     target.to_str().expect("a utf-8 temporary path"),
                 ))
                 .stdin(Stdio::from(File::open(&payload)?))
@@ -2673,7 +2573,7 @@ mod tests {
 
         // `sh -n` parses every branch, including the post-rename guard that a
         // deterministic test cannot reach.
-        let script = install_mise_script(target.to_str().expect("a utf-8 temporary path"));
+        let script = install_pakro_script(target.to_str().expect("a utf-8 temporary path"));
         assert!(
             Command::new("sh")
                 .args(["-n", "-c", &script])
@@ -2701,12 +2601,12 @@ mod tests {
 
     #[test]
     fn install_script_quotes_the_target_and_renames_into_place() {
-        let script = install_mise_script("/home/deploy dir/.local/bin/mise");
-        assert!(script.contains("target='/home/deploy dir/.local/bin/mise'"));
+        let script = install_pakro_script("/home/deploy dir/.local/bin/pakro");
+        assert!(script.contains("target='/home/deploy dir/.local/bin/pakro'"));
         assert!(script.contains("directory='/home/deploy dir/.local/bin'"));
-        assert!(script.contains(r#"staging=$(mktemp -d "$directory/.mise-install.XXXXXXXXXX")"#));
+        assert!(script.contains(r#"staging=$(mktemp -d "$directory/.pakro-install.XXXXXXXXXX")"#));
         assert!(script.contains(r#"if [ -d "$target" ]; then"#));
-        assert_eq!(remote_parent_directory("/mise"), "/");
+        assert_eq!(remote_parent_directory("/pakro"), "/");
         assert!(script.contains(r#"mv -f "$temporary" "$target""#));
     }
 
@@ -2748,35 +2648,35 @@ mod tests {
         let version = env!("CARGO_PKG_VERSION");
         assert_eq!(
             release_asset_name("linux", "x86_64", Some(LibcFlavor::Glibc)).unwrap(),
-            format!("mise-v{version}-linux-x64")
+            format!("pakro-v{version}-linux-x64")
         );
         assert_eq!(
             release_asset_name("linux", "x86_64", Some(LibcFlavor::Musl)).unwrap(),
-            format!("mise-v{version}-linux-x64-musl")
+            format!("pakro-v{version}-linux-x64-musl")
         );
         assert_eq!(
             release_asset_name("linux", "aarch64", Some(LibcFlavor::Glibc)).unwrap(),
-            format!("mise-v{version}-linux-arm64")
+            format!("pakro-v{version}-linux-arm64")
         );
         assert_eq!(
             release_asset_name("linux", "aarch64", Some(LibcFlavor::Musl)).unwrap(),
-            format!("mise-v{version}-linux-arm64-musl")
+            format!("pakro-v{version}-linux-arm64-musl")
         );
         assert_eq!(
             release_asset_name("linux", "armv7", Some(LibcFlavor::Glibc)).unwrap(),
-            format!("mise-v{version}-linux-armv7")
+            format!("pakro-v{version}-linux-armv7")
         );
         assert_eq!(
             release_asset_name("linux", "armv7", Some(LibcFlavor::Musl)).unwrap(),
-            format!("mise-v{version}-linux-armv7-musl")
+            format!("pakro-v{version}-linux-armv7-musl")
         );
         assert_eq!(
             release_asset_name("macos", "x86_64", None).unwrap(),
-            format!("mise-v{version}-macos-x64")
+            format!("pakro-v{version}-macos-x64")
         );
         assert_eq!(
             release_asset_name("macos", "aarch64", None).unwrap(),
-            format!("mise-v{version}-macos-arm64")
+            format!("pakro-v{version}-macos-arm64")
         );
         assert!(release_asset_name("linux", "riscv64", Some(LibcFlavor::Glibc)).is_err());
         assert!(release_asset_name("freebsd", "x86_64", None).is_err());
@@ -2788,11 +2688,11 @@ mod tests {
         let version = env!("CARGO_PKG_VERSION");
         assert_eq!(
             official_release_assets("windows", "x86_64").unwrap(),
-            vec![format!("mise-v{version}-windows-x64.exe")]
+            vec![format!("pakro-v{version}-windows-x64.exe")]
         );
         assert_eq!(
             official_release_assets("windows", "aarch64").unwrap(),
-            vec![format!("mise-v{version}-windows-arm64.exe")]
+            vec![format!("pakro-v{version}-windows-arm64.exe")]
         );
         assert!(official_release_assets("windows", "x86").is_err());
     }
@@ -2830,8 +2730,8 @@ mod tests {
 
     #[test]
     fn verifies_real_signed_release_manifest_before_lookup() {
-        let contents = include_str!("remote_testdata/mise-v2026.8.1-SHASUMS256.txt");
-        let signature = include_str!("remote_testdata/mise-v2026.8.1-SHASUMS256.txt.minisig");
+        let contents = include_str!("remote_testdata/pakro-v2026.8.1-SHASUMS256.txt");
+        let signature = include_str!("remote_testdata/pakro-v2026.8.1-SHASUMS256.txt.minisig");
         let manifest = ReleaseManifest::verified(contents, signature).unwrap();
         assert_eq!(
             manifest.checksum("mise-v2026.8.1-linux-x64-musl").unwrap(),
@@ -2841,6 +2741,25 @@ mod tests {
 
         let tampered = contents.replacen("522fd15", "022fd15", 1);
         assert!(ReleaseManifest::verified(&tampered, signature).is_err());
+    }
+
+    #[tokio::test]
+    async fn incompatible_local_binary_cannot_download_an_upstream_release() {
+        let platform = RemotePlatform {
+            os: "linux".to_string(),
+            arch: "aarch64".to_string(),
+            libc: Some(LibcFlavor::Musl),
+        };
+        let error = RemoteArtifactResolver::default()
+            .resolve(&platform, Path::new("/nonexistent-pakro"))
+            .await
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("automatic pakro artifact download is not configured")
+        );
+        assert!(error.to_string().contains("pakro_bin"));
     }
 
     #[test]
@@ -2879,62 +2798,62 @@ mod tests {
     #[test]
     fn accepts_quoted_absolute_remote_paths() {
         assert_eq!(
-            validated_remote_command_output("/tmp/mise install/bin/mise\n").unwrap(),
-            "/tmp/mise install/bin/mise"
+            validated_remote_command_output("/tmp/pakro install/bin/pakro\n").unwrap(),
+            "/tmp/pakro install/bin/pakro"
         );
-        assert!(validated_remote_command("relative/mise").is_err());
-        assert!(validated_remote_command("/tmp/mise\nother").is_err());
-        assert!(validate_remote_executable("/tmp/mise install/bin/mise").is_ok());
-        assert!(validate_remote_executable("./bin with space/mise").is_ok());
-        assert!(validate_remote_executable("mise command").is_err());
-        assert!(validate_remote_executable("/tmp/mise\ncommand").is_err());
-        assert!(validate_remote_executable("-mise").is_err());
+        assert!(validated_remote_command("relative/pakro").is_err());
+        assert!(validated_remote_command("/tmp/pakro\nother").is_err());
+        assert!(validate_remote_executable("/tmp/pakro install/bin/pakro").is_ok());
+        assert!(validate_remote_executable("./bin with space/pakro").is_ok());
+        assert!(validate_remote_executable("pakro command").is_err());
+        assert!(validate_remote_executable("/tmp/pakro\ncommand").is_err());
+        assert!(validate_remote_executable("-pakro").is_err());
     }
 
     #[test]
     fn snapshots_the_same_candidate_scopes_before_and_after_installation() {
-        let union = remote_mise_candidate_union_script();
-        let lookup = remote_mise_candidates_script();
+        let union = remote_pakro_candidate_union_script();
+        let lookup = remote_pakro_candidates_script();
         assert!(union.starts_with("{\n"));
         assert!(union.contains(lookup));
         assert!(union.contains(&shell_words::join(["sh", "-lc", lookup])));
     }
 
     #[test]
-    fn resolves_relative_remote_mise_inside_staged_project() {
-        let project = "/tmp/mise-bootstrap.abc/project";
+    fn resolves_relative_remote_pakro_inside_staged_project() {
+        let project = "/tmp/pakro-bootstrap.abc/project";
         assert_eq!(
-            resolve_remote_mise_path("./bin/mise", project, None).unwrap(),
-            "/tmp/mise-bootstrap.abc/project/bin/mise"
+            resolve_remote_pakro_path("./bin/pakro", project, None).unwrap(),
+            "/tmp/pakro-bootstrap.abc/project/bin/pakro"
         );
         assert_eq!(
-            resolve_remote_mise_path("bin/../tools/mise", project, None).unwrap(),
-            "/tmp/mise-bootstrap.abc/project/tools/mise"
+            resolve_remote_pakro_path("bin/../tools/pakro", project, None).unwrap(),
+            "/tmp/pakro-bootstrap.abc/project/tools/pakro"
         );
         assert_eq!(
-            resolve_remote_mise_path("~/.local/bin/mise", project, Some("/home/test user"))
+            resolve_remote_pakro_path("~/.local/bin/pakro", project, Some("/home/test user"))
                 .unwrap(),
-            "/home/test user/.local/bin/mise"
+            "/home/test user/.local/bin/pakro"
         );
         assert_eq!(
-            resolve_remote_mise_path("/opt/mise/bin/mise", project, None).unwrap(),
-            "/opt/mise/bin/mise"
+            resolve_remote_pakro_path("/opt/pakro/bin/pakro", project, None).unwrap(),
+            "/opt/pakro/bin/pakro"
         );
-        assert!(resolve_remote_mise_path("../mise", project, None).is_err());
-        assert!(resolve_remote_mise_path("bin/../../mise", project, None).is_err());
-        assert!(resolve_remote_mise_path("~/mise", project, None).is_err());
+        assert!(resolve_remote_pakro_path("../pakro", project, None).is_err());
+        assert!(resolve_remote_pakro_path("bin/../../pakro", project, None).is_err());
+        assert!(resolve_remote_pakro_path("~/pakro", project, None).is_err());
     }
 
     #[test]
-    fn selects_new_changed_or_matching_bootstrapped_mise() {
+    fn selects_new_changed_or_matching_bootstrapped_pakro() {
         let identity = |version: &str, checksum: &str| {
-            Some(RemoteMiseIdentity {
+            Some(RemotePakroIdentity {
                 version: version.to_string(),
                 fingerprint: checksum.to_string(),
             })
         };
-        let old = "/opt/old/mise".to_string();
-        let installed = "/opt/new/mise".to_string();
+        let old = "/opt/old/pakro".to_string();
+        let installed = "/opt/new/pakro".to_string();
         let before = vec![old.clone()];
         let before_identities = IndexMap::from([(old.clone(), identity("1.0.0", "100 10"))]);
         let after = vec![old.clone(), installed.clone()];
@@ -2943,7 +2862,7 @@ mod tests {
             (installed.clone(), identity("2.0.0", "200 20")),
         ]);
         assert_eq!(
-            select_bootstrapped_mise(&before, &before_identities, &after, &after_identities)
+            select_bootstrapped_pakro(&before, &before_identities, &after, &after_identities)
                 .unwrap(),
             installed
         );
@@ -2951,12 +2870,12 @@ mod tests {
         let after = vec![old.clone()];
         let changed = IndexMap::from([(old.clone(), identity("1.0.0", "300 30"))]);
         assert_eq!(
-            select_bootstrapped_mise(&before, &before_identities, &after, &changed).unwrap(),
+            select_bootstrapped_pakro(&before, &before_identities, &after, &changed).unwrap(),
             old
         );
 
-        let stale = "/opt/stale/mise".to_string();
-        let overwritten = "/opt/overwritten/mise".to_string();
+        let stale = "/opt/stale/pakro".to_string();
+        let overwritten = "/opt/overwritten/pakro".to_string();
         let same_paths = vec![stale.clone(), overwritten.clone()];
         let before_same_version = IndexMap::from([
             (stale.clone(), identity("1.0.0", "100 10")),
@@ -2967,7 +2886,7 @@ mod tests {
             (overwritten.clone(), identity("2.0.0", "300 30")),
         ]);
         assert_eq!(
-            select_bootstrapped_mise(
+            select_bootstrapped_pakro(
                 &same_paths,
                 &before_same_version,
                 &same_paths,
@@ -2977,8 +2896,8 @@ mod tests {
             overwritten
         );
 
-        let current = "/opt/current/mise".to_string();
-        let candidates = vec!["/opt/stale/mise".to_string(), current.clone()];
+        let current = "/opt/current/pakro".to_string();
+        let candidates = vec!["/opt/stale/pakro".to_string(), current.clone()];
         let identities = IndexMap::from([
             (candidates[0].clone(), identity("0.0.1", "100 10")),
             (
@@ -2990,52 +2909,52 @@ mod tests {
             ),
         ]);
         assert_eq!(
-            select_bootstrapped_mise(&candidates, &identities, &candidates, &identities).unwrap(),
+            select_bootstrapped_pakro(&candidates, &identities, &candidates, &identities).unwrap(),
             current
         );
     }
 
     #[test]
-    fn rejects_ambiguous_bootstrapped_mise_candidates() {
-        let candidates = vec!["/opt/one/mise".to_string(), "/opt/two/mise".to_string()];
+    fn rejects_ambiguous_bootstrapped_pakro_candidates() {
+        let candidates = vec!["/opt/one/pakro".to_string(), "/opt/two/pakro".to_string()];
         let identities = IndexMap::from([
             (
                 candidates[0].clone(),
-                Some(RemoteMiseIdentity {
+                Some(RemotePakroIdentity {
                     version: "1.0.0".to_string(),
                     fingerprint: "100 10".to_string(),
                 }),
             ),
             (
                 candidates[1].clone(),
-                Some(RemoteMiseIdentity {
+                Some(RemotePakroIdentity {
                     version: "2.0.0".to_string(),
                     fingerprint: "200 20".to_string(),
                 }),
             ),
         ]);
         assert!(
-            select_bootstrapped_mise(&candidates, &identities, &candidates, &identities).is_err()
+            select_bootstrapped_pakro(&candidates, &identities, &candidates, &identities).is_err()
         );
         let current_version = format!("{} linux-x64", env!("CARGO_PKG_VERSION"));
         let matching_identities = IndexMap::from([
             (
                 candidates[0].clone(),
-                Some(RemoteMiseIdentity {
+                Some(RemotePakroIdentity {
                     version: current_version.clone(),
                     fingerprint: "100 10".to_string(),
                 }),
             ),
             (
                 candidates[1].clone(),
-                Some(RemoteMiseIdentity {
+                Some(RemotePakroIdentity {
                     version: current_version,
                     fingerprint: "200 20".to_string(),
                 }),
             ),
         ]);
         assert!(
-            select_bootstrapped_mise(
+            select_bootstrapped_pakro(
                 &candidates,
                 &matching_identities,
                 &candidates,
@@ -3043,11 +2962,11 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .contains("multiple version-matching mise executables")
+            .contains("multiple version-matching pakro executables")
         );
-        assert!(parse_remote_mise_candidates("/opt/mise").is_err());
+        assert!(parse_remote_pakro_candidates("/opt/pakro").is_err());
         assert_eq!(
-            parse_remote_mise_candidates("/opt/one\0/opt/one\0/opt/two\0").unwrap(),
+            parse_remote_pakro_candidates("/opt/one\0/opt/one\0/opt/two\0").unwrap(),
             vec!["/opt/one".to_string(), "/opt/two".to_string()]
         );
     }

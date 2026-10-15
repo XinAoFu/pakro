@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 
 mkdir -p bin
 cat <<'SH' >bin/npm
@@ -14,7 +14,7 @@ chmod +x bin/npm
 export PATH="$PWD/bin:$PATH"
 export WORKSPACE_TASK_LOG="$PWD/workspace-task.log"
 
-cat <<'TOML' >mise.toml
+cat <<'TOML' >pakro.toml
 monorepo_root = true
 
 [monorepo]
@@ -94,7 +94,7 @@ cat <<'JSON' >packages/app/package.json
 }
 JSON
 
-cat <<'TOML' >packages/app/mise.toml
+cat <<'TOML' >packages/app/pakro.toml
 [tasks.alias-owner]
 alias = ["//packages/app:precedence-collision"]
 run = "printf alias-owner > precedence-collision-result.txt"
@@ -102,12 +102,12 @@ run = "printf alias-owner > precedence-collision-result.txt"
 [tasks.precedence-collision]
 run = "printf explicit > precedence-collision-result.txt"
 TOML
-mkdir -p packages/app/.config/mise/tasks
-cat <<'SH' >packages/app/.config/mise/tasks/file-collision.sh
+mkdir -p packages/app/.config/pakro/tasks
+cat <<'SH' >packages/app/.config/pakro/tasks/file-collision.sh
 #!/bin/sh
 printf explicit > file-collision-result.txt
 SH
-chmod +x packages/app/.config/mise/tasks/file-collision.sh
+chmod +x packages/app/.config/pakro/tasks/file-collision.sh
 
 mkdir -p packages/bridge
 cat <<'JSON' >packages/bridge/package.json
@@ -131,7 +131,7 @@ cat <<'JSON' >packages/core/package.json
 JSON
 
 mkdir -p packages/tool
-cat <<'TOML' >packages/tool/mise.toml
+cat <<'TOML' >packages/tool/pakro.toml
 [tasks.build]
 run = "printf '%s' \"$ROOT_TASK_DEFAULT\" > config-root-default.txt"
 
@@ -139,53 +139,53 @@ run = "printf '%s' \"$ROOT_TASK_DEFAULT\" > config-root-default.txt"
 extends = "template-only"
 TOML
 
-assert_not_contains "mise tasks --all" "node:@scope/app#build"
-assert_not_contains "MISE_TASK_AUTO_INFER=cargo mise tasks --all" "node:@scope/app#build"
-cat <<'TOML' >>mise.toml
+assert_not_contains "pakro tasks --all" "node:@scope/app#build"
+assert_not_contains "PAKRO_TASK_AUTO_INFER=cargo pakro tasks --all" "node:@scope/app#build"
+cat <<'TOML' >>pakro.toml
 
 [settings]
 task.auto_infer = ["node"]
 TOML
 
-assert_contains "mise tasks --all" "node:@scope/app#build"
-assert_not_contains "mise tasks --all" "node:@scope/app#test:unit"
-assert_contains "mise task info 'node:@scope/app#build'" "packages/app/package.json"
-assert_contains "mise task info 'node:@scope/app#build'" "turbo.json"
-assert_contains "mise task info 'node:@scope/app#build'" "Sources: src/**, package.json"
-assert_contains "mise task info 'node:@scope/app#build'" "Outputs: result.txt"
-assert_contains "mise task info 'node:@scope/app#build'" "Cache: enabled"
-assert "mise task info 'node:@scope/app#build' --json | jq -r '.cache.env[]'" "NODE_ENV"
-assert_contains "mise task info 'node:@scope/app#cache-only'" "Cache: enabled"
+assert_contains "pakro tasks --all" "node:@scope/app#build"
+assert_not_contains "pakro tasks --all" "node:@scope/app#test:unit"
+assert_contains "pakro task info 'node:@scope/app#build'" "packages/app/package.json"
+assert_contains "pakro task info 'node:@scope/app#build'" "turbo.json"
+assert_contains "pakro task info 'node:@scope/app#build'" "Sources: src/**, package.json"
+assert_contains "pakro task info 'node:@scope/app#build'" "Outputs: result.txt"
+assert_contains "pakro task info 'node:@scope/app#build'" "Cache: enabled"
+assert "pakro task info 'node:@scope/app#build' --json | jq -r '.cache.env[]'" "NODE_ENV"
+assert_contains "pakro task info 'node:@scope/app#cache-only'" "Cache: enabled"
 
 : >workspace-task.log
-mise -q run 'node:@scope/app#no-deps'
+pakro -q run 'node:@scope/app#no-deps'
 assert "cat workspace-task.log" "app:run no-deps --"
 : >workspace-task.log
 
-mise -q run //packages/tool:build
+pakro -q run //packages/tool:build
 assert "cat packages/tool/config-root-default.txt" "from-root"
 
-mise -q run //packages/tool:template-only
+pakro -q run //packages/tool:template-only
 assert "cat packages/tool/template-result.txt" "template"
 
-mise -q run 'node:@scope/app#build' -- forwarded
+pakro -q run 'node:@scope/app#build' -- forwarded
 assert "cat packages/app/result.txt" "inferred"
 assert "cat packages/app/manager-args.txt" "run build -- forwarded"
 assert "cat packages/app/default.txt" "from-root"
 assert "cat workspace-task.log" $'core:run prepare --\napp:run build -- forwarded'
 
 printf stale >packages/app/result.txt
-mise -q run //packages/app:build
+pakro -q run //packages/app:build
 assert "cat packages/app/result.txt" "inferred"
 
-mise -q run //packages/app:file-collision
+pakro -q run //packages/app:file-collision
 assert "cat packages/app/file-collision-result.txt" "explicit"
-mise -q run 'node:@scope/app#file-collision'
+pakro -q run 'node:@scope/app#file-collision'
 assert "cat packages/app/file-collision-result.txt" "explicit"
-mise -q run 'node:@scope/app#precedence-collision'
+pakro -q run 'node:@scope/app#precedence-collision'
 assert "cat packages/app/precedence-collision-result.txt" "explicit"
 
-cat <<'TOML' >packages/app/mise.toml
+cat <<'TOML' >packages/app/pakro.toml
 [tasks.build]
 extends = "build-override"
 env = { TASK_PRECEDENCE = "from-local" }
@@ -197,20 +197,20 @@ depends = ["^{{usage.task}}"]
 run = "printf deployed > deploy-result.txt"
 TOML
 
-cat <<'TOML' >packages/core/mise.toml
+cat <<'TOML' >packages/core/pakro.toml
 [tasks.build]
 run = "printf explicit-upstream > explicit-result.txt"
 TOML
 
-mkdir -p packages/app/mise-tasks
-cat <<'SH' >packages/app/mise-tasks/lint
+mkdir -p packages/app/pakro-tasks
+cat <<'SH' >packages/app/pakro-tasks/lint
 #!/bin/sh
 printf '%s' "$ROOT_TASK_DEFAULT" >executable-default.txt
 SH
-chmod +x packages/app/mise-tasks/lint
+chmod +x packages/app/pakro-tasks/lint
 
 printf stale >packages/app/result.txt
-mise -q run 'node:@scope/app#build'
+pakro -q run 'node:@scope/app#build'
 assert "cat packages/app/result.txt" "explicit"
 assert "cat packages/app/explicit-default.txt" "from-root"
 assert "cat packages/app/precedence.txt" "from-local"
@@ -218,24 +218,24 @@ assert "cat packages/app/template-precedence.txt" "from-template"
 assert "cat packages/core/explicit-result.txt" "explicit-upstream"
 
 printf stale >packages/core/explicit-result.txt
-mise -q run //packages/app:deploy build
+pakro -q run //packages/app:deploy build
 assert "cat packages/app/deploy-result.txt" "deployed"
 assert "cat packages/core/explicit-result.txt" "explicit-upstream"
 
-mise -q run //packages/app:lint
+pakro -q run //packages/app:lint
 assert "cat packages/app/executable-default.txt" "from-executable-default"
 
-assert_not_contains "MISE_EXPERIMENTAL=0 mise tasks --all" "node:@scope/app#test:unit"
-assert_fail_contains "MISE_EXPERIMENTAL=0 mise run 'node:@scope/missing#build'" "no task"
+assert_not_contains "PAKRO_EXPERIMENTAL=0 pakro tasks --all" "node:@scope/app#test:unit"
+assert_fail_contains "PAKRO_EXPERIMENTAL=0 pakro run 'node:@scope/missing#build'" "no task"
 
 mkdir -p packages/bad
 printf '{' >packages/bad/package.json
-mise -q run local
+pakro -q run local
 assert "cat local-result.txt" "local"
 assert "cat local-default.txt" ""
 
 printf stale >packages/app/executable-default.txt
-mise -q run //packages/app:lint
+pakro -q run //packages/app:lint
 assert "cat packages/app/executable-default.txt" "from-executable-default"
-assert_fail_contains "mise run //packages/app:build" "inferred tasks and upstream task dependencies from this provider are unavailable"
-assert_fail_contains "mise run //packages/app:build" "failed to resolve upstream task dependencies"
+assert_fail_contains "pakro run //packages/app:build" "inferred tasks and upstream task dependencies from this provider are unavailable"
+assert_fail_contains "pakro run //packages/app:build" "failed to resolve upstream task dependencies"

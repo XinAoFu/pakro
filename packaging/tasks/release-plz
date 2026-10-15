@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-#MISE description="Release with release-plz"
+#PAKRO description="Release with release-plz"
 set -euxo pipefail
+
+source "$(dirname "${BASH_SOURCE[0]}")/../scripts/release-env.sh"
+pakro_require_release
 
 # Ensure this script is only run in GitHub Actions
 if [[ -z ${GITHUB_ACTIONS:-} ]]; then
@@ -9,8 +12,8 @@ if [[ -z ${GITHUB_ACTIONS:-} ]]; then
 	exit 1
 fi
 
-git config user.name mise-en-dev
-git config user.email release@mise.jdx.dev
+git config user.name pakro-en-dev
+git config user.email "${PAKRO_RELEASE_EMAIL:?Set PAKRO_RELEASE_EMAIL}"
 
 # Check if the most recent tag has a matching GitHub Release.
 # If not, the previous release workflow likely failed to fire — re-trigger it.
@@ -75,7 +78,7 @@ subcrate_diff_pathspec() {
 	local crate_dir="$2"
 	pathspec=("$crate_dir")
 	case "$crate_name" in
-	mise-settings)
+	pakro-settings)
 		# The crate generates its types from the workspace .config/settings.toml.
 		pathspec+=(".config/settings.toml")
 		;;
@@ -152,8 +155,8 @@ set_path_dependency_version() {
 }
 
 # Point every versioned workspace path dependency on $dependency at $new_version.
-# Subcrates depend on each other (mise-util on mise-settings, mise-settings on
-# mise-cache-core, ...), and a requirement left behind stops matching once a
+# Subcrates depend on each other (pakro-util on pakro-settings, pakro-settings on
+# pakro-cache-core, ...), and a requirement left behind stops matching once a
 # bump crosses it: a calver crate entering a new year, or a 0.x minor bump.
 set_workspace_path_dependency_versions() {
 	local dependency="$1"
@@ -361,86 +364,86 @@ bump_and_publish_subcrate() {
 	eval "$var_name=$new_version"
 }
 
-cur_version="$(cargo pkgid mise | cut -d# -f2)"
-latest_version="$(cargo info --registry "crates-io" --color never --quiet mise | grep "^version:" | cut -d' ' -f2)"
+cur_version="$(cargo pkgid pakro | cut -d# -f2)"
+latest_version="$(cargo info --registry "crates-io" --color never --quiet pakro | grep "^version:" | cut -d' ' -f2)"
 if [[ $cur_version != "$latest_version" ]]; then
-	echo "Releasing mise $cur_version"
+	echo "Releasing pakro $cur_version"
 
 	# Handle subcrates with independent versioning
 	AQUA_REGISTRY_VERSION=""
-	MISE_SIGSTORE_VERSION=""
-	MISE_CACHE_CORE_VERSION=""
-	MISE_BREW_RELOCATION_VERSION=""
-	MISE_DOTENV_VERSION=""
-	MISE_AGENT_ENV_VERSION=""
-	MISE_SETTINGS_VERSION=""
-	MISE_UTIL_VERSION=""
-	MISE_BREW_METADATA_VERSION=""
-	MISE_BOOTSTRAP_VERSION=""
+	PAKRO_SIGSTORE_VERSION=""
+	PAKRO_CACHE_CORE_VERSION=""
+	PAKRO_BREW_RELOCATION_VERSION=""
+	PAKRO_DOTENV_VERSION=""
+	PAKRO_AGENT_ENV_VERSION=""
+	PAKRO_SETTINGS_VERSION=""
+	PAKRO_UTIL_VERSION=""
+	PAKRO_BREW_METADATA_VERSION=""
+	PAKRO_BOOTSTRAP_VERSION=""
 
-	# Publish in dependency order: mise-settings needs mise-cache-core, and
-	# mise-util needs mise-agent-env, mise-cache-core, mise-settings and
-	# mise-sigstore.
-	bump_and_publish_subcrate "mise-agent-env" "src/crates/mise-agent-env" "MISE_AGENT_ENV_VERSION"
-	cargo add -p mise-util "mise-agent-env@$MISE_AGENT_ENV_VERSION"
+	# Publish in dependency order: pakro-settings needs pakro-cache-core, and
+	# pakro-util needs pakro-agent-env, pakro-cache-core, pakro-settings and
+	# pakro-sigstore.
+	bump_and_publish_subcrate "pakro-agent-env" "src/crates/pakro-agent-env" "PAKRO_AGENT_ENV_VERSION"
+	cargo add -p pakro-util "pakro-agent-env@$PAKRO_AGENT_ENV_VERSION"
 
-	bump_and_publish_subcrate "mise-cache-core" "src/crates/mise-cache-core" "MISE_CACHE_CORE_VERSION"
-	cargo add -p mise "mise-cache-core@$MISE_CACHE_CORE_VERSION" --no-default-features
-	cargo add -p mise-settings "mise-cache-core@$MISE_CACHE_CORE_VERSION" --no-default-features
-	cargo add -p mise-util "mise-cache-core@$MISE_CACHE_CORE_VERSION" --no-default-features
+	bump_and_publish_subcrate "pakro-cache-core" "src/crates/pakro-cache-core" "PAKRO_CACHE_CORE_VERSION"
+	cargo add -p pakro "pakro-cache-core@$PAKRO_CACHE_CORE_VERSION" --no-default-features
+	cargo add -p pakro-settings "pakro-cache-core@$PAKRO_CACHE_CORE_VERSION" --no-default-features
+	cargo add -p pakro-util "pakro-cache-core@$PAKRO_CACHE_CORE_VERSION" --no-default-features
 
-	bump_and_publish_subcrate "mise-brew-relocation" "packages/crates/mise-brew-relocation" "MISE_BREW_RELOCATION_VERSION"
-	cargo add -p mise --target 'cfg(unix)' "mise-brew-relocation@$MISE_BREW_RELOCATION_VERSION"
+	bump_and_publish_subcrate "pakro-brew-relocation" "packages/crates/pakro-brew-relocation" "PAKRO_BREW_RELOCATION_VERSION"
+	cargo add -p pakro --target 'cfg(unix)' "pakro-brew-relocation@$PAKRO_BREW_RELOCATION_VERSION"
 
-	bump_and_publish_subcrate "mise-dotenv" "src/crates/mise-dotenv" "MISE_DOTENV_VERSION"
-	cargo add -p mise "mise-dotenv@$MISE_DOTENV_VERSION"
+	bump_and_publish_subcrate "pakro-dotenv" "src/crates/pakro-dotenv" "PAKRO_DOTENV_VERSION"
+	cargo add -p pakro "pakro-dotenv@$PAKRO_DOTENV_VERSION"
 
 	# Copy the workspace settings definition into the crate directory so the published package includes it.
-	cp .config/settings.toml src/crates/mise-settings/settings.toml
-	bump_and_publish_subcrate "mise-settings" "src/crates/mise-settings" "MISE_SETTINGS_VERSION"
-	rm -f src/crates/mise-settings/settings.toml
-	cargo add -p mise "mise-settings@$MISE_SETTINGS_VERSION"
-	cargo add -p mise-util "mise-settings@$MISE_SETTINGS_VERSION"
+	cp .config/settings.toml src/crates/pakro-settings/settings.toml
+	bump_and_publish_subcrate "pakro-settings" "src/crates/pakro-settings" "PAKRO_SETTINGS_VERSION"
+	rm -f src/crates/pakro-settings/settings.toml
+	cargo add -p pakro "pakro-settings@$PAKRO_SETTINGS_VERSION"
+	cargo add -p pakro-util "pakro-settings@$PAKRO_SETTINGS_VERSION"
 
-	bump_and_publish_subcrate "mise-sigstore" "src/crates/mise-sigstore" "MISE_SIGSTORE_VERSION"
-	cargo add -p mise-util "mise-sigstore@$MISE_SIGSTORE_VERSION" --no-default-features
+	bump_and_publish_subcrate "pakro-sigstore" "src/crates/pakro-sigstore" "PAKRO_SIGSTORE_VERSION"
+	cargo add -p pakro-util "pakro-sigstore@$PAKRO_SIGSTORE_VERSION" --no-default-features
 
-	bump_and_publish_subcrate "mise-util" "src/crates/mise-util" "MISE_UTIL_VERSION"
-	cargo add -p mise "mise-util@$MISE_UTIL_VERSION"
-	bump_and_publish_subcrate "mise-brew-metadata" "packages/crates/mise-brew-metadata" "MISE_BREW_METADATA_VERSION"
-	cargo add -p mise "mise-brew-metadata@$MISE_BREW_METADATA_VERSION"
-	bump_and_publish_subcrate "mise-bootstrap" "src/crates/mise-bootstrap" "MISE_BOOTSTRAP_VERSION"
-	cargo add -p mise "mise-bootstrap@$MISE_BOOTSTRAP_VERSION"
+	bump_and_publish_subcrate "pakro-util" "src/crates/pakro-util" "PAKRO_UTIL_VERSION"
+	cargo add -p pakro "pakro-util@$PAKRO_UTIL_VERSION"
+	bump_and_publish_subcrate "pakro-brew-metadata" "packages/crates/pakro-brew-metadata" "PAKRO_BREW_METADATA_VERSION"
+	cargo add -p pakro "pakro-brew-metadata@$PAKRO_BREW_METADATA_VERSION"
+	bump_and_publish_subcrate "pakro-bootstrap" "src/crates/pakro-bootstrap" "PAKRO_BOOTSTRAP_VERSION"
+	cargo add -p pakro "pakro-bootstrap@$PAKRO_BOOTSTRAP_VERSION"
 
 	bump_and_publish_subcrate "aqua-registry" "runtimes/crates/aqua-registry" "AQUA_REGISTRY_VERSION"
 	use_published_aqua_registry "$AQUA_REGISTRY_VERSION"
 
-	if exists_on_crates mise "$cur_version"; then
-		echo "mise@$cur_version already on crates.io, skipping publish"
+	if exists_on_crates pakro "$cur_version"; then
+		echo "pakro@$cur_version already on crates.io, skipping publish"
 	else
 		publish_result=0
-		publish_crate mise || publish_result=$?
+		publish_crate pakro || publish_result=$?
 		if [[ $publish_result -eq 2 ]]; then
-			echo "mise@$cur_version reached the crates.io index during publication, continuing"
+			echo "pakro@$cur_version reached the crates.io index during publication, continuing"
 		elif [[ $publish_result -ne 0 ]]; then
 			exit "$publish_result"
 		fi
 	fi
 
-	mise_tag="v$cur_version"
-	changelog="$(git cliff --config packaging/config/cliff.toml --tag "$mise_tag" --strip all --unreleased)"
+	pakro_tag="v$cur_version"
+	changelog="$(git cliff --config packaging/config/cliff.toml --tag "$pakro_tag" --strip all --unreleased)"
 	changelog="$(echo "$changelog" | tail -n +3)"
-	if git ls-remote --exit-code --tags origin "$mise_tag" >/dev/null 2>&1; then
-		echo "Tag $mise_tag already exists, skipping tag creation"
+	if git ls-remote --exit-code --tags origin "$pakro_tag" >/dev/null 2>&1; then
+		echo "Tag $pakro_tag already exists, skipping tag creation"
 	else
-		if ! git rev-parse -q --verify "refs/tags/$mise_tag" >/dev/null; then
-			git tag "$mise_tag" -s -m "$changelog"
+		if ! git rev-parse -q --verify "refs/tags/$pakro_tag" >/dev/null; then
+			git tag "$pakro_tag" -s -m "$changelog"
 		fi
-		git push origin "refs/tags/$mise_tag"
+		git push origin "refs/tags/$pakro_tag"
 	fi
 
 	# GitHub does not create push events when more than three tags are pushed at
-	# once. Push the mise tag separately so release workflows always
+	# once. Push the pakro tag separately so release workflows always
 	# receive the event, then publish any subcrate tags in bulk.
 	git push --tags
 	exit 0
@@ -459,23 +462,23 @@ fi
 year="$(date +%Y)"
 month="$(date +%-m)"
 if echo "$cur_version" | grep -e "^$year\.$month\."; then
-	bump_package_version mise Cargo.toml patch
+	bump_package_version pakro Cargo.toml patch
 elif echo "$cur_version" | grep -e "^$year\."; then
-	bump_package_version mise Cargo.toml minor
+	bump_package_version pakro Cargo.toml minor
 else
-	advance_package_version mise Cargo.toml "$year.1.0"
+	advance_package_version pakro Cargo.toml "$year.1.0"
 fi
 
-version="$(cargo pkgid mise | cut -d# -f2)"
+version="$(cargo pkgid pakro | cut -d# -f2)"
 sed -i.bak "s/^[0-9]\+\.[0-9]\+\.[0-9]\+\(-rc\.[0-9]\+\)\? macos-arm64 ([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\})$/$version macos-arm64 ($(date +%Y-%m-%d))/" README.md
-sed -i.bak "s/^Version: [0-9]\+\.[0-9]\+\.[0-9]\+\(-rc\.[0-9]\+\)\?$/Version: $version/" packaging/rpm/mise.spec
+sed -i.bak "s/^Version: [0-9]\+\.[0-9]\+\.[0-9]\+\(-rc\.[0-9]\+\)\?$/Version: $version/" packaging/rpm/pakro.spec
 sed -i.bak "s/version = \"[0-9]\+\.[0-9]\+\.[0-9]\+\(-rc\.[0-9]\+\)\?\";$/version = \"$version\";/" packaging/nix/default.nix
 sed -i.bak "s/version: \"[0-9]\+\.[0-9]\+\.[0-9]\+\(-rc\.[0-9]\+\)\?\"$/version: \"$version\"/" packaging/snap/snapcraft.yaml
 
 # fetch-gpg-keys must run before render (which includes build) since it
-# recreates src/crates/mise-util/src/assets/gpg/ which is read at compile time via include_str!
-mise run fetch-gpg-keys
-mise run render ::: lint-fix
+# recreates src/crates/pakro-util/src/assets/gpg/ which is read at compile time via include_str!
+pakro run fetch-gpg-keys
+pakro run render ::: lint-fix
 
 AQUA_REGISTRY_DIR="runtimes/vendor/aqua-registry"
 AQUA_REGISTRY_METADATA="$AQUA_REGISTRY_DIR/metadata.json"
@@ -542,19 +545,19 @@ if [[ -n $AQUA_CHANGELOG_MD ]]; then
 fi
 
 # TODO: re-enable once fd v10.4.0 asset is fixed (missing fd-v10.4.0-x86_64-unknown-linux-musl.tar.gz)
-# mise up
-mise lock
-# Refresh PATH after mise up, since upgraded tools have new install paths
-eval "$(mise env)"
+# pakro up
+pakro lock
+# Refresh PATH after pakro up, since upgraded tools have new install paths
+eval "$(pakro env)"
 
 # Bump subcrate versions if they have changes (including Aqua registry updates)
 bump_subcrate_if_changed "aqua-registry" "runtimes/crates/aqua-registry"
-bump_subcrate_if_changed "mise-sigstore" "src/crates/mise-sigstore"
+bump_subcrate_if_changed "pakro-sigstore" "src/crates/pakro-sigstore"
 
 git status
 # cargo update
 # Every subcrate manifest: a bump also rewrites the version requirement in each
-# workspace crate that path-depends on the bumped one (mise-util on mise-sigstore, …).
+# workspace crate that path-depends on the bumped one (pakro-util on pakro-sigstore, …).
 git add \
 	Cargo.lock \
 	Cargo.toml \
@@ -567,12 +570,12 @@ git add \
 	packaging/nix/default.nix \
 	packaging/snap/snapcraft.yaml \
 	packaging/release-notes/ \
-	packaging/rpm/mise.spec \
-	cli/generated/mise.usage.kdl \
+	packaging/rpm/pakro.spec \
+	cli/generated/pakro.usage.kdl \
 	cli/completions \
-	mise.lock \
+	pakro.lock \
 	cli/man/ \
-	src/crates/mise-util/src/assets/gpg/
+	src/crates/pakro-util/src/assets/gpg/
 git clean -df
 git checkout -B release
 git commit -m "chore: release $version"

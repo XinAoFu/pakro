@@ -27,11 +27,23 @@ on:
         type: string
 
 env:
+  PAKRO_ENABLE_RELEASE: ${{ vars.PAKRO_ENABLE_RELEASE || 'false' }}
+  PAKRO_RELEASE_REPOSITORY: ${{ github.repository }}
+  PAKRO_DOWNLOAD_BASE_URL: ${{ vars.PAKRO_DOWNLOAD_BASE_URL }}
+  PAKRO_R2_ENDPOINT_URL: ${{ vars.PAKRO_R2_ENDPOINT_URL }}
+  PAKRO_RELEASE_BUCKET: ${{ vars.PAKRO_RELEASE_BUCKET }}
+  PAKRO_CLOUDFLARE_ACCOUNT_ID: ${{ vars.PAKRO_CLOUDFLARE_ACCOUNT_ID }}
+  PAKRO_CLOUDFLARE_WORKER_NAME: ${{ vars.PAKRO_CLOUDFLARE_WORKER_NAME }}
+  PAKRO_CLOUDFLARE_ZONES: ${{ vars.PAKRO_CLOUDFLARE_ZONES }}
+  PAKRO_GPG_SIGNING_KEY: ${{ vars.PAKRO_GPG_SIGNING_KEY }}
+  PAKRO_RELEASE_NAME: ${{ vars.PAKRO_RELEASE_NAME }}
+  PAKRO_RELEASE_EMAIL: ${{ vars.PAKRO_RELEASE_EMAIL }}
   MBX_DISABLE: "1"
   DEBIAN_FRONTEND: noninteractive
 
 jobs:
   publish-ppa:
+    if: ${{ vars.PAKRO_ENABLE_RELEASE == 'true' && github.repository != 'jdx/mise' }}
     runs-on: ubuntu-latest
     environment: ppa-publishing
     timeout-minutes: 45
@@ -49,10 +61,12 @@ jobs:
           INPUT_BUILD_REVISION: ${{ inputs.build_revision || '1' }}
           INPUT_VERSION_SUFFIX: ${{ inputs.version_suffix }}
           INPUT_USE_SERIOUS_PROFILE: ${{ inputs.use_serious_profile }}
-          PPA_MAINTAINER_NAME_INPUT: ${{ vars.PPA_MAINTAINER_NAME || 'mise Release Bot' }}
-          PPA_MAINTAINER_EMAIL_INPUT: ${{ vars.PPA_MAINTAINER_EMAIL || 'noreply@mise.jdx.dev' }}
-          PPA_NAME_INPUT: ${{ vars.PPA_NAME || 'ppa:jdxcode/mise' }}
+          PPA_MAINTAINER_NAME_INPUT: ${{ vars.PPA_MAINTAINER_NAME || 'pakro Release Bot' }}
+          PPA_MAINTAINER_EMAIL_INPUT: ${{ vars.PPA_MAINTAINER_EMAIL }}
+          PPA_NAME_INPUT: ${{ vars.PPA_NAME }}
         run: |
+          : "${PPA_MAINTAINER_EMAIL_INPUT:?Configure a pakro maintainer email}"
+          : "${PPA_NAME_INPUT:?Configure the pakro publication target}"
           VERSION=$(./packaging/scripts/get-version.sh | sed 's/^v//')
 
           if [ "$EVENT_NAME" = "release" ]; then
@@ -90,7 +104,7 @@ jobs:
             echo "VERSION=${VERSION}"
             echo "DISTRIBUTIONS=${DISTRIBUTIONS}"
             echo "BUILD_REVISION=${BUILD_REVISION}"
-            echo "PACKAGE_NAME=mise"
+            echo "PACKAGE_NAME=pakro"
             echo "MAINTAINER_NAME=${PPA_MAINTAINER_NAME_INPUT}"
             echo "MAINTAINER_EMAIL=${PPA_MAINTAINER_EMAIL_INPUT}"
             echo "PPA_NAME=${PPA_NAME_INPUT}"
@@ -121,11 +135,10 @@ jobs:
             libssl-dev \
             pkg-config
 
-      - name: Install mise
-        run: |
-          curl https://mise.run | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - run: mise x wait-for-gh-rate-limit -- wait-for-gh-rate-limit
+      - uses: ./.github/actions/pakro-tools
+        with:
+          cache: false
+      - run: pakro x wait-for-gh-rate-limit -- wait-for-gh-rate-limit
       - name: Vendor Rust dependencies
         run: |
           mkdir -p .cargo
@@ -155,7 +168,7 @@ jobs:
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7
         with:
-          gpg_private_key: ${{ secrets.MISE_GPG_KEY }}
+          gpg_private_key: ${{ secrets.PAKRO_GPG_KEY }}
           git_user_signingkey: true
           git_commit_gpgsign: true
           trust_level: 5
@@ -207,15 +220,14 @@ jobs:
           Maintainer: ${MAINTAINER_NAME} <${MAINTAINER_EMAIL}>
           Build-Depends: debhelper-compat (= 13), rustc (>= 1.93), cargo, cmake, libssl-dev, pkgconf
           Standards-Version: 4.6.2
-          Homepage: https://mise.jdx.dev
-          Vcs-Git: https://github.com/jdx/mise.git
-          Vcs-Browser: https://github.com/jdx/mise
+          Vcs-Git: ${PAKRO_PROJECT_URL:-https://github.com/$PAKRO_RELEASE_REPOSITORY}.git
+          Vcs-Browser: ${PAKRO_PROJECT_URL:-https://github.com/$PAKRO_RELEASE_REPOSITORY}
 
           Package: ${PACKAGE_NAME}
           Architecture: any
           Depends: \${shlibs:Depends}, \${misc:Depends}
           Description: The front-end to your dev env
-           mise is a development environment setup tool that handles runtime versions,
+           pakro is a development environment setup tool that handles runtime versions,
            environment variables, and tasks. It's a replacement for tools like nvm, rbenv,
            pyenv, etc. and works with any language.
           EOF
@@ -235,34 +247,34 @@ jobs:
           ${make_recipe_prefix}dh \$@
 
           override_dh_auto_build:
-          ${make_recipe_prefix}cargo build --profile ${BUILD_PROFILE} --frozen --bin mise
+          ${make_recipe_prefix}cargo build --profile ${BUILD_PROFILE} --frozen --bin pakro
 
           override_dh_auto_install:
-          ${make_recipe_prefix}mkdir -p debian/mise/usr/bin
-          ${make_recipe_prefix}cp ${TARGET_DIR}/mise debian/mise/usr/bin/
-          ${make_recipe_prefix}mkdir -p debian/mise/usr/share/man/man1
-          ${make_recipe_prefix}if [ -f cli/man/man1/mise.1 ]; then cp cli/man/man1/mise.1 debian/mise/usr/share/man/man1/; fi
-          ${make_recipe_prefix}mkdir -p debian/mise/usr/share/bash-completion/completions
-          ${make_recipe_prefix}if [ -f cli/completions/mise.bash ]; then cp cli/completions/mise.bash debian/mise/usr/share/bash-completion/completions/mise; fi
-          ${make_recipe_prefix}mkdir -p debian/mise/usr/share/zsh/site-functions
-          ${make_recipe_prefix}if [ -f cli/completions/_mise ]; then cp cli/completions/_mise debian/mise/usr/share/zsh/site-functions/; fi
-          ${make_recipe_prefix}mkdir -p debian/mise/usr/share/fish/vendor_completions.d
-          ${make_recipe_prefix}if [ -f cli/completions/mise.fish ]; then cp cli/completions/mise.fish debian/mise/usr/share/fish/vendor_completions.d/; fi
-          ${make_recipe_prefix}mkdir -p debian/mise/usr/lib/mise
-          ${make_recipe_prefix}echo 'message = "To update, run:\\n\\n  sudo apt update && sudo apt install --only-upgrade mise\\n"' > debian/mise/usr/lib/mise/mise-self-update-instructions.toml
+          ${make_recipe_prefix}mkdir -p debian/pakro/usr/bin
+          ${make_recipe_prefix}cp ${TARGET_DIR}/pakro debian/pakro/usr/bin/
+          ${make_recipe_prefix}mkdir -p debian/pakro/usr/share/man/man1
+          ${make_recipe_prefix}if [ -f cli/man/man1/pakro.1 ]; then cp cli/man/man1/pakro.1 debian/pakro/usr/share/man/man1/; fi
+          ${make_recipe_prefix}mkdir -p debian/pakro/usr/share/bash-completion/completions
+          ${make_recipe_prefix}if [ -f cli/completions/pakro.bash ]; then cp cli/completions/pakro.bash debian/pakro/usr/share/bash-completion/completions/pakro; fi
+          ${make_recipe_prefix}mkdir -p debian/pakro/usr/share/zsh/site-functions
+          ${make_recipe_prefix}if [ -f cli/completions/_pakro ]; then cp cli/completions/_pakro debian/pakro/usr/share/zsh/site-functions/; fi
+          ${make_recipe_prefix}mkdir -p debian/pakro/usr/share/fish/vendor_completions.d
+          ${make_recipe_prefix}if [ -f cli/completions/pakro.fish ]; then cp cli/completions/pakro.fish debian/pakro/usr/share/fish/vendor_completions.d/; fi
+          ${make_recipe_prefix}mkdir -p debian/pakro/usr/lib/pakro
+          ${make_recipe_prefix}echo 'message = "To update, run:\\n\\n  sudo apt update && sudo apt install --only-upgrade pakro\\n"' > debian/pakro/usr/lib/pakro/pakro-self-update-instructions.toml
 
           override_dh_auto_clean:
           ${make_recipe_prefix}cargo clean || true
           EOF
 
-          # CI verifies that the locked dependencies actually compile with mise's MSRV.
+          # CI verifies that the locked dependencies actually compile with pakro's MSRV.
           sed -i '/cargo build --profile/ s/$/ --ignore-rust-version/' debian/rules
           chmod +x debian/rules
 
           cat > debian/copyright << EOF
           Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
           Upstream-Name: ${PACKAGE_NAME}
-          Source: https://github.com/jdx/mise
+          Source: ${PAKRO_PROJECT_URL:-https://github.com/$PAKRO_RELEASE_REPOSITORY}
 
           Files: *
           Copyright: 2023-2025 Jeff Dickey
@@ -316,7 +328,7 @@ jobs:
             mv ../*"${DIST_VERSION}"*.buildinfo "/tmp/packages/" 2>/dev/null || true
             
             # Clean for next distribution
-            rm -f ../mise_"${DIST_VERSION}"*
+            rm -f ../pakro_"${DIST_VERSION}"*
           done
 
       - name: Upload source packages to PPA
@@ -325,7 +337,7 @@ jobs:
 
           # Configure dput
           cat > ~/.dput.cf << EOF
-          [mise-ppa]
+          [pakro-ppa]
           fqdn = ppa.launchpad.net
           method = ftp
           incoming = ~${PPA_NAME#ppa:}/ubuntu/
@@ -336,5 +348,5 @@ jobs:
           # Upload each changes file
           for changes_file in *.changes; do
             echo "Uploading $changes_file to PPA..."
-            dput mise-ppa "$changes_file"
+            dput pakro-ppa "$changes_file"
           done

@@ -188,11 +188,11 @@ impl SystemPackageManager for AurManager {
             .chain(args.iter().cloned())
             .collect::<Vec<_>>();
         if opts.dry_run {
-            miseprintln!("{}", shell_words::join(command));
+            pakroprintln!("{}", shell_words::join(command));
             return Ok(());
         }
         if crate::system::sudo::is_root() {
-            bail!("AUR packages cannot be built as root; run mise as a non-root user");
+            bail!("AUR packages cannot be built as root; run pakro as a non-root user");
         }
         crate::system::sudo::ensure_elevation_available(&shell_words::join(&command))?;
         let mut runner = CmdLineRunner::new(helper);

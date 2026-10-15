@@ -45,7 +45,7 @@ impl ToolVersionList {
         };
         for tvr in &mut self.requests {
             // Only use special options (latest_versions) for requests that
-            // explicitly specify "latest". This ensures `mise x node@20 npm@latest` only
+            // explicitly specify "latest". This ensures `pakro x node@20 npm@latest` only
             // fetches latest for npm, not node.
             // However, we always respect the caller's use_locked_version setting.
             let version = tvr.version();
@@ -128,7 +128,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tool_version_list_failure() {
-        env::set_var("MISE_FAILURE", "1");
+        env::set_var("PAKRO_FAILURE", "1");
         file::remove_all(dirs::CACHE.join("dummy")).unwrap();
         let config = Config::reset().await.unwrap();
         let ba: Arc<BackendArg> = Arc::new("dummy".into());
@@ -146,7 +146,7 @@ mod tests {
             )
             .await;
         assert_eq!(tvl.versions.len(), 0);
-        env::remove_var("MISE_FAILURE");
+        env::remove_var("PAKRO_FAILURE");
         Config::reset().await.unwrap();
     }
 }

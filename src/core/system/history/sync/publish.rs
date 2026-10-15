@@ -77,7 +77,7 @@ pub(crate) fn build(
         let merged = repo.compose(&merged, &overlays)?;
         if merged != tree {
             bail!(
-                "incoming setup has not been completely applied; run `mise dot pull` before publishing"
+                "incoming setup has not been completely applied; run `pakro dot pull` before publishing"
             );
         }
     }

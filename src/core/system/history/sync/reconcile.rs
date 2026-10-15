@@ -131,7 +131,7 @@ pub struct Conflict {
 /// Why sync neither applies nor removes a nested repository: the pointer
 /// travels with the published tree, but the objects it names live in
 /// another repository.
-pub(crate) const NESTED_NOT_SHARED: &str = "a separate Git repository; a pointer from an older mise, skipped — track it directly to capture its working files";
+pub(crate) const NESTED_NOT_SHARED: &str = "a separate Git repository; a pointer from an older pakro, skipped — track it directly to capture its working files";
 /// What one path needs after reconciliation.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct PathPlan {
@@ -193,7 +193,7 @@ pub(crate) fn reconcile(
     paths.extend(state.keys());
     let mut plans = vec![];
     for branch_path in paths {
-        if branch_path == super::layout::MARKER_PATH || branch_path.starts_with(".mise-history/") {
+        if branch_path == super::layout::MARKER_PATH || branch_path.starts_with(".pakro-history/") {
             continue;
         }
         let s = shared.get(branch_path);

@@ -44,18 +44,18 @@ pub static REGISTRY: Lazy<&'static Registry> = Lazy::new(|| {
         Ok(registry) if !registry.missing_version_order => Box::leak(Box::new(registry)),
         Ok(_) => {
             warn!(
-                "cached floating mise registry predates version-order metadata, using baked-in registry"
+                "cached floating pakro registry predates version-order metadata, using baked-in registry"
             );
             &BAKED_REGISTRY
         }
         Err(err) => {
-            warn!("failed to load floating mise registry, using baked-in registry: {err:#}");
+            warn!("failed to load floating pakro registry, using baked-in registry: {err:#}");
             &BAKED_REGISTRY
         }
     }
 });
 
-const MISE_REGISTRY_ARCHIVE_URL: &str = "https://mise.jdx.dev/registry/latest.tar.zst";
+const PAKRO_REGISTRY_ARCHIVE_URL: &str = "https://mise.jdx.dev/registry/latest.tar.zst";
 const MAX_REGISTRY_ARCHIVE_ENTRIES: usize = 4096;
 const MAX_REGISTRY_ARCHIVE_ENTRY_SIZE: u64 = 1024 * 1024;
 const MAX_REGISTRY_ARCHIVE_SIZE: u64 = 16 * 1024 * 1024;
@@ -270,12 +270,12 @@ impl RegistryBackend {
 }
 
 fn registry_cache_path() -> PathBuf {
-    dirs::CACHE.join("mise-registry").join("registry.tar.zst")
+    dirs::CACHE.join("pakro-registry").join("registry.tar.zst")
 }
 
 fn load_cached_floating_registry() -> Result<Registry> {
     parse_registry_archive(&registry_cache_path())
-        .wrap_err("failed to load cached floating mise registry")
+        .wrap_err("failed to load cached floating pakro registry")
 }
 
 fn cache_is_fresh(path: &Path, ttl: Duration) -> bool {
@@ -285,7 +285,7 @@ fn cache_is_fresh(path: &Path, ttl: Duration) -> bool {
         .is_ok_and(|age| age < ttl)
 }
 
-/// Refresh the floating mise registry before anything initializes [`REGISTRY`].
+/// Refresh the floating pakro registry before anything initializes [`REGISTRY`].
 /// Fast and offline commands use the cached archive (or the baked registry) without networking.
 pub async fn refresh() {
     let settings = Settings::get();
@@ -298,22 +298,26 @@ pub async fn refresh() {
         match parse_registry_archive(&cache_path) {
             Ok(registry) if !registry.missing_version_order => return,
             Ok(_) => warn!(
-                "cached floating mise registry predates version-order metadata; refreshing it"
+                "cached floating pakro registry predates version-order metadata; refreshing it"
             ),
-            Err(_) => warn!("cached floating mise registry is invalid; refreshing it"),
+            Err(_) => warn!("cached floating pakro registry is invalid; refreshing it"),
         }
     }
 
     if let Err(err) = download_registry_archive(&cache_path).await {
-        warn!("failed to refresh floating mise registry: {err:#}");
+        warn!("failed to refresh floating pakro registry: {err:#}");
     }
 }
 
 async fn download_registry_archive(cache_path: &Path) -> Result<()> {
     let download_path = cache_path.with_extension(format!("download-{}", std::process::id()));
-    let pr = MultiProgressReport::get().add_pre_backend("mise registry");
+    let pr = MultiProgressReport::get().add_pre_backend("pakro registry");
     if let Err(err) = HTTP
-        .download_file(MISE_REGISTRY_ARCHIVE_URL, &download_path, Some(pr.as_ref()))
+        .download_file(
+            PAKRO_REGISTRY_ARCHIVE_URL,
+            &download_path,
+            Some(pr.as_ref()),
+        )
         .await
     {
         let _ = file::remove_file(&download_path);
@@ -323,7 +327,7 @@ async fn download_registry_archive(cache_path: &Path) -> Result<()> {
 
     let result = (|| {
         parse_registry_archive(&download_path)
-            .wrap_err("downloaded mise registry archive is invalid")?;
+            .wrap_err("downloaded pakro registry archive is invalid")?;
         replace_registry_cache(&download_path, cache_path)?;
         Ok(())
     })();
@@ -746,18 +750,18 @@ fn leak_vec<T>(value: Vec<T>) -> &'static [T] {
 static ENV_BACKENDS: Lazy<Mutex<HashMap<String, &'static str>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-/// Whether any tool's backends may come from a MISE_BACKENDS_* override. When
+/// Whether any tool's backends may come from a PAKRO_BACKENDS_* override. When
 /// none can, a caller walking the whole registry can skip the per-tool check.
 pub(crate) fn has_backend_overrides() -> bool {
     !ENV_BACKENDS.lock().unwrap().is_empty()
         || crate::env::vars_safe().any(|(key, _)| is_backend_override_key(&key))
 }
 
-/// Whether `key` names a MISE_BACKENDS_* override. Windows variable names are
-/// case-insensitive, so `mise_backends_node` counts there as it does for
+/// Whether `key` names a PAKRO_BACKENDS_* override. Windows variable names are
+/// case-insensitive, so `pakro_backends_node` counts there as it does for
 /// `env::var`.
 fn is_backend_override_key(key: &str) -> bool {
-    const PREFIX: &str = "MISE_BACKENDS_";
+    const PREFIX: &str = "PAKRO_BACKENDS_";
     if cfg!(windows) {
         key.get(..PREFIX.len())
             .is_some_and(|start| start.eq_ignore_ascii_case(PREFIX))
@@ -794,10 +798,10 @@ impl RegistryTool {
         }
     }
 
-    /// The MISE_BACKENDS_<TOOL> override for this tool, if one is set, e.g.
-    /// MISE_BACKENDS_GRAPHITE='github:withgraphite/homebrew-tap[exe=gt]'.
+    /// The PAKRO_BACKENDS_<TOOL> override for this tool, if one is set, e.g.
+    /// PAKRO_BACKENDS_GRAPHITE='github:withgraphite/homebrew-tap[exe=gt]'.
     fn env_backend_override(&self) -> Option<&'static str> {
-        let env_key = format!("MISE_BACKENDS_{}", self.short.to_shouty_snake_case());
+        let env_key = format!("PAKRO_BACKENDS_{}", self.short.to_shouty_snake_case());
 
         // Check cache first
         {
@@ -819,7 +823,7 @@ impl RegistryTool {
     }
 
     /// The registry's backends for this tool that `keep` accepts and that this
-    /// platform and configuration allow, ignoring any MISE_BACKENDS_* override.
+    /// platform and configuration allow, ignoring any PAKRO_BACKENDS_* override.
     /// `keep` runs first, so a caller after a few backends skips the other
     /// checks for the rest.
     pub(crate) fn registry_backends_where(&self, keep: impl Fn(&str) -> bool) -> Vec<&'static str> {
@@ -947,15 +951,15 @@ fn backend_matches_platform(platforms: &[&str], settings: &Settings) -> bool {
             && (platforms.contains(&"x64") || platforms.contains(&"windows-x64")))
 }
 
-/// Whether the mise registry says `full` (a backend, without options) publishes
+/// Whether the pakro registry says `full` (a backend, without options) publishes
 /// GitHub artifact attestations for `version`. Checked for every registry
 /// entry that lists the backend, so it applies to `gh` and `github:cli/cli`
 /// alike.
 pub(crate) fn requires_github_attestations(full: &str, version: &str) -> bool {
-    // Declared backends, not `backends()`: a `MISE_BACKENDS_<TOOL>` override
+    // Declared backends, not `backends()`: a `PAKRO_BACKENDS_<TOOL>` override
     // changes which backend is chosen, not what the registry says about one.
     // Both registries count, so a floating registry can add requirements but
-    // never drop one baked into this mise release.
+    // never drop one baked into this pakro release.
     // Keyed case-insensitively: GitHub treats `Aubepkg/aube` and
     // `aubepkg/aube` as the same repository.
     static REQUIREMENTS: Lazy<HashMap<String, Vec<&'static RegistryBackend>>> = Lazy::new(|| {
@@ -1088,11 +1092,14 @@ mod tests {
 
     #[test]
     fn test_backend_override_key_prefix() {
-        assert!(is_backend_override_key("MISE_BACKENDS_NODE"));
-        assert!(!is_backend_override_key("MISE_BACKEND_NODE"));
-        assert!(!is_backend_override_key("MISE_BACKENDS"));
+        assert!(is_backend_override_key("PAKRO_BACKENDS_NODE"));
+        assert!(!is_backend_override_key("PAKRO_BACKEND_NODE"));
+        assert!(!is_backend_override_key("PAKRO_BACKENDS"));
         // Windows variable names are case-insensitive; Unix ones are not.
-        assert_eq!(is_backend_override_key("mise_backends_node"), cfg!(windows));
+        assert_eq!(
+            is_backend_override_key("pakro_backends_node"),
+            cfg!(windows)
+        );
     }
 
     #[test]
@@ -1365,7 +1372,7 @@ backends = [
     #[test]
     fn registry_min_version_schema_matches_semver_identifiers() {
         let schema: serde_json::Value =
-            serde_json::from_str(include_str!("../../../src/schema/mise-registry-tool.json"))
+            serde_json::from_str(include_str!("../../../src/schema/pakro-registry-tool.json"))
                 .unwrap();
         let properties = &schema["properties"]["backends"]["items"]["oneOf"][1]["properties"];
         assert_eq!(
@@ -1690,9 +1697,9 @@ url = "https://example.com/tool-{{ version }}.tar.gz"
     }
 
     // A tool's `os` list drops it from the tool request set before any backend is consulted, so a
-    // list that no longer matches what the backend can do makes mise refuse a tool that works.
+    // list that no longer matches what the backend can do makes pakro refuse a tool that works.
     //
-    // All 52 entries whose `os` line left out `windows` were put through `mise install` on Windows
+    // All 52 entries whose `os` line left out `windows` were put through `pakro install` on Windows
     // and then had whatever landed on disk executed. Five of them produced a working Windows
     // executable -- `entire.exe version` reports `OS/Arch: windows/amd64`, `gitsign.exe --version`
     // reports `gitsign version v0.17.1` -- while their `os` line still said linux and macos only.
@@ -1752,8 +1759,8 @@ url = "https://example.com/tool-{{ version }}.tar.gz"
 
     // Windows arm64 runs amd64 binaries under emulation. The aqua backend already assumes this in
     // `is_platform_supported`, so a registry selector of `windows-x64` was dropping backends that
-    // aqua itself would have accepted -- measured with `MISE_OS`/`MISE_ARCH`, where
-    // `mise registry imagemagick` returned only `conda:imagemagick` on windows/arm64 while
+    // aqua itself would have accepted -- measured with `PAKRO_OS`/`PAKRO_ARCH`, where
+    // `pakro registry imagemagick` returned only `conda:imagemagick` on windows/arm64 while
     // windows/x64 got `aqua:ImageMagick/ImageMagick` first.
     #[test]
     fn windows_arm64_matches_x64_selectors_the_way_aqua_does() {
@@ -1823,7 +1830,7 @@ url = "https://example.com/tool-{{ version }}.tar.gz"
     // because the pair is its own control: the same expression has to answer differently by
     // platform, which is the whole claim.
     //
-    // Both first assert that `MISE_BACKENDS_PRE_COMMIT` is unset: `backends()` returns that
+    // Both first assert that `PAKRO_BACKENDS_PRE_COMMIT` is unset: `backends()` returns that
     // override ahead of every filter, so a process carrying one would make these pass or fail
     // without touching the registry at all. Asserted rather than cleared, because removing it
     // would mutate process-wide state other tests share.
@@ -1832,14 +1839,14 @@ url = "https://example.com/tool-{{ version }}.tar.gz"
     // `registry/pre-commit.toml` in this commit, and `REGISTRY` substitutes a cached floating
     // registry whenever `registry_floating` is on and the cache exists.
 
-    // Not `not(windows)`: mise runs on Android too, where `backend_matches_platform` sees `android`
+    // Not `not(windows)`: pakro runs on Android too, where `backend_matches_platform` sees `android`
     // and drops the aqua backend along with Windows, so this expectation would be wrong there.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn pre_commit_keeps_the_aqua_backend_off_windows() {
         use super::*;
 
-        assert!(env::var("MISE_BACKENDS_PRE_COMMIT").is_err());
+        assert!(env::var("PAKRO_BACKENDS_PRE_COMMIT").is_err());
         let backends = BAKED_REGISTRY.get("pre-commit").unwrap().backends();
         assert_eq!(
             backends.first().copied(),
@@ -2038,7 +2045,7 @@ url = "https://example.com/tool-{{ version }}.tar.gz"
             // Test with env var override
             // SAFETY: This is safe in a test environment
             unsafe {
-                env::set_var("MISE_BACKENDS_NODE", "test:backend");
+                env::set_var("PAKRO_BACKENDS_NODE", "test:backend");
             }
             let overridden_backends = tool.backends();
             assert_eq!(overridden_backends.len(), 1);
@@ -2047,7 +2054,7 @@ url = "https://example.com/tool-{{ version }}.tar.gz"
             // Clean up
             // SAFETY: This is safe in a test environment
             unsafe {
-                env::remove_var("MISE_BACKENDS_NODE");
+                env::remove_var("PAKRO_BACKENDS_NODE");
             }
             ENV_BACKENDS.lock().unwrap().clear();
         }

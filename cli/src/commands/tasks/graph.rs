@@ -1,6 +1,6 @@
 use crate::config::{Config, Settings};
 use crate::task::workspace::{WorkspaceProject, WorkspaceProjectGraph};
-use crate::ui::table::MiseTable;
+use crate::ui::table::PakroTable;
 use comfy_table::{Cell, Row};
 use eyre::Result;
 use serde::Serialize;
@@ -10,15 +10,15 @@ use serde::Serialize;
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise tasks graph"###,
+        r###"pakro tasks graph"###,
         help = r###"Inspect projects and their dependency edges"###
     ),
     example(
-        r###"mise tasks graph --json"###,
+        r###"pakro tasks graph --json"###,
         help = r###"Emit the project graph as JSON"###
     ),
     example(
-        r###"mise tasks graph --explain"###,
+        r###"pakro tasks graph --explain"###,
         help = r###"Explain where inferred projects and task fields came from"###
     )
 )]
@@ -57,7 +57,7 @@ impl TasksGraph {
     }
 
     fn display(&self, graph: &WorkspaceProjectGraph) -> Result<()> {
-        let mut table = MiseTable::new(
+        let mut table = PakroTable::new(
             self.no_header,
             &["Project", "Root", "Dependencies", "Metadata"],
         );
@@ -86,47 +86,47 @@ impl TasksGraph {
         let output = ProjectGraphOutput {
             projects: graph.projects().collect(),
         };
-        miseprintln!("{}", serde_json::to_string_pretty(&output)?);
+        pakroprintln!("{}", serde_json::to_string_pretty(&output)?);
         Ok(())
     }
 
     fn display_explain(&self, graph: &WorkspaceProjectGraph) -> Result<()> {
         for (index, project) in graph.projects().enumerate() {
             if index > 0 {
-                miseprintln!();
+                pakroprintln!();
             }
-            miseprintln!("Project: {}", project.id);
+            pakroprintln!("Project: {}", project.id);
             print_provenance("  ", &project.provenance)?;
             if !project.dependencies.is_empty() {
-                miseprintln!("  Dependencies:");
+                pakroprintln!("  Dependencies:");
                 for dependency in &project.dependencies {
-                    miseprint!("    {dependency}")?;
+                    pakroprint!("    {dependency}")?;
                     print_inline_provenance(project.dependency_provenance.get(dependency))?;
                 }
             }
             if !project.tasks.is_empty() {
-                miseprintln!("  Tasks:");
+                pakroprintln!("  Tasks:");
                 for (name, task) in &project.tasks {
-                    miseprintln!("    {name}");
+                    pakroprintln!("    {name}");
                     print_provenance("      ", &task.provenance)?;
                     let suggestions = &task.suggestions.provenance;
                     for input in &task.suggestions.inputs {
-                        miseprint!("      Input: {input}")?;
+                        pakroprint!("      Input: {input}")?;
                         print_inline_provenance(suggestions.inputs.as_ref())?;
                     }
                     if let Some(outputs) = &task.suggestions.outputs {
                         if outputs.is_empty() {
-                            miseprint!("      Outputs: no files")?;
+                            pakroprint!("      Outputs: no files")?;
                             print_inline_provenance(suggestions.outputs.as_ref())?;
                         } else {
                             for output in outputs {
-                                miseprint!("      Output: {output}")?;
+                                pakroprint!("      Output: {output}")?;
                                 print_inline_provenance(suggestions.outputs.as_ref())?;
                             }
                         }
                     }
                     if let Some(cache) = task.suggestions.cache {
-                        miseprint!(
+                        pakroprint!(
                             "      Cache: {}",
                             if cache { "enabled" } else { "disabled" }
                         )?;
@@ -134,7 +134,7 @@ impl TasksGraph {
                     }
                     if let Some(dependencies) = &task.suggestions.depends {
                         for dependency in dependencies {
-                            miseprint!("      Task dependency: {dependency}")?;
+                            pakroprint!("      Task dependency: {dependency}")?;
                             print_inline_provenance(suggestions.depends.as_ref())?;
                         }
                     }
@@ -149,12 +149,12 @@ fn print_provenance(
     indent: &str,
     provenance: &crate::task::workspace::WorkspaceProvenance,
 ) -> Result<()> {
-    miseprintln!(
+    pakroprintln!(
         "{indent}Provider: {}",
         provenance.provider.as_deref().unwrap_or("configuration")
     );
     if let Some(source) = &provenance.source {
-        miseprintln!("{indent}Source: {}", crate::file::display_path(source));
+        pakroprintln!("{indent}Source: {}", crate::file::display_path(source));
     }
     Ok(())
 }
@@ -166,9 +166,9 @@ fn print_inline_provenance(
         .and_then(|provenance| provenance.provider.as_deref())
         .unwrap_or("configuration");
     if let Some(source) = provenance.and_then(|provenance| provenance.source.as_ref()) {
-        miseprintln!(" — {provider} ({})", crate::file::display_path(source));
+        pakroprintln!(" — {provider} ({})", crate::file::display_path(source));
     } else {
-        miseprintln!(" — {provider}");
+        pakroprintln!(" — {provider}");
     }
     Ok(())
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.stdout_only]
 run = 'echo "this is stdout" && echo "this is stderr" >&2'
 [tasks.stderr_only]
@@ -19,20 +19,20 @@ silent = true
 EOF
 
 # Test silent = "stdout" - should only suppress stdout
-assert "mise run silent_stdout 2>&1" "this is stderr"
+assert "pakro run silent_stdout 2>&1" "this is stderr"
 
 # Test silent = "stderr" - should only suppress stderr
-assert "mise run silent_stderr 2>&1" "this is stdout"
+assert "pakro run silent_stderr 2>&1" "this is stdout"
 
 # Test silent = true - should suppress both streams
-assert_empty "mise run silent_bool 2>&1" ""
+assert_empty "pakro run silent_bool 2>&1" ""
 
 # Test without silent - should show both
-assert_contains "mise run stdout_only 2>&1" "this is stdout"
-assert_contains "mise run stdout_only 2>&1" "this is stderr"
+assert_contains "pakro run stdout_only 2>&1" "this is stdout"
+assert_contains "pakro run stdout_only 2>&1" "this is stderr"
 
 # Test with parallel execution to ensure output routing works
-cat <<EOF >>mise.toml
+cat <<EOF >>pakro.toml
 [tasks.para1]
 run = 'echo "para1 stdout" && echo "para1 stderr" >&2'
 silent = "stdout"
@@ -42,7 +42,7 @@ silent = "stderr"
 EOF
 
 # Parallel tasks with selective silent - both streams should appear
-assert_contains "mise run para1 ::: para2 2>&1" "para1 stderr"
-assert_contains "mise run para1 ::: para2 2>&1" "para2 stdout"
-assert_not_contains "mise run para1 ::: para2 2>&1" "para1 stdout"
-assert_not_contains "mise run para1 ::: para2 2>&1" "para2 stderr"
+assert_contains "pakro run para1 ::: para2 2>&1" "para1 stderr"
+assert_contains "pakro run para1 ::: para2 2>&1" "para2 stdout"
+assert_not_contains "pakro run para1 ::: para2 2>&1" "para1 stdout"
+assert_not_contains "pakro run para1 ::: para2 2>&1" "para2 stderr"

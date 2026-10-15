@@ -3,18 +3,18 @@
 # Test that tasks can use tools from idiomatic version files
 # Issue: Since v2025.10.3, idiomatic_version_file_enable_tools stopped working in task execution
 
-# First disable the parent /tmp/mise.toml experimental monorepo setting
+# First disable the parent /tmp/pakro.toml experimental monorepo setting
 # to avoid interference with this test
-if [ -f /tmp/mise.toml ]; then
-  mv /tmp/mise.toml /tmp/mise.toml.bak
-  trap "mv /tmp/mise.toml.bak /tmp/mise.toml" EXIT
+if [ -f /tmp/pakro.toml ]; then
+  mv /tmp/pakro.toml /tmp/pakro.toml.bak
+  trap "mv /tmp/pakro.toml.bak /tmp/pakro.toml" EXIT
 fi
 
 # Create a .node-version file
 echo "24.1.0" >.node-version
 
-# Create mise.toml with idiomatic_version_file_enable_tools setting
-cat >mise.toml <<'EOF'
+# Create pakro.toml with idiomatic_version_file_enable_tools setting
+cat >pakro.toml <<'EOF'
 [settings]
 idiomatic_version_file_enable_tools = ["node"]
 
@@ -23,10 +23,10 @@ run = "which node"
 EOF
 
 # Trust the config
-mise trust
+pakro trust
 
 # Install node from .node-version
-mise install
+pakro install
 
-# Run the task and verify it uses the mise-installed node
-assert_contains "mise run call-node" ".local/share/mise/installs/node/24"
+# Run the task and verify it uses the pakro-installed node
+assert_contains "pakro run call-node" ".local/share/pakro/installs/node/24"

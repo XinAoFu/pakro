@@ -56,9 +56,9 @@ SH
 
 git -C "$RUBY_BUILD_REPO" init
 git -C "$RUBY_BUILD_REPO" add .
-git -C "$RUBY_BUILD_REPO" -c user.name=mise -c user.email=mise@example.com commit -m init
+git -C "$RUBY_BUILD_REPO" -c user.name=pakro -c user.email=pakro@example.com commit -m init
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [settings.ruby]
 compile = true
 ruby_build_repo = "file://$RUBY_BUILD_REPO"
@@ -71,6 +71,6 @@ dummy = "2.0.0"
 DEPENDENCY_SEEN_FILE = "$DEPENDENCY_SEEN_FILE"
 EOF
 
-assert "MISE_JOBS=1 mise install"
+assert "PAKRO_JOBS=1 pakro install"
 assert_contains "cat '$DEPENDENCY_SEEN_FILE'" "This is Dummy 2.0.0!"
-assert "mise exec -- ruby --version" "ruby 4.0.7"
+assert "pakro exec -- ruby --version" "ruby 4.0.7"

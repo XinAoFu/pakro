@@ -1,49 +1,49 @@
 #!/usr/bin/env bash
 
-# Test flag routing: mise flags ONLY work BEFORE task name, flags after task go to task
+# Test flag routing: pakro flags ONLY work BEFORE task name, flags after task go to task
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.echo_args]
 run = 'echo "args:$@"'
 EOF
 
-# Test 1: Mise flags work ONLY before task name
-# -q before task = mise flag, -q after task = task arg
-assert "mise run -q echo_args arg1 2>&1" "args: arg1"
-assert_contains "mise run echo_args -q arg1 2>&1" "args: -q arg1"
-assert "mise -q run echo_args arg1 2>&1" "args: arg1"
+# Test 1: Pakro flags work ONLY before task name
+# -q before task = pakro flag, -q after task = task arg
+assert "pakro run -q echo_args arg1 2>&1" "args: arg1"
+assert_contains "pakro run echo_args -q arg1 2>&1" "args: -q arg1"
+assert "pakro -q run echo_args arg1 2>&1" "args: arg1"
 
-# Test 2: Naked runs - mise flags only before task name
-assert "mise -q echo_args arg1 2>&1" "args: arg1"
-assert_contains "mise echo_args -q arg1 2>&1" "args: -q arg1"
+# Test 2: Naked runs - pakro flags only before task name
+assert "pakro -q echo_args arg1 2>&1" "args: arg1"
+assert_contains "pakro echo_args -q arg1 2>&1" "args: -q arg1"
 
 # Test 3: Unknown flags go to task
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.echo_args]
 run = 'echo "args:$@"'
 EOF
 
-assert "mise run echo_args -x" "args: -x"
-assert "mise run echo_args --custom" "args: --custom"
-assert "mise echo_args -x" "args: -x"
-assert "mise echo_args --custom" "args: --custom"
+assert "pakro run echo_args -x" "args: -x"
+assert "pakro run echo_args --custom" "args: --custom"
+assert "pakro echo_args -x" "args: -x"
+assert "pakro echo_args --custom" "args: --custom"
 
 # Test 4: Explicit -- separator passes args to task (no prefix!)
-assert "mise run echo_args -- -q" "args: -q"
-assert "mise run echo_args -- --help" "args: --help"
-assert "mise echo_args -- -q" "args: -q"
-assert "mise echo_args -- --help" "args: --help"
+assert "pakro run echo_args -- -q" "args: -q"
+assert "pakro run echo_args -- --help" "args: --help"
+assert "pakro echo_args -- -q" "args: -q"
+assert "pakro echo_args -- --help" "args: --help"
 
 # Test 5: Multiple args after --
-assert "mise run echo_args -- arg1 arg2 arg3" "args: arg1 arg2 arg3"
-assert "mise echo_args -- arg1 arg2 arg3" "args: arg1 arg2 arg3"
+assert "pakro run echo_args -- arg1 arg2 arg3" "args: arg1 arg2 arg3"
+assert "pakro echo_args -- arg1 arg2 arg3" "args: arg1 arg2 arg3"
 
 # Test 6: Mixed flags and args work correctly
-assert "mise run -q echo_args -x arg1" "args: -x arg1"
-assert "mise -q echo_args --custom arg1" "args: --custom arg1"
+assert "pakro run -q echo_args -x arg1" "args: -x arg1"
+assert "pakro -q echo_args --custom arg1" "args: --custom arg1"
 
 # Test 7: Task with usage spec
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.with_usage]
 run = 'echo "custom=$usage_custom file=$usage_file args=$@"'
 usage = """
@@ -54,14 +54,14 @@ EOF
 
 # Usage spec handles its own flags (parsed by usage spec, not passed as $@)
 # shellcheck disable=SC2016
-assert "mise run with_usage -x myfile 2>&1" '[with_usage] $ echo "custom=$usage_custom file=$usage_file args=$@"
+assert "pakro run with_usage -x myfile 2>&1" '[with_usage] $ echo "custom=$usage_custom file=$usage_file args=$@"
 custom=true file=myfile args='
 
-# But mise flags still go to mise (myfile is consumed by usage spec, not passed to $@)
-assert "mise run -q with_usage myfile" "custom= file=myfile args="
+# But pakro flags still go to pakro (myfile is consumed by usage spec, not passed to $@)
+assert "pakro run -q with_usage myfile" "custom= file=myfile args="
 
 # Test 8: --help shows usage spec help
-assert "mise run with_usage --help 2>&1 || true" "Usage: with_usage [-x --custom] <file>
+assert "pakro run with_usage --help 2>&1 || true" "Usage: with_usage [-x --custom] <file>
 
 Arguments:
   <file>  File to process
@@ -71,15 +71,15 @@ Flags:
   -h, --help    Print help"
 
 # Test 9: Help passed as explicit argument with -- (recreate echo_args task)
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.echo_args]
 run = 'echo "args:$@"'
 EOF
 
-assert "mise run echo_args -- --help" "args: --help"
+assert "pakro run echo_args -- --help" "args: --help"
 
-# Test 10: Tasks can use mise flags explicitly with --
-cat <<'EOF' >mise.toml
+# Test 10: Tasks can use pakro flags explicitly with --
+cat <<'EOF' >pakro.toml
 [tasks.custom_quiet]
 run = '''
 #!/usr/bin/env bash
@@ -92,24 +92,24 @@ done
 EOF
 
 # Task can receive -q via --
-assert "mise run custom_quiet -- -q" "custom quiet flag received"
-assert "mise custom_quiet -- -q" "custom quiet flag received"
+assert "pakro run custom_quiet -- -q" "custom quiet flag received"
+assert "pakro custom_quiet -- -q" "custom quiet flag received"
 
 # With new behavior, -q after task name also goes to task
-assert "mise run custom_quiet -q" "custom quiet flag received"
-assert "mise custom_quiet -q" "custom quiet flag received"
+assert "pakro run custom_quiet -q" "custom quiet flag received"
+assert "pakro custom_quiet -q" "custom quiet flag received"
 
 # Test 11: Complex scenarios
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.complex]
 run = 'echo "received: $@"'
 EOF
 
-# Multiple mise flags + task args
-assert "mise run -q complex arg1 arg2" "received:  arg1 arg2"
+# Multiple pakro flags + task args
+assert "pakro run -q complex arg1 arg2" "received:  arg1 arg2"
 
-# Mix of mise flags and unknown flags
-assert "mise run -q complex -x -y" "received:  -x -y"
+# Mix of pakro flags and unknown flags
+assert "pakro run -q complex -x -y" "received:  -x -y"
 
 # Explicit -- overrides everything
-assert "mise run complex -- -q -v arg1" "received:  -q -v arg1"
+assert "pakro run complex -- -q -v arg1" "received:  -q -v arg1"

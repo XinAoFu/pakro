@@ -1,75 +1,75 @@
 #!/usr/bin/env bash
 
-assert "mise use -g dummy@ref:master"
-assert "mise use tiny@3"
-assert_contains "mise ls" "dummy  ref:master  ~/.config/mise/config.toml  ref:master"
-assert_contains "mise ls tiny" "tiny  3.1.0  ~/workdir/mise.toml  3"
-assert "mise i tiny@2.0.0"
-assert_contains "mise ls" "tiny   2.0.0"
-assert_not_contains "mise ls -c" "tiny   2.0.0"
-assert_contains "mise ls --prefix=3 tiny" "3.1.0"
-assert_not_contains "mise ls --prefix=2 tiny" "3.1.0"
-assert_contains "mise ls --global" "dummy"
-assert_not_contains "mise ls --global" "tiny"
-assert_contains "mise ls --local" "tiny"
-assert_not_contains "mise ls --local" "dummy"
+assert "pakro use -g dummy@ref:master"
+assert "pakro use tiny@3"
+assert_contains "pakro ls" "dummy  ref:master  ~/.config/pakro/config.toml  ref:master"
+assert_contains "pakro ls tiny" "tiny  3.1.0  ~/workdir/pakro.toml  3"
+assert "pakro i tiny@2.0.0"
+assert_contains "pakro ls" "tiny   2.0.0"
+assert_not_contains "pakro ls -c" "tiny   2.0.0"
+assert_contains "pakro ls --prefix=3 tiny" "3.1.0"
+assert_not_contains "pakro ls --prefix=2 tiny" "3.1.0"
+assert_contains "pakro ls --global" "dummy"
+assert_not_contains "pakro ls --global" "tiny"
+assert_contains "pakro ls --local" "tiny"
+assert_not_contains "pakro ls --local" "dummy"
 
-mise ls tiny --json >json
+pakro ls tiny --json >json
 assert "cat json | jq -r '.[0].installed'" "true"
 assert "cat json | jq -r '.[0].active'" "false"
 assert "cat json | jq -r '.[0].version'" "2.0.0"
-assert "cat json | jq -r '.[0].install_path'" "$MISE_DATA_DIR/installs/tiny/2.0.0"
-mise ls --json >json
+assert "cat json | jq -r '.[0].install_path'" "$PAKRO_DATA_DIR/installs/tiny/2.0.0"
+pakro ls --json >json
 assert "cat json | jq -r '.tiny[1].installed'" "true"
 assert "cat json | jq -r '.tiny[1].active'" "true"
 assert "cat json | jq -r '.tiny[1].version'" "3.1.0"
-assert "cat json | jq -r '.tiny[1].install_path'" "$MISE_DATA_DIR/installs/tiny/3.1.0"
+assert "cat json | jq -r '.tiny[1].install_path'" "$PAKRO_DATA_DIR/installs/tiny/3.1.0"
 
-assert "mise uninstall tiny@3.1.0"
-assert_contains "mise ls tiny" "tiny  3.1.0 (missing)  ~/workdir/mise.toml  3"
-assert_contains "mise ls --missing tiny" "tiny  3.1.0 (missing)  ~/workdir/mise.toml  3"
-assert_not_contains "mise ls --missing tiny" "2.0.0"
+assert "pakro uninstall tiny@3.1.0"
+assert_contains "pakro ls tiny" "tiny  3.1.0 (missing)  ~/workdir/pakro.toml  3"
+assert_contains "pakro ls --missing tiny" "tiny  3.1.0 (missing)  ~/workdir/pakro.toml  3"
+assert_not_contains "pakro ls --missing tiny" "2.0.0"
 
-assert_fail "mise ls missing-tool" "missing-tool not found in mise tool registry"
+assert_fail "pakro ls missing-tool" "missing-tool not found in pakro tool registry"
 
-mise use cargo-binstall
-mise i cargo:usage-cli
-assert_contains "mise ls" "cargo:usage-cli"
-assert_not_contains "mise ls" "cargo-usage-cli" # if the backend meta file isn't working right these will be displayed
+pakro use cargo-binstall
+pakro i cargo:usage-cli
+assert_contains "pakro ls" "cargo:usage-cli"
+assert_not_contains "pakro ls" "cargo-usage-cli" # if the backend meta file isn't working right these will be displayed
 
-assert_contains "mise ls --prunable" "cargo:usage-cli"
+assert_contains "pakro ls --prunable" "cargo:usage-cli"
 
-# The same tool from two backends should both answer to its name. `mise ls` with no
-# filter already listed both; `mise ls jq` used to show only the registry one, which is
+# The same tool from two backends should both answer to its name. `pakro ls` with no
+# filter already listed both; `pakro ls jq` used to show only the registry one, which is
 # what made a second install look like it had vanished.
 # See https://github.com/jdx/mise/discussions/4491
-mise use jq@1.7.1
-mise use "ubi:jqlang/jq@jq-1.8.1"
-assert_contains "mise ls jq" "ubi:jqlang/jq"
-assert_contains "mise ls jq" "jq-1.8.1"
-assert_contains "mise ls jq" "1.7.1"
+pakro use jq@1.7.1
+pakro use "ubi:jqlang/jq@jq-1.8.1"
+assert_contains "pakro ls jq" "ubi:jqlang/jq"
+assert_contains "pakro ls jq" "jq-1.8.1"
+assert_contains "pakro ls jq" "1.7.1"
 # Spelling a backend out is a narrowing request, so it must not pull the other one in.
-assert_contains "mise ls ubi:jqlang/jq" "jq-1.8.1"
-assert_not_contains "mise ls ubi:jqlang/jq" "1.7.1"
+assert_contains "pakro ls ubi:jqlang/jq" "jq-1.8.1"
+assert_not_contains "pakro ls ubi:jqlang/jq" "1.7.1"
 
 # --backend filters on the backend a tool resolves to, so the registry `jq` counts as aqua.
 # See https://github.com/jdx/mise/issues/4442
-assert_contains "mise ls --backend ubi" "ubi:jqlang/jq"
-assert_not_contains "mise ls --backend ubi" "1.7.1"
-assert_not_contains "mise ls --backend ubi" "tiny"
-assert_contains "mise ls --backend aqua" "1.7.1"
-assert_not_contains "mise ls --backend aqua" "ubi:jqlang/jq"
-assert_contains "mise ls --backend cargo --backend ubi" "cargo:usage-cli"
-assert_contains "mise ls --backend cargo --backend ubi" "ubi:jqlang/jq"
-assert_not_contains "mise ls --backend cargo --backend ubi" "1.7.1"
-assert "mise ls --backend ubi --json | jq -r 'keys[]'" "ubi:jqlang/jq"
-assert_fail "mise ls --backend nope"
+assert_contains "pakro ls --backend ubi" "ubi:jqlang/jq"
+assert_not_contains "pakro ls --backend ubi" "1.7.1"
+assert_not_contains "pakro ls --backend ubi" "tiny"
+assert_contains "pakro ls --backend aqua" "1.7.1"
+assert_not_contains "pakro ls --backend aqua" "ubi:jqlang/jq"
+assert_contains "pakro ls --backend cargo --backend ubi" "cargo:usage-cli"
+assert_contains "pakro ls --backend cargo --backend ubi" "ubi:jqlang/jq"
+assert_not_contains "pakro ls --backend cargo --backend ubi" "1.7.1"
+assert "pakro ls --backend ubi --json | jq -r 'keys[]'" "ubi:jqlang/jq"
+assert_fail "pakro ls --backend nope"
 
 # --grouped prints one section per backend, headed by its name.
-mise ls --grouped >grouped
+pakro ls --grouped >grouped
 assert "grep -x aqua grouped"
 assert "grep -x cargo grouped"
 assert "grep -x ubi grouped"
 assert "sed -n '/^ubi$/,/^$/p' grouped | grep -c jq-1.8.1" "1"
 assert_not_contains "sed -n '/^ubi$/,/^$/p' grouped" "1.7.1"
-assert_fail "mise ls --grouped --json"
+assert_fail "pakro ls --grouped --json"

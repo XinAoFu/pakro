@@ -133,7 +133,7 @@ def create_test_repo(repo_path):
     snapshot_parent.parent.mkdir(parents=True)
     snapshot_parent.write_text(
         '#!/usr/bin/env bash\n'
-        '#MISE depends=["snapshot_child"]\n'
+        '#PAKRO depends=["snapshot_child"]\n'
         'echo "snapshot parent checkout: ${0%%/xtasks/*}"\n'
     )
     snapshot_parent.chmod(0o755)
@@ -199,9 +199,9 @@ def create_test_repo(repo_path):
 
 def start_server(port=0):
     # Create temp directory
-    temp_dir = Path(tempfile.mkdtemp(prefix='mise_git_http_'))
+    temp_dir = Path(tempfile.mkdtemp(prefix='pakro_git_http_'))
     repo_path = temp_dir / 'repo'
-    upload_pack_count_path = os.environ.get('MISE_GIT_HTTP_UPLOAD_PACK_COUNT_FILE')
+    upload_pack_count_path = os.environ.get('PAKRO_GIT_HTTP_UPLOAD_PACK_COUNT_FILE')
     upload_pack_count_file = Path(upload_pack_count_path) if upload_pack_count_path else None
     if upload_pack_count_file is not None:
         upload_pack_count_file.parent.mkdir(parents=True, exist_ok=True)
@@ -228,9 +228,9 @@ def start_server(port=0):
 
         # Write server state to files for the test to read. Allow the e2e
         # harness to place these under the per-test TMPDIR for parallel runs.
-        port_file = Path(os.environ.get('MISE_GIT_HTTP_PORT_FILE', '/tmp/mise_git_http_port'))
-        ready_file = Path(os.environ.get('MISE_GIT_HTTP_READY_FILE', '/tmp/mise_git_http_ready'))
-        info_file = Path(os.environ.get('MISE_GIT_HTTP_INFO_FILE', '/tmp/mise_git_http_info'))
+        port_file = Path(os.environ.get('PAKRO_GIT_HTTP_PORT_FILE', '/tmp/pakro_git_http_port'))
+        ready_file = Path(os.environ.get('PAKRO_GIT_HTTP_READY_FILE', '/tmp/pakro_git_http_ready'))
+        info_file = Path(os.environ.get('PAKRO_GIT_HTTP_INFO_FILE', '/tmp/pakro_git_http_info'))
         port_file.parent.mkdir(parents=True, exist_ok=True)
         ready_file.parent.mkdir(parents=True, exist_ok=True)
         info_file.parent.mkdir(parents=True, exist_ok=True)

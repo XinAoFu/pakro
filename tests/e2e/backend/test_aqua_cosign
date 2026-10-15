@@ -4,10 +4,10 @@
 
 set -euo pipefail
 
-export MISE_EXPERIMENTAL=1
-export MISE_AQUA_COSIGN=true
-export MISE_AQUA_SLSA=false
-export MISE_AQUA_GITHUB_ATTESTATIONS=false
+export PAKRO_EXPERIMENTAL=1
+export PAKRO_AQUA_COSIGN=true
+export PAKRO_AQUA_SLSA=false
+export PAKRO_AQUA_GITHUB_ATTESTATIONS=false
 
 echo "=== Testing Native Cosign Verification (checksum-level) ==="
 
@@ -15,7 +15,7 @@ echo "=== Testing Native Cosign Verification (checksum-level) ==="
 echo "Installing fork-cleaner with native Cosign verification..."
 
 # Capture the installation output to verify the native verification is being used
-output=$(mise install --verbose aqua:caarlos0/fork-cleaner@2.4.0 2>&1)
+output=$(pakro install --verbose aqua:caarlos0/fork-cleaner@2.4.0 2>&1)
 echo "$output"
 
 # Verify the native Cosign verification was used
@@ -29,13 +29,13 @@ else
 fi
 
 # Verify the tool works
-assert_contains "mise x aqua:caarlos0/fork-cleaner@2.4.0 -- fork-cleaner --version" "2.4.0"
+assert_contains "pakro x aqua:caarlos0/fork-cleaner@2.4.0 -- fork-cleaner --version" "2.4.0"
 echo "✓ fork-cleaner installed and working correctly"
 
 echo "=== Testing Native Cosign Verification (top-level binary config) ==="
 echo "Installing envsense with top-level binary Cosign verification..."
 
-output=$(mise install --verbose aqua:technicalpickles/envsense@0.3.4 2>&1)
+output=$(pakro install --verbose aqua:technicalpickles/envsense@0.3.4 2>&1)
 echo "$output"
 
 if echo "$output" | grep -q "Cosign verified" && ! echo "$output" | grep -q "verify checksums with cosign"; then
@@ -47,13 +47,13 @@ else
   exit 1
 fi
 
-assert_contains "mise x aqua:technicalpickles/envsense@0.3.4 -- which envsense" "envsense"
+assert_contains "pakro x aqua:technicalpickles/envsense@0.3.4 -- which envsense" "envsense"
 echo "✓ envsense installed and working correctly"
 
 echo "=== Testing Native Cosign Verification (public key bundle config) ==="
 echo "Installing kube-linter with native public-key bundle verification..."
 
-output=$(mise install --verbose aqua:stackrox/kube-linter@0.8.3 2>&1)
+output=$(pakro install --verbose aqua:stackrox/kube-linter@0.8.3 2>&1)
 echo "$output"
 
 if echo "$output" | grep -q "Cosign verified"; then
@@ -65,7 +65,7 @@ else
   exit 1
 fi
 
-assert_contains "mise x aqua:stackrox/kube-linter@0.8.3 -- kube-linter version" "0.8.3"
+assert_contains "pakro x aqua:stackrox/kube-linter@0.8.3 -- kube-linter version" "0.8.3"
 echo "✓ kube-linter installed and working correctly"
 
 echo ""

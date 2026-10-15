@@ -10,8 +10,8 @@ use crate::file::display_path;
 #[derive(Debug, Default, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, strum::EnumIs)]
 pub enum ToolSource {
     ToolVersions(PathBuf),
-    MiseToml(PathBuf),
-    MiseTomlDaemon(PathBuf),
+    PakroToml(PathBuf),
+    PakroTomlDaemon(PathBuf),
     IdiomaticVersionFile(PathBuf),
     ToolStub(PathBuf),
     Argument,
@@ -24,8 +24,8 @@ impl Display for ToolSource {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             ToolSource::ToolVersions(path) => write!(f, "{}", display_path(path)),
-            ToolSource::MiseToml(path) => write!(f, "{}", display_path(path)),
-            ToolSource::MiseTomlDaemon(path) => write!(f, "{} [daemons]", display_path(path)),
+            ToolSource::PakroToml(path) => write!(f, "{}", display_path(path)),
+            ToolSource::PakroTomlDaemon(path) => write!(f, "{} [daemons]", display_path(path)),
             ToolSource::IdiomaticVersionFile(path) => write!(f, "{}", display_path(path)),
             ToolSource::ToolStub(path) => write!(f, "{}", display_path(path)),
             ToolSource::Argument => write!(f, "--runtime"),
@@ -39,7 +39,7 @@ impl ToolSource {
     pub fn path(&self) -> Option<&Path> {
         match self {
             ToolSource::ToolVersions(path) => Some(path),
-            ToolSource::MiseToml(path) | ToolSource::MiseTomlDaemon(path) => Some(path),
+            ToolSource::PakroToml(path) | ToolSource::PakroTomlDaemon(path) => Some(path),
             ToolSource::IdiomaticVersionFile(path) => Some(path),
             ToolSource::ToolStub(path) => Some(path),
             _ => None,
@@ -52,12 +52,12 @@ impl ToolSource {
                 "type".to_string() => ".tool-versions".to_string(),
                 "path".to_string() => path.to_string_lossy().to_string(),
             },
-            ToolSource::MiseToml(path) => indexmap! {
-                "type".to_string() => "mise.toml".to_string(),
+            ToolSource::PakroToml(path) => indexmap! {
+                "type".to_string() => "pakro.toml".to_string(),
                 "path".to_string() => path.to_string_lossy().to_string(),
             },
-            ToolSource::MiseTomlDaemon(path) => indexmap! {
-                "type".to_string() => "mise.toml-daemon".to_string(),
+            ToolSource::PakroTomlDaemon(path) => indexmap! {
+                "type".to_string() => "pakro.toml-daemon".to_string(),
                 "path".to_string() => path.to_string_lossy().to_string(),
             },
             ToolSource::IdiomaticVersionFile(path) => indexmap! {
@@ -94,12 +94,12 @@ impl Serialize for ToolSource {
                 s.serialize_field("type", ".tool-versions")?;
                 s.serialize_field("path", path)?;
             }
-            ToolSource::MiseToml(path) => {
-                s.serialize_field("type", "mise.toml")?;
+            ToolSource::PakroToml(path) => {
+                s.serialize_field("type", "pakro.toml")?;
                 s.serialize_field("path", path)?;
             }
-            ToolSource::MiseTomlDaemon(path) => {
-                s.serialize_field("type", "mise.toml-daemon")?;
+            ToolSource::PakroTomlDaemon(path) => {
+                s.serialize_field("type", "pakro.toml-daemon")?;
                 s.serialize_field("path", path)?;
             }
             ToolSource::IdiomaticVersionFile(path) => {
@@ -146,8 +146,8 @@ mod tests {
         let ts = ToolSource::ToolVersions(path);
         assert_str_eq!(ts.to_string(), host("/home/user/.test-tool-versions"));
 
-        let ts = ToolSource::MiseToml(PathBuf::from("/home/user/.mise.toml"));
-        assert_str_eq!(ts.to_string(), host("/home/user/.mise.toml"));
+        let ts = ToolSource::PakroToml(PathBuf::from("/home/user/.pakro.toml"));
+        assert_str_eq!(ts.to_string(), host("/home/user/.pakro.toml"));
 
         let ts = ToolSource::IdiomaticVersionFile(PathBuf::from("/home/user/.node-version"));
         assert_str_eq!(ts.to_string(), host("/home/user/.node-version"));
@@ -155,8 +155,8 @@ mod tests {
         let ts = ToolSource::Argument;
         assert_str_eq!(ts.to_string(), "--runtime");
 
-        let ts = ToolSource::Environment("MISE_NODE_VERSION".to_string(), "18".to_string());
-        assert_str_eq!(ts.to_string(), "MISE_NODE_VERSION=18");
+        let ts = ToolSource::Environment("PAKRO_NODE_VERSION".to_string(), "18".to_string());
+        assert_str_eq!(ts.to_string(), "PAKRO_NODE_VERSION=18");
     }
 
     #[test]
@@ -170,12 +170,12 @@ mod tests {
             }
         );
 
-        let ts = ToolSource::MiseToml(PathBuf::from("/home/user/.mise.toml"));
+        let ts = ToolSource::PakroToml(PathBuf::from("/home/user/.pakro.toml"));
         assert_eq!(
             ts.as_json(),
             indexmap! {
-                "type".to_string() => "mise.toml".to_string(),
-                "path".to_string() => "/home/user/.mise.toml".to_string(),
+                "type".to_string() => "pakro.toml".to_string(),
+                "path".to_string() => "/home/user/.pakro.toml".to_string(),
             }
         );
 
@@ -196,12 +196,12 @@ mod tests {
             }
         );
 
-        let ts = ToolSource::Environment("MISE_NODE_VERSION".to_string(), "18".to_string());
+        let ts = ToolSource::Environment("PAKRO_NODE_VERSION".to_string(), "18".to_string());
         assert_eq!(
             ts.as_json(),
             indexmap! {
                 "type".to_string() => "environment".to_string(),
-                "key".to_string() => "MISE_NODE_VERSION".to_string(),
+                "key".to_string() => "PAKRO_NODE_VERSION".to_string(),
                 "value".to_string() => "18".to_string(),
             }
         );

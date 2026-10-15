@@ -1,55 +1,55 @@
 #!/usr/bin/env bash
 set -euo pipefail
-export MISE_EXPERIMENTAL=0
-export MISE_LOCKFILE=1
-export MISE_PYTHON_GITHUB_ATTESTATIONS=0
+export PAKRO_EXPERIMENTAL=0
+export PAKRO_LOCKFILE=1
+export PAKRO_PYTHON_GITHUB_ATTESTATIONS=0
 export NO_PROXY=127.0.0.1,localhost,::1
 export no_proxy="$NO_PROXY"
-mkdir -p "$MISE_DATA_DIR/installs/python/3.10.14/bin" request-log
-printf '#!/bin/sh\nexit 97\n' >"$MISE_DATA_DIR/installs/python/3.10.14/bin/python"
-chmod 700 "$MISE_DATA_DIR/installs/python/3.10.14/bin/python"
+mkdir -p "$PAKRO_DATA_DIR/installs/python/3.10.14/bin" request-log
+printf '#!/bin/sh\nexit 97\n' >"$PAKRO_DATA_DIR/installs/python/3.10.14/bin/python"
+chmod 700 "$PAKRO_DATA_DIR/installs/python/3.10.14/bin/python"
 start_http_server --headers-log "$PWD/request-log" --handler - <<'PY'
 class Handler(TestHandler):
     ROUTES = {"/demo/1.0/json": (503, "text/plain", b"unexpected metadata"),
               "/demo/json": (200, "application/json", b'{"info":{"name":"demo","version":"1.0"},"releases":{"1.0":[{"requires_python":">=3.0"}]}}')}
 PY
-export MISE_PYPI_URL="http://127.0.0.1:$HTTP_PORT"
-printf "[groups]\n'python@3.10.14' = [{name='demo',version='1.0',digest=''}]\n" >mise.packages.lock
-cp mise.packages.lock before.lock
+export PAKRO_PYPI_URL="http://127.0.0.1:$HTTP_PORT"
+printf "[groups]\n'python@3.10.14' = [{name='demo',version='1.0',digest=''}]\n" >pakro.packages.lock
+cp pakro.packages.lock before.lock
 
 # No configured Python: successful already-installed CLI result must survive filters.
-assert_fail_contains "MISE_OFFLINE=1 mise install python@3.10.14+demo@1.0 2>&1" 'native Python package lock migration required'
-assert "cmp before.lock mise.packages.lock && echo unchanged" 'unchanged'
-assert_directory_not_exists "$MISE_DATA_DIR/store"
+assert_fail_contains "PAKRO_OFFLINE=1 pakro install python@3.10.14+demo@1.0 2>&1" 'native Python package lock migration required'
+assert "cmp before.lock pakro.packages.lock && echo unchanged" 'unchanged'
+assert_directory_not_exists "$PAKRO_DATA_DIR/store"
 assert_directory_empty request-log
 
 # Configured already-installed request takes install_missing_runtimes's satisfied branch.
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 python = "3.10.14"
 [packages."python@3.10.14"]
 demo = "1.0"
 TOML
-assert_fail_contains "MISE_OFFLINE=1 mise install 2>&1" 'native Python package lock migration required'
+assert_fail_contains "PAKRO_OFFLINE=1 pakro install 2>&1" 'native Python package lock migration required'
 
 # A concrete runtime lock lets runtime enforcement pass, exposing the package guard.
 detect_platform
-cat >mise.lock <<TOML
+cat >pakro.lock <<TOML
 lockfile_version = 1
 [[tools.python]]
 version = "3.10.14"
 backend = "core:python"
 specifiers = ["3.10.14"]
-"platforms.$MISE_PLATFORM" = {url = "http://127.0.0.1:$HTTP_PORT/python-3.10.14.tar.gz"}
+"platforms.$PAKRO_PLATFORM" = {url = "http://127.0.0.1:$HTTP_PORT/python-3.10.14.tar.gz"}
 TOML
 
 # An explicit use target outside cwd's config chain owns its strict package policy.
 # Run this before the separate cwd use regression so both failures can be exposed.
-cp mise.toml before-outside.toml
-printf '' >mise.toml
-printf '' >"$MISE_CONFIG_DIR/config.toml"
+cp pakro.toml before-outside.toml
+printf '' >pakro.toml
+printf '' >"$PAKRO_CONFIG_DIR/config.toml"
 mkdir -p outside
-cat >outside/mise.toml <<'TOML'
+cat >outside/pakro.toml <<'TOML'
 [tools]
 python = "3.10.14"
 [tool_config]
@@ -57,82 +57,82 @@ locked = true
 [packages."python@3.10.14"]
 demo = "1.0"
 TOML
-cp mise.lock outside/mise.lock
-cp before.lock outside/mise.packages.lock
-assert_fail_contains "mise use --path outside/mise.toml python@3.10.14+demo@1.0 2>&1" 'native Python package lock migration required'
-assert "cmp before.lock mise.packages.lock && echo unchanged" 'unchanged'
-assert "cmp before.lock outside/mise.packages.lock && echo unchanged" 'unchanged'
-assert_directory_not_exists "$MISE_DATA_DIR/store"
+cp pakro.lock outside/pakro.lock
+cp before.lock outside/pakro.packages.lock
+assert_fail_contains "pakro use --path outside/pakro.toml python@3.10.14+demo@1.0 2>&1" 'native Python package lock migration required'
+assert "cmp before.lock pakro.packages.lock && echo unchanged" 'unchanged'
+assert "cmp before.lock outside/pakro.packages.lock && echo unchanged" 'unchanged'
+assert_directory_not_exists "$PAKRO_DATA_DIR/store"
 assert_directory_empty request-log
-cp before-outside.toml mise.toml
+cp before-outside.toml pakro.toml
 
-cat >>mise.toml <<'TOML'
+cat >>pakro.toml <<'TOML'
 [tool_config]
 locked = true
 TOML
-assert_fail_contains "mise install python@3.10.14+demo@1.0 2>&1" 'native Python package lock migration required'
-assert_fail_contains "mise use python@3.10.14+demo@1.0 2>&1" 'native Python package lock migration required'
-assert "cmp before.lock mise.packages.lock && echo unchanged" 'unchanged'
-assert_directory_not_exists "$MISE_DATA_DIR/store"
+assert_fail_contains "pakro install python@3.10.14+demo@1.0 2>&1" 'native Python package lock migration required'
+assert_fail_contains "pakro use python@3.10.14+demo@1.0 2>&1" 'native Python package lock migration required'
+assert "cmp before.lock pakro.packages.lock && echo unchanged" 'unchanged'
+assert_directory_not_exists "$PAKRO_DATA_DIR/store"
 assert_directory_empty request-log
 
 # Package owner alone must be enforced when runtime owner is a different root.
-cat >"$MISE_CONFIG_DIR/config.toml" <<'TOML'
+cat >"$PAKRO_CONFIG_DIR/config.toml" <<'TOML'
 [tools]
 python = "3.10.14"
 TOML
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [packages."python@3.10.14"]
 demo = "1.0"
 [tool_config]
 locked = true
 TOML
-assert_fail_contains "mise install 2>&1" 'native Python package lock migration required'
-assert_directory_not_exists "$MISE_DATA_DIR/store"
+assert_fail_contains "pakro install 2>&1" 'native Python package lock migration required'
+assert_directory_not_exists "$PAKRO_DATA_DIR/store"
 assert_directory_empty request-log
 
 # Monorepo's runtime owner must survive install_all_versions's effective Config reset.
-printf '' >mise.toml
-printf '' >"$MISE_CONFIG_DIR/config.toml"
+printf '' >pakro.toml
+printf '' >"$PAKRO_CONFIG_DIR/config.toml"
 
 mkdir -p monorepo/packages/child
-cat >monorepo/mise.toml <<'TOML'
+cat >monorepo/pakro.toml <<'TOML'
 monorepo_root = true
 [monorepo]
 config_roots = ["packages/*"]
 [packages."python@3.10.14"]
 demo = "1.0"
 TOML
-cat >monorepo/packages/child/mise.toml <<'TOML'
+cat >monorepo/packages/child/pakro.toml <<'TOML'
 [tools]
 python = "3.10.14"
 [tool_config]
 locked = true
 TOML
-cp mise.lock monorepo/packages/child/mise.lock
-cp before.lock monorepo/mise.packages.lock
-assert_fail_contains "MISE_EXPERIMENTAL=1 mise -C monorepo install --monorepo 2>&1" 'native Python package lock migration required'
-assert_fail_contains "MISE_EXPERIMENTAL=1 mise -C monorepo install --monorepo python@3.10.14+demo@1.0 2>&1" 'native Python package lock migration required'
+cp pakro.lock monorepo/packages/child/pakro.lock
+cp before.lock monorepo/pakro.packages.lock
+assert_fail_contains "PAKRO_EXPERIMENTAL=1 pakro -C monorepo install --monorepo 2>&1" 'native Python package lock migration required'
+assert_fail_contains "PAKRO_EXPERIMENTAL=1 pakro -C monorepo install --monorepo python@3.10.14+demo@1.0 2>&1" 'native Python package lock migration required'
 cp -R monorepo 'monorepo@1+demo@1'
-assert_fail_contains "MISE_EXPERIMENTAL=1 mise -C 'monorepo@1+demo@1' install --monorepo python@3.10.14+demo@1.0 2>&1" 'native Python package lock migration required'
-assert "cmp before.lock monorepo/mise.packages.lock && echo unchanged" 'unchanged'
-assert "cmp before.lock 'monorepo@1+demo@1/mise.packages.lock' && echo unchanged" 'unchanged'
-assert_directory_not_exists "$MISE_DATA_DIR/store"
+assert_fail_contains "PAKRO_EXPERIMENTAL=1 pakro -C 'monorepo@1+demo@1' install --monorepo python@3.10.14+demo@1.0 2>&1" 'native Python package lock migration required'
+assert "cmp before.lock monorepo/pakro.packages.lock && echo unchanged" 'unchanged'
+assert "cmp before.lock 'monorepo@1+demo@1/pakro.packages.lock' && echo unchanged" 'unchanged'
+assert_directory_not_exists "$PAKRO_DATA_DIR/store"
 assert_directory_empty request-log
 
 # Global locked_scopes can exclude project declarations but never CLI arguments.
 # This final scenario is allowed into metadata; its 503 proves policy exclusion.
 mkdir -p excluded
-cat >excluded/mise.toml <<'TOML'
+cat >excluded/pakro.toml <<'TOML'
 [tools]
 python = "3.10.14"
 [packages."python@3.10.14"]
 demo = "1.0"
 TOML
-cp mise.lock excluded/mise.lock
+cp pakro.lock excluded/pakro.lock
 # This final online case must also survive C2's newly wired real probe.
 # A fixed descriptor fixture proves mechanism only; it cannot run Python imports.
-python3 - "$MISE_DATA_DIR/installs/python/3.10.14/bin/python" <<'PY'
+python3 - "$PAKRO_DATA_DIR/installs/python/3.10.14/bin/python" <<'PY'
 import json
 import platform
 import shlex
@@ -160,6 +160,6 @@ script = "#!/bin/sh\nif [ \"$#\" -eq 6 ] && [ \"$1\" = '-E' ] && [ \"$2\" = '-s'
 executable.write_text(script)
 executable.chmod(0o700)
 PY
-assert_fail_contains "MISE_LOCKED=1 MISE_LOCKED_SCOPES=global,system mise -C excluded install 2>&1" '503'
+assert_fail_contains "PAKRO_LOCKED=1 PAKRO_LOCKED_SCOPES=global,system pakro -C excluded install 2>&1" '503'
 assert_directory_not_empty request-log
-assert_fail_contains "MISE_LOCKED=1 MISE_LOCKED_SCOPES=global,system mise -C excluded install python@3.10.14+demo@1.0 2>&1" 'native Python package lock migration required'
+assert_fail_contains "PAKRO_LOCKED=1 PAKRO_LOCKED_SCOPES=global,system pakro -C excluded install python@3.10.14+demo@1.0 2>&1" 'native Python package lock migration required'

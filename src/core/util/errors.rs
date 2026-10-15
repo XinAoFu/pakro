@@ -6,7 +6,7 @@ use crate::toolset::{ToolRequest, ToolSource, ToolVersion};
 use eyre::Report;
 use thiserror::Error;
 
-pub(crate) use mise_util::errors::ProcessError;
+pub(crate) use pakro_util::errors::ProcessError;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -34,7 +34,7 @@ pub enum Error {
     #[error("{0}@{1} not installed")]
     VersionNotInstalled(Box<BackendArg>, String),
     #[error(
-        "Config files in {} are not trusted.\nTrust them with `mise trust`. See https://mise.jdx.dev/cli/trust.html for more information.",
+        "Config files in {} are not trusted.\nTrust them with `pakro trust`. See https://mise.jdx.dev/cli/trust.html for more information.",
         display_path(.0)
     )]
     UntrustedConfig(PathBuf),
@@ -191,7 +191,7 @@ mod tests {
         let err = Report::new(Error::NotInLockfile {
             tool: "usage".into(),
             version: "latest".into(),
-            hint: "Run `mise install` without --locked to update the lockfile".into(),
+            hint: "Run `pakro install` without --locked to update the lockfile".into(),
         });
 
         assert!(Error::is_not_in_lockfile(&err));

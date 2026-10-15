@@ -4,25 +4,25 @@ use std::process::Command;
 use eyre::{Context, Result, bail};
 use tempfile::TempDir;
 
-use crate::cli::oci::common::{mise_binary_path, perform_build};
+use crate::cli::oci::common::{pakro_binary_path, perform_build};
 use crate::config::Settings;
 use crate::file;
 use crate::oci::{BuildOptions, LayerOwner};
 
-/// [experimental] Build an OCI image from the current mise.toml and run a command in it
+/// [experimental] Build an OCI image from the current pakro.toml and run a command in it
 ///
-/// Equivalent to `mise oci build` followed by `docker run` / `podman run`.
+/// Equivalent to `pakro oci build` followed by `docker run` / `podman run`.
 /// The built image is loaded into the local container engine (podman pulls
 /// the OCI layout natively; docker receives it via `docker load`) and the
 /// given command is executed inside it with stdin/stdout/stderr inherited.
 ///
-/// Requires `mise settings experimental=true` (or `MISE_EXPERIMENTAL=1`) and
+/// Requires `pakro settings experimental=true` (or `PAKRO_EXPERIMENTAL=1`) and
 /// one of: `podman`, `docker`.
 #[derive(Debug, usage_rs::Args)]
 #[usage(verbatim_doc_comment, after_long_help = AFTER_LONG_HELP,
-    example(r###"mise oci run -it -- bash"###, help = r###"Build the current mise.toml and drop into bash:"###),
-    example(r###"mise oci run -e DEBUG=1 --volume "$PWD:/work" -w /work -- npm test"###, help = r###"Run a one-shot command with env + volume (note: `-v` is reserved for --verbose, so use `--volume`):"###),
-    example(r###"mise oci build -o ./img && mise oci run --image-dir ./img -- node -e 'console.log(process.version)'"###, help = r###"Re-use a previously built layout (skip the build step):"###))]
+    example(r###"pakro oci run -it -- bash"###, help = r###"Build the current pakro.toml and drop into bash:"###),
+    example(r###"pakro oci run -e DEBUG=1 --volume "$PWD:/work" -w /work -- npm test"###, help = r###"Run a one-shot command with env + volume (note: `-v` is reserved for --verbose, so use `--volume`):"###),
+    example(r###"pakro oci build -o ./img && pakro oci run --image-dir ./img -- node -e 'console.log(process.version)'"###, help = r###"Re-use a previously built layout (skip the build step):"###))]
 pub(super) struct Run {
     // Long-only flags, kept alphabetical (asserted by
     // `cli::tests::test_subcommands_are_sorted`).
@@ -35,21 +35,21 @@ pub(super) struct Run {
     from: Option<String>,
 
     /// Use an already-built OCI image layout instead of building fresh
-    #[usage(long, value_hint = ValueHint::DirPath, conflicts = &["from", "mount_point", "no_mise", "owner", "include_global"])]
+    #[usage(long, value_hint = ValueHint::DirPath, conflicts = &["from", "mount_point", "no_pakro", "owner", "include_global"])]
     image_dir: Option<PathBuf>,
 
     /// Also include tools from the global / system config (default: project-only)
     ///
-    /// See `mise oci build --help` for details.
+    /// See `pakro oci build --help` for details.
     #[usage(long)]
     include_global: bool,
 
     /// Keep the loaded image in the engine's storage after the run
     ///
     /// By default, both the container (`--rm`) and the loaded image are
-    /// removed when the command exits, so repeated `mise oci run` calls
+    /// removed when the command exits, so repeated `pakro oci run` calls
     /// don't accumulate images in podman / docker storage. Pass `--keep`
-    /// to retain the image under the tag mise used (`mise-oci:run-*` for
+    /// to retain the image under the tag pakro used (`pakro-oci:run-*` for
     /// docker; the pulled image ID for podman).
     #[usage(long)]
     keep: bool,
@@ -58,9 +58,9 @@ pub(super) struct Run {
     #[usage(long)]
     mount_point: Option<String>,
 
-    /// Don't embed the mise binary (ignored with --image-dir)
+    /// Don't embed the pakro binary (ignored with --image-dir)
     #[usage(long)]
-    no_mise: bool,
+    no_pakro: bool,
 
     /// UID[:GID] to assign to every tar entry when building (conflicts with --image-dir)
     ///
@@ -73,7 +73,7 @@ pub(super) struct Run {
     /// Bind-mount a host path (repeatable, `HOST:CONTAINER[:MODE]`)
     ///
     /// Note: unlike `docker run -v`, there's no `-v` short flag here because
-    /// mise reserves `-v` for --verbose. Use `--volume` or `--mount`.
+    /// pakro reserves `-v` for --verbose. Use `--volume` or `--mount`.
     #[usage(long = "volume", alias = "mount", value_name = "HOST:CONTAINER")]
     volume: Vec<String>,
 
@@ -108,7 +108,7 @@ enum Engine {
 
 impl Run {
     pub(super) async fn run(self) -> Result<()> {
-        Settings::get().ensure_experimental("mise oci run")?;
+        Settings::get().ensure_experimental("pakro oci run")?;
 
         // 1. Validate arguments first so bad args win over "engine missing".
         if let Some(d) = &self.image_dir
@@ -131,16 +131,16 @@ impl Run {
             if let Some(d) = &self.image_dir {
                 (d.clone(), None)
             } else {
-                let td = TempDir::with_prefix("mise-oci-run-")
+                let td = TempDir::with_prefix("pakro-oci-run-")
                     .wrap_err("creating temp dir for oci build output")?;
                 let out_dir = td.path().join("image");
                 let opts = BuildOptions {
                     out_dir: out_dir.clone(),
                     from: self.from.clone(),
-                    tag: Some("mise-oci:run".to_string()),
+                    tag: Some("pakro-oci:run".to_string()),
                     mount_point: self.mount_point.clone(),
                     owner: self.owner,
-                    mise_binary: mise_binary_path(self.no_mise),
+                    pakro_binary: pakro_binary_path(self.no_pakro),
                     copy: vec![],
                     // The layout is loaded into a local engine, which needs
                     // every blob present — no remote reuse.
@@ -290,12 +290,12 @@ fn load_image(engine: Engine, image_dir: &Path) -> Result<String> {
         }
         Engine::Docker => {
             // Stream the layout into `docker load` as a docker-archive. Pick
-            // a per-invocation tag so concurrent `mise oci run` calls don't
-            // clobber each other — a shared `mise-oci:run` tag would
+            // a per-invocation tag so concurrent `pakro oci run` calls don't
+            // clobber each other — a shared `pakro-oci:run` tag would
             // otherwise race: the second load would overwrite the first
             // image before the first container started.
             let tag = format!(
-                "mise-oci:run-{}-{}",
+                "pakro-oci:run-{}-{}",
                 std::process::id(),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)

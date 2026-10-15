@@ -13,9 +13,9 @@
 #################################################################################
 
 TMP_BASE="${TMPDIR:-/tmp}"
-PORT_FILE="$TMP_BASE/mise_git_http_port"
-READY_FILE="$TMP_BASE/mise_git_http_ready"
-INFO_FILE="$TMP_BASE/mise_git_http_info"
+PORT_FILE="$TMP_BASE/pakro_git_http_port"
+READY_FILE="$TMP_BASE/pakro_git_http_ready"
+INFO_FILE="$TMP_BASE/pakro_git_http_info"
 
 rm -f "$PORT_FILE" "$READY_FILE" "$INFO_FILE"
 
@@ -26,9 +26,9 @@ cleanup() {
   rm -f "$PORT_FILE" "$READY_FILE" "$INFO_FILE"
 }
 
-MISE_GIT_HTTP_PORT_FILE="$PORT_FILE" \
-  MISE_GIT_HTTP_READY_FILE="$READY_FILE" \
-  MISE_GIT_HTTP_INFO_FILE="$INFO_FILE" \
+PAKRO_GIT_HTTP_PORT_FILE="$PORT_FILE" \
+  PAKRO_GIT_HTTP_READY_FILE="$READY_FILE" \
+  PAKRO_GIT_HTTP_INFO_FILE="$INFO_FILE" \
   python3 "${TEST_ROOT}/helpers/scripts/git_http_backend_server.py" 0 &
 SERVER_PID=$!
 trap cleanup EXIT
@@ -57,45 +57,45 @@ git init
 
 # The remote repo's remote-task prints "remote task executed".
 # Create a local task of the same name that prints something distinct.
-mkdir -p .mise/tasks
-cat <<'EOF' >.mise/tasks/remote-task
+mkdir -p .pakro/tasks
+cat <<'EOF' >.pakro/tasks/remote-task
 #!/usr/bin/env bash
 echo "local task wins"
 EOF
-chmod +x .mise/tasks/remote-task
+chmod +x .pakro/tasks/remote-task
 
 #################################################################################
 # Local include listed LAST -> the local task wins over the remote one.
 #################################################################################
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [task_config]
 includes = [
     "git::${LOCAL_GIT_URL}//xtasks/lint",
-    ".mise/tasks",
+    ".pakro/tasks",
 ]
 EOF
 
-assert "mise run remote-task" "local task wins"
-assert_contains "mise tasks info remote-task" ".mise/tasks/remote-task"
+assert "pakro run remote-task" "local task wins"
+assert_contains "pakro tasks info remote-task" ".pakro/tasks/remote-task"
 
-mise cache clear
+pakro cache clear
 
 #################################################################################
 # git include listed LAST -> the remote task wins (order is respected).
 #################################################################################
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [task_config]
 includes = [
-    ".mise/tasks",
+    ".pakro/tasks",
     "git::${LOCAL_GIT_URL}//xtasks/lint",
 ]
 EOF
 
-assert "mise run remote-task" "remote task executed"
+assert "pakro run remote-task" "remote task executed"
 
-mise cache clear
+pakro cache clear
 
 #################################################################################
 # Two local includes: the LAST one defining the name wins.
@@ -112,7 +112,7 @@ echo "second wins"
 EOF
 chmod +x first/greet second/greet
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [task_config]
 includes = [
     "first",
@@ -120,6 +120,6 @@ includes = [
 ]
 EOF
 
-assert "mise run greet" "second wins"
+assert "pakro run greet" "second wins"
 
 echo "All tests passed!"

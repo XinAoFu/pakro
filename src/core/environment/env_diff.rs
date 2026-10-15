@@ -1,4 +1,4 @@
-pub use mise_util::env_diff::*;
+pub use pakro_util::env_diff::*;
 
 #[cfg(test)]
 mod tests {
@@ -109,7 +109,7 @@ mod tests {
         let pristine: EnvMap = [
             (path_key, pristine_path.as_str()),
             ("EXISTING", "old"),
-            ("__MISE_DIFF", "outer-diff"),
+            ("__PAKRO_DIFF", "outer-diff"),
         ]
         .into_iter()
         .map(|(k, v)| (k.into(), v.into()))
@@ -118,7 +118,7 @@ mod tests {
             (path_key, final_path.as_str()),
             ("EXISTING", "new"),
             ("ADDED", "yes"),
-            ("__MISE_DIFF", "should-be-ignored"),
+            ("__PAKRO_DIFF", "should-be-ignored"),
         ]
         .into_iter()
         .map(|(k, v)| (k.into(), v.into()))
@@ -132,11 +132,11 @@ mod tests {
         assert_eq!(diff.new.get("ADDED"), Some(&"yes".to_string()));
         assert_eq!(diff.new.get("EXISTING"), Some(&"new".to_string()));
         assert_eq!(diff.old.get("EXISTING"), Some(&"old".to_string()));
-        // PATH and __MISE_DIFF are filtered out of old/new.
+        // PATH and __PAKRO_DIFF are filtered out of old/new.
         assert!(!diff.new.contains_key(path_key));
         assert!(!diff.old.contains_key(path_key));
-        assert!(!diff.new.contains_key("__MISE_DIFF"));
-        assert!(!diff.old.contains_key("__MISE_DIFF"));
+        assert!(!diff.new.contains_key("__PAKRO_DIFF"));
+        assert!(!diff.old.contains_key("__PAKRO_DIFF"));
 
         // Round-trip: applying the reversed diff to final_env should restore pristine
         // for the keys we tracked, and stripping diff.path from final's PATH should

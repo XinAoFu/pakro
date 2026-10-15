@@ -142,7 +142,7 @@ impl TaskCacheAudit {
         let trace_task_complete =
             shell_escape::escape(self.trace_task_complete.path().to_string_lossy());
         let trace_timed_out = shell_escape::escape(self.trace_timed_out.path().to_string_lossy());
-        // Piping the trace through a small sink gives mise a completion signal from the detached
+        // Piping the trace through a small sink gives pakro a completion signal from the detached
         // tracer. strace closes the pipe only after it has finished following every tracee.
         let output = format!(
             "|exec 3<&0; cat <&3 > {trace} & child=$!; \
@@ -152,7 +152,7 @@ impl TaskCacheAudit {
              printf 1 > {trace_complete}"
         );
         let mut wrapped = vec![
-            // Keep the task as mise's direct child so a failure in the advisory tracer does not
+            // Keep the task as pakro's direct child so a failure in the advisory tracer does not
             // replace the task's exit status. The tracer runs as the task's grandchild instead.
             "-D".to_string(),
             "-f".to_string(),

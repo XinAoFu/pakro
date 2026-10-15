@@ -7,7 +7,7 @@ use crate::file::display_rel_path;
 use crate::task::Task;
 use crate::task::task_fetcher::TaskFetcher;
 use crate::task::task_list::find_non_executable_task_files;
-use crate::ui::table::MiseTable;
+use crate::ui::table::PakroTable;
 use comfy_table::{Attribute, Cell, Row};
 use eyre::{Result, bail};
 use itertools::Itertools;
@@ -15,14 +15,14 @@ use serde_json::json;
 
 /// List available tasks
 ///
-/// Tasks come from config files and from task directories such as `.mise/tasks`.
+/// Tasks come from config files and from task directories such as `.pakro/tasks`.
 /// Tasks from all parent directories are merged into this list.
 ///
-/// So if you have global tasks in `~/.config/mise/tasks/*` and project-specific tasks in
-/// ~/myproject/.mise/tasks/*, then they'll both be available but the project-specific
+/// So if you have global tasks in `~/.config/pakro/tasks/*` and project-specific tasks in
+/// ~/myproject/.pakro/tasks/*, then they'll both be available but the project-specific
 /// tasks will override the global ones if they have the same name.
 #[derive(Debug, usage_rs::Args)]
-#[usage(verbatim_doc_comment, example(r###"mise tasks ls"###))]
+#[usage(verbatim_doc_comment, example(r###"pakro tasks ls"###))]
 pub(crate) struct TasksLs {
     /// Only show global tasks
     #[usage(short, long, overrides = "local", verbatim_doc_comment)]
@@ -158,7 +158,7 @@ impl TasksLs {
         // Resolve remote task files before any operation that may need them
         let mut tasks = tasks;
         // always pass no_cache=false as the command doesn't take no-cache argument
-        // MISE_TASK_REMOTE_NO_CACHE env var is still respected if set
+        // PAKRO_TASK_REMOTE_NO_CACHE env var is still respected if set
         TaskFetcher::new(false)
             .fetch_tasks(&config, &mut tasks)
             .await?;
@@ -217,7 +217,7 @@ impl TasksLs {
     }
 
     fn display(&self, tasks: Vec<Task>) -> Result<()> {
-        let mut table = MiseTable::new(
+        let mut table = PakroTable::new(
             self.no_header,
             if self.extended {
                 &["Name", "Aliases", "Source", "Description"]
@@ -240,11 +240,11 @@ impl TasksLs {
                 task_spec.cmd.complete.insert(name, complete);
             }
             // Absorb words the caller forwards to the task beyond what it declares, so
-            // `mise run <task> -- --not-a-mise-flag` completes instead of erroring with
+            // `pakro run <task> -- --not-a-pakro-flag` completes instead of erroring with
             // "unexpected word". This must NOT be spelled `-- ARGS_LAST`: jdx/usage#762
             // made an explicit `--` route the positional cursor onto the arg that declared
             // the separator, past earlier args, so a `--`-gated catch-all swallowed the
-            // word being completed and `mise run <task> -- <TAB>` offered filenames
+            // word being completed and `pakro run <task> -- <TAB>` offered filenames
             // instead of the task's own choices. A plain trailing variadic takes the
             // overflow without hijacking `--`, and behaves the same on usage 4 and 5.
             task_spec.cmd.args.push(
@@ -265,7 +265,7 @@ impl TasksLs {
                 task_spec.cmd.aliases.extend(prefixed_aliases);
             }
             // Aliases get no `:` form: they exist to save typing, and listing every spelling
-            // of every alias crowds the candidates. `mise tasks ls` shows them.
+            // of every alias crowds the candidates. `pakro tasks ls` shows them.
             if let Some(name) = shorthand_name(current_root.as_deref(), &task) {
                 task_spec.cmd.aliases.push(name);
             }
@@ -274,7 +274,7 @@ impl TasksLs {
                 .subcommands
                 .insert(task.display_name.clone(), task_spec.cmd);
         }
-        miseprintln!("{}", usage.to_string());
+        pakroprintln!("{}", usage.to_string());
         Ok(())
     }
 
@@ -323,7 +323,7 @@ impl TasksLs {
                 "file": task.file,
             }));
         }
-        miseprintln!("{}", serde_json::to_string_pretty(&array_items)?);
+        pakroprintln!("{}", serde_json::to_string_pretty(&array_items)?);
         Ok(())
     }
 
@@ -367,7 +367,7 @@ fn current_root_prefix(config: &Config) -> Option<String> {
 ///
 /// It runs the same task as its `//` name, but completion needs it as a candidate of its own:
 /// a shell only offers candidates that extend the word being completed, so without one
-/// `mise :bu<TAB>` matched nothing and fell back to completing file paths.
+/// `pakro :bu<TAB>` matched nothing and fell back to completing file paths.
 fn shorthand_name(current_root: Option<&str>, task: &Task) -> Option<String> {
     let name = task.display_name.strip_prefix(current_root?)?;
     Some(format!(":{name}"))

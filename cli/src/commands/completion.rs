@@ -3,11 +3,11 @@ use eyre::Result;
 use std::ffi::OsString;
 use strum::EnumString;
 
-/// Answer mise's hidden completion protocol with its runtime completion metadata.
+/// Answer pakro's hidden completion protocol with its runtime completion metadata.
 ///
-/// The tables compiled by usage-rs cover static commands, flags, choices, and path hints. mise
+/// The tables compiled by usage-rs cover static commands, flags, choices, and path hints. pakro
 /// also augments those tables at runtime with `run=` completers and task commands mounted from
-/// `mise tasks --usage`; those only exist in [`super::usage::completion_spec`]. Try that richer
+/// `pakro tasks --usage`; those only exist in [`super::usage::completion_spec`]. Try that richer
 /// spec first, preserving its path fallback marker, then leave only unsupported requests to the
 /// compiled usage-rs tables.
 pub(crate) fn completion_request(argv: &[OsString]) -> Option<String> {
@@ -27,7 +27,7 @@ pub(crate) fn completion_request(argv: &[OsString]) -> Option<String> {
 /// Whether the cursor is on a value a `#[usage(complete = …)]` function answers.
 ///
 /// Those are compiled into the binary, so answer them from the compiled tables directly. The
-/// runtime spec only has the `run=` usage-rs writes for them, which calls back into mise for
+/// runtime spec only has the `run=` usage-rs writes for them, which calls back into pakro for
 /// values alone — its answer drops the descriptions, so a value containing a colon cannot be
 /// misread as `value:description`.
 fn at_typed_completer(request: &usage_rs::complete::CompletionRequest) -> bool {
@@ -146,13 +146,13 @@ fn complete_spec(
 
 /// Generate shell completions
 #[derive(Debug, usage_rs::Args)]
-#[usage(aliases = ["complete", "completions"], verbatim_doc_comment, example(r###"mise completion zsh --install
-mise completion bash --install
-mise completion fish --install
-mise completion powershell --install"###, help = r###"Install for your shell; follow any printed one-time setup instructions"###),
-    example(r###"mise completion zsh"###, help = r###"Print a completion script to inspect or save at a custom path"###),
-    example(r###"mise completion zsh --tool rg
-mise completion zsh --tool rg --install"###, help = r###"For a tool installed through Packslip with completion resources"###))]
+#[usage(aliases = ["complete", "completions"], verbatim_doc_comment, example(r###"pakro completion zsh --install
+pakro completion bash --install
+pakro completion fish --install
+pakro completion powershell --install"###, help = r###"Install for your shell; follow any printed one-time setup instructions"###),
+    example(r###"pakro completion zsh"###, help = r###"Print a completion script to inspect or save at a custom path"###),
+    example(r###"pakro completion zsh --tool rg
+pakro completion zsh --tool rg --install"###, help = r###"For a tool installed through Packslip with completion resources"###))]
 pub(crate) struct Completion {
     /// Shell type to generate completions for
     #[usage(required_unless = "shell_type", value_enum)]
@@ -182,16 +182,16 @@ pub(crate) struct Completion {
     #[usage(long, verbatim_doc_comment, effect = "write")]
     install: bool,
 
-    /// Replace a file at the target path that mise did not write
+    /// Replace a file at the target path that pakro did not write
     #[usage(long, requires = "--install", effect = "write")]
     force: bool,
 
-    /// A tool's completion instead of mise's own, from the packslip it was installed from
+    /// A tool's completion instead of pakro's own, from the packslip it was installed from
     ///
     /// NAME is a tool installed with the `packslip:` backend, or one of its executables. The
     /// script comes from whichever version is active here, from the most verifiable source its
     /// packslip offers: a file the vendor shipped, a script derived from its CLI spec, or a
-    /// command of the tool's own. With --install, what is written is a small stub that asks mise
+    /// command of the tool's own. With --install, what is written is a small stub that asks pakro
     /// for the script each time the shell completes the tool, so it follows version switches
     /// without being rewritten.
     #[usage(long, verbatim_doc_comment)]
@@ -208,20 +208,20 @@ impl Completion {
             let config = crate::config::Config::get().await?;
             let script =
                 crate::packslip::completion_script(&config, tool, shell.packslip_name()).await?;
-            miseprintln!("{}", script.trim());
+            pakroprintln!("{}", script.trim());
             return Ok(());
         }
         if self.install {
             return self.install_script(shell.into());
         }
         let script = Cli::completion_script(shell.into());
-        miseprintln!("{}", script.trim());
+        pakroprintln!("{}", script.trim());
 
         Ok(())
     }
 
     /// Put a stub for a tool where this shell looks for its completion. The stub defers to
-    /// `mise completion <shell> --tool <tool>` at completion time, so the script always matches
+    /// `pakro completion <shell> --tool <tool>` at completion time, so the script always matches
     /// the version that is active, and the file never needs rewriting on a version switch.
     fn install_tool_stub(&self, tool: &str, shell: usage_rs::complete::Shell) -> Result<()> {
         use usage_rs::install::{self, OnForeign};
@@ -231,7 +231,7 @@ impl Completion {
         // as github.com/owner/repo.
         if !crate::file::is_plain_file_name(tool) {
             eyre::bail!(
-                "--install takes the executable's name, not a tool id; run `mise completion {} --tool {tool}` to see what the id resolves to",
+                "--install takes the executable's name, not a tool id; run `pakro completion {} --tool {tool}` to see what the id resolves to",
                 shell.as_str()
             );
         }
@@ -241,11 +241,11 @@ impl Completion {
         } else {
             OnForeign::Refuse
         };
-        let plan = install::plan_for("mise", tool, shell, &install::Env::from_process())
+        let plan = install::plan_for("pakro", tool, shell, &install::Env::from_process())
             .map_err(eyre::Report::new)?;
         let done = install::write(&plan, &stub, on_foreign).map_err(|err| match &err {
             install::Error::Foreign { .. } => eyre::eyre!(
-                "{err}\n\nPass --force to replace it, or redirect `mise completion {} --tool {tool}` yourself.",
+                "{err}\n\nPass --force to replace it, or redirect `pakro completion {} --tool {tool}` yourself.",
                 shell.as_str()
             ),
             _ => eyre::Report::new(err),
@@ -279,8 +279,8 @@ impl Completion {
 
     /// Put the script where this shell looks for it, and say what is left to do.
     ///
-    /// The location comes from usage rather than from a table here, so `mise completion zsh
-    /// --install` and `usage g completion zsh mise --install` cannot disagree about where a mise
+    /// The location comes from usage rather than from a table here, so `pakro completion zsh
+    /// --install` and `usage g completion zsh pakro --install` cannot disagree about where a pakro
     /// completion lives.
     fn install_script(&self, shell: usage_rs::complete::Shell) -> Result<()> {
         use usage_rs::install::{self, OnForeign};
@@ -300,7 +300,7 @@ impl Completion {
                 _ => eyre::Report::new(err),
             })?;
 
-        // The examples below document `mise completion zsh > …`, and prose on stdout would land
+        // The examples below document `pakro completion zsh > …`, and prose on stdout would land
         // in that file, so the report goes to stderr.
         Self::report_install(&done);
         Ok(())
@@ -379,14 +379,14 @@ mod shell_name_tests {
     #[test]
     fn a_bash_answer_reports_the_colon_prefix_readline_keeps() {
         // Bash's default COMP_WORDBREAKS contains `:`, so Readline replaces only `no` in
-        // `mise update:deps:no<TAB>`. The answer has to name the `update:deps:` prefix it
+        // `pakro update:deps:no<TAB>`. The answer has to name the `update:deps:` prefix it
         // keeps, or the generated wrapper inserts the full candidate after it and produces
         // `update:deps:update:deps:no-cooldown`.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("tasks.kdl");
         std::fs::write(
             &path,
-            "name \"mise\"\ncmd \"update:deps\"\ncmd \"update:deps:no-cooldown\"\n",
+            "name \"pakro\"\ncmd \"update:deps\"\ncmd \"update:deps:no-cooldown\"\n",
         )
         .unwrap();
         let encoded = crate::packslip::completions::encode_spec_path(&path);
@@ -396,7 +396,7 @@ mod shell_name_tests {
             "--shell",
             "bash",
             "--line",
-            "mise update:deps:no",
+            "pakro update:deps:no",
             "--bash-word",
             "no",
             "--bash-wordbreaks",
@@ -437,7 +437,7 @@ mod shell_name_tests {
             "__complete_word__",
             "--candidates",
             "key",
-            "--line=mise config set settings.pyth",
+            "--line=pakro config set settings.pyth",
         ]
         .into_iter()
         .map(OsString::from)
@@ -454,7 +454,7 @@ mod shell_name_tests {
             "--shell",
             "fish",
             "--line",
-            "mise config get tools.node.v",
+            "pakro config get tools.node.v",
         ]
         .into_iter()
         .map(OsString::from)
@@ -467,9 +467,9 @@ mod shell_name_tests {
     }
 
     #[test]
-    fn completion_script_calls_back_into_mise() {
+    fn completion_script_calls_back_into_pakro() {
         let script = Cli::completion_script(usage_rs::complete::Shell::Bash);
-        assert!(script.contains("mise' __complete_word__"), "{script}");
+        assert!(script.contains("pakro' __complete_word__"), "{script}");
         assert!(!script.contains("command usage"), "{script}");
     }
 }

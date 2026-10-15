@@ -3,7 +3,7 @@ use crate::backend::backend_type::BackendType;
 use crate::backend::{self, SecurityFeature};
 use crate::config::Settings;
 use crate::registry::{REGISTRY, RegistryTool, tool_enabled};
-use crate::ui::table::MiseTable;
+use crate::ui::table::PakroTable;
 use eyre::{Result, bail};
 use itertools::Itertools;
 use serde::Serialize;
@@ -16,18 +16,18 @@ use tokio::{sync::Semaphore, task::JoinSet};
 /// uses the built-in Node backend. A tool may have multiple candidates; explicit
 /// backend syntax and configuration can override registry selection.
 ///
-/// This is not a list of every tool mise can install. Use an explicit identifier
+/// This is not a list of every tool pakro can install. Use an explicit identifier
 /// such as `github:owner/repo` for a supported source without a registry shorthand.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     example(
-        r###"mise registry
-mise registry node"###,
+        r###"pakro registry
+pakro registry node"###,
         help = "List the registry, then inspect node. The second command prints `core:node`."
     ),
     example(
-        r###"mise registry --backend aqua
-mise registry --json"###
+        r###"pakro registry --backend aqua
+pakro registry --json"###
     ),
     verbatim_doc_comment
 )]
@@ -91,9 +91,9 @@ impl Registry {
             if let Some(rt) = REGISTRY.get(name.as_str()) {
                 if self.json {
                     let tool = to_output(self.output_args(name, rt), self.security).await;
-                    miseprintln!("{}", serde_json::to_string_pretty(&tool)?);
+                    pakroprintln!("{}", serde_json::to_string_pretty(&tool)?);
                 } else {
-                    miseprintln!("{}", self.filter_backends(rt).join(" "));
+                    pakroprintln!("{}", self.filter_backends(rt).join(" "));
                 }
             } else {
                 bail!("tool not found in registry: {name}");
@@ -144,7 +144,7 @@ impl Registry {
     }
 
     fn display_table(&self) -> Result<()> {
-        let mut table = MiseTable::new(false, &["Tool", "Backends"]);
+        let mut table = PakroTable::new(false, &["Tool", "Backends"]);
         let data = self
             .filtered_tools()
             .map(|(short, rt)| (short.to_string(), self.filter_backends(rt).join(" ")))
@@ -163,7 +163,7 @@ impl Registry {
                 .description
                 .or(rt.backends().first().cloned())
                 .unwrap_or_default();
-            miseprintln!(
+            pakroprintln!(
                 "{}:{}",
                 short.replace(":", "\\:"),
                 description.replace(":", "\\:")
@@ -201,7 +201,7 @@ impl Registry {
                 outputs.push(to_output(tool, false).await);
             }
         }
-        miseprintln!("{}", serde_json::to_string_pretty(&outputs)?);
+        pakroprintln!("{}", serde_json::to_string_pretty(&outputs)?);
         Ok(())
     }
 }

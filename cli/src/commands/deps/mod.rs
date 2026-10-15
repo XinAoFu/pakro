@@ -7,26 +7,26 @@ mod remove;
 /// [experimental] Manage project dependencies
 ///
 /// With no subcommand, runs dependency installation for the current project, the same
-/// as `mise deps install`. Providers detect their inputs and installed outputs to
+/// as `pakro deps install`. Providers detect their inputs and installed outputs to
 /// decide whether work is needed; use `--explain PROVIDER` to inspect that decision.
 ///
-/// Providers with `auto = true` run before `mise exec` and `mise run` unless `--no-deps`
+/// Providers with `auto = true` run before `pakro exec` and `pakro run` unless `--no-deps`
 /// is passed. These install project dependencies, such as node_modules, separately
-/// from versioned tools managed by `mise install`.
+/// from versioned tools managed by `pakro install`.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     visible_alias = "dep",
     alias = "prepare",
     verbatim_doc_comment,
     after_long_help = AFTER_LONG_HELP,
-    example(r###"mise deps                    # Install all project dependencies
-mise deps install            # Same as bare `mise deps`
-mise deps install --force    # Force reinstall even if fresh
-mise deps install --dry-run  # Show what would run
-mise deps --monorepo         # Install deps from explicit monorepo config roots
-mise deps add npm:react      # Add a dependency
-mise deps add -D npm:vitest  # Add a dev dependency
-mise deps remove npm:lodash  # Remove a dependency"###)
+    example(r###"pakro deps                    # Install all project dependencies
+pakro deps install            # Same as bare `pakro deps`
+pakro deps install --force    # Force reinstall even if fresh
+pakro deps install --dry-run  # Show what would run
+pakro deps --monorepo         # Install deps from explicit monorepo config roots
+pakro deps add npm:react      # Add a dependency
+pakro deps add -D npm:vitest  # Add a dev dependency
+pakro deps remove npm:lodash  # Remove a dependency"###)
 )]
 pub(crate) struct Deps {
     #[usage(subcommand)]
@@ -76,7 +76,7 @@ static AFTER_LONG_HELP: &str = color_print::cstr!(
 ```toml
 # Built-in npm provider (auto-detects lockfile)
 [deps.npm]
-auto = true              # Auto-run before mise x/run
+auto = true              # Auto-run before pakro x/run
 
 # Custom provider
 [deps.codegen]

@@ -1,6 +1,6 @@
 use crate::config::{Config, Settings};
 use crate::direnv::DirenvDiff;
-use crate::env::{__MISE_DIFF, PATH_KEY, TERM_WIDTH};
+use crate::env::{__PAKRO_DIFF, PATH_KEY, TERM_WIDTH};
 use crate::env::{join_paths, split_paths};
 use crate::env_diff::{EnvDiff, EnvDiffOperation, EnvMap, env_value_matches};
 use crate::file::{self, canonicalize_cached, display_path, display_rel_path};
@@ -40,7 +40,7 @@ pub(crate) struct HookEnv {
     #[usage(long, hide = true, value_enum)]
     reason: Option<HookReason>,
 
-    /// Show "mise: <TOOL>@<VERSION>" message when changing directories
+    /// Show "pakro: <TOOL>@<VERSION>" message when changing directories
     #[usage(long, hide = true)]
     status: bool,
     #[usage(long, hide = true)]
@@ -51,7 +51,7 @@ impl HookEnv {
     pub(crate) async fn run(self) -> Result<()> {
         let shell = require_shell(
             self.shell,
-            &format!("Name the shell: `mise hook-env --shell {EXAMPLE_SHELL}`."),
+            &format!("Name the shell: `pakro hook-env --shell {EXAMPLE_SHELL}`."),
         )?;
         // Entering a directory is not an explicit action, so an untrusted config is
         // skipped (with a warning) rather than blocking the configs that are trusted.
@@ -112,15 +112,15 @@ impl HookEnv {
                 _ => None,
             })
             .collect();
-        miseprint!("{}", hook_env::build_env_commands(&*shell, &old_patches))?;
+        pakroprint!("{}", hook_env::build_env_commands(&*shell, &old_patches))?;
 
         // Use env_with_path_and_split which handles caching internally
-        let (mut mise_env, env_remove, user_paths, tool_paths, env_watch_files) =
+        let (mut pakro_env, env_remove, user_paths, tool_paths, env_watch_files) =
             ts.env_with_path_and_split(&config).await?;
         let daemon_commands = match crate::daemons::hook_env::emit(
             &config,
             &ts,
-            &mise_env,
+            &pakro_env,
             self.shell_pid,
             &*shell,
             self.force,
@@ -133,14 +133,14 @@ impl HookEnv {
                 String::new()
             }
         };
-        mise_env.remove(&*PATH_KEY);
+        pakro_env.remove(&*PATH_KEY);
 
         // Create config_paths from user_paths for display_status and build_session
         let config_paths: IndexSet<PathBuf> = user_paths.iter().cloned().collect();
-        self.display_status(&config, &ts, &mise_env, &config_paths)
+        self.display_status(&config, &ts, &pakro_env, &config_paths)
             .await?;
 
-        let mut diff = EnvDiff::new(&env::PRISTINE_ENV, mise_env.clone());
+        let mut diff = EnvDiff::new(&env::PRISTINE_ENV, pakro_env.clone());
         for key in env_remove {
             if let Some(value) = env::PRISTINE_ENV.get(&key) {
                 diff.old.insert(key, value.clone());
@@ -163,13 +163,13 @@ impl HookEnv {
         });
         let mut patches = diff_patches;
 
-        // Combine paths for __MISE_DIFF tracking (all mise-managed paths)
+        // Combine paths for __PAKRO_DIFF tracking (all pakro-managed paths)
         let all_paths: Vec<PathBuf> = user_paths
             .iter()
             .chain(tool_paths.iter())
             .cloned()
             .collect();
-        diff.path.clone_from(&all_paths); // update __MISE_DIFF with the new paths for the next run
+        diff.path.clone_from(&all_paths); // update __PAKRO_DIFF with the new paths for the next run
 
         // Get shell aliases from config
         let new_aliases: indexmap::IndexMap<String, String> = config
@@ -181,7 +181,7 @@ impl HookEnv {
         // Include env watch_files in the session for the next prompt's fast-path check.
         // On cache miss, env_watch_files contains only plugin-returned watch_files.
         // On cache hit, it contains the full CachedEnv.watch_files set (config files,
-        // env_files, env_scripts, mise.lock files, and plugin watch_files). The BTreeSet
+        // env_files, env_scripts, pakro.lock files, and plugin watch_files). The BTreeSet
         // deduplicates any overlap with the config-level watch_files above.
         let watch_files: BTreeSet<WatchFilePattern> = watch_files
             .into_iter()
@@ -193,7 +193,7 @@ impl HookEnv {
         patches.extend(self.build_path_operations(
             &user_paths,
             &tool_paths,
-            &__MISE_DIFF.path,
+            &__PAKRO_DIFF.path,
             retain_shims,
         )?);
         patches.push(self.build_diff_operation(&diff)?);
@@ -201,7 +201,7 @@ impl HookEnv {
             self.build_session_operation(
                 &config,
                 &ts,
-                mise_env,
+                pakro_env,
                 new_aliases.clone(),
                 watch_files,
                 &config_paths,
@@ -210,9 +210,9 @@ impl HookEnv {
         );
 
         // Clear the precmd run flag after running once from precmd
-        if self.reason == Some(HookReason::Precmd) && !*env::__MISE_ZSH_PRECMD_RUN {
+        if self.reason == Some(HookReason::Precmd) && !*env::__PAKRO_ZSH_PRECMD_RUN {
             patches.push(EnvDiffOperation::Add(
-                "__MISE_ZSH_PRECMD_RUN".into(),
+                "__PAKRO_ZSH_PRECMD_RUN".into(),
                 "1".into(),
             ));
         }
@@ -221,7 +221,7 @@ impl HookEnv {
         }
 
         let output = hook_env::build_env_commands(&*shell, &patches);
-        miseprint!("{output}")?;
+        pakroprint!("{output}")?;
         if !untrusted_configs.is_empty()
             && hook_env::should_show_untrusted_config_warning(&untrusted_configs)
         {
@@ -235,21 +235,21 @@ impl HookEnv {
             // check and must not be able to silence this notice.
             for config_path in &untrusted_configs {
                 safe_eprintln!(
-                    "{} {} {} is not trusted, run `mise trust` to enable it",
-                    style::eyellow("mise"),
+                    "{} {} {} is not trusted, run `pakro trust` to enable it",
+                    style::eyellow("pakro"),
                     style::eyellow("WARN"),
                     display_path(config_path)
                 );
             }
         }
-        miseprint!("{daemon_commands}")?;
+        pakroprint!("{daemon_commands}")?;
 
         // Build and output alias commands
         let alias_output =
             hook_env::build_alias_commands(&*shell, &PREV_SESSION.aliases, &new_aliases);
-        miseprint!("{alias_output}")?;
+        pakroprint!("{alias_output}")?;
 
-        miseprint!(
+        pakroprint!(
             "{}",
             crate::packslip::completions::activate(&config, &ts, &shell.to_string())
         )?;
@@ -345,36 +345,36 @@ impl HookEnv {
         let full = join_paths(&*env::PATH)?.to_string_lossy().to_string();
         let current_paths: Vec<PathBuf> = split_paths(&full).collect();
 
-        let (pre, post, post_user) = match &*env::__MISE_ORIG_PATH {
+        let (pre, post, post_user) = match &*env::__PAKRO_ORIG_PATH {
             Some(orig_path) if !Settings::get().activate_aggressive => {
                 let orig_path = crate::windows_posix::orig_path_for_windows(orig_path);
                 let orig_paths: Vec<PathBuf> = split_paths(orig_path.as_ref()).collect();
                 let orig_set: HashSet<_> = orig_paths.iter().collect();
 
-                // Get all mise-managed paths from the previous session
-                // to_remove contains ALL paths that mise added (tool installs, config paths, etc.)
-                let mise_paths_set: HashSet<_> = to_remove.iter().collect();
+                // Get all pakro-managed paths from the previous session
+                // to_remove contains ALL paths that pakro added (tool installs, config paths, etc.)
+                let pakro_paths_set: HashSet<_> = to_remove.iter().collect();
 
-                // Find paths in current that are not in original and not mise-managed.
+                // Find paths in current that are not in original and not pakro-managed.
                 // Split them into "pre" (before the original PATH entries) and "post_user"
                 // (after the original PATH entries) to preserve their intended position.
-                // This prevents paths appended after `mise activate` in shell rc from
+                // This prevents paths appended after `pakro activate` in shell rc from
                 // being moved to the front of PATH.
                 //
                 // Also collect orig paths in their current order to preserve any
                 // reordering done after activation (e.g., by ~/.zlogin which runs
-                // after ~/.zshrc where mise activate is typically placed).
+                // after ~/.zshrc where pakro activate is typically placed).
                 let mut pre = Vec::new();
                 let mut post_user = Vec::new();
                 let mut orig_reordered = Vec::new();
                 let mut seen_orig = false;
                 let mut seen_in_current: HashSet<&PathBuf> = HashSet::new();
-                let mise_install_dirs = crate::path_env::mise_install_dirs();
+                let pakro_install_dirs = crate::path_env::pakro_install_dirs();
                 for path in &current_paths {
-                    // Shim farms are a mise-managed boundary. Reinsert them below
+                    // Shim farms are a pakro-managed boundary. Reinsert them below
                     // the selected tool paths instead of preserving their temporary
                     // activation-prelude position as a user-owned prefix.
-                    if file::is_mise_shims_dir(path) {
+                    if file::is_pakro_shims_dir(path) {
                         continue;
                     }
                     if orig_set.contains(path) {
@@ -384,16 +384,16 @@ impl HookEnv {
                         continue;
                     }
 
-                    // Skip if it's a mise-managed path from previous session
-                    if mise_paths_set.contains(path) {
+                    // Skip if it's a pakro-managed path from previous session
+                    if pakro_paths_set.contains(path) {
                         continue;
                     }
 
-                    // Paths under mise's installs dir are mise-managed even if
+                    // Paths under pakro's installs dir are pakro-managed even if
                     // the previous session diff did not claim them. Preserving a
                     // stale install path as a user prefix can shadow the active
                     // version selected by the current toolset.
-                    if crate::path_env::is_mise_install_path(path, &mise_install_dirs) {
+                    if crate::path_env::is_pakro_install_path(path, &pakro_install_dirs) {
                         continue;
                     }
 
@@ -408,7 +408,7 @@ impl HookEnv {
                 // Append any orig paths that are no longer in current PATH
                 // (to avoid losing paths that may have been temporarily removed)
                 for path in &orig_paths {
-                    if !file::is_mise_shims_dir(path) && !seen_in_current.contains(path) {
+                    if !file::is_pakro_shims_dir(path) && !seen_in_current.contains(path) {
                         orig_reordered.push(path.clone());
                     }
                 }
@@ -419,22 +419,22 @@ impl HookEnv {
                 vec![],
                 current_paths
                     .into_iter()
-                    .filter(|path| !file::is_mise_shims_dir(path))
+                    .filter(|path| !file::is_pakro_shims_dir(path))
                     .collect(),
                 vec![],
             ),
         };
 
         // Filter out tool paths that are already in the original PATH (post) or
-        // in the pre paths (user additions). This prevents mise from claiming ownership
-        // of paths that were in the user's original PATH before mise activation, and also
-        // prevents duplicates when paths from previous mise activations are in the current
+        // in the pre paths (user additions). This prevents pakro from claiming ownership
+        // of paths that were in the user's original PATH before pakro activation, and also
+        // prevents duplicates when paths from previous pakro activations are in the current
         // PATH. When a tool is deactivated, these paths will remain accessible since they're
         // preserved in the `post` section or `pre` section.
         // This fixes the issue where system tools (e.g., rustup) become unavailable
-        // after leaving a mise project that uses the same tool.
+        // after leaving a pakro project that uses the same tool.
         //
-        // IMPORTANT: Only filter tool_paths against __MISE_ORIG_PATH (post).
+        // IMPORTANT: Only filter tool_paths against __PAKRO_ORIG_PATH (post).
         // User-configured paths are filtered separately (only against user manual additions)
         // to preserve user's intended ordering while avoiding duplicates.
         //
@@ -482,8 +482,8 @@ impl HookEnv {
             .collect();
 
         // Filter user_paths against user additions (pre + post_user) to avoid duplicates
-        // when users manually add paths after mise activation.
-        // IMPORTANT: Do NOT filter against post (__MISE_ORIG_PATH) - this would break
+        // when users manually add paths after pakro activation.
+        // IMPORTANT: Do NOT filter against post (__PAKRO_ORIG_PATH) - this would break
         // the intended behavior where user-configured paths should take precedence
         // even if they already exist in the original PATH.
         let user_paths_filtered: Vec<PathBuf> = user_paths
@@ -588,7 +588,7 @@ impl HookEnv {
 
     fn build_diff_operation(&self, diff: &EnvDiff) -> Result<EnvDiffOperation> {
         Ok(EnvDiffOperation::Add(
-            "__MISE_DIFF".into(),
+            "__PAKRO_DIFF".into(),
             diff.serialize()?,
         ))
     }
@@ -620,7 +620,7 @@ impl HookEnv {
         )
         .await?;
         Ok(EnvDiffOperation::Add(
-            "__MISE_SESSION".into(),
+            "__PAKRO_SESSION".into(),
             hook_env::serialize(&session)?,
         ))
     }

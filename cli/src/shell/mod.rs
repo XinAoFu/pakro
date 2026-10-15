@@ -23,9 +23,9 @@ pub enum ShellType {
     Nu,
     Xonsh,
     Zsh,
-    // `powershell` is an alias, not a second shell. mise picks PowerShell 7 features at *runtime*
+    // `powershell` is an alias, not a second shell. pakro picks PowerShell 7 features at *runtime*
     // -- the emitted script checks `$PSVersionTable.PSVersion` and drops the chpwd hook below 7 --
-    // so the name never carried the 5.1-vs-7 distinction, and `mise completion` already spells the
+    // so the name never carried the 5.1-vs-7 distinction, and `pakro completion` already spells the
     // same shell `powershell`.
     //
     // Both names are documented, so this must remain a visible alias in the portable spec.
@@ -69,11 +69,11 @@ impl FromStr for ShellType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.to_lowercase();
         // Take the last path component. Splitting on `/` alone only ever worked on unix: Windows
-        // spells the separator `\`, and `MISE_SHELL` falls back to `SHELL`, which is `COMSPEC`
+        // spells the separator `\`, and `PAKRO_SHELL` falls back to `SHELL`, which is `COMSPEC`
         // there -- always a full path. So every native path failed to resolve.
         let s = s.rsplit_once(['/', '\\']).map(|(_, s)| s).unwrap_or(&s);
         // `pwsh.exe` / `powershell.exe` is how Windows names them, and nothing between here and
-        // `MISE_SHELL` strips that. Applied to every shell: `bash.exe` has the same problem.
+        // `PAKRO_SHELL` strips that. Applied to every shell: `bash.exe` has the same problem.
         let s = s.strip_suffix(".exe").unwrap_or(s);
         match s {
             "bash" | "sh" => Ok(Self::Bash),
@@ -162,7 +162,7 @@ pub fn build_deactivation_script(shell: &dyn Shell) -> String {
 }
 
 pub fn get_shell(shell: Option<ShellType>) -> Option<Box<dyn Shell>> {
-    shell.or(*env::MISE_SHELL).map(|st| st.as_shell())
+    shell.or(*env::PAKRO_SHELL).map(|st| st.as_shell())
 }
 
 /// A shell to name in an example, chosen so the suggestion is one the reader could actually run.
@@ -174,36 +174,36 @@ pub const EXAMPLE_SHELL: &str = "pwsh";
 #[cfg(not(windows))]
 pub const EXAMPLE_SHELL: &str = "zsh";
 
-/// The shell mise should generate for, or an error saying how to name one.
+/// The shell pakro should generate for, or an error saying how to name one.
 ///
-/// Detection is `MISE_SHELL`, then `SHELL`. PowerShell and cmd set neither, so on Windows this
+/// Detection is `PAKRO_SHELL`, then `SHELL`. PowerShell and cmd set neither, so on Windows this
 /// resolves only when the session is already activated, the caller names the shell, or the user is
 /// in a shell that sets `SHELL` (Git Bash, MSYS2, Cygwin) — which makes the error an ordinary
 /// answer there rather than an edge case. It used to be `.expect()`, so that answer was a panic.
 ///
-/// `how` is the caller's own instruction, because the commands differ: `mise activate` takes the
-/// shell as an argument, `mise hook-env` takes `--shell`, and `mise shell` takes neither.
+/// `how` is the caller's own instruction, because the commands differ: `pakro activate` takes the
+/// shell as an argument, `pakro hook-env` takes `--shell`, and `pakro shell` takes neither.
 pub fn require_shell(shell: Option<ShellType>, how: &str) -> eyre::Result<Box<dyn Shell>> {
     get_shell(shell).ok_or_else(|| eyre::eyre!(no_shell_error(how)))
 }
 
 /// Split out from [`require_shell`] so it can be tested: the detection it fails on reads
-/// `MISE_SHELL`, which is a process-wide `Lazy`, so the failing path itself cannot be constructed
+/// `PAKRO_SHELL`, which is a process-wide `Lazy`, so the failing path itself cannot be constructed
 /// from a test.
 fn no_shell_error(how: &str) -> String {
     // Windows is the only platform where this is reachable without the user having done something
     // unusual, so it is the only one that needs to explain itself. Naming the two variables is the
-    // useful part: a Git Bash user can see that mise would have taken `SHELL` and go look at why
+    // useful part: a Git Bash user can see that pakro would have taken `SHELL` and go look at why
     // theirs is not set, rather than reading this as "Windows is unsupported".
     let why = match cfg!(windows) {
         true => {
-            "mise reads MISE_SHELL, then SHELL; neither names a shell it supports. PowerShell and cmd set neither.\n"
+            "pakro reads PAKRO_SHELL, then SHELL; neither names a shell it supports. PowerShell and cmd set neither.\n"
         }
         false => "",
     };
     let supported = ShellType::CHOICES.iter().join(", ");
     formatdoc! {r#"
-        mise could not tell which shell to generate for.
+        pakro could not tell which shell to generate for.
         {why}{how}
         Supported shells: {supported}"#
     }
@@ -219,7 +219,7 @@ mod tests {
 
     #[test]
     fn a_windows_path_resolves_to_its_shell() {
-        // `MISE_SHELL`/`SHELL` hold a full path on Windows, and `\` is the separator there.
+        // `PAKRO_SHELL`/`SHELL` hold a full path on Windows, and `\` is the separator there.
         for (input, expected) in [
             (r"C:\Program Files\PowerShell\7\pwsh.exe", ShellType::Pwsh),
             (r"C:\msys64\usr\bin\bash.exe", ShellType::Bash),
@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     fn an_unsupported_shell_still_fails_but_names_itself() {
-        // mise has no `cmd` activate script, so this stays an error -- the control for reading
+        // pakro has no `cmd` activate script, so this stays an error -- the control for reading
         // the change as "more shells are supported" rather than "paths now resolve". What is new
         // is that the message names `cmd` instead of repeating the whole path back.
         for input in [r"C:\WINDOWS\system32\cmd.exe", "cmd.exe"] {
@@ -271,7 +271,7 @@ mod tests {
 
     #[test]
     fn powershell_is_accepted_as_pwsh() {
-        // Two paths reach this enum: usage-rs for `mise activate <SHELL>`, and FromStr for detecting
+        // Two paths reach this enum: usage-rs for `pakro activate <SHELL>`, and FromStr for detecting
         // the shell the user is already in. Both have to take the alias or the fix is half done.
         // Qualified because both traits in scope define `from_str`.
         assert_eq!(
@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn the_exe_suffix_is_stripped() {
-        // `MISE_SHELL` is parsed straight through `FromStr` with nothing removing the suffix
+        // `PAKRO_SHELL` is parsed straight through `FromStr` with nothing removing the suffix
         // first, so a Windows shell name has to be matched with it.
         for name in ["powershell.exe", "pwsh.exe", "PowerShell.exe"] {
             assert_eq!(
@@ -309,8 +309,8 @@ mod tests {
 
     #[test]
     fn the_primary_names_are_unchanged() {
-        // Only the *names*. The alias is deliberately not asserted absent here: `mise usage`
-        // renders aliases into `mise.usage.kdl` and the CLI docs, so "hidden" would be false.
+        // Only the *names*. The alias is deliberately not asserted absent here: `pakro usage`
+        // renders aliases into `pakro.usage.kdl` and the CLI docs, so "hidden" would be false.
         // What this pins is that adding an alias did not rename or reorder an existing value.
         let listed: Vec<&str> = ShellType::DETAILS
             .iter()
@@ -327,10 +327,10 @@ mod tests {
     /// from `CHOICES` so that adding a shell cannot leave it stale.
     #[test]
     fn the_no_shell_message_says_what_to_do_and_what_is_accepted() {
-        let msg = no_shell_error("Name the shell: `mise activate zsh`.");
+        let msg = no_shell_error("Name the shell: `pakro activate zsh`.");
 
         assert!(
-            msg.contains("Name the shell: `mise activate zsh`."),
+            msg.contains("Name the shell: `pakro activate zsh`."),
             "{msg}"
         );
         for shell in ShellType::CHOICES {
@@ -343,9 +343,9 @@ mod tests {
     #[test]
     fn only_windows_explains_why_detection_failed() {
         let msg = no_shell_error("Name the shell.");
-        // Both names, because naming only `MISE_SHELL` would read as "activate first" to someone
+        // Both names, because naming only `PAKRO_SHELL` would read as "activate first" to someone
         // in Git Bash, where setting `SHELL` is the actual answer.
-        assert_eq!(msg.contains("MISE_SHELL"), cfg!(windows), "{msg}");
+        assert_eq!(msg.contains("PAKRO_SHELL"), cfg!(windows), "{msg}");
         assert_eq!(msg.contains("SHELL;"), cfg!(windows), "{msg}");
     }
 }

@@ -1,9 +1,9 @@
 //! OCI Distribution Spec v2 client.
 //!
-//! Pull side: used by `mise oci build --from <ref>` to stream a base image's
+//! Pull side: used by `pakro oci build --from <ref>` to stream a base image's
 //! layers into the output layout byte-for-byte so digests match.
 //!
-//! Push side: used by `mise oci push` to upload an OCI image layout directly
+//! Push side: used by `pakro oci push` to upload an OCI image layout directly
 //! — no skopeo/crane required. Credentials come from the same sources docker
 //! and podman use (see `crate::oci::auth`); anonymous access is used when no
 //! credentials are found (e.g. a local `registry:2`).
@@ -391,7 +391,7 @@ async fn fetch_bearer_token(
         let mut form = vec![
             ("grant_type", "refresh_token"),
             ("refresh_token", c.secret.as_str()),
-            ("client_id", "mise"),
+            ("client_id", "pakro"),
             ("scope", scope.as_str()),
         ];
         if let Some(s) = service {
@@ -506,7 +506,7 @@ async fn fetch_manifest_json(
     Ok((body, content_type))
 }
 
-/// Retry a transient-failure-prone operation with mise's standard backoff
+/// Retry a transient-failure-prone operation with pakro's standard backoff
 /// schedule. Transient means connect/timeout/body errors and 5xx/408/429
 /// statuses surfaced via `error_for_status`. A macro rather than a generic
 /// fn so the operation expression can reborrow `&mut` state (the
@@ -844,7 +844,7 @@ fn classify_artifact_layer(layer: &Descriptor) -> Result<ArtifactLayerKind> {
         }
         (None, Some(format)) => Ok(ArtifactLayerKind::Tar(PathBuf::new(), format, true)),
         (None, None) => bail!(
-            "artifact layer {} has media type {} and no {ANNOTATION_TITLE} annotation, so mise cannot tell what file it is",
+            "artifact layer {} has media type {} and no {ANNOTATION_TITLE} annotation, so pakro cannot tell what file it is",
             short_digest(&layer.digest),
             layer.media_type
         ),
@@ -1010,7 +1010,7 @@ pub(crate) async fn pull_artifact(reference: &str, dest: &Path) -> Result<()> {
 
 /// A remote image's manifest and config, including `rootfs.diff_ids`
 /// (index-aligned with `manifest.layers`). Used as the layer-reuse cache for
-/// `mise oci push`.
+/// `pakro oci push`.
 #[derive(Debug, Clone)]
 pub struct RemoteImage {
     pub manifest: ImageManifest,
@@ -1165,7 +1165,7 @@ pub struct PushSummary {
 const UPLOAD_CHUNK_SIZE: u64 = 64 * 1024 * 1024;
 
 /// The standard annotation naming the base image a manifest was built from
-/// (written by `mise oci build`). Push uses it to attempt cross-repository
+/// (written by `pakro oci build`). Push uses it to attempt cross-repository
 /// blob mounts when the base lives on the same registry.
 pub(crate) const ANNOTATION_BASE_NAME: &str = "org.opencontainers.image.base.name";
 
@@ -1195,7 +1195,7 @@ pub async fn push_image(
         root: image_dir.to_path_buf(),
     };
 
-    // Resolve the layout's single manifest. `mise oci build` always writes
+    // Resolve the layout's single manifest. `pakro oci build` always writes
     // exactly one manifest into index.json.
     let index_bytes = crate::file::read(image_dir.join("index.json"))?;
     let index: ImageIndex = serde_json::from_slice(&index_bytes).wrap_err("parsing index.json")?;
@@ -1443,7 +1443,7 @@ fn upsert_platform_manifest(mut entries: Vec<Descriptor>, entry: Descriptor) -> 
 /// consistent between `upsert_platform_manifest` and the index-descent in
 /// [`fetch_remote_image`]. Normalizes arch/os to OCI-spec values and fills the
 /// implied CPU variant (`arm64` → `v8`) so entries written by different tools
-/// compare equal — mise writes no variant, buildx writes `arm64/v8`, and both
+/// compare equal — pakro writes no variant, buildx writes `arm64/v8`, and both
 /// name the same platform. `os.version` stays in the identity so
 /// otherwise-identical Windows platforms don't collide.
 ///
@@ -1482,10 +1482,10 @@ fn platform_identity_parts(
 }
 
 /// Progress label for a blob: the tool name when the descriptor carries the
-/// mise tool annotation, otherwise a shortened digest.
+/// pakro tool annotation, otherwise a shortened digest.
 fn blob_label(desc: &Descriptor) -> String {
     desc.annotations
-        .get("dev.mise.tool.short")
+        .get("dev.pakro.tool.short")
         .cloned()
         .unwrap_or_else(|| short_digest(&desc.digest).to_string())
 }
@@ -2680,7 +2680,7 @@ mod tests {
 
     #[test]
     fn upsert_treats_arm64_no_variant_as_v8() {
-        // mise writes arm64 with no variant; buildx writes arm64/v8. Pushing
+        // pakro writes arm64 with no variant; buildx writes arm64/v8. Pushing
         // the former must replace the latter, not add a duplicate.
         let with_variant = Descriptor {
             media_type: MEDIA_TYPE_OCI_MANIFEST.to_string(),
@@ -2697,10 +2697,10 @@ mod tests {
         };
         let out = upsert_platform_manifest(
             vec![with_variant],
-            platform_entry("arm64", "linux", "sha256:mise-arm64"),
+            platform_entry("arm64", "linux", "sha256:pakro-arm64"),
         );
         assert_eq!(out.len(), 1);
-        assert_eq!(out[0].digest, "sha256:mise-arm64");
+        assert_eq!(out[0].digest, "sha256:pakro-arm64");
     }
 
     #[test]

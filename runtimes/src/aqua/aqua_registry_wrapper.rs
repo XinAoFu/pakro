@@ -528,7 +528,7 @@ static AQUA_SUGGESTIONS_CACHE: Lazy<AquaSuggestionsCache> = Lazy::new(|| {
     }
 });
 
-/// Search Aqua packages by tool name, returning runnable mise backend suggestions.
+/// Search Aqua packages by tool name, returning runnable pakro backend suggestions.
 pub(crate) fn aqua_suggest(query: &str) -> Vec<AquaSuggestion> {
     let cache = &*AQUA_SUGGESTIONS_CACHE;
 

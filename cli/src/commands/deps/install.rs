@@ -35,7 +35,7 @@ pub(crate) struct DepsInstall {
     ///
     /// Requires monorepo_root = true plus explicit [monorepo].config_roots in
     /// the monorepo root config. Providers are named like //apps/api:uv.
-    #[usage(long, env = "MISE_MONOREPO", verbatim_doc_comment)]
+    #[usage(long, env = "PAKRO_MONOREPO", verbatim_doc_comment)]
     pub monorepo: bool,
 
     /// Run specific deps rule(s) only
@@ -66,7 +66,7 @@ impl DepsInstall {
         }
 
         if self.explain && self.provider.is_none() {
-            bail!("--explain requires a provider argument, e.g.: mise deps install npm --explain");
+            bail!("--explain requires a provider argument, e.g.: pakro deps install npm --explain");
         }
 
         // If a provider is specified as a positional arg, treat it like --only.
@@ -185,55 +185,55 @@ impl DepsInstall {
         let applicability = provider.applicability();
 
         // Header
-        miseprintln!("Provider: {}", provider.id());
-        miseprintln!("Auto: {}", if provider.is_auto() { "yes" } else { "no" });
+        pakroprintln!("Provider: {}", provider.id());
+        pakroprintln!("Auto: {}", if provider.is_auto() { "yes" } else { "no" });
 
         // Sources
         let sources = provider.sources();
-        miseprintln!("Sources:");
+        pakroprintln!("Sources:");
         for source in &sources {
             let exists = source.exists();
             let marker = if exists { "+" } else { "-" };
-            miseprintln!("  {} {}", marker, crate::file::display_path(source));
+            pakroprintln!("  {} {}", marker, crate::file::display_path(source));
         }
 
         // Outputs
         let outputs = provider.outputs();
-        miseprintln!("Outputs:");
+        pakroprintln!("Outputs:");
         for output in &outputs {
             let exists = output.exists();
             let marker = if exists { "+" } else { "-" };
-            miseprintln!("  {} {}", marker, crate::file::display_path(output));
+            pakroprintln!("  {} {}", marker, crate::file::display_path(output));
         }
 
         // Optional outputs (tracked but not required on first run)
         let optional_outputs = provider.optional_outputs();
         if !optional_outputs.is_empty() {
-            miseprintln!("Optional outputs:");
+            pakroprintln!("Optional outputs:");
             for output in &optional_outputs {
                 let exists = output.exists();
                 let marker = if exists { "+" } else { "-" };
-                miseprintln!("  {} {}", marker, crate::file::display_path(output));
+                pakroprintln!("  {} {}", marker, crate::file::display_path(output));
             }
         }
 
         // Command
         if let Ok(cmd) = provider.install_command_with_env(effective_env) {
-            miseprintln!("Command: {}", cmd.description);
+            pakroprintln!("Command: {}", cmd.description);
         }
 
         // Verdict
-        miseprintln!("");
+        pakroprintln!("");
         if let DepsProviderApplicability::Inactive(reason) = applicability {
-            miseprintln!("Status: inactive ({reason})");
+            pakroprintln!("Status: inactive ({reason})");
             bail!("provider '{}' is inactive: {reason}", provider.id());
         }
 
         let freshness = engine.check_provider_freshness(provider, effective_env)?;
         if freshness.is_fresh() {
-            miseprintln!("Status: fresh ({})", freshness.reason());
+            pakroprintln!("Status: fresh ({})", freshness.reason());
         } else {
-            miseprintln!("Status: stale ({})", freshness.reason());
+            pakroprintln!("Status: stale ({})", freshness.reason());
         }
 
         if !freshness.is_fresh() {
@@ -247,11 +247,11 @@ impl DepsInstall {
         let providers = engine.list_providers();
 
         if providers.is_empty() {
-            miseprintln!("No deps providers found for this project");
+            pakroprintln!("No deps providers found for this project");
             return Ok(());
         }
 
-        miseprintln!("Available deps providers:");
+        pakroprintln!("Available deps providers:");
         for provider in providers {
             let sources = provider
                 .sources()
@@ -267,17 +267,17 @@ impl DepsInstall {
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            miseprintln!("  {}", provider.id());
+            pakroprintln!("  {}", provider.id());
             match provider.applicability() {
                 DepsProviderApplicability::Applicable => {
-                    miseprintln!("    status: active");
+                    pakroprintln!("    status: active");
                 }
                 DepsProviderApplicability::Inactive(reason) => {
-                    miseprintln!("    status: inactive ({reason})");
+                    pakroprintln!("    status: inactive ({reason})");
                 }
             }
-            miseprintln!("    sources: {}", sources);
-            miseprintln!("    outputs: {}", outputs);
+            pakroprintln!("    sources: {}", sources);
+            pakroprintln!("    outputs: {}", outputs);
         }
 
         Ok(())

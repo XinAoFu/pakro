@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-assert_contains "mise global dummy@2.0.0" "~/.config/mise/config.toml"
-assert "cat ~/.config/mise/config.toml" '[tools]
+assert_contains "pakro global dummy@2.0.0" "~/.config/pakro/config.toml"
+assert "cat ~/.config/pakro/config.toml" '[tools]
 dummy = "2.0.0"'
 
-mise i
-assert_contains "mise x -- dummy" "2.0.0"
+pakro i
+assert_contains "pakro x -- dummy" "2.0.0"

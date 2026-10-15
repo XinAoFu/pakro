@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-const SESSION_ENV: &str = "__MISE_DAEMON_SESSIONS";
+const SESSION_ENV: &str = "__PAKRO_DAEMON_SESSIONS";
 
 /// Shell-local bookkeeping travels with the existing activation environment.
 /// Pitchfork owns process liveness, sessions, readiness, and autostop.
@@ -37,7 +37,7 @@ pub async fn emit(
             hint!(
                 "daemons-activation",
                 "[daemons] auto lifecycle requires updated shell activation",
-                "restart your shell or evaluate mise activate again"
+                "restart your shell or evaluate pakro activate again"
             );
         }
         return Ok(String::new());
@@ -85,7 +85,7 @@ pub async fn emit(
                 .ok()
                 .or_else(|| previous_state.bin.is_file().then_some(previous_state.bin))
                 .ok_or_else(|| {
-                    eyre::eyre!("auto lifecycle requires pitchfork; run mise use pitchfork")
+                    eyre::eyre!("auto lifecycle requires pitchfork; run pakro use pitchfork")
                 })?;
             let runtime = Runtime {
                 bin,
@@ -130,7 +130,7 @@ pub async fn emit(
                 hint!(
                     "daemons-auto",
                     "daemon auto lifecycle: {err:#}; inspect with",
-                    "mise daemons status"
+                    "pakro daemons status"
                 );
                 // Preserve ownership so departure can still release an existing session.
                 if let Some(bin) = previous.roots.get(&root) {
@@ -148,7 +148,7 @@ pub async fn emit(
 fn session_command(bin: &std::path::Path, root: &std::path::Path, pid: u32, enter: bool) -> String {
     let action = if enter { "enter" } else { "leave" };
     let command = format!(
-        "unset PITCHFORK_CONFIG; {} project {action} --pid {pid} --directory {} >/dev/null 2>&1 || printf '%s\\n' 'mise: daemon session {action} failed; change directories or re-evaluate mise hook-env --force to retry; inspect mise daemons logs' >&2",
+        "unset PITCHFORK_CONFIG; {} project {action} --pid {pid} --directory {} >/dev/null 2>&1 || printf '%s\\n' 'pakro: daemon session {action} failed; change directories or re-evaluate pakro hook-env --force to retry; inspect pakro daemons logs' >&2",
         super::presets::quote(bin.to_string_lossy()),
         super::presets::quote(root.to_string_lossy()),
     );

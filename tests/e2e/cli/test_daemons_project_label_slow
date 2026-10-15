@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 
-# The URL mise prints must be one pitchfork's proxy serves, for a project whose
+# The URL pakro prints must be one pitchfork's proxy serves, for a project whose
 # namespace is the hashed default. Needs a pitchfork with `config add --label`.
-if [[ -z ${MISE_TEST_PITCHFORK:-} ]]; then
-  echo "Skipping: set MISE_TEST_PITCHFORK to a pitchfork with 'config add --label'"
+if [[ -z ${PAKRO_TEST_PITCHFORK:-} ]]; then
+  echo "Skipping: set PAKRO_TEST_PITCHFORK to a pitchfork with 'config add --label'"
   exit 0
 fi
-if ! "$MISE_TEST_PITCHFORK" config add --help 2>&1 | grep -q -- '--label'; then
-  echo "Skipping: $MISE_TEST_PITCHFORK has no 'config add --label'"
+if ! "$PAKRO_TEST_PITCHFORK" config add --help 2>&1 | grep -q -- '--label'; then
+  echo "Skipping: $PAKRO_TEST_PITCHFORK has no 'config add --label'"
   exit 0
 fi
-cp "$MISE_TEST_PITCHFORK" ~/bin/pitchfork
+cp "$PAKRO_TEST_PITCHFORK" ~/bin/pitchfork
 export PATH="$HOME/bin:$PATH"
 # Unix socket paths are short, so keep these directly under the harness-owned
 # $TMPDIR (which the harness removes) rather than nesting them deeper. This test
@@ -29,14 +29,14 @@ PITCHFORK_PROXY_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("12
 export PITCHFORK_PROXY_PORT
 trap 'pitchfork supervisor stop >/dev/null 2>&1 || true' EXIT
 
-PITCHFORK_MISE_BIN="$(command -v mise)" pitchfork supervisor start
+PITCHFORK_PAKRO_BIN="$(command -v pakro)" pitchfork supervisor start
 
-# No [daemons_settings] namespace: mise registers the primary checkout under a
+# No [daemons_settings] namespace: pakro registers the primary checkout under a
 # hashed namespace and prints hostnames named after the directory.
 mkdir shop
 cd shop
 git init -q
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons.web]
@@ -44,12 +44,12 @@ run = "exec python3 -m http.server $WEB_PORT --bind 127.0.0.1"
 port = { auto = true, base = 43100 }
 ready_cmd = "curl -fsS http://127.0.0.1:$WEB_PORT/proof"
 TOML
-git add mise.toml
+git add pakro.toml
 git -c user.name=test -c user.email=test@example.invalid commit -qm fixture
 git worktree add -qb feature ../feature
 
 # The registry keeps the hashed namespace and carries the label beside it.
-# Each URL mise prints has to reach its own checkout through the proxy.
+# Each URL pakro prints has to reach its own checkout through the proxy.
 expected_host() {
   case "$1" in
     shop) echo "web.shop.localhost" ;;
@@ -61,8 +61,8 @@ for checkout in "$PWD" "$PWD/../feature"; do
     cd "$checkout"
     name=$(basename "$checkout")
     printf '%s\n' "$name" >proof
-    mise daemons start web
-    url=$(mise daemons urls --json | jq -r '.[] | select(.name == "web") | .url')
+    pakro daemons start web
+    url=$(pakro daemons urls --json | jq -r '.[] | select(.name == "web") | .url')
     assert "echo '$url'" "http://$(expected_host "$name"):$PITCHFORK_PROXY_PORT"
     hostport=${url#http://}
     # A checkout registered a moment ago can take a second to be routable.

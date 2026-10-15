@@ -4,7 +4,7 @@
 # retained for the lifetime of the command. Replacing output still keeps a
 # bounded tail so hidden stdout can be diagnosed when a command fails.
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.noisy]
 run = '''
 i=0
@@ -18,12 +18,12 @@ done
 run = "echo other-done"
 EOF
 
-mise run noisy ::: other >output.txt 2>&1
+pakro run noisy ::: other >output.txt 2>&1
 assert_contains "cat output.txt" "[noisy] noisy-0000"
 assert_contains "cat output.txt" "[noisy] noisy-1999"
 assert_contains "cat output.txt" "[other] other-done"
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [settings.task]
 output = "replacing"
 
@@ -39,7 +39,7 @@ exit 1
 EOF
 
 status=0
-MISE_FORCE_PROGRESS=1 MISE_FRIENDLY_ERROR=1 RUST_BACKTRACE=0 mise run failing >output.txt 2>&1 || status=$?
+PAKRO_FORCE_PROGRESS=1 PAKRO_FRIENDLY_ERROR=1 RUST_BACKTRACE=0 pakro run failing >output.txt 2>&1 || status=$?
 assert "test '$status' -ne 0"
 assert_contains "cat output.txt" "[output truncated; showing last 64 KiB]"
 assert_not_contains "cat output.txt" "hidden-00000"

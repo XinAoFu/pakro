@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-export MISE_LOCKFILE=1
-export MISE_PYTHON_COMPILE=0
-export MISE_PYTHON_GITHUB_ATTESTATIONS=1
-export MISE_GITHUB_ATTESTATIONS=1
+export PAKRO_LOCKFILE=1
+export PAKRO_PYTHON_COMPILE=0
+export PAKRO_PYTHON_GITHUB_ATTESTATIONS=1
+export PAKRO_GITHUB_ATTESTATIONS=1
 
 detect_platform
-PLATFORM="$MISE_PLATFORM"
+PLATFORM="$PAKRO_PLATFORM"
 
 mkdir -p fake-python/python/bin
 cat <<'EOF' >fake-python/python/bin/python
@@ -25,17 +25,17 @@ SIZE=$(wc -c <python-3.13.5.tar.gz | tr -d ' ')
 
 start_http_server
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools]
 python = { version = "3.13.5", patch_sysconfig = false }
 EOF
 
-cat <<EOF >mise.lock
+cat <<EOF >pakro.lock
 [[tools.python]]
 version = "3.13.5"
 backend = "core:python"
 # patch_sysconfig = false is part of the lock identity; without it this entry
-# would not match and mise would install the real CPython from GitHub instead.
+# would not match and pakro would install the real CPython from GitHub instead.
 options = { patch_sysconfig = "false" }
 "platforms.$PLATFORM" = { checksum = "sha256:$CHECKSUM", size = $SIZE, url = "http://127.0.0.1:$HTTP_PORT/python-3.13.5.tar.gz", provenance = "github-attestations" }
 EOF
@@ -43,7 +43,7 @@ EOF
 # If install re-verifies GitHub attestations, this fake tarball fails verification.
 # With checksum + provenance already in the lockfile, install should trust the
 # checksum and only ensure the provenance setting is still enabled.
-MISE_GITHUB_TOKEN=invalid GITHUB_TOKEN=invalid mise install python -f
+PAKRO_GITHUB_TOKEN=invalid GITHUB_TOKEN=invalid pakro install python -f
 
-# The fake interpreter proves mise installed the locked tarball, not upstream CPython.
-assert "$MISE_DATA_DIR/installs/python/3.13.5/bin/python --version" "Python 3.13.5 (fake lockfile tarball)"
+# The fake interpreter proves pakro installed the locked tarball, not upstream CPython.
+assert "$PAKRO_DATA_DIR/installs/python/3.13.5/bin/python --version" "Python 3.13.5 (fake lockfile tarball)"

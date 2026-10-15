@@ -31,7 +31,7 @@ pub(super) struct ZigPlugin {
 }
 
 const ZIG_MINISIGN_KEY: &str = "RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U";
-const REQUEST_SUFFIX: &str = "?source=mise-en-place";
+const REQUEST_SUFFIX: &str = "?source=pakro";
 const MIRRORS_FILENAME: &str = "community-mirrors.txt";
 
 impl ZigPlugin {
@@ -332,7 +332,7 @@ impl Backend for ZigPlugin {
         // The download index lists "master" as a moving channel whose `version`
         // field is the concrete nightly it currently points at (e.g.
         // "0.17.0-dev.836+e357134f0"). Resolve to that concrete version so the
-        // install lands in a versioned dir and `mise upgrade`/`outdated` can track
+        // install lands in a versioned dir and `pakro upgrade`/`outdated` can track
         // new nightlies instead of pinning "master" forever. (#10251)
         // Treat a failed fetch as "cannot resolve right now" (Ok(None)) rather than
         // a hard error, so a transient network blip falls through to normal

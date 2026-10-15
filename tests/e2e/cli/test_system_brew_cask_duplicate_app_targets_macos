@@ -34,7 +34,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         requests.append(self.path)
         # The bulk cask index is probed before the per-cask endpoint. This
-        # fixture does not publish one, which is an ordinary answer: mise falls
+        # fixture does not publish one, which is an ordinary answer: pakro falls
         # back to the per-cask request below, which is what this test exercises.
         # 404 rather than the 500 used for genuine violations, so a real
         # dependency or archive fetch still fails loudly.
@@ -60,19 +60,19 @@ class Handler(BaseHTTPRequestHandler):
 
 server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
 base = f"http://127.0.0.1:{server.server_port}"
-env = dict(os.environ, MISE_SYSTEM_BREW_PREFIX=str(prefix),
-           MISE_BREW_CASK_OPT_APPDIR=str(prefix / "Applications"),
-           MISE_URL_REPLACEMENTS=json.dumps({"https://formulae.brew.sh": base}))
+env = dict(os.environ, PAKRO_SYSTEM_BREW_PREFIX=str(prefix),
+           PAKRO_BREW_CASK_OPT_APPDIR=str(prefix / "Applications"),
+           PAKRO_URL_REPLACEMENTS=json.dumps({"https://formulae.brew.sh": base}))
 thread = threading.Thread(target=server.serve_forever, daemon=True)
 thread.start()
 runs = 0
 try:
     for token, (_, second) in cases.items():
-        (root / "mise.toml").write_text(
+        (root / "pakro.toml").write_text(
             f'[settings]\nexperimental = true\n[bootstrap.packages]\n"brew-cask:{token}" = "latest"\n'
         )
         for options in [("--dry-run",), ()]:
-            command = ["mise", "bootstrap", "packages", "apply", "--yes", *options]
+            command = ["pakro", "bootstrap", "packages", "apply", "--yes", *options]
             result = subprocess.run(command, env=env, text=True, capture_output=True, timeout=30)
             runs += 1
             output = result.stdout + result.stderr

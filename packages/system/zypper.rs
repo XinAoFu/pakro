@@ -30,7 +30,7 @@ fn package_args(command: &str, pkgs: &[PackageRequest]) -> Vec<String> {
 /// Run through sudo, retrying package-manager restarts at most twice.
 fn run(args: &[String], opts: &InstallOpts) -> Result<()> {
     if opts.dry_run {
-        miseprintln!("{}", sudo::argv("zypper", args).join(" "));
+        pakroprintln!("{}", sudo::argv("zypper", args).join(" "));
         return Ok(());
     }
     let mut retries = 0;

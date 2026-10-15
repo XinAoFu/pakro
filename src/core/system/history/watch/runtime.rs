@@ -1,9 +1,9 @@
-//! The foreground watcher process behind `mise dot watch` and
+//! The foreground watcher process behind `pakro dot watch` and
 //! the `history-watch` built-in service: installs filesystem watches for the
 //! tracked set, schedules each changed path on its own (a constantly
 //! rewritten file is saved ever more rarely, never floods the history, and
 //! never delays an ordinary edit), saves checkpoints, and persists its
-//! health for `mise doctor` and `mise dot status`. Captures
+//! health for `pakro doctor` and `pakro dot status`. Captures
 //! never wait on the network and never run while another history operation
 //! holds the operation lock; they are deferred and retried.
 
@@ -560,7 +560,7 @@ pub async fn run(opts: WatchOptions) -> Result<i32> {
                                     capture.out.emit(
                                         "throttled",
                                         &format!(
-                                            "{} keeps changing; saving it every {} now (up to {}). Exclude it with `mise dot exclude '{}'` if it is a log, cache, or database, or track it with `--no-autosave` and save it explicitly",
+                                            "{} keeps changing; saving it every {} now (up to {}). Exclude it with `pakro dot exclude '{}'` if it is a log, cache, or database, or track it with `--no-autosave` and save it explicitly",
                                             display_path(path),
                                             humantime(interval),
                                             humantime(capture.schedule.limits().max),
@@ -640,7 +640,7 @@ pub async fn run(opts: WatchOptions) -> Result<i32> {
                 if executable == Executable::Replaced {
                     capture.out.emit(
                         "restarting",
-                        "the mise executable was replaced; stopping so the service restarts the watcher on the new version",
+                        "the pakro executable was replaced; stopping so the service restarts the watcher on the new version",
                         json!({ "reason": "upgraded" }),
                     );
                     if let Some(task) = sync_task.take()
@@ -847,7 +847,7 @@ async fn finish_sync(
                     applied.written,
                     applied.held,
                     if applied.configuration {
-                        "; configuration changed: run `mise bootstrap` when its declarations should take effect"
+                        "; configuration changed: run `pakro bootstrap` when its declarations should take effect"
                     } else {
                         ""
                     }
@@ -1253,7 +1253,7 @@ impl State {
         Ok(true)
     }
 
-    /// A change to a mise configuration file: the tracked set and the
+    /// A change to a pakro configuration file: the tracked set and the
     /// settings may differ now.
     fn is_config_file(&self, path: &Path) -> bool {
         path.starts_with(&self.config_dir)
@@ -1716,7 +1716,7 @@ impl Capture {
     }
 
     /// A sync failed: the next attempt after the backoff, recorded for
-    /// `mise doctor` and `mise dot status`.
+    /// `pakro doctor` and `pakro dot status`.
     fn sync_failed(&mut self, now: Instant) -> Duration {
         let Some(plan) = &mut self.sync else {
             return SYNC_BACKOFF_MIN;
@@ -1864,7 +1864,7 @@ impl Output {
 
 /// Notices that the executable this watcher runs from was replaced, which
 /// is what an upgrade does. The process keeps running the old code, and a
-/// newer mise may write history state it cannot read, so every capture would
+/// newer pakro may write history state it cannot read, so every capture would
 /// fail until someone restarted the service by hand.
 struct BinaryWatch {
     path: Option<PathBuf>,
@@ -1947,7 +1947,7 @@ impl BinaryWatch {
     }
 }
 
-/// The lock a running watcher holds; `mise dot status` reads it.
+/// The lock a running watcher holds; `pakro dot status` reads it.
 pub(crate) fn watch_lock_in(state_dir: &Path) -> PathBuf {
     store::store_dir_in(state_dir).join("watch.lock")
 }
@@ -2014,12 +2014,12 @@ mod tests {
     #[test]
     fn a_replaced_executable_is_noticed_once_it_holds_still() {
         let dir = tempfile::tempdir().unwrap();
-        let exe = dir.path().join("mise");
+        let exe = dir.path().join("pakro");
         std::fs::write(&exe, "old").unwrap();
         let mut watch = BinaryWatch::at(Some(exe.clone()));
         assert_eq!(watch.check(), Executable::Current);
         // an upgrade replaces the file by renaming a new one over it
-        let staged = dir.path().join("mise.new");
+        let staged = dir.path().join("pakro.new");
         std::fs::write(&staged, "a newer version").unwrap();
         std::fs::rename(&staged, &exe).unwrap();
         assert_eq!(
@@ -2033,7 +2033,7 @@ mod tests {
     #[test]
     fn a_missing_executable_is_reported_gone_not_replaced() {
         let dir = tempfile::tempdir().unwrap();
-        let exe = dir.path().join("mise");
+        let exe = dir.path().join("pakro");
         std::fs::write(&exe, "old").unwrap();
         let mut watch = BinaryWatch::at(Some(exe.clone()));
         std::fs::remove_file(&exe).unwrap();
@@ -2189,7 +2189,7 @@ mod tests {
             exclude: vec![format!("{}/hypr/plugins/**", root.display())],
             invalid: vec![],
         };
-        let state = state_of(tracked.clone(), root.join("mise"));
+        let state = state_of(tracked.clone(), root.join("pakro"));
         assert!(state.may_cover_missing(&hypr.join("bindings.lua")));
         assert!(!state.may_cover_missing(&root.join("elsewhere/target")));
         assert!(!state.may_cover_missing(&hypr.join("plugins/state.json")));
@@ -2199,7 +2199,7 @@ mod tests {
         // remembered from the last walk while the link still points there
         let inner = hypr.join("inner-link");
         std::os::unix::fs::symlink(root.join("elsewhere/inner"), &inner).unwrap();
-        let mut remembered = state_of(tracked.clone(), root.join("mise"));
+        let mut remembered = state_of(tracked.clone(), root.join("pakro"));
         remembered.tracked_links = vec![inner.clone()];
         assert!(!remembered.may_cover_missing(&root.join("elsewhere/inner")));
         // retargeted while its new target is missing: the new target is
@@ -2214,7 +2214,7 @@ mod tests {
         // untracked, or switched to manual saving: nothing keeps it
         tracked.entries[0].policy.autosave = false;
         tracked.entries.pop();
-        let state = state_of(tracked, root.join("mise"));
+        let state = state_of(tracked, root.join("pakro"));
         assert!(!state.may_cover_missing(&hypr.join("bindings.lua")));
         assert!(!state.may_cover_missing(&root.join("elsewhere/target")));
     }

@@ -4,28 +4,28 @@
 # config in normal mode. hook-env does not, and paranoid mode always requires
 # an explicit, content-bound trust decision.
 
-export MISE_TRUSTED_CONFIG_PATHS=""
+export PAKRO_TRUSTED_CONFIG_PATHS=""
 unset CI GITHUB_ACTIONS GITHUB_ACTION 2>/dev/null || true
 
 mkdir -p install asdf-install run exec ignored ci paranoid
 
-cat <<'EOF' >install/mise.toml
+cat <<'EOF' >install/pakro.toml
 [env]
 IMPLICIT_TRUST = "install"
 EOF
 
-assert_not_contains "cd install && MISE_YES=0 mise hook-env -s bash 2>&1 || true" "IMPLICIT_TRUST=install"
-assert "cd install && MISE_YES=0 mise install"
-assert_contains "cd install && MISE_YES=0 mise hook-env -s bash" "IMPLICIT_TRUST"
+assert_not_contains "cd install && PAKRO_YES=0 pakro hook-env -s bash 2>&1 || true" "IMPLICIT_TRUST=install"
+assert "cd install && PAKRO_YES=0 pakro install"
+assert_contains "cd install && PAKRO_YES=0 pakro hook-env -s bash" "IMPLICIT_TRUST"
 
-cat <<'EOF' >asdf-install/mise.toml
+cat <<'EOF' >asdf-install/pakro.toml
 min_version = "2020.1.1"
 EOF
 
-assert "cd asdf-install && MISE_YES=0 mise asdf install"
-assert_contains "cd asdf-install && MISE_YES=0 mise trust --show" "trusted"
+assert "cd asdf-install && PAKRO_YES=0 pakro asdf install"
+assert_contains "cd asdf-install && PAKRO_YES=0 pakro trust --show" "trusted"
 
-cat <<'EOF' >run/mise.toml
+cat <<'EOF' >run/pakro.toml
 [env]
 IMPLICIT_TRUST = "run"
 
@@ -33,44 +33,44 @@ IMPLICIT_TRUST = "run"
 run = "echo $IMPLICIT_TRUST"
 EOF
 
-assert_contains "cd run && MISE_YES=0 mise run hi" "run"
-assert_contains "cd run && MISE_YES=0 mise trust --show" "trusted"
-assert "cd run && mise untrust"
+assert_contains "cd run && PAKRO_YES=0 pakro run hi" "run"
+assert_contains "cd run && PAKRO_YES=0 pakro trust --show" "trusted"
+assert "cd run && pakro untrust"
 
-cat <<'EOF' >exec/mise.toml
+cat <<'EOF' >exec/pakro.toml
 [env]
 IMPLICIT_TRUST = "exec"
 EOF
 
-assert_contains "cd exec && MISE_YES=0 mise exec -- sh -c 'echo \$IMPLICIT_TRUST'" "exec"
-assert_contains "cd exec && MISE_YES=0 mise trust --show" "trusted"
-assert "cd exec && mise untrust"
+assert_contains "cd exec && PAKRO_YES=0 pakro exec -- sh -c 'echo \$IMPLICIT_TRUST'" "exec"
+assert_contains "cd exec && PAKRO_YES=0 pakro trust --show" "trusted"
+assert "cd exec && pakro untrust"
 
-cat <<'EOF' >ignored/mise.toml
+cat <<'EOF' >ignored/pakro.toml
 [tools]
 dummy = "1.0.0"
 EOF
 
-assert "mise -C ignored trust --ignore mise.toml"
-assert "mise -C ignored install"
-assert_contains "mise -C ignored trust --show mise.toml" "ignored"
+assert "pakro -C ignored trust --ignore pakro.toml"
+assert "pakro -C ignored install"
+assert_contains "pakro -C ignored trust --show pakro.toml" "ignored"
 
-cat <<'EOF' >ci/mise.toml
+cat <<'EOF' >ci/pakro.toml
 [env]
 IMPLICIT_TRUST = "ci"
 EOF
 
 ci_state="$PWD/ci-state"
-assert "CI=1 MISE_STATE_DIR='$ci_state' mise -C ci install"
+assert "CI=1 PAKRO_STATE_DIR='$ci_state' pakro -C ci install"
 assert_fail "find '$ci_state/trusted-configs' -mindepth 1 \( -type f -o -type l \) 2>/dev/null | grep -q ."
 
-cat <<'EOF' >paranoid/mise.toml
+cat <<'EOF' >paranoid/pakro.toml
 [env]
 IMPLICIT_TRUST = "paranoid"
 EOF
 
 set +e
-output=$(cd paranoid && MISE_PARANOID=1 MISE_YES=0 mise install 2>&1)
+output=$(cd paranoid && PAKRO_PARANOID=1 PAKRO_YES=0 pakro install 2>&1)
 status=$?
 set -e
 [[ $status -ne 0 ]] || fail "paranoid install unexpectedly trusted the config"

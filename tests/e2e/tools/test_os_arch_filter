@@ -22,100 +22,100 @@ case "$_os" in
 esac
 
 # Commands that report active versions should omit OS-inactive requests.
-mise install dummy@3.0.0
-cat >mise.toml <<EOF
+pakro install dummy@3.0.0
+cat >pakro.toml <<EOF
 [tools]
 dummy = { version = "3.0.0", os = ["$_inactive_os"] }
 EOF
-assert "mise current" ""
-assert "mise current dummy" ""
-assert "mise tool dummy --active" ""
-assert "mise tool dummy --json | jq -c .active_versions" "[]"
-assert_fail "mise where dummy" "dummy does not have an active version"
+assert "pakro current" ""
+assert "pakro current dummy" ""
+assert "pakro tool dummy --active" ""
+assert "pakro tool dummy --json | jq -c .active_versions" "[]"
+assert_fail "pakro where dummy" "dummy does not have an active version"
 
 # Unknown tools scoped away from the current OS should be skipped before
 # registry resolution.
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools]
 nonexistent-os-filtered = { version = "latest", os = ["$_inactive_os"] }
 EOF
-mise i
+pakro i
 
 # Active unknown tools should still fail clearly.
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools]
 nonexistent-os-filtered = { version = "latest", os = ["$_os"] }
 EOF
-assert_fail "mise i" "nonexistent-os-filtered not found in mise tool registry"
+assert_fail "pakro i" "nonexistent-os-filtered not found in pakro tool registry"
 
 # Unknown tools scoped away from the current OS/arch pair should also be
 # skipped before registry resolution.
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools]
 nonexistent-os-arch-filtered = { version = "latest", os = ["${_os}/${_inactive_arch}"] }
 EOF
-mise i
+pakro i
 
 # Unknown tools scoped to the current OS/arch pair should still fail clearly.
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools]
 nonexistent-os-arch-filtered = { version = "latest", os = ["${_os}/${_arch}"] }
 EOF
-assert_fail "mise i" "nonexistent-os-arch-filtered not found in mise tool registry"
+assert_fail "pakro i" "nonexistent-os-arch-filtered not found in pakro tool registry"
 
 # Globally disabled unknown tools should be skipped before registry resolution.
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [tools]
 nonexistent-disabled = "latest"
 
 [settings]
 disable_tools = ["nonexistent-disabled"]
 EOF
-mise i
+pakro i
 
 # Tool with a non-matching os/arch should be skipped (not installed).
 # "windows/arm64" won't match any CI runner or dev machine running this test.
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [tools]
 tiny = { version = "latest", os = ["windows/arm64"] }
 EOF
-mise i
-assert_fail_contains "mise ls --installed tiny" "tiny is not installed"
+pakro i
+assert_fail_contains "pakro ls --installed tiny" "tiny is not installed"
 
 # Tool matching just the OS (no arch) should still work as before.
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [tools]
 tiny = { version = "latest", os = ["macos", "linux"] }
 EOF
-mise i
-assert_contains "mise ls --installed tiny" "tiny"
-mise uninstall --all tiny
+pakro i
+assert_contains "pakro ls --installed tiny" "tiny"
+pakro uninstall --all tiny
 
 # Tool with matching os/arch should install on this platform.
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools]
 tiny = { version = "latest", os = ["${_os}/${_arch}"] }
 EOF
-mise i
-assert_contains "mise ls --installed tiny" "tiny"
-mise uninstall --all tiny
+pakro i
+assert_contains "pakro ls --installed tiny" "tiny"
+pakro uninstall --all tiny
 
 # Tool with a mix: matching os (any arch) + non-matching os/arch should install.
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools]
 tiny = { version = "latest", os = ["${_os}", "windows/arm64"] }
 EOF
-mise i
-assert_contains "mise ls --installed tiny" "tiny"
-mise uninstall --all tiny
+pakro i
+assert_contains "pakro ls --installed tiny" "tiny"
+pakro uninstall --all tiny
 
 # darwin alias should work in compound syntax.
 if [ "$_os" = "macos" ]; then
-  cat >mise.toml <<EOF
+  cat >pakro.toml <<EOF
 [tools]
 tiny = { version = "latest", os = ["darwin/${_arch}"] }
 EOF
-  mise i
-  assert_contains "mise ls --installed tiny" "tiny"
-  mise uninstall --all tiny
+  pakro i
+  assert_contains "pakro ls --installed tiny" "tiny"
+  pakro uninstall --all tiny
 fi

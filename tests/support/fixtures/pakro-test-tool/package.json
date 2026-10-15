@@ -1,0 +1,35 @@
+{
+  "name": "pakro-test-tool",
+  "version": "1.0.0",
+  "description": "Test tool for pakro lockfile development and multi-platform testing",
+  "main": "bin/pakro-test-tool",
+  "bin": {
+    "pakro-test-tool": "bin/pakro-test-tool"
+  },
+  "scripts": {
+    "test": "node bin/pakro-test-tool --version",
+    "release": "npm run release:tarball && npm run release:gh",
+    "release:tarball": "cd .. && tar -czf pakro-test-tool-v$npm_package_version.tar.gz pakro-test-tool/",
+    "release:gh": "gh release create v$npm_package_version --title \"pakro-test-tool v$npm_package_version\" --notes \"Release v$npm_package_version of pakro-test-tool for lockfile development and testing.\" ../pakro-test-tool-v$npm_package_version.tar.gz"
+  },
+  "keywords": [
+    "pakro",
+    "test",
+    "tool",
+    "lockfile",
+    "multi-platform"
+  ],
+  "author": "Pakro Contributors",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mise-plugins/mise-test-tool.git"
+  },
+  "homepage": "https://github.com/mise-plugins/mise-test-tool",
+  "bugs": {
+    "url": "https://github.com/mise-plugins/mise-test-tool/issues"
+  }
+}

@@ -17,10 +17,22 @@ on:
         type: boolean
 
 env:
-  PACKAGE_NAME: mise
+  PAKRO_ENABLE_RELEASE: ${{ vars.PAKRO_ENABLE_RELEASE || 'false' }}
+  PAKRO_RELEASE_REPOSITORY: ${{ github.repository }}
+  PAKRO_DOWNLOAD_BASE_URL: ${{ vars.PAKRO_DOWNLOAD_BASE_URL }}
+  PAKRO_R2_ENDPOINT_URL: ${{ vars.PAKRO_R2_ENDPOINT_URL }}
+  PAKRO_RELEASE_BUCKET: ${{ vars.PAKRO_RELEASE_BUCKET }}
+  PAKRO_CLOUDFLARE_ACCOUNT_ID: ${{ vars.PAKRO_CLOUDFLARE_ACCOUNT_ID }}
+  PAKRO_CLOUDFLARE_WORKER_NAME: ${{ vars.PAKRO_CLOUDFLARE_WORKER_NAME }}
+  PAKRO_CLOUDFLARE_ZONES: ${{ vars.PAKRO_CLOUDFLARE_ZONES }}
+  PAKRO_GPG_SIGNING_KEY: ${{ vars.PAKRO_GPG_SIGNING_KEY }}
+  PAKRO_RELEASE_NAME: ${{ vars.PAKRO_RELEASE_NAME }}
+  PAKRO_RELEASE_EMAIL: ${{ vars.PAKRO_RELEASE_EMAIL }}
+  PACKAGE_NAME: pakro
 
 jobs:
   publish-copr:
+    if: ${{ vars.PAKRO_ENABLE_RELEASE == 'true' && github.repository != 'jdx/mise' }}
     runs-on: ubuntu-latest
     timeout-minutes: 150
     container:
@@ -37,11 +49,13 @@ jobs:
           INPUT_CHROOTS: ${{ inputs.chroots }}
           INPUT_USE_SERIOUS_PROFILE: ${{ inputs.use_serious_profile }}
           EVENT_NAME: ${{ github.event_name }}
-          COPR_MAINTAINER_NAME_INPUT: ${{ vars.COPR_MAINTAINER_NAME || 'mise Release Bot' }}
-          COPR_MAINTAINER_EMAIL_INPUT: ${{ vars.COPR_MAINTAINER_EMAIL || 'noreply@mise.jdx.dev' }}
-          COPR_OWNER_INPUT: ${{ vars.COPR_OWNER || 'jdxcode' }}
-          COPR_PROJECT_INPUT: ${{ vars.COPR_PROJECT || 'mise' }}
+          COPR_MAINTAINER_NAME_INPUT: ${{ vars.COPR_MAINTAINER_NAME || 'pakro Release Bot' }}
+          COPR_MAINTAINER_EMAIL_INPUT: ${{ vars.COPR_MAINTAINER_EMAIL }}
+          COPR_OWNER_INPUT: ${{ vars.COPR_OWNER }}
+          COPR_PROJECT_INPUT: ${{ vars.COPR_PROJECT || 'pakro' }}
         run: |
+          : "${COPR_MAINTAINER_EMAIL_INPUT:?Configure a pakro maintainer email}"
+          : "${COPR_OWNER_INPUT:?Configure the pakro publication target}"
           VERSION=$(./packaging/scripts/get-version.sh | sed 's/^v//')
 
           {

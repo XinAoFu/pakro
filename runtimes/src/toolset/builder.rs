@@ -189,7 +189,7 @@ impl ToolsetBuilder {
 
     fn load_runtime_env(&self, ts: &mut Toolset, env: EnvMap) -> eyre::Result<()> {
         if self.scope == ConfigScope::LocalOnly {
-            // LocalOnly excludes env-based tool versions (MISE_*_VERSION).
+            // LocalOnly excludes env-based tool versions (PAKRO_*_VERSION).
             return Ok(());
         }
         let postinstall = postinstall_tool_request(&env)?.map(|(mut request, source)| {
@@ -222,7 +222,7 @@ impl ToolsetBuilder {
         Ok(())
     }
 
-    /// A postinstall hook may invoke mise again before its outer installation
+    /// A postinstall hook may invoke pakro again before its outer installation
     /// has finished. Preserve the outer tool's exact destination so that
     /// nested invocation uses it rather than resolving a second install path.
     fn apply_postinstall_install_path(&self, ts: &mut Toolset, env: &EnvMap) -> Result<()> {
@@ -232,7 +232,7 @@ impl ToolsetBuilder {
         let Some((request, _)) = postinstall_tool_request(env)? else {
             return Ok(());
         };
-        let Some(path) = env.get("MISE_TOOL_INSTALL_PATH") else {
+        let Some(path) = env.get("PAKRO_TOOL_INSTALL_PATH") else {
             return Ok(());
         };
         let Some(tvl) = ts.versions.get_mut(request.ba()) else {
@@ -345,9 +345,9 @@ impl ToolsetBuilder {
                     let tvr = apply_arg_options(tvr.clone());
                     arg_ts.add_version(tvr);
                 } else if self.default_to_latest {
-                    // this logic is required for `mise x` because with that specific command mise
+                    // this logic is required for `pakro x` because with that specific command pakro
                     // should default to installing the "latest" version if no version is specified
-                    // in mise.toml
+                    // in pakro.toml
 
                     // determine if we already have some active version in config
                     let current_active = ts
@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn canonical_runtime_argument_binding_keeps_source_and_real_owner() {
         let backend = Arc::new(crate::plugins::core::new_backend_arg("python"));
-        let owner = ToolSource::MiseToml("/owner/mise.toml".into());
+        let owner = ToolSource::PakroToml("/owner/pakro.toml".into());
         let configured = ToolRequest::new(backend.clone(), "3.10.14", owner.clone()).unwrap();
         let argument = ToolRequest::new(backend, "3.10.14", ToolSource::Argument).unwrap();
 
@@ -415,9 +415,9 @@ mod tests {
             .versions
             .push(ToolVersion::new(request, "2.0.0".into()));
         let env = EnvMap::from_iter([
-            ("MISE_TOOL_INSTALL_PATH".into(), "/tmp/dummy".into()),
-            ("MISE_TOOL_NAME".into(), "dummy".into()),
-            (env::MISE_TOOL_VERSION_ENV_VAR.into(), "2.0.0".into()),
+            ("PAKRO_TOOL_INSTALL_PATH".into(), "/tmp/dummy".into()),
+            ("PAKRO_TOOL_NAME".into(), "dummy".into()),
+            (env::PAKRO_TOOL_VERSION_ENV_VAR.into(), "2.0.0".into()),
         ]);
 
         ToolsetBuilder::new()
@@ -443,9 +443,9 @@ mod tests {
         let mut ts = Toolset::new(ToolSource::Unknown);
         ts.add_version(configured);
         let env = EnvMap::from_iter([
-            ("MISE_TOOL_INSTALL_PATH".into(), "/tmp/dummy".into()),
-            ("MISE_TOOL_NAME".into(), "dummy".into()),
-            (env::MISE_TOOL_VERSION_ENV_VAR.into(), "2.0.0".into()),
+            ("PAKRO_TOOL_INSTALL_PATH".into(), "/tmp/dummy".into()),
+            ("PAKRO_TOOL_NAME".into(), "dummy".into()),
+            (env::PAKRO_TOOL_VERSION_ENV_VAR.into(), "2.0.0".into()),
         ]);
 
         ToolsetBuilder::new()
@@ -467,12 +467,12 @@ mod tests {
         };
         let mut inactive_options = parse_tool_options(r#"selected="inactive""#);
         inactive_options.core.os = Some(vec![inactive_os.to_string()]);
-        let active_source = ToolSource::MiseTomlDaemon("/project/mise.toml".into());
+        let active_source = ToolSource::PakroTomlDaemon("/project/pakro.toml".into());
         let inactive = ToolRequest::new_with_options(
             ba.clone(),
             "1.0.0",
             inactive_options,
-            ToolSource::MiseToml("/project/child/mise.toml".into()),
+            ToolSource::PakroToml("/project/child/pakro.toml".into()),
         )
         .unwrap();
         let active = ToolRequest::new_with_options(
@@ -550,7 +550,7 @@ mod tests {
     #[tokio::test]
     async fn runtime_args_keep_provenance_and_scope_lockfile_reads() {
         crate::toolset::install_state::init().await.unwrap();
-        let source = ToolSource::MiseToml("/project/mise.toml".into());
+        let source = ToolSource::PakroToml("/project/pakro.toml".into());
         for (argument, expected_version) in [("dummy@2", "2"), ("dummy", "latest")] {
             for use_locked_version in [true, false] {
                 let ba = Arc::new(BackendArg::from("dummy"));
@@ -597,7 +597,7 @@ mod tests {
         assert_eq!(request.source(), &ToolSource::Argument);
         assert_eq!(request.lockfile_source(), None);
 
-        let source = ToolSource::Environment("MISE_DUMMY_VERSION".into(), "2".into());
+        let source = ToolSource::Environment("PAKRO_DUMMY_VERSION".into(), "2".into());
         let mut ts = Toolset::new(source.clone());
         ts.add_version(ToolRequest::new(ba.clone(), "2", source).unwrap());
         ToolsetBuilder::new()

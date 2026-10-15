@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
 
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 
-marker="$MISE_TMP_DIR/monorepo-config-render-count"
+marker="$PAKRO_TMP_DIR/monorepo-config-render-count"
 mkdir -p apps/example
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 monorepo_root = true
 
 [monorepo]
 config_roots = ["apps/*"]
 EOF
 
-cat >apps/example/mise.toml <<EOF
+cat >apps/example/pakro.toml <<EOF
 [tasks.render-once]
 description = "{{ exec(command='echo rendered >> $marker') }}"
 run = "echo render-once"
 EOF
-ln -s mise.toml apps/example/mise.local.toml
+ln -s pakro.toml apps/example/pakro.local.toml
 
-mise tasks --all >/dev/null
+pakro tasks --all >/dev/null
 assert "wc -l < '$marker' | tr -d ' '" "1"

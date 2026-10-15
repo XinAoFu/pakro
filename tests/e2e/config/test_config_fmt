@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 exit 0 # this isn't working right
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 env_path = "."
 env_file = ".env"
 min_version = "0"
@@ -23,8 +23,8 @@ run = "test"
 [settings]
 EOF
 
-assert "mise fmt"
-assert 'cat mise.toml' 'min_version = "0"
+assert "pakro fmt"
+assert 'cat pakro.toml' 'min_version = "0"
 env_file = ".env"
 env_path = "."
 [_]

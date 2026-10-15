@@ -15,14 +15,14 @@
 # empty stdout does not distinguish "fast-path skipped the work" from "the work
 # ran and was thrown away". Counting env._.source executions does.
 
-export MISE_ENV_CACHE=0
+export PAKRO_ENV_CACHE=0
 
 cat >env.sh <<'EOF'
 echo ran >>"$COUNTER_FILE"
 export FROM_SOURCE=1
 EOF
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [env]
 _.source = "env.sh"
 EOF
@@ -30,15 +30,15 @@ EOF
 export COUNTER_FILE="$PWD/source-runs.txt"
 : >"$COUNTER_FILE"
 
-eval "$(mise activate bash 2>/dev/null)"
-eval "$(mise hook-env -s bash 2>/dev/null)"
+eval "$(pakro activate bash 2>/dev/null)"
+eval "$(pakro hook-env -s bash 2>/dev/null)"
 before_touch=$(wc -l <"$COUNTER_FILE")
 
 # Creating a non-config file bumps the directory mtime, which legitimately
 # forces one more full run so the new state can be picked up.
 sleep 1
 touch unrelated.lock
-eval "$(mise hook-env -s bash 2>/dev/null)"
+eval "$(pakro hook-env -s bash 2>/dev/null)"
 settled=$(wc -l <"$COUNTER_FILE")
 if [[ $settled -le $before_touch ]]; then
   fail "unrelated file did not trigger env._.source: $before_touch -> $settled"
@@ -47,7 +47,7 @@ fi
 # That run must have refreshed the session. Every prompt after it should take
 # the fast path and leave env._.source alone.
 for _ in 1 2 3; do
-  eval "$(mise hook-env -s bash 2>/dev/null)"
+  eval "$(pakro hook-env -s bash 2>/dev/null)"
 done
 after=$(wc -l <"$COUNTER_FILE")
 
@@ -59,7 +59,7 @@ fi
 
 # Belt and braces: a settled prompt takes the fast path, which exits before
 # logger init, so it emits nothing on either stream.
-output=$(mise hook-env -s bash 2>&1)
+output=$(pakro hook-env -s bash 2>&1)
 if [[ -z $output ]]; then
   ok "fast-path works once the session is stable"
 else

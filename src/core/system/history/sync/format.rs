@@ -1,5 +1,5 @@
 //! The explicit versioned marker of a history-enabled setup repository:
-//! `.mise-history/format.toml` with `format = 1`. A repository without it is
+//! `.pakro-history/format.toml` with `format = 1`. A repository without it is
 //! an ordinary repository and keeps its old `--from`/`--adopt`
 //! behaviour; a newer format stops with an upgrade message.
 
@@ -18,7 +18,7 @@ struct Marker {
 
 pub(crate) fn marker_content() -> String {
     format!(
-        "# This repository is a mise setup repository (`mise dot origin set`).\n# Do not edit: mise reads this to recognize the layout it publishes.\nformat = {FORMAT}\n"
+        "# This repository is a pakro setup repository (`pakro dot origin set`).\n# Do not edit: pakro reads this to recognize the layout it publishes.\nformat = {FORMAT}\n"
     )
 }
 
@@ -41,13 +41,13 @@ pub(crate) enum RepoState {
 }
 
 impl RepoState {
-    /// Fails for a format this mise does not understand.
+    /// Fails for a format this pakro does not understand.
     pub(crate) fn check(&self) -> Result<()> {
         if let Self::Marked(format) = self
             && *format != FORMAT
         {
             bail!(
-                "this setup repository uses format {format}; upgrade mise (this version supports format {FORMAT})"
+                "this setup repository uses format {format}; upgrade pakro (this version supports format {FORMAT})"
             );
         }
         Ok(())
@@ -76,7 +76,7 @@ mod tests {
         assert!(RepoState::Marked(FORMAT).check().is_ok());
         let err = RepoState::Marked(99).check().unwrap_err().to_string();
         assert!(err.contains("format 99"), "{err}");
-        assert!(err.contains("upgrade mise"), "{err}");
+        assert!(err.contains("upgrade pakro"), "{err}");
         assert!(RepoState::Unmarked.check().is_ok());
     }
 }

@@ -10,7 +10,7 @@ use crate::toolset::{ToolRequest, ToolVersion, install_state};
 use crate::{backend, config, file};
 use crate::{cli::args::ToolArg, config::Config};
 
-/// Symlink a tool version into mise
+/// Symlink a tool version into pakro
 ///
 /// Use this to register an install that was compiled by hand or built with another tool.
 #[derive(Debug, usage_rs::Args)]
@@ -19,14 +19,14 @@ use crate::{cli::args::ToolArg, config::Config};
     verbatim_doc_comment,
     example(
         r###"node-build 20.0.0 ~/.nodes/20.0.0
-mise link node@20.0.0 ~/.nodes/20.0.0"###,
-        help = r###"build node-20.0.0 with node-build and link it into mise"###
+pakro link node@20.0.0 ~/.nodes/20.0.0"###,
+        help = r###"build node-20.0.0 with node-build and link it into pakro"###
     ),
     example(
         r###"brew install node
-mise link node@brew "$(brew --prefix node)"
-mise use node@brew"###,
-        help = r###"have mise use the node version provided by Homebrew"###
+pakro link node@brew "$(brew --prefix node)"
+pakro use node@brew"###,
+        help = r###"have pakro use the node version provided by Homebrew"###
     )
 )]
 pub(crate) struct Link {
@@ -49,7 +49,7 @@ impl Link {
         let tvr = match self.tool.tvr.as_ref() {
             Some(tvr @ (ToolRequest::Version { .. } | ToolRequest::Ref { .. })) => tvr,
             Some(tvr) => bail!(
-                "mise link only supports concrete versions and refs, not {}",
+                "pakro link only supports concrete versions and refs, not {}",
                 tvr.version()
             ),
             None => bail!("must provide a version for {}", self.tool.style()),
@@ -64,7 +64,7 @@ impl Link {
                     || backend.is_rolling_channel(version)
                 {
                     bail!(
-                        "mise link only supports concrete versions and refs, not {}",
+                        "pakro link only supports concrete versions and refs, not {}",
                         tvr.version()
                     );
                 }

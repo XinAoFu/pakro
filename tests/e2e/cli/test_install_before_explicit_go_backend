@@ -3,7 +3,7 @@ set -euo pipefail
 
 export GOPROXY="https://proxy.golang.org,direct"
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [settings]
 minimum_release_age = "2100-01-01"
 
@@ -11,9 +11,9 @@ minimum_release_age = "2100-01-01"
 'go:github.com/roborev-dev/roborev/cmd/roborev' = { version = "latest", minimum_release_age = "2026-04-07" }
 EOF
 
-assert_contains "mise install --dry-run 2>&1" "go:github.com/roborev-dev/roborev/cmd/roborev@0.50.0"
+assert_contains "pakro install --dry-run 2>&1" "go:github.com/roborev-dev/roborev/cmd/roborev@0.50.0"
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [settings]
 minimum_release_age = "2026-04-07"
 
@@ -21,5 +21,5 @@ minimum_release_age = "2026-04-07"
 'go:github.com/roborev-dev/roborev/cmd/roborev' = { version = "latest", minimum_release_age = "2100-01-01" }
 EOF
 
-assert_matches "mise install --dry-run 2>&1" "go:github.com/roborev-dev/roborev/cmd/roborev@[0-9]+\.[0-9]+\.[0-9]+"
-assert_not_contains "mise install --dry-run 2>&1" "go:github.com/roborev-dev/roborev/cmd/roborev@0.50.0"
+assert_matches "pakro install --dry-run 2>&1" "go:github.com/roborev-dev/roborev/cmd/roborev@[0-9]+\.[0-9]+\.[0-9]+"
+assert_not_contains "pakro install --dry-run 2>&1" "go:github.com/roborev-dev/roborev/cmd/roborev@0.50.0"

@@ -71,7 +71,7 @@ impl Ssh {
             bail!("a repository preview directory requires a dry run");
         }
         if self.global_config_directory {
-            miseprintln!(
+            pakroprintln!(
                 "{}",
                 crate::system::remote_repository::global_directory().display()
             );
@@ -124,7 +124,7 @@ impl Ssh {
                             .is_empty())
                 {
                     bail!(
-                        "setup has conflicts; nothing was bootstrapped; use `mise dot status` to resolve them"
+                        "setup has conflicts; nothing was bootstrapped; use `pakro dot status` to resolve them"
                     );
                 }
                 return Ok(());
@@ -230,7 +230,7 @@ mod tests {
     #[test]
     fn parses_destination_options_and_command() {
         let argv = [
-            "mise",
+            "pakro",
             "ssh",
             "devbox",
             "--github-relay-read-only",
@@ -264,12 +264,12 @@ mod tests {
     #[test]
     fn parses_internal_session_command_without_destination() {
         let argv = [
-            "mise",
+            "pakro",
             "ssh",
             "--relay-session",
             "/tmp/socket",
             "--",
-            "mise",
+            "pakro",
             "--version",
         ]
         .map(OsStr::new);
@@ -280,6 +280,6 @@ mod tests {
         if let Some(first) = args.destination {
             command.insert(0, first);
         }
-        assert_eq!(command, ["mise", "--version"]);
+        assert_eq!(command, ["pakro", "--version"]);
     }
 }

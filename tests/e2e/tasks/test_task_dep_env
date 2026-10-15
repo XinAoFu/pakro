@@ -3,7 +3,7 @@
 # Test passing env vars to task dependencies
 
 # Test shell-style env var syntax: "FOO=bar mytask"
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.show-env]
 run = 'echo "FOO=\$FOO BAZ=\$BAZ"'
 
@@ -16,11 +16,11 @@ depends = ["FOO=hello BAZ=world show-env"]
 run = 'echo done'
 EOF
 
-assert_contains "mise run with-env-string" "FOO=hello"
-assert_contains "mise run with-multiple-env" "FOO=hello BAZ=world"
+assert_contains "pakro run with-env-string" "FOO=hello"
+assert_contains "pakro run with-multiple-env" "FOO=hello BAZ=world"
 
 # Test structured object syntax: { task = "mytask", env = { FOO = "bar" } }
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.show-env]
 run = 'echo "FOO=\$FOO BAZ=\$BAZ"'
 
@@ -36,7 +36,7 @@ run = 'echo done'
 run = 'echo "FOO=\$FOO" && echo'
 EOF
 
-assert_contains "mise run with-env-object" "FOO=hello BAZ=world"
-assert_contains "mise run with-env-and-args" "FOO=test"
+assert_contains "pakro run with-env-object" "FOO=hello BAZ=world"
+assert_contains "pakro run with-env-and-args" "FOO=test"
 # Args are appended to the command line, verify they appear in output
-assert_contains "mise run with-env-and-args" "arg1 arg2"
+assert_contains "pakro run with-env-and-args" "arg1 arg2"

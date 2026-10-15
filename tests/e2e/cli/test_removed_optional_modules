@@ -1,39 +1,39 @@
 #!/usr/bin/env bash
 
-export MISE_TRUSTED_CONFIG_PATHS="$PWD"
+export PAKRO_TRUSTED_CONFIG_PATHS="$PWD"
 
-assert_fail "mise edit --help"
-assert_fail "mise generate task-stubs --windows-launcher exe"
+assert_fail "pakro edit --help"
+assert_fail "pakro generate task-stubs --windows-launcher exe"
 
 for namespace in vfox vfox-backend package; do
-  cat >mise.toml <<EOF
+  cat >pakro.toml <<EOF
 [plugins]
 "$namespace:removed" = "{{ exec(command='touch template-ran') }}https://example.invalid/plugin"
 EOF
-  assert_fail_contains "mise ls --json" "removed"
+  assert_fail_contains "pakro ls --json" "removed"
   assert_succeed "test ! -e template-ran"
 done
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [plugins]
 removed = "packslip:example/removed"
 EOF
-assert_fail_contains "mise ls --json" "removed"
+assert_fail_contains "pakro ls --json" "removed"
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [bootstrap.plugins]
 removed = "https://example.invalid/plugin"
 EOF
-assert_fail_contains "mise ls --json" "removed"
+assert_fail_contains "pakro ls --json" "removed"
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [env._]
 removed = {}
 EOF
-assert_fail_contains "mise env" "removed"
+assert_fail_contains "pakro env" "removed"
 
-printf '' >mise.toml
-assert_fail_contains "mise ls vfox:example/removed" "removed"
+printf '' >pakro.toml
+assert_fail_contains "pakro ls vfox:example/removed" "removed"
 
 # A plain Git URL must not make a Lua plugin an ASDF plugin or run its hooks.
 mkdir -p lua-plugin/bin
@@ -46,30 +46,30 @@ chmod +x lua-plugin/bin/post-plugin-add
 git -C lua-plugin -c init.defaultBranch=main init -q
 git -C lua-plugin add .
 git -C lua-plugin -c user.email=test@example.invalid -c user.name=test commit -q -m 'test: add rejected Lua fixture'
-assert_fail_contains "mise plugins install rejected 'file://$PWD/lua-plugin'" "removed"
+assert_fail_contains "pakro plugins install rejected 'file://$PWD/lua-plugin'" "removed"
 assert_succeed "test ! -e lua-hook-ran"
-assert_succeed "test ! -e '$MISE_DATA_DIR/plugins/rejected'"
+assert_succeed "test ! -e '$PAKRO_DATA_DIR/plugins/rejected'"
 
 # Preserve an existing ASDF link when --force targets a rejected Lua directory.
 mkdir -p vfox-compatible-asdf/bin
 printf '#!/usr/bin/env bash\necho 1.0.0\n' >vfox-compatible-asdf/bin/list-all
 chmod +x vfox-compatible-asdf/bin/list-all
-mise plugins link preserved "$PWD/vfox-compatible-asdf"
-assert_fail_contains "mise plugins link --force preserved '$PWD/lua-plugin'" "removed"
-assert "readlink '$MISE_DATA_DIR/plugins/preserved'" "$PWD/vfox-compatible-asdf"
+pakro plugins link preserved "$PWD/vfox-compatible-asdf"
+assert_fail_contains "pakro plugins link --force preserved '$PWD/lua-plugin'" "removed"
+assert "readlink '$PAKRO_DATA_DIR/plugins/preserved'" "$PWD/vfox-compatible-asdf"
 
 # Explicit ASDF identifiers cannot execute scripts in an existing Lua directory.
 for name in existing-lua asdf-existing-lua; do
-  mkdir -p "$MISE_DATA_DIR/plugins/$name/bin"
-  printf 'return {}\n' >"$MISE_DATA_DIR/plugins/$name/metadata.lua"
-  cat >"$MISE_DATA_DIR/plugins/$name/bin/list-all" <<EOF
+  mkdir -p "$PAKRO_DATA_DIR/plugins/$name/bin"
+  printf 'return {}\n' >"$PAKRO_DATA_DIR/plugins/$name/metadata.lua"
+  cat >"$PAKRO_DATA_DIR/plugins/$name/bin/list-all" <<EOF
 #!/usr/bin/env bash
 touch "$PWD/existing-lua-hook-ran"
 echo 1.0.0
 EOF
-  chmod +x "$MISE_DATA_DIR/plugins/$name/bin/list-all"
+  chmod +x "$PAKRO_DATA_DIR/plugins/$name/bin/list-all"
 done
-assert_fail_contains "mise ls-remote asdf:existing-lua" "removed"
+assert_fail_contains "pakro ls-remote asdf:existing-lua" "removed"
 assert_succeed "test ! -e existing-lua-hook-ran"
 
 # Updating an ASDF repository to a Lua revision must stop before update hooks.
@@ -80,7 +80,7 @@ git -C changing-plugin -c init.defaultBranch=main init -q
 git -C changing-plugin add .
 git -C changing-plugin -c user.email=test@example.invalid -c user.name=test commit -q -m 'test: add ASDF fixture'
 git -C changing-plugin tag asdf
-mise plugins install changing "file://$PWD/changing-plugin#asdf"
+pakro plugins install changing "file://$PWD/changing-plugin#asdf"
 printf 'return {}\n' >changing-plugin/metadata.lua
 cat >changing-plugin/bin/post-plugin-update <<EOF
 #!/usr/bin/env bash
@@ -90,5 +90,5 @@ chmod +x changing-plugin/bin/post-plugin-update
 git -C changing-plugin add .
 git -C changing-plugin -c user.email=test@example.invalid -c user.name=test commit -q -m 'test: add rejected Lua revision'
 git -C changing-plugin tag lua
-assert_fail_contains "mise plugins update changing#lua" "removed"
+assert_fail_contains "pakro plugins update changing#lua" "removed"
 assert_succeed "test ! -e updated-lua-hook-ran"

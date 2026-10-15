@@ -17,13 +17,13 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  GITHUB_API_TOKEN: ${{ secrets.MISE_GH_TOKEN || secrets.GITHUB_TOKEN }}
+  GITHUB_API_TOKEN: ${{ secrets.PAKRO_GH_TOKEN || secrets.GITHUB_TOKEN }}
 
 jobs:
   build-linux:
     if: >
       github.event_name == 'workflow_dispatch'
-      || github.repository == 'jdx/mise'
+      || github.repository != 'jdx/mise'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -52,51 +52,51 @@ jobs:
       matrix:
         include:
           - plugin: node
-            command: mise exec node@latest -- node -v
+            command: pakro exec node@latest -- node -v
           - plugin: ruby
-            command: mise exec ruby@latest -- ruby --version
+            command: pakro exec ruby@latest -- ruby --version
           - plugin: python
-            command: mise exec python@latest -- python -V
+            command: pakro exec python@latest -- python -V
           - plugin: direnv
-            command: mise exec direnv@latest -- direnv --version
+            command: pakro exec direnv@latest -- direnv --version
           - plugin: erlang
-            command: mise exec erlang@27.2 -- erl -eval 'erlang:display(erlang:system_info(otp_release)), halt().'  -noshell
+            command: pakro exec erlang@27.2 -- erl -eval 'erlang:display(erlang:system_info(otp_release)), halt().'  -noshell
           - plugin: elixir
             command: |
-              mise use --global erlang@27.2
-              eval "$(mise env bash)"
-              mise use --global elixir@1.17.3
-              eval "$(mise env bash)"
-              mise exec -- elixir --version
+              pakro use --global erlang@27.2
+              eval "$(pakro env bash)"
+              pakro use --global elixir@1.17.3
+              eval "$(pakro env bash)"
+              pakro exec -- elixir --version
           - plugin: golang
-            command: mise exec golang@latest -- go version
+            command: pakro exec golang@latest -- go version
           - plugin: java
-            command: mise exec java@openjdk -- java -version
+            command: pakro exec java@openjdk -- java -version
           - plugin: terraform
-            command: mise exec terraform@latest -- terraform -v
+            command: pakro exec terraform@latest -- terraform -v
           # - plugin: yarn
-          #   command: mise exec yarn@latest -- yarn --version
+          #   command: pakro exec yarn@latest -- yarn --version
           - plugin: deno
-            command: mise exec deno@latest -- deno --version
+            command: pakro exec deno@latest -- deno --version
           - plugin: bun
-            command: mise exec bun@latest -- bun --version
+            command: pakro exec bun@latest -- bun --version
           - plugin: kubectl
-            command: mise exec kubectl@latest -- kubectl version --client
+            command: pakro exec kubectl@latest -- kubectl version --client
           - plugin: dotnet
-            command: mise exec dotnet@latest -- dotnet --list-sdks
+            command: pakro exec dotnet@latest -- dotnet --list-sdks
           - plugin: flutter
-            command: mise exec flutter@latest -- flutter --version
+            command: pakro exec flutter@latest -- flutter --version
           # - plugin: crystal
-          #   command: mise exec crystal@latest -- crystal -v
+          #   command: pakro exec crystal@latest -- crystal -v
           - plugin: neovim
-            command: mise exec neovim@latest -- nvim --version
+            command: pakro exec neovim@latest -- nvim --version
           - plugin: php
-            command: mise exec php@latest -- php -v php
+            command: pakro exec php@latest -- php -v php
           - plugin: rust
-            command: mise exec rust@nightly -- rustc -V
+            command: pakro exec rust@nightly -- rustc -V
           # TODO: has some sort of readline bug on ubuntu-24
           # - plugin: postgres
-          #   command: mise exec postgres@latest -- psql -V
+          #   command: pakro exec postgres@latest -- psql -V
     steps:
       - name: apt-get
         run: sudo apt-get update; sudo apt-get install zsh fish direnv re2c libcurl4-openssl-dev libgd-dev libonig-dev autoconf bison build-essential curl gettext git libgd-dev libcurl4-openssl-dev libedit-dev libicu-dev libjpeg-dev libmysqlclient-dev libonig-dev libpng-dev libpq-dev libreadline-dev libsqlite3-dev libssl-dev libxml2-dev libzip-dev openssl pkg-config re2c zlib1g-dev
@@ -104,11 +104,11 @@ jobs:
         with:
           name: tarball-x86_64-unknown-linux-gnu
           path: dist
-          # dist/mise-v1.16.0-linux-x64.tar.xz
+          # dist/pakro-v1.16.0-linux-x64.tar.xz
           # x86_64-unknown-linux-gnu-v1.16.0-linux-x64.tar.xz
-      - run: tar -C "$HOME" -xvJf dist/mise-*-linux-x64.tar.xz
-      - run: echo "$HOME/mise/bin" >> "$GITHUB_PATH"
-      - run: mise -v
+      - run: tar -C "$HOME" -xvJf dist/pakro-*-linux-x64.tar.xz
+      - run: echo "$HOME/pakro/bin" >> "$GITHUB_PATH"
+      - run: pakro -v
       - name: ${{matrix.command}}
         uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
         with:
@@ -117,11 +117,11 @@ jobs:
           retry_wait_seconds: 30
           command: ${{matrix.command}}
         env:
-          MISE_EXPERIMENTAL: "1"
+          PAKRO_EXPERIMENTAL: "1"
   test-install:
     # Tests installing the top 50 plugins not already tested in `test-install-and-run`.
     # installing is a better-than-nothing smoke test that the plugin is correctly implemented
-    # and behaves as expected with mise.
+    # and behaves as expected with pakro.
     runs-on: ubuntu-latest
     needs: [build-linux]
     strategy:
@@ -153,7 +153,7 @@ jobs:
           - awscli
           - dart
           - conan
-          # TODO: - awsebcli fails in asdf and mise the same way
+          # TODO: - awsebcli fails in asdf and pakro the same way
           - aws-sam-cli
           - ansible-base
           - kotlin
@@ -182,12 +182,12 @@ jobs:
         with:
           name: tarball-x86_64-unknown-linux-gnu
           path: dist
-      - run: tar -C "$HOME" -xvJf dist/mise-*-linux-x64.tar.xz
-      - run: echo "$HOME/mise/bin" >> "$GITHUB_PATH"
-      - name: mise install ${{matrix.plugins}}@latest
+      - run: tar -C "$HOME" -xvJf dist/pakro-*-linux-x64.tar.xz
+      - run: echo "$HOME/pakro/bin" >> "$GITHUB_PATH"
+      - name: pakro install ${{matrix.plugins}}@latest
         uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
         with:
           timeout_minutes: 20
           max_attempts: 3
           retry_wait_seconds: 30
-          command: mise install ${{matrix.plugins}}@latest
+          command: pakro install ${{matrix.plugins}}@latest

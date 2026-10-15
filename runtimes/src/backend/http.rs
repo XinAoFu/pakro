@@ -205,7 +205,7 @@ impl<'a> HttpOptions<'a> {
         self.values.str("checksum_expr")
     }
 
-    // Target-aware accessors for cross-platform `mise lock`. These resolve
+    // Target-aware accessors for cross-platform `pakro lock`. These resolve
     // `platforms.<key>.<opt>` for an arbitrary target rather than the host.
     fn url_for_target(&self, target: &PlatformTarget) -> Option<String> {
         self.values.platform_string_for_target("url", target)
@@ -562,7 +562,7 @@ impl HttpBackend {
             .ok_or_else(|| eyre::eyre!("HTTP install path must have a parent"))?;
         file::create_dir_all(parent)?;
         let tmp_path = parent.join(format!(
-            ".mise-tmp-{}-{}-{}",
+            ".pakro-tmp-{}-{}-{}",
             cache_plan.key,
             std::process::id(),
             SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis()
@@ -949,7 +949,7 @@ impl HttpBackend {
     // Cross-platform lock resolution
     // -------------------------------------------------------------------------
 
-    /// Resolve the artifact URL for a target platform during `mise lock`.
+    /// Resolve the artifact URL for a target platform during `pakro lock`.
     /// Renders `os()`/`arch()` for the target rather than the host.
     fn lock_url_for_target(
         &self,
@@ -1105,7 +1105,7 @@ impl Backend for HttpBackend {
         ]
     }
 
-    /// Version discovery, and where a checksum is looked up when `mise lock` has none.
+    /// Version discovery, and where a checksum is looked up when `pakro lock` has none.
     /// Neither is consulted to install a concrete version from `url`.
     ///
     /// `bin_path` is not listed: it decides where a raw file or an archive lands in the
@@ -1150,7 +1150,7 @@ impl Backend for HttpBackend {
         Ok(result)
     }
 
-    /// Resolve URL + published checksum for a target platform during `mise lock`,
+    /// Resolve URL + published checksum for a target platform during `pakro lock`,
     /// without downloading the artifact. Best-effort: a platform with no
     /// resolvable URL fails closed (`Err`) so the lock run reports it as skipped
     /// rather than writing nothing under a success count; a missing checksum
@@ -1414,7 +1414,7 @@ impl Backend for HttpBackend {
 /// still differs whenever the rename config differs, which is all it needs to do;
 /// the human-readable part of the cache key is the file checksum, not this token.
 /// The local file a `file://` artifact URL names, so an archive fetched by hand
-/// (or from a mirror mise cannot reach) installs exactly like a downloaded one.
+/// (or from a mirror pakro cannot reach) installs exactly like a downloaded one.
 /// Any other scheme is left to the HTTP client.
 fn local_artifact_path(url: &str) -> Result<Option<PathBuf>> {
     let Ok(parsed) = url::Url::parse(url) else {
@@ -1571,14 +1571,14 @@ mod tests {
 
     #[test]
     fn install_symlink_path_uses_sanitized_version_pathname() {
-        let version = "/outside-root/mise-http-version-out/selected-prefix";
+        let version = "/outside-root/pakro-http-version-out/selected-prefix";
         let tv = http_test_tv(version);
         let version_name = HttpBackend::install_version_name(&tv, "abcdef123456");
 
         assert_eq!(
             version_name,
             format!(
-                "-outside-root-mise-http-version-out-selected-prefix-{}",
+                "-outside-root-pakro-http-version-out-selected-prefix-{}",
                 version_hash(version)
             )
         );
@@ -1601,14 +1601,14 @@ mod tests {
 
     #[test]
     fn install_symlink_path_sanitizes_windows_separators() {
-        let version = r"..\..\outside-root\mise-http-version-out\selected-prefix";
+        let version = r"..\..\outside-root\pakro-http-version-out\selected-prefix";
         let tv = http_test_tv(version);
         let version_name = HttpBackend::install_version_name(&tv, "abcdef123456");
 
         assert_eq!(
             version_name,
             format!(
-                "..-..-outside-root-mise-http-version-out-selected-prefix-{}",
+                "..-..-outside-root-pakro-http-version-out-selected-prefix-{}",
                 version_hash(version)
             )
         );
@@ -1671,7 +1671,7 @@ mod tests {
 
     #[test]
     fn lookup_install_path_matches_sanitized_install_path() {
-        let version = "/outside-root/mise-http-version-out/selected-prefix";
+        let version = "/outside-root/pakro-http-version-out/selected-prefix";
         let tv = http_test_tv(version);
         let install_path = HttpBackend::install_path_for(&tv, "abcdef123456");
         let lookup_path = HttpBackend::lookup_install_path(&tv);

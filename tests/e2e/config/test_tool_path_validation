@@ -9,22 +9,22 @@
 
 mkdir -p tools/bin
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [tools]
 node = { path = '/tmp/\rm' }
 EOF
-assert_fail_contains "mise ls --current" "invalid tool path"
+assert_fail_contains "pakro ls --current" "invalid tool path"
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [tools]
 node = { path = '/tmp/$(id)' }
 EOF
-assert_fail_contains "mise ls --current" "invalid tool path"
+assert_fail_contains "pakro ls --current" "invalid tool path"
 
 # The control: an ordinary path resolves, so the assertions above are about the character and not
 # about `path:` being broken in this sandbox.
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [tools]
 node = { path = "./tools/bin" }
 EOF
-assert_contains "mise ls --current" "tools/bin"
+assert_contains "pakro ls --current" "tools/bin"

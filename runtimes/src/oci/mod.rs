@@ -1,7 +1,7 @@
-//! OCI image building from a mise.toml.
+//! OCI image building from a pakro.toml.
 //!
 //! The core invariant: each installed tool version becomes its own OCI layer.
-//! Because mise installs tools to isolated, non-overlapping directories, layer
+//! Because pakro installs tools to isolated, non-overlapping directories, layer
 //! *ordering* is semantically irrelevant — swapping a tool version swaps
 //! exactly one content-addressable blob. See `builder.rs` for how this is
 //! orchestrated.
@@ -100,7 +100,7 @@ pub(crate) fn normalize_os(o: &str) -> &str {
     }
 }
 
-/// The `[oci]` section of a `mise.toml`. All fields optional.
+/// The `[oci]` section of a `pakro.toml`. All fields optional.
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct OciConfig {
@@ -128,15 +128,15 @@ pub struct OciConfig {
     /// Numeric GID assigned to tar layer entries. Defaults to `user_id` when unset.
     #[serde(default)]
     pub group_id: Option<u32>,
-    /// Override where mise installs go in the image. Defaults to the value of
-    /// the `oci.default_mount_point` setting (`/mise`).
+    /// Override where pakro installs go in the image. Defaults to the value of
+    /// the `oci.default_mount_point` setting (`/pakro`).
     #[serde(default)]
     pub mount_point: Option<String>,
     /// Host files or directories copied into the image as independent layers.
     #[serde(default)]
     pub copy: Vec<OciCopy>,
     /// Extra env vars baked into the image config in addition to those derived
-    /// from the mise.toml `[env]` section and per-tool `exec_env()`.
+    /// from the pakro.toml `[env]` section and per-tool `exec_env()`.
     #[serde(default)]
     pub env: IndexMap<String, String>,
     /// Labels baked into the image config.

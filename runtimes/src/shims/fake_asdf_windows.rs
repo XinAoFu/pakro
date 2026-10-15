@@ -6,7 +6,7 @@ use crate::env::PATH_KEY;
 
 #[cfg(windows)]
 pub(crate) fn setup() -> color_eyre::Result<PathBuf> {
-    let path = env::MISE_DATA_DIR.join(".fake-asdf");
+    let path = env::PAKRO_DATA_DIR.join(".fake-asdf");
     Ok(path)
 }
 

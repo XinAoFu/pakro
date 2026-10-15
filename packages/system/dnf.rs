@@ -142,7 +142,7 @@ impl SystemPackageManager for DnfManager {
     async fn install(&self, pkgs: &[PackageRequest], opts: &InstallOpts) -> Result<()> {
         let args = install_args(pkgs, opts);
         if opts.dry_run {
-            miseprintln!("{}", sudo::argv("dnf", &args).join(" "));
+            pakroprintln!("{}", sudo::argv("dnf", &args).join(" "));
             return Ok(());
         }
         sudo::run("dnf", &args, &[])
@@ -151,7 +151,7 @@ impl SystemPackageManager for DnfManager {
     async fn upgrade(&self, pkgs: &[PackageRequest], opts: &InstallOpts) -> Result<()> {
         let args = upgrade_args(pkgs);
         if opts.dry_run {
-            miseprintln!("{}", sudo::argv("dnf", &args).join(" "));
+            pakroprintln!("{}", sudo::argv("dnf", &args).join(" "));
             return Ok(());
         }
         sudo::run("dnf", &args, &[])

@@ -1,33 +1,30 @@
 [workspace]
 resolver = "3"
 members = [
-  "src/crates/mise-cache-core",
-  "packages/crates/mise-brew-relocation",
-  "src/crates/mise-agent-env",
-  "packages/crates/mise-brew-metadata",
-  "src/crates/mise-bootstrap",
+  "src/crates/pakro-cache-core",
+  "packages/crates/pakro-brew-relocation",
+  "src/crates/pakro-agent-env",
+  "packages/crates/pakro-brew-metadata",
+  "src/crates/pakro-bootstrap",
   "runtimes/crates/aqua-registry",
-  "src/crates/mise-sigstore",
-  "src/crates/mise-settings",
-  "src/crates/mise-util",
-  "src/crates/mise-dotenv",
-  "packages/crates/mise-store",
-  "packages/crates/mise-resolver",
-  "packages/crates/mise-index",
+  "src/crates/pakro-sigstore",
+  "src/crates/pakro-settings",
+  "src/crates/pakro-util",
+  "src/crates/pakro-dotenv",
+  "packages/crates/pakro-store",
+  "packages/crates/pakro-resolver",
+  "packages/crates/pakro-index",
 ]
 
 [package]
-name = "mise"
+name = "pakro"
 version = "2026.10.3"
 edition = "2024"
 description = "Dev tools, env vars, and tasks in one CLI"
 authors = ["Jeff Dickey (@jdx)"]
-homepage = "https://mise.jdx.dev"
-documentation = "https://mise.jdx.dev"
-repository = "https://github.com/jdx/mise"
 readme = "README.md"
 license = "MIT"
-keywords = ["mise"]
+keywords = ["pakro"]
 categories = ["command-line-utilities"]
 include = [
   "/Cargo.lock",
@@ -39,7 +36,7 @@ include = [
   "/src/core/system/history/notify/macos.m",
   "/src/core/system/history/notify/macos.plist",
   "/src/assets/notifications/*.png",
-  "/src/schema/mise.json",
+  "/src/schema/pakro.json",
   "/cli/src/**/*.rs",
   "/cli/assets/**",
   "/cli/completions/*",
@@ -67,13 +64,13 @@ rust-version = "1.95"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-name = "mise"
+name = "pakro"
 path = "src/lib.rs"
 # Not a public API; see src/lib.rs. Runnable examples still get checked.
 doc = false
 
 [[bin]]
-name = "mise"
+name = "pakro"
 path = "src/main.rs"
 
 #[[bench]]
@@ -136,7 +133,7 @@ contracts = "0.6"
 dashmap = "6"
 demand = "2"
 diffy = "0.5"
-mise-dotenv = { path = "src/crates/mise-dotenv", version = "0.1" }
+pakro-dotenv = { path = "src/crates/pakro-dotenv", version = "0.1" }
 duct = "1"
 dunce = "1"
 expr-lang = "2"
@@ -145,14 +142,14 @@ file-id = "0.2"
 filetime = "0.2"
 flate2 = "1"
 futures-util = "0.3"
-mise-cache-core = { path = "src/crates/mise-cache-core", version = "0.1", default-features = false }
-mise-settings = { path = "src/crates/mise-settings", version = "2026" }
-mise-util = { path = "src/crates/mise-util", version = "2026", default-features = false }
-mise-store = { path = "packages/crates/mise-store", version = "0.1" }
-mise-index = { path = "packages/crates/mise-index", version = "0.1" }
-mise-resolver = { path = "packages/crates/mise-resolver", version = "0.1" }
-mise-brew-metadata = { path = "packages/crates/mise-brew-metadata", version = "0.1" }
-mise-bootstrap = { path = "src/crates/mise-bootstrap", version = "0.1" }
+pakro-cache-core = { path = "src/crates/pakro-cache-core", version = "0.1", default-features = false }
+pakro-settings = { path = "src/crates/pakro-settings", version = "2026" }
+pakro-util = { path = "src/crates/pakro-util", version = "2026", default-features = false }
+pakro-store = { path = "packages/crates/pakro-store", version = "0.1" }
+pakro-index = { path = "packages/crates/pakro-index", version = "0.1" }
+pakro-resolver = { path = "packages/crates/pakro-resolver", version = "0.1" }
+pakro-brew-metadata = { path = "packages/crates/pakro-brew-metadata", version = "0.1" }
+pakro-bootstrap = { path = "src/crates/pakro-bootstrap", version = "0.1" }
 fslock = "0.2"
 gix = { version = "<1", default-features = false, features = [
   "max-performance-safe",
@@ -232,7 +229,7 @@ rops = { version = "0.1", default-features = false, features = [
 ] }
 # Not used directly. age renders its error messages through fluent, and
 # rust-embed only bakes the translations into the binary for release builds
-# unless `debug-embed` is on. Without it a debug mise that formats an age error
+# unless `debug-embed` is on. Without it a debug pakro that formats an age error
 # outside the crate's source tree — e2e inside a container — panics in age's
 # lazy_static instead of reporting the error.
 rust-embed = { version = "8", features = ["debug-embed"] }
@@ -299,7 +296,7 @@ zipsign-api = { version = "0.2", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 exec = "0.3"
-mise-brew-relocation = { path = "packages/crates/mise-brew-relocation", version = "0.1" }
+pakro-brew-relocation = { path = "packages/crates/pakro-brew-relocation", version = "0.1" }
 nix = { version = "0.31", features = [
   "dir",
   "fs",
@@ -359,8 +356,8 @@ native-tls = [
   "reqwest/native-tls",
   "rattler/native-tls",
   "rattler_repodata_gateway/native-tls",
-  "mise-cache-core/native-tls",
-  "mise-util/native-tls",
+  "pakro-cache-core/native-tls",
+  "pakro-util/native-tls",
   "ubi/native-tls",
   "xx/native-tls",
 ]
@@ -369,8 +366,8 @@ rustls = [
   "reqwest/rustls",
   "rattler/rustls",
   "rattler_repodata_gateway/rustls",
-  "mise-cache-core/rustls",
-  "mise-util/rustls",
+  "pakro-cache-core/rustls",
+  "pakro-util/rustls",
   "ubi/rustls-tls",
   "xx/rustls",
 ]
@@ -379,24 +376,24 @@ rustls-native-roots = [
   "reqwest/rustls",
   "rattler/rustls",
   "rattler_repodata_gateway/rustls",
-  "mise-cache-core/rustls-native-roots",
-  "mise-util/rustls-native-roots",
+  "pakro-cache-core/rustls-native-roots",
+  "pakro-util/rustls-native-roots",
   "ubi/rustls-tls",
   "xx/rustls-native-roots",
 ]
 
 [package.metadata.binstall]
-bin-dir = "mise/bin/mise"
+bin-dir = "pakro/bin/pakro"
 [package.metadata.binstall.overrides.aarch64-apple-darwin]
-pkg-url = "{ repo }/releases/download/v{ version }/mise-v{version}-macos-arm64{ archive-suffix }"
+pkg-url = "{ repo }/releases/download/v{ version }/pakro-v{version}-macos-arm64{ archive-suffix }"
 [package.metadata.binstall.overrides.x86_64-apple-darwin]
-pkg-url = "{ repo }/releases/download/v{ version }/mise-v{version}-macos-x64{ archive-suffix }"
+pkg-url = "{ repo }/releases/download/v{ version }/pakro-v{version}-macos-x64{ archive-suffix }"
 [package.metadata.binstall.overrides.aarch64-unknown-linux-gnu]
-pkg-url = "{ repo }/releases/download/v{ version }/mise-v{version}-linux-arm64{ archive-suffix }"
+pkg-url = "{ repo }/releases/download/v{ version }/pakro-v{version}-linux-arm64{ archive-suffix }"
 [package.metadata.binstall.overrides.x86_64-unknown-linux-gnu]
-pkg-url = "{ repo }/releases/download/v{ version }/mise-v{version}-linux-x64{ archive-suffix }"
+pkg-url = "{ repo }/releases/download/v{ version }/pakro-v{version}-linux-x64{ archive-suffix }"
 [package.metadata.binstall.overrides.armv7-unknown-linux-gnueabihf]
-pkg-url = "{ repo }/releases/download/v{ version }/mise-v{version}-linux-armv7{ archive-suffix }"
+pkg-url = "{ repo }/releases/download/v{ version }/pakro-v{version}-linux-armv7{ archive-suffix }"
 
 [package.metadata.cargo-machete]
 ignored = [

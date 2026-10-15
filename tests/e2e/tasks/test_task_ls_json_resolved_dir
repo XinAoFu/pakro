@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# `mise tasks ls --json` and `mise tasks info --json` should surface the
+# `pakro tasks ls --json` and `pakro tasks info --json` should surface the
 # resolved `dir` (including any inherited task_config.dir) so consumers see
 # where the task will actually run. Previously the raw `self.dir` (often
 # null) was reported even when runtime honored the inherited dir.
@@ -8,7 +8,7 @@
 
 mkdir -p mywork
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [task_config]
 dir = "{{config_root}}/mywork"
 
@@ -17,6 +17,6 @@ run = "pwd"
 EOF
 
 # Inherited dir should appear in the JSON output rather than null.
-assert_contains "mise tasks ls --json" "$(pwd)/mywork"
-assert_not_contains "mise tasks ls --json" '"dir": null'
-assert_contains "mise tasks info inline --json" "$(pwd)/mywork"
+assert_contains "pakro tasks ls --json" "$(pwd)/mywork"
+assert_not_contains "pakro tasks ls --json" '"dir": null'
+assert_contains "pakro tasks info inline --json" "$(pwd)/mywork"

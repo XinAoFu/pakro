@@ -14,10 +14,10 @@ bin_path = "."
 filter_bins = ["mo", "mole"]
 postinstall = '''
 set -eu
-cd "$MISE_TOOL_INSTALL_PATH"
+cd "$PAKRO_TOOL_INSTALL_PATH"
 mv analyze-darwin-* bin/analyze-go
 mv status-darwin-* bin/status-go
-ln -s ../lib ../bin .mise-bins/
+ln -s ../lib ../bin .pakro-bins/
 '''
 strip_components = 1
 version_prefix = "V"

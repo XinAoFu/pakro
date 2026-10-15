@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-assert "mise latest dummy" "2.0.0"
-assert "mise latest dummy@latest" "2.0.0"
+assert "pakro latest dummy" "2.0.0"
+assert "pakro latest dummy@latest" "2.0.0"
 
-mise cache clear dummy
-output=$(MISE_DEBUG=1 mise latest dummy@latest 2>&1)
+pakro cache clear dummy
+output=$(PAKRO_DEBUG=1 pakro latest dummy@latest 2>&1)
 
 if [[ $output != *"latest-stable"* ]]; then
   fail "expected dummy@latest to use latest-stable, got: $output"

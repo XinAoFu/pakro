@@ -96,7 +96,7 @@ pub(crate) fn resolve(
             // settled this entry's exclusions, including a list another
             // machine published that this declaration does not repeat;
             // taking the declaration whole here threw that away, so the
-            // baseline `mise dot track` saves captured exactly the files
+            // baseline `pakro dot track` saves captured exactly the files
             // the shared list exists to keep out — and could publish
             // them. Silence is not an instruction here either.
             let mut enrolled = declaration.clone();

@@ -7,7 +7,7 @@
 //! checkpoint after the one that applies it, and the checkpoint that
 //! applies it is the last one whose parent still holds them. When the
 //! watcher gets there first, the one opportunity to say so is spent on a
-//! log file. So it is written down instead, and the next `mise dot`
+//! log file. So it is written down instead, and the next `pakro dot`
 //! command says it before doing what it was asked.
 
 use eyre::Result;

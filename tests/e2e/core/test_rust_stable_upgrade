@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-unset CARGO_HOME RUSTUP_HOME MISE_CARGO_HOME MISE_RUSTUP_HOME
+unset CARGO_HOME RUSTUP_HOME PAKRO_CARGO_HOME PAKRO_RUSTUP_HOME
 
 # A fake rustup whose `check` reports a stable update (rustup 1.29 wording)
 # for as long as $STATE/update_available exists. Installing stable clears it.
@@ -78,61 +78,61 @@ WRAPPER
   chmod +x "$BIN/$command"
 done
 
-cat >project/mise.toml <<'TOML'
+cat >project/pakro.toml <<'TOML'
 [tools]
 rust = "stable"
 TOML
 
 cd project
 export HOME="$PWD/../home"
-export MISE_DATA_DIR="$PWD/../data"
+export PAKRO_DATA_DIR="$PWD/../data"
 export PATH="$BIN:$PATH"
-# rustup lists the toolchain under the configured host, not mise's build target
-export MISE_RUST_DEFAULT_HOST="$HOST"
+# rustup lists the toolchain under the configured host, not pakro's build target
+export PAKRO_RUST_DEFAULT_HOST="$HOST"
 
-mise install
+pakro install
 assert_contains "grep -c '^toolchain install stable' '$STATE/rustup.log'" "1"
 
 # Neither reinstalling something installed nor listing it asks rustup for updates.
-mise install rust
-mise ls rust >/dev/null
+pakro install rust
+pakro ls rust >/dev/null
 assert "! grep -q '^check' '$STATE/rustup.log'"
 
 # Up to date: only nightly is outdated, which must not count against stable.
-assert "mise outdated rust --json" "{}"
-mise upgrade rust
+assert "pakro outdated rust --json" "{}"
+pakro upgrade rust
 assert_contains "grep -c '^toolchain install stable' '$STATE/rustup.log'" "1"
 
-# rustup 1.29 reports a stable update: mise sees it and reinstalls the channel.
+# rustup 1.29 reports a stable update: pakro sees it and reinstalls the channel.
 touch "$STATE/update_available"
-assert_contains "mise upgrade rust --dry-run" "Would install rust@stable"
+assert_contains "pakro upgrade rust --dry-run" "Would install rust@stable"
 
 # A failed update must leave the installed toolchain linked and usable.
 touch "$STATE/fail_install"
-MISE_ALWAYS_KEEP_INSTALL=1 assert_fail "mise upgrade rust"
-assert "test -L '$MISE_DATA_DIR/installs/rust/stable'"
-assert_contains "mise ls --installed rust --json" '"version": "stable"'
-assert_contains "mise exec -- rustc -V" "rustc stable (fake)"
+PAKRO_ALWAYS_KEEP_INSTALL=1 assert_fail "pakro upgrade rust"
+assert "test -L '$PAKRO_DATA_DIR/installs/rust/stable'"
+assert_contains "pakro ls --installed rust --json" '"version": "stable"'
+assert_contains "pakro exec -- rustc -V" "rustc stable (fake)"
 
 # If rustup can no longer vouch for the toolchain, the install stays incomplete
 # so the next install repairs it.
 touch "$STATE/broken"
-MISE_ALWAYS_KEEP_INSTALL=1 assert_fail "mise upgrade rust"
-assert "mise ls --installed rust --json" "[]"
+PAKRO_ALWAYS_KEEP_INSTALL=1 assert_fail "pakro upgrade rust"
+assert "pakro ls --installed rust --json" "[]"
 rm "$STATE/broken"
 
 # Nor does a compiler that no longer runs count as usable. Repair the install the
 # previous step left incomplete first, so this step starts from a working one.
 rm "$STATE/fail_install"
-mise install rust
-assert_contains "mise ls --installed rust --json" '"version": "stable"'
+pakro install rust
+assert_contains "pakro ls --installed rust --json" '"version": "stable"'
 touch "$STATE/update_available" "$STATE/fail_install" "$STATE/bad_rustc"
-MISE_ALWAYS_KEEP_INSTALL=1 assert_fail "mise upgrade rust"
-assert "mise ls --installed rust --json" "[]"
+PAKRO_ALWAYS_KEEP_INSTALL=1 assert_fail "pakro upgrade rust"
+assert "pakro ls --installed rust --json" "[]"
 rm "$STATE/bad_rustc" "$STATE/fail_install"
 
-mise upgrade rust
+pakro upgrade rust
 assert_contains "grep -c '^toolchain install stable' '$STATE/rustup.log'" "6"
 # The channel is updated in place: a failed install must not strand the old toolchain.
 assert "! grep -q '^toolchain uninstall' '$STATE/rustup.log'"
-assert "mise outdated rust --json" "{}"
+assert "pakro outdated rust --json" "{}"

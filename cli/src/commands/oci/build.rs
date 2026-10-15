@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use eyre::Result;
 
-use crate::cli::oci::common::{mise_binary_path, perform_build, short_digest};
+use crate::cli::oci::common::{pakro_binary_path, perform_build, short_digest};
 use crate::config::Settings;
 use crate::file::display_path;
 use crate::oci::{BuildOptions, LayerOwner, OciCopy};
@@ -10,39 +10,39 @@ use crate::oci::{BuildOptions, LayerOwner, OciCopy};
 static AFTER_LONG_HELP: &str = color_print::cstr!(
     r#"<bold><underline>Notes:</underline></bold>
 
-    - The image only contains tools from the project's mise config (and
+    - The image only contains tools from the project's pakro config (and
       any configs at-or-below the project root). Tools from
-      `~/.config/mise/config.toml` are not included; pass --include-global
+      `~/.config/pakro/config.toml` are not included; pass --include-global
       to package them too.
     - asdf plugins are not supported; use another backend
       (core, aqua, github, cargo, go, gem, dotnet, spm, http) for each tool.
-    - The host mise binary is embedded at /usr/local/bin/mise by default;
-      build on the same OS/arch as your target image (or pass --no-mise).
+    - The host pakro binary is embedded at /usr/local/bin/pakro by default;
+      build on the same OS/arch as your target image (or pass --no-pakro).
 "#
 );
 
-/// [experimental] Build an OCI image from the current mise.toml
+/// [experimental] Build an OCI image from the current pakro.toml
 ///
 /// Each tool version becomes its own content-addressable OCI layer. Bumping a
 /// tool version only invalidates that tool's layer — other tools, the base
 /// image, and config are reused unchanged. The output directory conforms to
-/// the OCI image-layout spec. Use `skopeo inspect oci:./mise-oci` to inspect it
-/// or `mise oci run --image-dir ./mise-oci -- command` to load and run it.
+/// the OCI image-layout spec. Use `skopeo inspect oci:./pakro-oci` to inspect it
+/// or `pakro oci run --image-dir ./pakro-oci -- command` to load and run it.
 ///
 /// Build on Linux with the target architecture: this packages host tool installs
-/// and, by default, the running mise binary. `--no-mise` omits that binary but does
+/// and, by default, the running pakro binary. `--no-pakro` omits that binary but does
 /// not cross-compile tools installed for another OS. asdf tools are unsupported.
 ///
-/// Requires `mise settings experimental=true` (or `MISE_EXPERIMENTAL=1`).
+/// Requires `pakro settings experimental=true` (or `PAKRO_EXPERIMENTAL=1`).
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
     after_long_help = AFTER_LONG_HELP,
     example(
-        r###"mise oci build
-mise oci build --from ubuntu:24.04 --tag myorg/dev:latest -o ./img
+        r###"pakro oci build
+pakro oci build --from ubuntu:24.04 --tag myorg/dev:latest -o ./img
 skopeo inspect oci:./img
-mise oci run --image-dir ./img -- /bin/sh"###,
+pakro oci run --image-dir ./img -- /bin/sh"###,
         help = r###"Run on a Linux host with the target architecture"###
     )
 )]
@@ -52,7 +52,7 @@ pub(super) struct Build {
     copy: Vec<OciCopy>,
 
     /// Output directory for the OCI image layout
-    #[usage(long, short, default = "./mise-oci", value_hint = ValueHint::DirPath)]
+    #[usage(long, short, default = "./pakro-oci", value_hint = ValueHint::DirPath)]
     output: PathBuf,
 
     /// Base image reference (overrides [oci].from and the oci.default_from setting)
@@ -61,10 +61,10 @@ pub(super) struct Build {
 
     /// Also include tools from the global / system config (default: project-only)
     ///
-    /// By default `mise oci build` only packages tools declared in the
-    /// project's mise config (and any parent configs at-or-below the
+    /// By default `pakro oci build` only packages tools declared in the
+    /// project's pakro config (and any parent configs at-or-below the
     /// project root, e.g. a monorepo root config). Personal dev tools in
-    /// `~/.config/mise/config.toml` are excluded so they don't bake into a
+    /// `~/.config/pakro/config.toml` are excluded so they don't bake into a
     /// project image. Pass `--include-global` to revert to the old
     /// "merge all loaded configs" behavior.
     #[usage(long)]
@@ -74,13 +74,13 @@ pub(super) struct Build {
     #[usage(long, short)]
     tag: Option<String>,
 
-    /// Where to place tool installs inside the image (default: /mise)
+    /// Where to place tool installs inside the image (default: /pakro)
     #[usage(long)]
     mount_point: Option<String>,
 
-    /// Do not embed the currently-running mise binary at /usr/local/bin/mise
+    /// Do not embed the currently-running pakro binary at /usr/local/bin/pakro
     #[usage(long)]
-    no_mise: bool,
+    no_pakro: bool,
 
     /// Rebuild tool layers without reading or writing the local layer cache
     #[usage(long)]
@@ -97,7 +97,7 @@ pub(super) struct Build {
 
 impl Build {
     pub(super) async fn run(self) -> Result<()> {
-        Settings::get().ensure_experimental("mise oci build")?;
+        Settings::get().ensure_experimental("pakro oci build")?;
 
         let opts = BuildOptions {
             out_dir: self.output.clone(),
@@ -105,7 +105,7 @@ impl Build {
             tag: self.tag.clone(),
             mount_point: self.mount_point.clone(),
             owner: self.owner,
-            mise_binary: mise_binary_path(self.no_mise),
+            pakro_binary: pakro_binary_path(self.no_pakro),
             copy: self.copy.clone(),
             // Layer reuse would leave blob-less holes in the layout; `build`
             // must produce a complete, standalone image directory.
@@ -115,11 +115,11 @@ impl Build {
         };
         let out = perform_build(opts, self.include_global).await?;
 
-        miseprintln!("wrote OCI image layout to {}", display_path(&out.out_dir));
-        miseprintln!("manifest: {}", out.manifest_digest);
-        miseprintln!("tool layers:");
+        pakroprintln!("wrote OCI image layout to {}", display_path(&out.out_dir));
+        pakroprintln!("manifest: {}", out.manifest_digest);
+        pakroprintln!("tool layers:");
         for l in &out.tool_layers {
-            miseprintln!(
+            pakroprintln!(
                 "  {}@{}  {}  {} bytes",
                 l.short,
                 l.version,

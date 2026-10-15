@@ -13,6 +13,19 @@ concurrency:
   # Release events can arrive out of version order, so let the shared gate decide.
   cancel-in-progress: false
 
+env:
+  PAKRO_ENABLE_RELEASE: ${{ vars.PAKRO_ENABLE_RELEASE || 'false' }}
+  PAKRO_RELEASE_REPOSITORY: ${{ github.repository }}
+  PAKRO_DOWNLOAD_BASE_URL: ${{ vars.PAKRO_DOWNLOAD_BASE_URL }}
+  PAKRO_R2_ENDPOINT_URL: ${{ vars.PAKRO_R2_ENDPOINT_URL }}
+  PAKRO_RELEASE_BUCKET: ${{ vars.PAKRO_RELEASE_BUCKET }}
+  PAKRO_CLOUDFLARE_ACCOUNT_ID: ${{ vars.PAKRO_CLOUDFLARE_ACCOUNT_ID }}
+  PAKRO_CLOUDFLARE_WORKER_NAME: ${{ vars.PAKRO_CLOUDFLARE_WORKER_NAME }}
+  PAKRO_CLOUDFLARE_ZONES: ${{ vars.PAKRO_CLOUDFLARE_ZONES }}
+  PAKRO_GPG_SIGNING_KEY: ${{ vars.PAKRO_GPG_SIGNING_KEY }}
+  PAKRO_RELEASE_NAME: ${{ vars.PAKRO_RELEASE_NAME }}
+  PAKRO_RELEASE_EMAIL: ${{ vars.PAKRO_RELEASE_EMAIL }}
+
 jobs:
   build-snapcraft:
     strategy:
@@ -71,7 +84,7 @@ jobs:
 
   publish-snapcraft:
     needs: check-release
-    if: needs.check-release.outputs.publish == 'true'
+    if: ${{ vars.PAKRO_ENABLE_RELEASE == 'true' && github.repository != 'jdx/mise' && (needs.check-release.outputs.publish == 'true') }}
     strategy:
       fail-fast: false
       matrix:

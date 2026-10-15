@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Verifies MISE_BREW_CASK_OPT_APPDIR relocates a cask's app artifact out of the
+# Verifies PAKRO_BREW_CASK_OPT_APPDIR relocates a cask's app artifact out of the
 # default /Applications and into an override directory. Needs a macOS CI runner
 # with network, and is kept out of local runs so it never touches a developer's
 # installed applications.
@@ -23,27 +23,27 @@ fi
 cleanup() {
   shopt -s nullglob
   local app_work_paths=(
-    "$appdir"/Hidden\ Bar.mise-old-*
-    "$appdir"/Hidden\ Bar.mise-tmp-*
+    "$appdir"/Hidden\ Bar.pakro-old-*
+    "$appdir"/Hidden\ Bar.pakro-tmp-*
   )
   chmod -RN "$override_app" "${app_work_paths[@]}" 2>/dev/null || true
   rm -rf "$override_app" "$caskroom" "$appdir" "${app_work_paths[@]}"
 }
 trap cleanup EXIT
 
-export MISE_BREW_CASK_OPT_APPDIR="$appdir"
+export PAKRO_BREW_CASK_OPT_APPDIR="$appdir"
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [bootstrap.packages]
 "brew-cask:hiddenbar" = "latest"
 EOF
 
-assert_contains "mise bootstrap packages status" "missing"
-mise bootstrap packages apply --yes
+assert_contains "pakro bootstrap packages status" "missing"
+pakro bootstrap packages apply --yes
 
 # The app must land under the override directory, and must NOT be created in the
 # default /Applications location.
 assert_directory_exists "$override_app"
 assert_directory_exists "$caskroom"
 assert_fail "test -e '$default_app'"
-assert_contains "mise bootstrap packages status" "installed"
+assert_contains "pakro bootstrap packages status" "installed"

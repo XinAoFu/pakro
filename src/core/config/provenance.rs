@@ -60,11 +60,11 @@ mod tests {
 
     #[test]
     fn classifies_standard_config_layers() {
-        let system_path = env::MISE_SYSTEM_CONFIG_FILE.as_ref().unwrap();
-        let user_path = env::MISE_GLOBAL_CONFIG_FILE.as_ref().unwrap();
+        let system_path = env::PAKRO_SYSTEM_CONFIG_FILE.as_ref().unwrap();
+        let user_path = env::PAKRO_GLOBAL_CONFIG_FILE.as_ref().unwrap();
         let system = ConfigProvenance::from_path(system_path);
         let user = ConfigProvenance::from_path(user_path);
-        let project = ConfigProvenance::from_path(Path::new("/workspace/mise.toml"));
+        let project = ConfigProvenance::from_path(Path::new("/workspace/pakro.toml"));
 
         assert_eq!(system.scope(), ConfigFileScope::System);
         assert_eq!(user.scope(), ConfigFileScope::User);

@@ -29,7 +29,7 @@ use crate::backend::options::VersionOrder;
 use crate::backend::platform_target::PlatformTarget;
 use crate::backend::static_helpers::{ArchiveLayout, install_artifact};
 use crate::backend::{
-    Backend, BackendType, MISE_BINS_DIR, SecurityFeature, VersionInfo,
+    Backend, BackendType, PAKRO_BINS_DIR, SecurityFeature, VersionInfo,
     runtime_path_for_install_path,
 };
 use crate::config::{Config, Settings, SettingsExt};
@@ -47,13 +47,13 @@ use crate::toolset::{ToolRequest, ToolVersion, ToolVersionOptions};
 /// the format rather than a rough edge, so nothing is held back by a setting.
 pub(crate) const EXPERIMENTAL: bool = false;
 
-/// The verified statement, kept beside the install so the rest of mise can
+/// The verified statement, kept beside the install so the rest of pakro can
 /// read what the release declared without verifying it again.
-pub(crate) const STATEMENT_FILE: &str = ".mise-packslip.json";
-pub(crate) const SELECTED_ARTIFACT_FILE: &str = ".mise-packslip-artifact";
+pub(crate) const STATEMENT_FILE: &str = ".pakro-packslip.json";
+pub(crate) const SELECTED_ARTIFACT_FILE: &str = ".pakro-packslip-artifact";
 
-/// Archive formats mise can unpack, best first. Installers (`deb`, `dmg`,
-/// `msi`, ...) are not among them: mise installs into its own directory.
+/// Archive formats pakro can unpack, best first. Installers (`deb`, `dmg`,
+/// `msi`, ...) are not among them: pakro installs into its own directory.
 const FORMAT_PREFERENCE: [&str; 13] = [
     "tar.xz", "tar.zst", "tar.gz", "tgz", "tar.bz2", "tar", "zip", "7z", "xz", "zst", "gz", "bz2",
     "raw",
@@ -317,7 +317,7 @@ fn describe(artifact: &Artifact) -> String {
 
 /// The one artifact for this host, by the crate's rule: an artifact
 /// with no `os`, `arch`, or `libc` fits any host, the most specific match
-/// wins, then mise's format preference decides, and two that still tie
+/// wins, then pakro's format preference decides, and two that still tie
 /// are refused. A gnu host that finds nothing takes a musl build, which
 /// is static, and says so.
 #[derive(Debug, thiserror::Error)]
@@ -345,7 +345,7 @@ pub(crate) fn select_artifact<'a>(
     match packslip::select_artifact(artifacts, &strict, variant, &FORMAT_PREFERENCE) {
         Ok(artifact) => return Ok(artifact),
         Err(Selection::Ambiguous(a, b)) => bail!(
-            "the packslip lists {a} and {b} for this host and mise will not guess between them{hint}"
+            "the packslip lists {a} and {b} for this host and pakro will not guess between them{hint}"
         ),
         Err(Selection::NoMatch) => {}
     }
@@ -363,7 +363,7 @@ pub(crate) fn select_artifact<'a>(
                 return Ok(artifact);
             }
             Err(Selection::Ambiguous(a, b)) => bail!(
-                "the packslip lists {a} and {b} for this host and mise will not guess between them{hint}"
+                "the packslip lists {a} and {b} for this host and pakro will not guess between them{hint}"
             ),
             Err(Selection::NoMatch) => {}
         }
@@ -464,7 +464,7 @@ fn select_glibc_fallback<'a>(
             Ok(fallback)
         }
         Err(Selection::Ambiguous(a, b)) => bail!(
-            "the packslip lists {a} and {b} as musl fallbacks for {}, and mise will not guess between them",
+            "the packslip lists {a} and {b} as musl fallbacks for {}, and pakro will not guess between them",
             artifact.name
         ),
         Err(Selection::NoMatch) => Ok(artifact),
@@ -497,14 +497,14 @@ pub(crate) fn selected_artifact(
     .cloned()
 }
 
-/// A path from a packslip that may be joined onto a directory of mise's:
+/// A path from a packslip that may be joined onto a directory of pakro's:
 /// relative, slash-separated, every segment a plain file name. A verified
-/// manifest is still the vendor's data, not mise's.
+/// manifest is still the vendor's data, not pakro's.
 pub(crate) fn is_safe_relative(rel: &str) -> bool {
     !rel.is_empty() && rel.split('/').all(file::is_plain_file_name)
 }
 
-/// A path the packslip gives relative to the archive root, or, when mise
+/// A path the packslip gives relative to the archive root, or, when pakro
 /// stripped a lone top-level directory on extraction, the same path without
 /// its first component. `..` and absolute paths never resolve.
 pub(crate) fn locate_in_install(install_path: &Path, rel: &str) -> Option<PathBuf> {
@@ -563,7 +563,7 @@ fn pin(project: &str, opts: &PackslipOptions<'_>) -> Result<Pin> {
     match Policy::for_project(project) {
         Some(policy) => Ok(Pin::Forge(policy)),
         None => bail!(
-            "packslip:{project} is not on a forge mise knows, so nothing pins its signer; set `pubkey`, or `identity` and `issuer`, in its tool options"
+            "packslip:{project} is not on a forge pakro knows, so nothing pins its signer; set `pubkey`, or `identity` and `issuer`, in its tool options"
         ),
     }
 }
@@ -727,7 +727,7 @@ pub(crate) fn verify_release_list(
 ///
 /// The cutoff decides which release a fuzzy request may pick. A lockfile entry
 /// and an explicit pin like `hk = "2.0.1"` are both that decision already taken
-/// and committed, so re-applying the cutoff here would reject a version mise
+/// and committed, so re-applying the cutoff here would reject a version pakro
 /// itself resolved — `minimum_release_age` documents both as unfiltered.
 fn selection_already_made(tv: &ToolVersion) -> bool {
     tv.resolved_from_lockfile() || tv.request_pinned_this_version()
@@ -855,10 +855,10 @@ impl PackslipBackend {
         repository(project).map(|(_, owner, repo)| format!("{owner}/{repo}"))
     }
 
-    /// Whether mise-versions stands in for api.github.com. It catalogs the
+    /// Whether pakro-versions stands in for api.github.com. It catalogs the
     /// versions of a registry tool's preferred backend, which for a packslip
     /// tool is the same listing [`Self::vendor_versions`] makes (its update
-    /// job runs `mise ls-remote`), and it mirrors that repository's releases.
+    /// job runs `pakro ls-remote`), and it mirrors that repository's releases.
     /// Which of those versions this client accepts is still decided here:
     /// the signed list, stamps and every manifest are read and verified on
     /// each resolution, so a stale catalog can only hold back a new release,
@@ -868,7 +868,7 @@ impl PackslipBackend {
             && crate::backend::backend_arg_is_preferred_registry_backend(&self.ba)
     }
 
-    /// Every release carrying a packslip, oldest first, from mise-versions.
+    /// Every release carrying a packslip, oldest first, from pakro-versions.
     /// `None` sends the caller to GitHub, for a tool the host does not
     /// describe or has nothing for.
     async fn mirrored_versions(&self) -> Result<Option<Vec<VersionInfo>>> {
@@ -879,7 +879,7 @@ impl PackslipBackend {
             Ok(Some(versions)) => versions,
             Ok(None) => return Ok(None),
             Err(err) => {
-                debug!("{}: mise-versions has no listing: {err:#}", self.ba);
+                debug!("{}: pakro-versions has no listing: {err:#}", self.ba);
                 return Ok(None);
             }
         };
@@ -890,7 +890,7 @@ impl PackslipBackend {
         Ok((!versions.is_empty()).then_some(versions))
     }
 
-    /// The release tag mise-versions records for `version`, so its release
+    /// The release tag pakro-versions records for `version`, so its release
     /// mirror can be asked for that one release rather than GitHub for all.
     async fn mirrored_tag(&self, project: &str, version: &str) -> Result<Option<String>> {
         let Some(versions) = self.mirrored_versions().await? else {
@@ -1071,7 +1071,7 @@ impl PackslipBackend {
         }
         let Some(asset) = found else {
             bail!(
-                "github.com/{repo} has no release {} carrying {asset_name}; mise installs from a packslip and does not guess at release assets",
+                "github.com/{repo} has no release {} carrying {asset_name}; pakro installs from a packslip and does not guess at release assets",
                 tv.version
             );
         };
@@ -1257,7 +1257,7 @@ impl PackslipBackend {
 
     async fn policy_versions(&self, raw_opts: &ToolVersionOptions) -> Result<Vec<VersionInfo>> {
         let mut versions = self.vendor_versions(raw_opts).await?;
-        // Only what a trusted stamper lists is released, as far as mise is
+        // Only what a trusted stamper lists is released, as far as pakro is
         // concerned; the rest is not offered.
         let project = self.project()?;
         if let Some(stamps) = crate::packslip_stamps::fetch(&project, raw_opts).await? {
@@ -1278,7 +1278,7 @@ impl PackslipBackend {
             return Ok(());
         }
         let install_path = tv.install_path();
-        let bins_dir = install_path.join(MISE_BINS_DIR);
+        let bins_dir = install_path.join(PAKRO_BINS_DIR);
         file::create_dir_all(&bins_dir)?;
         for bin in &artifact.bin {
             if !file::is_plain_file_name(&bin.name) {
@@ -1423,7 +1423,7 @@ impl PackslipBackend {
                     !crate::packslip::can_repair_missing_skill(statement, &skill.name, artifact)
                 }) {
                     bail!(
-                        "{}: declared archive skill {} is missing; run `mise install --force {}` to reinstall the artifact",
+                        "{}: declared archive skill {} is missing; run `pakro install --force {}` to reinstall the artifact",
                         tv.style(),
                         skill.name,
                         tv.request
@@ -1460,7 +1460,7 @@ impl PackslipBackend {
         // The vendor stays authoritative for withdrawals and digest pins even
         // when a stamper supplies a mirror URL. What the vendor's list cannot
         // speak to is whether the original release asset is still on GitHub,
-        // and a stamp already names the manifest and its digest — so mise asks
+        // and a stamp already names the manifest and its digest — so pakro asks
         // the signed list here rather than `locate_bundle`, and a deleted asset
         // does not veto a release the vendor never withdrew.
         let (located, vendor_digest) = match &stamp {
@@ -1597,7 +1597,7 @@ impl PackslipBackend {
                 && !packslip_forge::lock_signer_continues(locked, &signer, check)
             {
                 bail!(
-                    "mise.lock says {} signed {}, but this release is signed by {signer}; remove the entry from mise.lock to accept the new signer",
+                    "pakro.lock says {} signed {}, but this release is signed by {signer}; remove the entry from pakro.lock to accept the new signer",
                     locked,
                     tv.style()
                 );
@@ -1607,7 +1607,7 @@ impl PackslipBackend {
                 && verified.attested_by == packslip::Attestor::Repackager
             {
                 bail!(
-                    "mise.lock says the vendor's own packslip was accepted for {}, but this release is a repackager's; remove the entry from mise.lock to accept that",
+                    "pakro.lock says the vendor's own packslip was accepted for {}, but this release is a repackager's; remove the entry from pakro.lock to accept that",
                     tv.style()
                 );
             }
@@ -1916,15 +1916,15 @@ impl Backend for PackslipBackend {
         check_symlink: bool,
     ) -> Result<bool> {
         let install_path = tv.install_path();
-        // A postinstall hook can call mise itself. Its tool has already been
+        // A postinstall hook can call pakro itself. Its tool has already been
         // extracted, but declared skills are verified only after the hook;
         // treating that exact active install as unsatisfied would make the
         // nested invocation wait on this installation's lock.
-        if std::env::var_os("MISE_TOOL_INSTALL_PATH")
+        if std::env::var_os("PAKRO_TOOL_INSTALL_PATH")
             .as_deref()
             .is_some_and(|path| Path::new(path) == install_path)
-            && std::env::var("MISE_TOOL_NAME").ok().as_deref() == Some(tv.ba().short.as_str())
-            && std::env::var(crate::env::MISE_TOOL_VERSION_ENV_VAR)
+            && std::env::var("PAKRO_TOOL_NAME").ok().as_deref() == Some(tv.ba().short.as_str())
+            && std::env::var(crate::env::PAKRO_TOOL_VERSION_ENV_VAR)
                 .ok()
                 .as_deref()
                 == Some(tv.version.as_str())
@@ -2127,8 +2127,8 @@ impl Backend for PackslipBackend {
         tv: &ToolVersion,
     ) -> Result<Vec<PathBuf>> {
         let install_path = tv.install_path();
-        if install_path.join(MISE_BINS_DIR).is_dir() {
-            return Ok(vec![tv.runtime_path().join(MISE_BINS_DIR)]);
+        if install_path.join(PAKRO_BINS_DIR).is_dir() {
+            return Ok(vec![tv.runtime_path().join(PAKRO_BINS_DIR)]);
         }
         let bin = install_path.join("bin");
         if bin.is_dir() {
@@ -2694,8 +2694,8 @@ list_identity_prefix = "https://github.com/jdx/packslip/.github/workflows/packsl
             project_name("oxc-project/oxc/oxlint").unwrap(),
             "github.com/oxc-project/oxc/oxlint"
         );
-        assert_eq!(project_name("mise.jdx.dev").unwrap(), "mise.jdx.dev");
-        assert!(project_name("mise").is_err());
+        assert_eq!(project_name("example.com").unwrap(), "example.com");
+        assert!(project_name("pakro").is_err());
         assert!(project_name("GitHub.com/jdx/mise").is_err());
         assert_eq!(bundle_name("github.com/jdx/mise"), "packslip.sigstore.json");
         assert_eq!(
@@ -2703,11 +2703,11 @@ list_identity_prefix = "https://github.com/jdx/packslip/.github/workflows/packsl
             "packslip.crates-cli.sigstore.json"
         );
         assert_eq!(
-            well_known_url("mise.jdx.dev"),
+            well_known_url("example.com"),
             "https://mise.jdx.dev/.well-known/packslip.json"
         );
         assert_eq!(
-            well_known_url("jdx.dev/mise"),
+            well_known_url("jdx.dev/pakro"),
             "https://jdx.dev/.well-known/packslip/mise.json"
         );
     }
@@ -3052,7 +3052,7 @@ list_identity_prefix = "https://github.com/jdx/packslip/.github/workflows/packsl
 
     #[test]
     fn links_bins_under_platform_executable_names() {
-        let bins_dir = Path::new("install").join(MISE_BINS_DIR);
+        let bins_dir = Path::new("install").join(PAKRO_BINS_DIR);
         let expected = if cfg!(windows) {
             bins_dir.join("tool.exe")
         } else {

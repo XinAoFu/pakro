@@ -24,7 +24,7 @@ impl WingetManager {
     async fn refresh(&self, dry_run: bool) -> Result<()> {
         let args = source_update_args();
         if dry_run {
-            miseprintln!("winget {}", args.join(" "));
+            pakroprintln!("winget {}", args.join(" "));
             return Ok(());
         }
         run_winget(&args, "source update", &[]).await
@@ -201,7 +201,7 @@ async fn run_packages(
     for pkg in pkgs {
         let args = package_args(command, pkg);
         if dry_run {
-            miseprintln!("winget {}", args.join(" "));
+            pakroprintln!("winget {}", args.join(" "));
         } else {
             run_winget(
                 &args,

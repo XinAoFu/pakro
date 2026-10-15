@@ -20,10 +20,10 @@
 //! group expands into ordinary [`FileRequest`]s tagged with its name, so
 //! apply, status, and unapply treat its files like any other entry. Each
 //! apply also records what a group deployed under
-//! `$MISE_STATE_DIR/dotfiles/groups/`, so its files can still be found once
-//! the group stops deploying them: `mise dot status` reports them as
-//! orphaned, `mise dot apply --prune` removes them, and
-//! `mise dot unapply --group` removes a group's files whether or not it is
+//! `$PAKRO_STATE_DIR/dotfiles/groups/`, so its files can still be found once
+//! the group stops deploying them: `pakro dot status` reports them as
+//! orphaned, `pakro dot apply --prune` removes them, and
+//! `pakro dot unapply --group` removes a group's files whether or not it is
 //! still configured.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -621,8 +621,8 @@ pub fn route_add<'a>(
 
 const GROUP_RECORD_VERSION: u8 = 1;
 
-/// What one group deployed, kept under `$MISE_STATE_DIR/dotfiles/groups/`:
-/// the ownership evidence that lets mise find and remove the group's files
+/// What one group deployed, kept under `$PAKRO_STATE_DIR/dotfiles/groups/`:
+/// the ownership evidence that lets pakro find and remove the group's files
 /// after it leaves the config or the selection.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -641,7 +641,7 @@ pub struct RecordedPath {
     /// for a link: the source it points at
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<PathBuf>,
-    /// for a file: the sha256 of what mise wrote
+    /// for a file: the sha256 of what pakro wrote
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub digest: Option<String>,
 }
@@ -815,7 +815,7 @@ pub(crate) fn record_applied<'a>(requests: impl IntoIterator<Item = &'a FileRequ
         });
         record.version = GROUP_RECORD_VERSION;
         let roots = reqs.iter().map(|req| &req.target).collect::<HashSet<_>>();
-        // a path reached through a linked directory is not one mise can
+        // a path reached through a linked directory is not one pakro can
         // ever remove safely, so it is neither recorded nor kept
         let deployed = reqs
             .iter()
@@ -958,7 +958,7 @@ pub struct RemoveOpts {
 }
 
 /// Remove what `record` deployed: links still pointing at their source and
-/// files still holding what mise wrote (any file with `force`). Anything
+/// files still holding what pakro wrote (any file with `force`). Anything
 /// else is left with a warning, and the record keeps it so a later
 /// `--force` can still find it. Directories emptied on the way are removed
 /// up to the entry target. Returns the removed paths.
@@ -982,7 +982,7 @@ pub fn remove_recorded(record: &GroupRecord, opts: &RemoveOpts) -> Result<Vec<Pa
             path.is_owned() || opts.force && path.digest.is_some() && !path.target.is_dir();
         if !removable {
             warn!(
-                "files: group {}: {} changed since mise deployed it, leaving it{}",
+                "files: group {}: {} changed since pakro deployed it, leaving it{}",
                 record.group,
                 path.target.display_user(),
                 if path.digest.is_some() {
@@ -995,7 +995,7 @@ pub fn remove_recorded(record: &GroupRecord, opts: &RemoveOpts) -> Result<Vec<Pa
             continue;
         }
         if opts.dry_run {
-            miseprintln!("rm {}", path.target.display_user());
+            pakroprintln!("rm {}", path.target.display_user());
             continue;
         }
         let pending = journal::begin_changes(

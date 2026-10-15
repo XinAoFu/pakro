@@ -3,9 +3,9 @@
 
 set -euo pipefail
 
-export MISE_EXPERIMENTAL=1
-export MISE_AQUA_SLSA=true
-export MISE_AQUA_COSIGN=false
+export PAKRO_EXPERIMENTAL=1
+export PAKRO_AQUA_SLSA=true
+export PAKRO_AQUA_COSIGN=false
 
 echo "=== Testing Aqua SLSA Without Signer Metadata ==="
 
@@ -13,7 +13,7 @@ echo "=== Testing Aqua SLSA Without Signer Metadata ==="
 echo "Installing sops without an SLSA signer identity..."
 
 # Capture installation output to verify SLSA is skipped.
-output=$(mise install --verbose aqua:getsops/sops@3.9.0 2>&1)
+output=$(pakro install --verbose aqua:getsops/sops@3.9.0 2>&1)
 echo "$output"
 
 if echo "$output" | grep -q "verify slsa"; then
@@ -22,11 +22,11 @@ if echo "$output" | grep -q "verify slsa"; then
 fi
 
 # Verify the tool works
-assert_contains "mise x aqua:getsops/sops@3.9.0 -- sops --version" "3.9.0"
+assert_contains "pakro x aqua:getsops/sops@3.9.0 -- sops --version" "3.9.0"
 echo "✓ sops installed and working correctly"
 
 # Cleanup
-mise uninstall aqua:getsops/sops@3.9.0 || true
+pakro uninstall aqua:getsops/sops@3.9.0 || true
 
 echo ""
 echo "=== Unconfigured Aqua SLSA Was Skipped ✓ ==="

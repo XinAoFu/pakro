@@ -3,21 +3,21 @@ use std::path::PathBuf;
 
 use crate::env;
 
-/// Start a new shell with the mise environment built from the current configuration
+/// Start a new shell with the pakro environment built from the current configuration
 ///
-/// This is an alternative to `mise activate` for starting a mise session explicitly.
+/// This is an alternative to `pakro activate` for starting a pakro session explicitly.
 /// The new shell has the tools and environment variables from the config loaded.
 /// Unlike an activated shell, changing directories does not update the environment.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise en .
+        r###"pakro en .
 node -v"###,
         help = "Start a shell and check node. Example output: `v20.0.0`."
     ),
-    example(r#"mise en -s "bash --norc""#, help = "Skip loading bashrc."),
-    example(r#"mise en -s "zsh -f""#, help = "Skip loading zshrc.")
+    example(r#"pakro en -s "bash --norc""#, help = "Skip loading bashrc."),
+    example(r#"pakro en -s "zsh -f""#, help = "Skip loading zshrc.")
 )]
 pub(crate) struct En {
     /// Directory to start the shell in

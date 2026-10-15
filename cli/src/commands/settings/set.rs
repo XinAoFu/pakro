@@ -7,11 +7,11 @@ use crate::{config, duration, file};
 
 /// Add/update a setting
 ///
-/// This modifies the contents of ~/.config/mise/config.toml by default.
+/// This modifies the contents of ~/.config/pakro/config.toml by default.
 /// With `--local`, modifies the local config file instead.
 /// See https://mise.jdx.dev/configuration.html#target-file-for-write-operations
 #[derive(Debug, usage_rs::Args)]
-#[usage(visible_aliases = ["create"], example(r###"mise settings set jobs 4"###), verbatim_doc_comment)]
+#[usage(visible_aliases = ["create"], example(r###"pakro settings set jobs 4"###), verbatim_doc_comment)]
 pub(super) struct SettingsSet {
     /// The setting to set
     #[usage()]
@@ -30,7 +30,7 @@ impl SettingsSet {
             None => {
                 let (key, value) = self.setting.split_once('=').ok_or_else(|| {
                     eyre!(
-                        "Usage: mise settings set <KEY>=<VALUE> or mise settings set <KEY> <VALUE>"
+                        "Usage: pakro settings set <KEY>=<VALUE> or pakro settings set <KEY> <VALUE>"
                     )
                 })?;
                 set(key, value, false, self.local)
@@ -47,14 +47,14 @@ pub(super) fn set(mut key: &str, value: &str, add: bool, local: bool) -> Result<
         }
     };
 
-    // Writing it would succeed and then be ignored, and `mise settings get` would report the
+    // Writing it would succeed and then be ignored, and `pakro settings get` would report the
     // stored value as if it were live. See https://github.com/jdx/mise/discussions/5791.
-    // `mise settings unset` is deliberately still allowed, so anyone who already has one of
+    // `pakro settings unset` is deliberately still allowed, so anyone who already has one of
     // these in a config can remove it.
     if meta.env_only {
         bail!(
-            "{key} cannot be set in a config file: mise reads it before config files load. Use the {} environment variable instead.",
-            meta.env.unwrap_or("matching MISE_*")
+            "{key} cannot be set in a config file: pakro reads it before config files load. Use the {} environment variable instead.",
+            meta.env.unwrap_or("matching PAKRO_*")
         );
     }
 
@@ -72,7 +72,7 @@ pub(super) fn set(mut key: &str, value: &str, add: bool, local: bool) -> Result<
 
     let path = if local {
         config::local_toml_config_path()
-    } else if key == "history.sync" && crate::env::MISE_GLOBAL_CONFIG_FILE.is_none() {
+    } else if key == "history.sync" && crate::env::PAKRO_GLOBAL_CONFIG_FILE.is_none() {
         crate::cli::dotfiles::track::declaration_file(true)?
     } else {
         config::global_config_path()
@@ -133,7 +133,7 @@ fn parse_list_by_comma(value: &str) -> Result<toml_edit::Value> {
 
 /// Split a path list the way the host does: `;` on Windows, `:` on Unix.
 ///
-/// Splitting on `:` unconditionally made `mise settings set trusted_config_paths 'C:\proj'`
+/// Splitting on `:` unconditionally made `pakro settings set trusted_config_paths 'C:\proj'`
 /// store `["C", "\proj"]`. A Windows drive letter's colon is not a separator, so even a lone
 /// path with no list separator in it came apart, leaving no way to write one from the CLI.
 /// #9058 gave the environment-variable route the OS separator; this is the CLI route it missed.
@@ -146,7 +146,7 @@ fn parse_list_by_os_path_separator(value: &str) -> Result<toml_edit::Value> {
     if value.is_empty() || value == "[]" {
         return Ok(toml_edit::Array::new().into());
     }
-    // `std::env` rather than `crate::env`, which is what `env` resolves to elsewhere in mise.
+    // `std::env` rather than `crate::env`, which is what `env` resolves to elsewhere in pakro.
     Ok(std::env::split_paths(value)
         .map(|p| p.to_string_lossy().trim().to_string())
         .filter(|s| !s.is_empty())

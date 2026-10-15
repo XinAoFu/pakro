@@ -28,14 +28,14 @@ pub(crate) fn term_size_settings() -> SettingMinWidth {
 /// `tabled` brings every cell up to its column's width, so the last column leaves trailing spaces
 /// on every row shorter than the widest one. The `Padding::zero()` below does not prevent that:
 /// padding is the space *around* a cell, and the fill that brings it up to the column width is
-/// added separately. [`MiseTable::print`] already trims the comfy_table side the same way.
+/// added separately. [`PakroTable::print`] already trims the comfy_table side the same way.
 ///
 /// The only entry point on purpose. `default_style` stays private so a table cannot be printed
 /// without this step, which is how the trailing spaces got there in the first place.
 pub fn print(table: &mut Table, no_headers: bool) -> Result<()> {
     default_style(table, no_headers);
-    // One `miseprintln!`, not one per line: this way the newlines land exactly where
-    // `miseprintln!("{table}")` used to put them, including for a table with no rows, and the only
+    // One `pakroprintln!`, not one per line: this way the newlines land exactly where
+    // `pakroprintln!("{table}")` used to put them, including for a table with no rows, and the only
     // difference is the trailing space.
     let rendered = table.to_string();
     let trimmed = rendered
@@ -43,20 +43,20 @@ pub fn print(table: &mut Table, no_headers: bool) -> Result<()> {
         .map(str::trim_end)
         .collect::<Vec<_>>()
         .join("\n");
-    miseprintln!("{trimmed}");
+    pakroprintln!("{trimmed}");
     Ok(())
 }
 
 fn default_style(table: &mut Table, no_headers: bool) {
     let header = |h: &_| style(h).italic().magenta().to_string();
 
-    if no_headers || !console::user_attended() || mise_util::testing::in_tests() {
+    if no_headers || !console::user_attended() || pakro_util::testing::in_tests() {
         table.with(Remove::row(Rows::first()));
     } else {
         table.with(Modify::new(Rows::first()).with(Format::content(header)));
     }
     table.with(Style::empty());
-    if console::user_attended() && !mise_util::testing::in_tests() {
+    if console::user_attended() && !pakro_util::testing::in_tests() {
         table.with(term_size_settings());
     }
     table
@@ -65,21 +65,21 @@ fn default_style(table: &mut Table, no_headers: bool) {
         .with(Modify::new(Columns::last()).with(Padding::zero()));
 }
 
-pub struct MiseTable {
+pub struct PakroTable {
     table: comfy_table::Table,
     truncate: bool,
 }
 
-impl MiseTable {
+impl PakroTable {
     pub fn new(no_header: bool, headers: &[&str]) -> Self {
         let mut table = comfy_table::Table::new();
         table
             .load_style(comfy_table::presets::NOTHING)
             .set_truncation_indicator("...")
             .set_content_arrangement(ContentArrangement::Dynamic);
-        // Pin the width when the user overrides it (e.g. MISE_TERM_WIDTH in CI).
+        // Pin the width when the user overrides it (e.g. PAKRO_TERM_WIDTH in CI).
         // comfy_table does its own terminal detection, which fails in non-ttys,
-        // so this is what makes the override actually affect `mise ls` et al.
+        // so this is what makes the override actually affect `pakro ls` et al.
         if let Some(w) = *crate::env::TERM_WIDTH_OVERRIDE {
             table.set_width(w.min(u16::MAX as usize) as u16);
         }

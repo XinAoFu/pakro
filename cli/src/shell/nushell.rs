@@ -90,13 +90,13 @@ impl Shell for Nushell {
           export-env {{
             {inline_prelude}
             '{deactivation_ops_csv}' | parse vars | update-env
-            $env.MISE_SHELL = "nu"
-            let mise_hook = {{
-              condition: {{ "MISE_SHELL" in $env }}
-              code: {{ mise_hook }}
+            $env.PAKRO_SHELL = "nu"
+            let pakro_hook = {{
+              condition: {{ "PAKRO_SHELL" in $env }}
+              code: {{ pakro_hook }}
             }}
-            add-hook hooks.pre_prompt $mise_hook
-            add-hook hooks.env_change.PWD $mise_hook
+            add-hook hooks.pre_prompt $pakro_hook
+            add-hook hooks.env_change.PWD $pakro_hook
           }}
 
           def --env add-hook [field: cell-path new_hook: any] {{
@@ -112,7 +112,7 @@ impl Shell for Nushell {
             if ($command == null) {{
               ^"{exe}"
             }} else if ($command == "activate") {{
-              $env.MISE_SHELL = "nu"
+              $env.PAKRO_SHELL = "nu"
             }} else if ($command in $commands) {{
               ^"{exe}" $command ...$rest
               | parse vars
@@ -122,7 +122,7 @@ impl Shell for Nushell {
             }}
           }}
 
-          def --env mise_hook [] {{
+          def --env pakro_hook [] {{
             ^"{exe}" hook-env{flags} -s nu
               | parse vars
               | update-env
@@ -134,9 +134,9 @@ impl Shell for Nushell {
 
     fn deactivate(&self) -> String {
         [
-            self.unset_env("MISE_SHELL"),
-            self.unset_env("__MISE_DIFF"),
-            self.unset_env("__MISE_SESSION"),
+            self.unset_env("PAKRO_SHELL"),
+            self.unset_env("__PAKRO_DIFF"),
+            self.unset_env("__PAKRO_SESSION"),
         ]
         .join("")
     }
@@ -177,7 +177,7 @@ mod tests {
     #[test]
     fn test_hook_init() {
         let nushell = Nushell::default();
-        let exe = Path::new("/some/dir/mise");
+        let exe = Path::new("/some/dir/pakro");
         let opts = ActivateOptions {
             exe: exe.to_path_buf(),
             flags: " --status".into(),

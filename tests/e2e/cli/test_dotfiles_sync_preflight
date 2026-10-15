@@ -6,24 +6,24 @@ require_cmd git
 origin="$PWD/origin.git"
 git init -q --bare -b main "$origin"
 B="$(dirname "$HOME")/b-home"
-mkdir -p "$B/.config/mise"
+mkdir -p "$B/.config/pakro"
 cat <<EOF >"$PWD/b"
 #!/usr/bin/env bash
-export HOME="$B" XDG_CONFIG_HOME="$B/.config" MISE_CONFIG_DIR="$B/.config/mise" \\
-  MISE_STATE_DIR="$B/.local/state/mise" MISE_DATA_DIR="$B/.local/share/mise" \\
-  MISE_CACHE_DIR="$B/.cache/mise" MISE_TRUSTED_CONFIG_PATHS="$B"
-cd "\$HOME" && exec mise "\$@"
+export HOME="$B" XDG_CONFIG_HOME="$B/.config" PAKRO_CONFIG_DIR="$B/.config/pakro" \\
+  PAKRO_STATE_DIR="$B/.local/state/pakro" PAKRO_DATA_DIR="$B/.local/share/pakro" \\
+  PAKRO_CACHE_DIR="$B/.cache/pakro" PAKRO_TRUSTED_CONFIG_PATHS="$B"
+cd "\$HOME" && exec pakro "\$@"
 EOF
 chmod +x "$PWD/b"
 b="$PWD/b"
 echo initial >~/.zshrc
-assert_succeed "mise bootstrap dotfiles track ~/.zshrc"
-assert_succeed 'mise bootstrap dotfiles track ~/.config/mise/config.toml'
-mkdir -p "$MISE_CONFIG_DIR/conf.d"
-assert_succeed 'mise bootstrap dotfiles track ~/.config/mise/conf.d'
-assert_fail "mise bootstrap dotfiles origin set https://user:secret@example.invalid/setup.git --yes 2>&1" "must not contain credentials"
-assert_not_contains "mise bootstrap dotfiles origin set https://user:secret@example.invalid/setup.git --yes 2>&1 || true" "user:secret"
-assert_succeed "mise bootstrap dotfiles origin set file://$origin --yes"
+assert_succeed "pakro bootstrap dotfiles track ~/.zshrc"
+assert_succeed 'pakro bootstrap dotfiles track ~/.config/pakro/config.toml'
+mkdir -p "$PAKRO_CONFIG_DIR/conf.d"
+assert_succeed 'pakro bootstrap dotfiles track ~/.config/pakro/conf.d'
+assert_fail "pakro bootstrap dotfiles origin set https://user:secret@example.invalid/setup.git --yes 2>&1" "must not contain credentials"
+assert_not_contains "pakro bootstrap dotfiles origin set https://user:secret@example.invalid/setup.git --yes 2>&1 || true" "user:secret"
+assert_succeed "pakro bootstrap dotfiles origin set file://$origin --yes"
 assert_succeed "$b bootstrap --adopt file://$origin --yes"
 assert "cat $B/.zshrc" "initial"
 
@@ -33,47 +33,47 @@ case "$(uname -s)" in
 esac
 echo incoming >~/.platform.conf
 echo local-untracked >"$B/.platform.conf"
-assert_succeed "mise bootstrap dotfiles track ~/.platform.conf --os $platform"
+assert_succeed "pakro bootstrap dotfiles track ~/.platform.conf --os $platform"
 echo incoming-zsh >~/.zshrc
-assert_succeed "mise bootstrap dotfiles sync"
-before="$(cat "$B/.config/mise/config.toml")"
+assert_succeed "pakro bootstrap dotfiles sync"
+before="$(cat "$B/.config/pakro/config.toml")"
 assert_succeed "$b bootstrap dotfiles sync"
 assert_contains "$b bootstrap dotfiles status" ".platform.conf"
 assert_fail "$b bootstrap dotfiles pull --yes 2>&1" "sync paused"
 assert "cat $B/.platform.conf" "local-untracked"
 assert "cat $B/.zshrc" "initial"
-assert "cat $B/.config/mise/config.toml" "$before"
+assert "cat $B/.config/pakro/config.toml" "$before"
 assert_succeed "$b bootstrap dotfiles pull --take-remote $B/.platform.conf --yes"
 assert "cat $B/.platform.conf" "incoming"
 assert "cat $B/.zshrc" "incoming-zsh"
 
 # A template declaration must not land before its missing source is fixed.
-cat <<'EOF' >>"$MISE_CONFIG_DIR/config.toml"
+cat <<'EOF' >>"$PAKRO_CONFIG_DIR/config.toml"
 
 [dotfiles."~/.rendered"]
 mode = "template"
 source = "templates/required.tera"
 EOF
-assert_succeed "mise bootstrap dotfiles sync"
-before="$(cat "$B/.config/mise/config.toml")"
+assert_succeed "pakro bootstrap dotfiles sync"
+before="$(cat "$B/.config/pakro/config.toml")"
 assert_succeed "$b bootstrap dotfiles sync"
 assert_contains "$b bootstrap dotfiles status" "missing required source"
 assert_fail "$b bootstrap dotfiles pull --yes 2>&1" "sync paused"
-assert "cat $B/.config/mise/config.toml" "$before"
-mkdir -p "$MISE_CONFIG_DIR/templates"
-echo 'name = {{ env.USER }}' >"$MISE_CONFIG_DIR/templates/required.tera"
-assert_succeed 'mise bootstrap dotfiles track ~/.config/mise/templates'
-assert_succeed "mise bootstrap dotfiles sync"
+assert "cat $B/.config/pakro/config.toml" "$before"
+mkdir -p "$PAKRO_CONFIG_DIR/templates"
+echo 'name = {{ env.USER }}' >"$PAKRO_CONFIG_DIR/templates/required.tera"
+assert_succeed 'pakro bootstrap dotfiles track ~/.config/pakro/templates'
+assert_succeed "pakro bootstrap dotfiles sync"
 assert_succeed "$b bootstrap dotfiles sync"
 assert_succeed "$b bootstrap dotfiles pull --yes"
-assert_contains "cat $B/.config/mise/config.toml" "required.tera"
-assert "cat $B/.config/mise/templates/required.tera" 'name = {{ env.USER }}'
+assert_contains "cat $B/.config/pakro/config.toml" "required.tera"
+assert "cat $B/.config/pakro/templates/required.tera" 'name = {{ env.USER }}'
 assert_fail "test -e $B/.rendered"
 
 # A config edited directly in Git must also pass typed declaration validation.
 git clone -q "$origin" editor
 cp editor/config/config.toml valid-config.toml
-before="$(cat "$B/.config/mise/config.toml")"
+before="$(cat "$B/.config/pakro/config.toml")"
 cat <<'EOF' >>editor/config/config.toml
 
 [dotfiles."~/.invalid"]
@@ -85,7 +85,7 @@ git -C editor push -q origin main
 assert_succeed "$b bootstrap dotfiles sync"
 assert_contains "$b bootstrap dotfiles status" "unknown dotfile mode"
 assert_fail "$b bootstrap dotfiles pull --yes 2>&1" "sync paused"
-assert "cat $B/.config/mise/config.toml" "$before"
+assert "cat $B/.config/pakro/config.toml" "$before"
 
 # Lossy parser warnings must be rejected before any incoming file is written.
 cp valid-config.toml editor/config/config.toml
@@ -100,7 +100,7 @@ git -C editor -c user.name=test -c user.email=test@example.com commit -qm invali
 git -C editor push -q origin main
 assert_succeed "$b bootstrap dotfiles sync"
 assert_contains "$b bootstrap dotfiles status" "inline content does not support"
-assert "cat $B/.config/mise/config.toml" "$before"
+assert "cat $B/.config/pakro/config.toml" "$before"
 
 # A misspelled capture policy must not silently fall back to autosave=true.
 cp valid-config.toml editor/config/config.toml
@@ -116,7 +116,7 @@ git -C editor push -q origin main
 assert_succeed "$b bootstrap dotfiles sync"
 assert_contains "$b bootstrap dotfiles status" 'unknown dotfile key "autsoave"'
 assert_fail "$b bootstrap dotfiles pull --yes 2>&1" "sync paused"
-assert "cat $B/.config/mise/config.toml" "$before"
+assert "cat $B/.config/pakro/config.toml" "$before"
 
 # An explicit global file must not hide invalid incoming conf.d bodies.
 cp valid-config.toml editor/config/config.toml
@@ -128,15 +128,15 @@ EOF
 git -C editor add config/config.toml config/conf.d/invalid.toml
 git -C editor -c user.name=test -c user.email=test@example.com commit -qm invalid-conf-d
 git -C editor push -q origin main
-explicit_config="$B/.config/mise/config.toml"
-assert_succeed "MISE_GLOBAL_CONFIG_FILE=$explicit_config $b bootstrap dotfiles sync"
+explicit_config="$B/.config/pakro/config.toml"
+assert_succeed "PAKRO_GLOBAL_CONFIG_FILE=$explicit_config $b bootstrap dotfiles sync"
 assert_contains "$b bootstrap dotfiles status" "unknown dotfile mode"
-assert_fail "test -e $B/.config/mise/conf.d/invalid.toml"
+assert_fail "test -e $B/.config/pakro/conf.d/invalid.toml"
 
 # Explicit local global-config overrides are also the write destination.
 override="$PWD/config.local.toml"
 echo '' >"$override"
-assert_succeed "MISE_GLOBAL_CONFIG_FILE=$override mise bootstrap dotfiles exclude '~/.noise'"
+assert_succeed "PAKRO_GLOBAL_CONFIG_FILE=$override pakro bootstrap dotfiles exclude '~/.noise'"
 assert_contains "cat $override" "~/.noise"
 
 # Damaged status must block sync/pull rather than discard pending decisions.
@@ -147,9 +147,9 @@ git -C editor -c user.name=test -c user.email=test@example.com commit -qm shared
 git -C editor push -q origin main
 assert_succeed "$b bootstrap dotfiles sync"
 assert_contains "$b bootstrap dotfiles status" 'history.origin is machine-local'
-assert_not_contains "cat $B/.config/mise/config.toml" 'example.invalid/other.git'
+assert_not_contains "cat $B/.config/pakro/config.toml" 'example.invalid/other.git'
 
-state_file="$B/.local/state/mise/history/sync.json"
+state_file="$B/.local/state/pakro/history/sync.json"
 assert_succeed "test -f $state_file"
 printf '{"resolutions": broken' >"$state_file"
 assert_fail "$b bootstrap dotfiles sync 2>&1" "invalid sync state"

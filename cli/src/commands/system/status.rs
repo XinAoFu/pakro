@@ -4,7 +4,7 @@ use serde_json::json;
 use crate::config::Config;
 use crate::system;
 use crate::system::packages::{PackageDesiredState, PackageState, PackageStatus};
-use crate::ui::table::MiseTable;
+use crate::ui::table::PakroTable;
 
 /// Show the status of system packages from `[bootstrap.packages]`
 #[derive(Debug, usage_rs::Args)]
@@ -12,9 +12,9 @@ use crate::ui::table::MiseTable;
     visible_alias = "ls",
     verbatim_doc_comment,
     example(
-        r###"mise bootstrap packages status
-mise bootstrap packages status --json
-mise bootstrap packages status --missing # exit 1 if anything is out of sync"###
+        r###"pakro bootstrap packages status
+pakro bootstrap packages status --json
+pakro bootstrap packages status --missing # exit 1 if anything is out of sync"###
     )
 )]
 pub(crate) struct SystemStatus {
@@ -161,14 +161,14 @@ impl SystemStatus {
             }
         }
         if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&json_out)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&json_out)?);
         } else {
             if rows.is_empty() {
                 info!("nothing configured in [bootstrap.packages]");
             }
             if !rows.is_empty() {
                 let mut table =
-                    MiseTable::new(false, &["Manager", "Package", "Installed", "State"]);
+                    PakroTable::new(false, &["Manager", "Package", "Installed", "State"]);
                 for row in rows {
                     table.add_row(row);
                 }

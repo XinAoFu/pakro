@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
 # Test monorepo task circular dependency detection
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 
 # Create monorepo root config
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 monorepo_root = true
 
 [monorepo]
@@ -15,12 +15,12 @@ run = 'echo "root task"'
 EOF
 
 # Trust the root config so it can run
-mise trust
+pakro trust
 
 # Test 1: Direct circular dependency (a -> b -> a)
 echo "=== Test 1: Direct circular dependency ==="
 mkdir -p projects/circ1
-cat <<EOF >projects/circ1/mise.toml
+cat <<EOF >projects/circ1/pakro.toml
 [tasks.a]
 run = 'echo "task a"'
 depends = [":b"]
@@ -31,7 +31,7 @@ depends = [":a"]
 EOF
 
 # Should error with circular dependency
-output=$(timeout 3 mise run '//projects/circ1:a' 2>&1 || true)
+output=$(timeout 3 pakro run '//projects/circ1:a' 2>&1 || true)
 if echo "$output" | grep -qiE "circular dependency detected"; then
   echo "SUCCESS: Direct circular dependency detected"
 else
@@ -43,7 +43,7 @@ fi
 # Test 2: Transitive circular dependency (a -> b -> c -> a)
 echo "=== Test 2: Transitive circular dependency ==="
 mkdir -p projects/circ2
-cat <<EOF >projects/circ2/mise.toml
+cat <<EOF >projects/circ2/pakro.toml
 [tasks.a]
 run = 'echo "task a"'
 depends = [":b"]
@@ -57,7 +57,7 @@ run = 'echo "task c"'
 depends = [":a"]
 EOF
 
-output=$(timeout 3 mise run '//projects/circ2:a' 2>&1 || true)
+output=$(timeout 3 pakro run '//projects/circ2:a' 2>&1 || true)
 if echo "$output" | grep -qiE "circular dependency detected"; then
   echo "SUCCESS: Transitive circular dependency detected"
 else
@@ -69,19 +69,19 @@ fi
 # Test 3: Cross-project circular dependency
 echo "=== Test 3: Cross-project circular dependency ==="
 mkdir -p projects/frontend projects/backend
-cat <<EOF >projects/frontend/mise.toml
+cat <<EOF >projects/frontend/pakro.toml
 [tasks.build]
 run = 'echo "frontend build"'
 depends = ["//projects/backend:build"]
 EOF
 
-cat <<EOF >projects/backend/mise.toml
+cat <<EOF >projects/backend/pakro.toml
 [tasks.build]
 run = 'echo "backend build"'
 depends = ["//projects/frontend:build"]
 EOF
 
-output=$(timeout 3 mise run '//projects/frontend:build' 2>&1 || true)
+output=$(timeout 3 pakro run '//projects/frontend:build' 2>&1 || true)
 if echo "$output" | grep -qiE "circular dependency detected"; then
   echo "SUCCESS: Cross-project circular dependency detected"
 else
@@ -93,13 +93,13 @@ fi
 # Test 4: Self-dependency (should be caught)
 echo "=== Test 4: Self-dependency ==="
 mkdir -p projects/self
-cat <<EOF >projects/self/mise.toml
+cat <<EOF >projects/self/pakro.toml
 [tasks.build]
 run = 'echo "build"'
 depends = [":build"]
 EOF
 
-output=$(timeout 3 mise run '//projects/self:build' 2>&1 || true)
+output=$(timeout 3 pakro run '//projects/self:build' 2>&1 || true)
 # Self-dependency is filtered out at line 327 in mod.rs, so it should run successfully
 if echo "$output" | grep -q "build"; then
   echo "SUCCESS: Self-dependency silently filtered (task ran once)"

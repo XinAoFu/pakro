@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.first]
 run = '''
 if ! mkdir "$SERIAL_LOCK" 2>/dev/null; then
@@ -41,38 +41,38 @@ assert_tasks_completed() {
 }
 
 FIRST_MARKER="$first_marker" SECOND_MARKER="$second_marker" SERIAL_LOCK="$serial_lock" \
-  mise run --jobs 0 first ::: second
+  pakro run --jobs 0 first ::: second
 assert_tasks_completed
 FIRST_MARKER="$first_marker" SECOND_MARKER="$second_marker" SERIAL_LOCK="$serial_lock" \
-  MISE_JOBS=0 mise run first ::: second
+  PAKRO_JOBS=0 pakro run first ::: second
 assert_tasks_completed
 
-cat <<'EOF' >>mise.toml
+cat <<'EOF' >>pakro.toml
 
 [settings]
 jobs = 0
 EOF
 
-assert "mise settings get jobs" "1"
+assert "pakro settings get jobs" "1"
 FIRST_MARKER="$first_marker" SECOND_MARKER="$second_marker" SERIAL_LOCK="$serial_lock" \
-  mise run first ::: second
+  pakro run first ::: second
 assert_tasks_completed
 
 interrupt_dir="$PWD/jobs-zero-interrupt"
 mkdir -p "$interrupt_dir"
 ready_file="$interrupt_dir/ready"
 output_file="$interrupt_dir/output"
-READY_FILE="$ready_file" mise run --jobs 0 interrupt >"$output_file" 2>&1 &
-mise_pid=$!
-wait_for_file "$ready_file" "task started with --jobs 0" 30 "$mise_pid"
-kill -INT "$mise_pid"
+READY_FILE="$ready_file" pakro run --jobs 0 interrupt >"$output_file" 2>&1 &
+pakro_pid=$!
+wait_for_file "$ready_file" "task started with --jobs 0" 30 "$pakro_pid"
+kill -INT "$pakro_pid"
 
 status=0
-wait "$mise_pid" || status=$?
+wait "$pakro_pid" || status=$?
 if [[ $status -ne 130 ]]; then
-  fail "mise run expected exit code 130 after Ctrl-C, got $status: $(cat "$output_file")"
+  fail "pakro run expected exit code 130 after Ctrl-C, got $status: $(cat "$output_file")"
 fi
 
-rm -rf "$MISE_DATA_DIR/installs/dummy/1.0.0"
-mise install dummy@1.0.0 --jobs 0
-assert_contains "mise ls --installed dummy" "1.0.0"
+rm -rf "$PAKRO_DATA_DIR/installs/dummy/1.0.0"
+pakro install dummy@1.0.0 --jobs 0
+assert_contains "pakro ls --installed dummy" "1.0.0"

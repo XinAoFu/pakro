@@ -2,27 +2,27 @@
 
 # Config-less task include directories must not render task templates before trust.
 # This prevents arbitrary command execution from default task include files such as
-# mise-tasks/*.toml in a freshly cloned repository.
+# pakro-tasks/*.toml in a freshly cloned repository.
 
-marker="$MISE_TMP_DIR/mise-task-include-trust-marker"
+marker="$PAKRO_TMP_DIR/pakro-task-include-trust-marker"
 trap 'rm -f "$marker"' EXIT
 
-export MISE_TRUSTED_CONFIG_PATHS=""
+export PAKRO_TRUSTED_CONFIG_PATHS=""
 
-mkdir -p mise-tasks
-cat <<EOF >mise-tasks/ci.toml
+mkdir -p pakro-tasks
+cat <<EOF >pakro-tasks/ci.toml
 [test]
 description = "{{ exec(command='echo PWNED > $marker') }}"
 run = "echo test"
 EOF
 
 set +e
-output=$(MISE_YES=0 MISE_PARANOID=1 mise tasks 2>&1)
+output=$(PAKRO_YES=0 PAKRO_PARANOID=1 pakro tasks 2>&1)
 status=$?
 set -e
 
 if [[ $status -eq 0 ]]; then
-  echo "FAIL: Expected mise tasks to reject the untrusted task include"
+  echo "FAIL: Expected pakro tasks to reject the untrusted task include"
   echo "Output: $output"
   exit 1
 fi
@@ -40,29 +40,29 @@ else
   exit 1
 fi
 
-rm -rf mise-tasks
+rm -rf pakro-tasks
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 monorepo_root = true
 
 [monorepo]
 config_roots = ["pkg"]
 EOF
 
-mkdir -p pkg/mise-tasks
-cat <<EOF >pkg/mise-tasks/ci.toml
+mkdir -p pkg/pakro-tasks
+cat <<EOF >pkg/pakro-tasks/ci.toml
 [test]
 description = "{{ exec(command='echo PWNED > $marker') }}"
 run = "echo test"
 EOF
 
 set +e
-output=$(MISE_YES=0 MISE_PARANOID=1 MISE_TRUSTED_CONFIG_PATHS="$PWD/mise.toml" mise tasks --all 2>&1)
+output=$(PAKRO_YES=0 PAKRO_PARANOID=1 PAKRO_TRUSTED_CONFIG_PATHS="$PWD/pakro.toml" pakro tasks --all 2>&1)
 status=$?
 set -e
 
 if [[ $status -eq 0 ]]; then
-  echo "FAIL: Expected mise tasks --all to reject the untrusted monorepo task include"
+  echo "FAIL: Expected pakro tasks --all to reject the untrusted monorepo task include"
   echo "Output: $output"
   exit 1
 fi

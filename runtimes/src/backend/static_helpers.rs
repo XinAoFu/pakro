@@ -158,7 +158,7 @@ pub(crate) fn eval_checksum_expr(
 /// case-insensitive (e.g. `SHA256` from a manifest). Returns `None` when the
 /// value has no `algo:` prefix or the hash isn't valid hex for that algorithm.
 ///
-/// mise stores and verifies checksums as `algo:hash` everywhere, so a bare hash
+/// pakro stores and verifies checksums as `algo:hash` everywhere, so a bare hash
 /// is rejected rather than guessed — the expression must qualify it (e.g.
 /// `"sha256:" + entry.hash`).
 fn normalize_checksum(raw: &str) -> Option<String> {
@@ -229,13 +229,13 @@ where
 
 /// Builds the ordered list of tags to try for a requested version.
 ///
-/// Every version mise lists has already had its tag decoration removed by
+/// Every version pakro lists has already had its tag decoration removed by
 /// `strip_version_prefix`, so the tag has to be reconstructed here. When a tag
 /// repeats the configured `version_prefix` -- tag `a-a-1.2.3` with
 /// `version_prefix = "a-"` is listed as `a-1.2.3` -- the listed version still
 /// starts with the prefix, and re-prefixing it is the only way back to the tag
 /// it came from. Prefixing is therefore tried first even in that case, so a
-/// version mise listed always round-trips to its own tag; the version is still
+/// version pakro listed always round-trips to its own tag; the version is still
 /// tried unprefixed afterwards for users who spell out a tag by hand, down to
 /// the bare version with every copy of the prefix removed.
 fn tag_candidates(version: &str, version_prefix: Option<&str>, repo: Option<&str>) -> Vec<String> {
@@ -529,7 +529,7 @@ pub(crate) fn list_available_platforms_with_key(
     }
 
     // Read the keys that are actually there rather than probing a grid of known OS and arch
-    // tokens. The grid could only see platforms it already knew the name of, so a key mise does
+    // tokens. The grid could only see platforms it already knew the name of, so a key pakro does
     // not recognise -- a typo like `lnux-x64`, an underscore where a dash belongs -- came back as
     // nothing at all, and the caller reported "requires 'url' option" to someone who had written
     // one. Naming what is declared is the whole point of this list.
@@ -572,8 +572,8 @@ pub(crate) fn template_string(template: &str, tv: &ToolVersion) -> String {
 }
 
 /// Like [`template_string`] but renders `os()`/`arch()` for an explicit target
-/// platform instead of the current host. Used by cross-platform `mise lock` to
-/// build URLs and checksum-file URLs for platforms other than the one mise runs on.
+/// platform instead of the current host. Used by cross-platform `pakro lock` to
+/// build URLs and checksum-file URLs for platforms other than the one pakro runs on.
 pub(crate) fn template_string_for_target(
     template: &str,
     tv: &ToolVersion,
@@ -645,7 +645,7 @@ pub(crate) enum ArchiveLayout {
     /// the name it was given: renaming it would put it somewhere the manifest
     /// does not point.
     Declared,
-    /// Nothing describes the release, so mise reads the layout off the archive
+    /// Nothing describes the release, so pakro reads the layout off the archive
     /// and may tidy an obvious platform suffix off a lone binary.
     Guessed,
 }
@@ -834,7 +834,7 @@ fn archive_bin_search_dir(install_path: &Path, explicit_bin_path: Option<&Path>)
 /// files, LICENSE/README, and docs) and cleaning actually changes its name, so
 /// multi-file archives and files without a platform suffix are left untouched.
 /// See discussion #6532.
-/// Whether mise may rename the archive's lone binary to the tool's name.
+/// Whether pakro may rename the archive's lone binary to the tool's name.
 /// Only when nothing else has said what the file should be called: not when
 /// the caller was handed a manifest, and not when `bin=` or `rename_exe=`
 /// already names it.
@@ -1812,7 +1812,7 @@ pub(crate) fn test_identity_install(
         &Receipt {
             record: IdentityRecord::new(identity, dir.to_string()),
             requested_as: None,
-            mise_version: None,
+            pakro_version: None,
         },
     )
     .unwrap();
@@ -2349,9 +2349,9 @@ Path      : C:\\a\\deno\\deno\\target\\release\\deno-x86_64-pc-windows-msvc.zip
     }
 
     #[test]
-    fn list_available_platforms_names_keys_mise_does_not_recognise() {
+    fn list_available_platforms_names_keys_pakro_does_not_recognise() {
         // What the list is for: telling someone which platform keys their tool declares. Probing a
-        // grid of known OS and arch tokens could only ever name the ones mise already knew, so a
+        // grid of known OS and arch tokens could only ever name the ones pakro already knew, so a
         // typo came back as an empty list and the http backend told the author to provide a `url`
         // they had written. Measured before the change, host windows-x64:
         //
@@ -3304,7 +3304,7 @@ bin = "tool.exe"
     #[tokio::test]
     async fn test_try_with_v_prefix_finds_a_tag_that_repeats_the_version_prefix() {
         // End to end through the resolver: only the real tag resolves, and the
-        // version under test is exactly what `mise ls-remote` prints for it.
+        // version under test is exactly what `pakro ls-remote` prints for it.
         let tried = std::sync::Mutex::new(vec![]);
         let resolved = try_with_v_prefix_and_repo(
             "a-1.2.3",

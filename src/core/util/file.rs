@@ -1,4 +1,4 @@
-pub use mise_util::file::*;
+pub use pakro_util::file::*;
 
 #[cfg(test)]
 mod tests {
@@ -13,7 +13,7 @@ mod tests {
     async fn test_find_up() {
         let _config = Config::get().await.unwrap();
         let path = &env::current_dir().unwrap();
-        let filenames = vec![".miserc", ".mise.toml", ".test-tool-versions"]
+        let filenames = vec![".pakrorc", ".pakro.toml", ".test-tool-versions"]
             .into_iter()
             .map(|s| s.to_string())
             .collect_vec();

@@ -19,7 +19,7 @@ cat >"$HOME/env-home-tasks/task.toml" <<'EOF'
 run = 'echo "env home include"'
 EOF
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [task_config]
 includes = [
     "{{ config_root }}/root-tasks/*.toml",
@@ -28,18 +28,18 @@ includes = [
 ]
 EOF
 
-assert_contains "mise tasks" "root_include"
-assert_contains "mise tasks" "tilde_include"
-assert_contains "mise tasks" "env_home_include"
+assert_contains "pakro tasks" "root_include"
+assert_contains "pakro tasks" "tilde_include"
+assert_contains "pakro tasks" "env_home_include"
 
-assert "mise run root_include" "root include"
-assert "mise run tilde_include" "tilde include"
-assert "mise run env_home_include" "env home include"
+assert "pakro run root_include" "root include"
+assert "pakro run tilde_include" "tilde include"
+assert "pakro run env_home_include" "env home include"
 
 # Root vars are available when rendering child config task includes.
 mkdir -p monorepo/folder1 monorepo/tasks-v1
 
-cat >monorepo/mise.toml <<'EOF'
+cat >monorepo/pakro.toml <<'EOF'
 monorepo_root = true
 
 [vars]
@@ -54,11 +54,11 @@ cat >monorepo/tasks-v1/tasks.toml <<'EOF'
 run = 'echo "shared include"'
 EOF
 
-cat >monorepo/folder1/mise.toml <<'EOF'
+cat >monorepo/folder1/pakro.toml <<'EOF'
 [task_config]
 includes = ["../tasks-{{vars.central_ref}}/*.toml"]
 EOF
 
 cd monorepo
-assert_contains "mise tasks ls --all" "//folder1:shared_include"
-assert "mise run //folder1:shared_include" "shared include"
+assert_contains "pakro tasks ls --all" "//folder1:shared_include"
+assert "pakro run //folder1:shared_include" "shared include"

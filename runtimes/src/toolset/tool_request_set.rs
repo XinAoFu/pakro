@@ -124,7 +124,7 @@ impl FromIterator<(Arc<BackendArg>, Vec<ToolRequest>, ToolSource)> for ToolReque
 pub struct ToolRequestSetBuilder {
     /// cli tool args
     args: Vec<ToolArg>,
-    /// default to latest version if no version is specified (for `mise x`)
+    /// default to latest version if no version is specified (for `pakro x`)
     default_to_latest: bool,
     /// tools which will be disabled
     disable_tools: BTreeSet<BackendArg>,
@@ -266,9 +266,9 @@ impl ToolRequestSetBuilder {
                     let tvr = apply_config_options_to_runtime_arg(&trs, tvr.clone());
                     arg_ts.add_version(tvr, &ToolSource::Argument);
                 } else if self.default_to_latest {
-                    // this logic is required for `mise x` because with that specific command mise
+                    // this logic is required for `pakro x` because with that specific command pakro
                     // should default to installing the "latest" version if no version is specified
-                    // in mise.toml
+                    // in pakro.toml
 
                     if !trs.tools.contains_key(&arg.ba) {
                         // no active version, so use "latest"
@@ -345,23 +345,23 @@ pub(super) fn configured_options_for_runtime_request(
 }
 
 /// Keep the exact tool currently running its postinstall hook active for
-/// nested mise invocations. Unlike `MISE_<TOOL>_VERSION`, this pair keeps
+/// nested pakro invocations. Unlike `PAKRO_<TOOL>_VERSION`, this pair keeps
 /// backend-qualified names containing `:` or `/` intact.
 pub(super) fn postinstall_tool_request(
     env: &EnvMap,
 ) -> eyre::Result<Option<(ToolRequest, ToolSource)>> {
-    if !env.contains_key("MISE_TOOL_INSTALL_PATH") {
+    if !env.contains_key("PAKRO_TOOL_INSTALL_PATH") {
         return Ok(None);
     }
     let (Some(name), Some(version)) = (
-        env.get("MISE_TOOL_NAME"),
-        env.get(env::MISE_TOOL_VERSION_ENV_VAR),
+        env.get("PAKRO_TOOL_NAME"),
+        env.get(env::PAKRO_TOOL_VERSION_ENV_VAR),
     ) else {
         return Ok(None);
     };
     let backend = Arc::new(BackendArg::from(name));
     let source =
-        ToolSource::Environment(env::MISE_TOOL_VERSION_ENV_VAR.into(), version.to_string());
+        ToolSource::Environment(env::PAKRO_TOOL_VERSION_ENV_VAR.into(), version.to_string());
     let request = ToolRequest::new(backend, version, source.clone())?;
     Ok(Some((request, source)))
 }
@@ -377,28 +377,28 @@ fn merge(mut a: ToolRequestSet, mut b: ToolRequestSet) -> ToolRequestSet {
 
 /// Returns the environment variable used to select a tool version for a shell session.
 pub fn tool_env_var_name(tool: &str) -> String {
-    format!("MISE_{}_VERSION", tool.to_shouty_snake_case())
+    format!("PAKRO_{}_VERSION", tool.to_shouty_snake_case())
 }
 
 /// Returns the tool selected by a shell-session environment variable.
 ///
 /// Shell environment variable names cannot preserve the distinction between `-` and `_`.
-/// Since mise tool names conventionally use kebab-case, both spellings decode to `-`.
+/// Since pakro tool names conventionally use kebab-case, both spellings decode to `-`.
 pub fn tool_from_env_var_name(name: &str) -> Option<String> {
     if env::NON_TOOL_VERSION_ENV_VARS.contains(&name) {
         return None;
     }
-    let raw = name.strip_prefix("MISE_")?.strip_suffix("_VERSION")?;
+    let raw = name.strip_prefix("PAKRO_")?.strip_suffix("_VERSION")?;
     if raw.is_empty() {
         return None;
     }
     Some(crate::backend::unalias_backend(&raw.to_kebab_case()).to_string())
 }
 
-/// Yields `(short, key, value)` for each `MISE_<TOOL>_VERSION` env var that
+/// Yields `(short, key, value)` for each `PAKRO_<TOOL>_VERSION` env var that
 /// maps to a tool. `short` is the unaliased backend short name (so
-/// `MISE_NODEJS_VERSION` yields `"node"`). Skips `MISE_VERSION` and the
-/// `MISE_INSTALL_VERSION` / `MISE_TOOL_VERSION` vars set during hooks.
+/// `PAKRO_NODEJS_VERSION` yields `"node"`). Skips `PAKRO_VERSION` and the
+/// `PAKRO_INSTALL_VERSION` / `PAKRO_TOOL_VERSION` vars set during hooks.
 pub fn tool_env_vars() -> impl Iterator<Item = (String, String, String)> {
     env::vars_safe().filter_map(|(k, v)| {
         let short = tool_from_env_var_name(&k)?;
@@ -414,9 +414,9 @@ mod tests {
     #[test]
     fn test_postinstall_tool_request_preserves_backend_identity() {
         let env = EnvMap::from_iter([
-            ("MISE_TOOL_INSTALL_PATH".into(), "/tmp/aws-cli".into()),
-            ("MISE_TOOL_NAME".into(), "aqua:aws/aws-cli".into()),
-            (env::MISE_TOOL_VERSION_ENV_VAR.into(), "2.31.0".into()),
+            ("PAKRO_TOOL_INSTALL_PATH".into(), "/tmp/aws-cli".into()),
+            ("PAKRO_TOOL_NAME".into(), "aqua:aws/aws-cli".into()),
+            (env::PAKRO_TOOL_VERSION_ENV_VAR.into(), "2.31.0".into()),
         ]);
 
         let (request, _) = postinstall_tool_request(&env).unwrap().unwrap();
@@ -439,9 +439,9 @@ mod tests {
         let mut trs = ToolRequestSet::new();
         trs.add_version(configured, &ToolSource::Unknown);
         let env = EnvMap::from_iter([
-            ("MISE_TOOL_INSTALL_PATH".into(), "/tmp/dummy".into()),
-            ("MISE_TOOL_NAME".into(), "dummy".into()),
-            (env::MISE_TOOL_VERSION_ENV_VAR.into(), "2.0.0".into()),
+            ("PAKRO_TOOL_INSTALL_PATH".into(), "/tmp/dummy".into()),
+            ("PAKRO_TOOL_NAME".into(), "dummy".into()),
+            (env::PAKRO_TOOL_VERSION_ENV_VAR.into(), "2.0.0".into()),
         ]);
 
         let trs = ToolRequestSetBuilder::new()
@@ -455,24 +455,24 @@ mod tests {
 
     #[test]
     fn test_tool_env_var_name_round_trip() {
-        assert_eq!(tool_env_var_name("ls-lint"), "MISE_LS_LINT_VERSION");
+        assert_eq!(tool_env_var_name("ls-lint"), "PAKRO_LS_LINT_VERSION");
         assert_eq!(
-            tool_from_env_var_name("MISE_LS_LINT_VERSION").as_deref(),
+            tool_from_env_var_name("PAKRO_LS_LINT_VERSION").as_deref(),
             Some("ls-lint")
         );
         assert_eq!(tool_env_var_name("ls-lint"), tool_env_var_name("ls_lint"));
         assert_eq!(
-            tool_from_env_var_name("MISE_NODEJS_VERSION").as_deref(),
+            tool_from_env_var_name("PAKRO_NODEJS_VERSION").as_deref(),
             Some("node")
         );
     }
 
     #[test]
     fn test_load_runtime_env_with_valid_utf8() {
-        // This test verifies that valid UTF-8 MISE_*_VERSION variables work correctly
+        // This test verifies that valid UTF-8 PAKRO_*_VERSION variables work correctly
         unsafe {
-            std::env::set_var("MISE_NODE_VERSION", "20.0.0");
-            std::env::set_var("MISE_PYTHON_VERSION", "3.11");
+            std::env::set_var("PAKRO_NODE_VERSION", "20.0.0");
+            std::env::set_var("PAKRO_PYTHON_VERSION", "3.11");
         }
 
         let builder = ToolRequestSetBuilder::new();
@@ -484,66 +484,66 @@ mod tests {
         assert!(trs.tools.len() >= 2 || trs.tools.is_empty()); // May be empty if backends are disabled
 
         unsafe {
-            std::env::remove_var("MISE_NODE_VERSION");
-            std::env::remove_var("MISE_PYTHON_VERSION");
+            std::env::remove_var("PAKRO_NODE_VERSION");
+            std::env::remove_var("PAKRO_PYTHON_VERSION");
         }
     }
 
     #[test]
     fn test_tool_env_vars_unaliases_backend() {
-        // MISE_NODEJS_VERSION should yield "node" (the unaliased backend
+        // PAKRO_NODEJS_VERSION should yield "node" (the unaliased backend
         // short name), not "nodejs" — otherwise the install command's
         // configured-tool check fails to match unaliased ToolArg shorts.
         unsafe {
-            std::env::set_var("MISE_NODEJS_VERSION", "22.0.0");
-            std::env::set_var("MISE_GOLANG_VERSION", "1.22.0");
+            std::env::set_var("PAKRO_NODEJS_VERSION", "22.0.0");
+            std::env::set_var("PAKRO_GOLANG_VERSION", "1.22.0");
         }
 
         let entries: Vec<(String, String, String)> = tool_env_vars()
-            .filter(|(_, k, _)| k == "MISE_NODEJS_VERSION" || k == "MISE_GOLANG_VERSION")
+            .filter(|(_, k, _)| k == "PAKRO_NODEJS_VERSION" || k == "PAKRO_GOLANG_VERSION")
             .collect();
 
         let nodejs = entries
             .iter()
-            .find(|(_, k, _)| k == "MISE_NODEJS_VERSION")
-            .expect("MISE_NODEJS_VERSION should yield an entry");
+            .find(|(_, k, _)| k == "PAKRO_NODEJS_VERSION")
+            .expect("PAKRO_NODEJS_VERSION should yield an entry");
         assert_eq!(nodejs.0, "node");
 
         let golang = entries
             .iter()
-            .find(|(_, k, _)| k == "MISE_GOLANG_VERSION")
-            .expect("MISE_GOLANG_VERSION should yield an entry");
+            .find(|(_, k, _)| k == "PAKRO_GOLANG_VERSION")
+            .expect("PAKRO_GOLANG_VERSION should yield an entry");
         assert_eq!(golang.0, "go");
 
         unsafe {
-            std::env::remove_var("MISE_NODEJS_VERSION");
-            std::env::remove_var("MISE_GOLANG_VERSION");
+            std::env::remove_var("PAKRO_NODEJS_VERSION");
+            std::env::remove_var("PAKRO_GOLANG_VERSION");
         }
     }
 
     #[test]
     fn test_tool_env_vars_skips_non_tool_vars() {
         unsafe {
-            std::env::set_var("MISE_VERSION", "2026.4.28");
-            std::env::set_var(env::MISE_INSTALL_VERSION_ENV_VAR, "1.0.0");
-            std::env::set_var(env::MISE_TOOL_VERSION_ENV_VAR, "1.0.0");
+            std::env::set_var("PAKRO_VERSION", "2026.4.28");
+            std::env::set_var(env::PAKRO_INSTALL_VERSION_ENV_VAR, "1.0.0");
+            std::env::set_var(env::PAKRO_TOOL_VERSION_ENV_VAR, "1.0.0");
         }
 
         let keys: HashSet<String> = tool_env_vars().map(|(_, k, _)| k).collect();
-        assert!(!keys.contains("MISE_VERSION"));
-        assert!(!keys.contains(env::MISE_INSTALL_VERSION_ENV_VAR));
-        assert!(!keys.contains(env::MISE_TOOL_VERSION_ENV_VAR));
+        assert!(!keys.contains("PAKRO_VERSION"));
+        assert!(!keys.contains(env::PAKRO_INSTALL_VERSION_ENV_VAR));
+        assert!(!keys.contains(env::PAKRO_TOOL_VERSION_ENV_VAR));
 
         unsafe {
-            std::env::remove_var("MISE_VERSION");
-            std::env::remove_var(env::MISE_INSTALL_VERSION_ENV_VAR);
-            std::env::remove_var(env::MISE_TOOL_VERSION_ENV_VAR);
+            std::env::remove_var("PAKRO_VERSION");
+            std::env::remove_var(env::PAKRO_INSTALL_VERSION_ENV_VAR);
+            std::env::remove_var(env::PAKRO_TOOL_VERSION_ENV_VAR);
         }
     }
 
     #[test]
-    fn test_load_runtime_env_ignores_non_mise_vars() {
-        // Non-MISE variables should be ignored, even with special characters
+    fn test_load_runtime_env_ignores_non_pakro_vars() {
+        // Non-PAKRO variables should be ignored, even with special characters
         unsafe {
             std::env::set_var("HOMEBREW_INSTALL_BADGE", "✅");
             std::env::set_var("SOME_OTHER_VAR", "value");
@@ -552,7 +552,7 @@ mod tests {
         let builder = ToolRequestSetBuilder::new();
         let result = builder.load_runtime_env(ToolRequestSet::new());
 
-        // Should not panic when non-MISE vars are present
+        // Should not panic when non-PAKRO vars are present
         assert!(result.is_ok());
 
         unsafe {

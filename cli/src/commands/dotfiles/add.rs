@@ -5,7 +5,7 @@ use toml_edit::{DocumentMut, InlineTable, Item, Table, Value};
 
 use crate::config::config_file::ConfigFile;
 use crate::config::config_file::is_path_trusted;
-use crate::config::config_file::mise_toml::MiseToml;
+use crate::config::config_file::pakro_toml::PakroToml;
 use crate::config::{Config, ConfigPathOptions, is_global_config, resolve_target_config_path};
 use crate::dirs;
 use crate::file;
@@ -31,11 +31,11 @@ use crate::ui::prompt;
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise dot add ~/.zshrc
-mise dot add --mode copy ~/.config/starship.toml
-mise dot add --source dotfiles/gitconfig ~/.gitconfig
-mise dot add --group home ~/.config/starship.toml
-mise dot add --changed"###
+        r###"pakro dot add ~/.zshrc
+pakro dot add --mode copy ~/.config/starship.toml
+pakro dot add --source dotfiles/gitconfig ~/.gitconfig
+pakro dot add --group home ~/.config/starship.toml
+pakro dot add --changed"###
     )
 )]
 pub(crate) struct DotfilesAdd {
@@ -74,7 +74,7 @@ pub(crate) struct DotfilesAdd {
     /// Write to this config file or directory
     // No `--file` alias here: `-f` on this command is `--force`, and `targets` accepts any
     // string, so `-f <path>` silently adds the config file as a dotfile instead of writing
-    // to it. See `mise unset --path` for the commands where the short form is free.
+    // to it. See `pakro unset --path` for the commands where the short form is free.
     #[usage(long, short, value_name = "PATH", conflicts = ["global", "local"])]
     pub(super) path: Option<PathBuf>,
 
@@ -114,7 +114,7 @@ impl DotfilesAdd {
         }
         match self.mode.as_deref() {
             Some("track") => bail!(
-                "`--mode track` tracks a file where it is and takes no source; use `mise dot track <path>`"
+                "`--mode track` tracks a file where it is and takes no source; use `pakro dot track <path>`"
             ),
             Some("absent") => bail!(
                 "`--mode absent` removes a file rather than capturing it; declare `mode = \"absent\"` in [dotfiles]"
@@ -180,7 +180,7 @@ impl DotfilesAdd {
                 .any(|req| req.mode == FileMode::Track && req.target == target)
             {
                 bail!(
-                    "{target_raw}: tracked in place; pass `--mode copy` after `mise dot untrack {target_raw}` to seed a source instead"
+                    "{target_raw}: tracked in place; pass `--mode copy` after `pakro dot untrack {target_raw}` to seed a source instead"
                 );
             }
             if managed
@@ -343,7 +343,7 @@ impl DotfilesAdd {
         if self.dry_run {
             for item in &planned {
                 if item.already_managed.is_none() {
-                    miseprintln!(
+                    pakroprintln!(
                         "{}: \"{}\" = {}",
                         config_path.display_user(),
                         item.target_raw,
@@ -351,14 +351,14 @@ impl DotfilesAdd {
                     );
                 }
                 if item.target.exists() {
-                    miseprintln!(
+                    pakroprintln!(
                         "cp {} {}",
                         item.target.display_user(),
                         item.source.display_user()
                     );
                 }
                 if !self.no_apply {
-                    miseprintln!("{}", describe_apply(item));
+                    pakroprintln!("{}", describe_apply(item));
                 }
             }
             return Ok(());
@@ -432,7 +432,7 @@ impl DotfilesAdd {
                                     )
                                 })?;
                                 let recovery = tempfile::Builder::new()
-                                    .prefix(".mise-dotfiles-rollback-")
+                                    .prefix(".pakro-dotfiles-rollback-")
                                     .tempdir_in(parent)?;
                                 let recovery_path = recovery.path().join("target");
                                 // Keep the original on its own filesystem until
@@ -531,7 +531,7 @@ impl DotfilesAdd {
                 dry_run: false,
                 verbose: false,
                 force: false,
-                force_hint: "run `mise dot apply --force`",
+                force_hint: "run `pakro dot apply --force`",
                 yes: true,
             };
             let apply_plan = if !self.no_apply && !apply_requests.is_empty() {
@@ -566,7 +566,7 @@ impl DotfilesAdd {
                 .collect::<Vec<_>>();
             if !added_targets.is_empty() {
                 if !config_path.exists() {
-                    let cf = MiseToml::init(&config_path);
+                    let cf = PakroToml::init(&config_path);
                     cf.save()?;
                 }
                 let raw = file::read_to_string(&config_path)?;

@@ -12,13 +12,13 @@ use tabled::{Table, Tabled};
 /// By default, list explicit settings from loaded TOML files. `--all` also includes
 /// effective defaults. Use `--local` to restrict output to the selected local file,
 /// and `--json-extended` to include source information in machine-readable output.
-/// Use `mise settings get KEY` when you need one effective value.
+/// Use `pakro settings get KEY` when you need one effective value.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     example(
-        r###"mise settings ls
-mise settings ls --all
-mise settings ls python --json-extended"###
+        r###"pakro settings ls
+pakro settings ls --all
+pakro settings ls python --json-extended"###
     ),
     verbatim_doc_comment
 )]
@@ -121,7 +121,7 @@ impl SettingsLs {
 
     fn complete(&self) -> Result<()> {
         for (k, sm) in SETTINGS_META.iter() {
-            miseprintln!("{k}:{}", sm.description.replace(":", "\\:"));
+            pakroprintln!("{k}:{}", sm.description.replace(":", "\\:"));
         }
         Ok(())
     }
@@ -135,7 +135,7 @@ impl SettingsLs {
                 toml_value_to_json_value(row.toml_value),
             );
         }
-        miseprintln!("{}", serde_json::to_string_pretty(&table)?);
+        pakroprintln!("{}", serde_json::to_string_pretty(&table)?);
         Ok(())
     }
 
@@ -156,7 +156,7 @@ impl SettingsLs {
             }
             insert_json_value(&mut table, &row.path, entry.into());
         }
-        miseprintln!("{}", serde_json::to_string_pretty(&table)?);
+        pakroprintln!("{}", serde_json::to_string_pretty(&table)?);
         Ok(())
     }
 
@@ -165,7 +165,7 @@ impl SettingsLs {
         for row in rows {
             insert_toml_value(&mut table, &row.path, row.toml_value);
         }
-        miseprintln!("{}", toml::to_string(&table)?);
+        pakroprintln!("{}", toml::to_string(&table)?);
         Ok(())
     }
 }

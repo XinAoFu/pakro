@@ -40,7 +40,7 @@ esac
 
 # Absolute, because `getcwd` is denied under this profile and resolving a
 # relative path needs it — that is a separate gap, not the one being fixed here.
-cat >mise.toml <<TOML
+cat >pakro.toml <<TOML
 [tasks.resolve]
 run = "/usr/bin/ruby --disable-gems -e 'puts File.realpath(ARGV[0]); puts File.read(ARGV[0])' $PWD/nested/deep/payload.txt"
 allow_read = ["$PWD/nested/deep"]
@@ -48,5 +48,5 @@ TOML
 
 # Assert both halves. Reading it is what already worked, so a read that still
 # works is part of what this pins; resolving it is the regression.
-assert_contains "mise run resolve" "nested/deep/payload.txt"
-assert_contains "mise run resolve" "payload"
+assert_contains "pakro run resolve" "nested/deep/payload.txt"
+assert_contains "pakro run resolve" "payload"

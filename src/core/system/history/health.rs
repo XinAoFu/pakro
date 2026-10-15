@@ -1,5 +1,5 @@
-//! Background health, persisted under `$MISE_STATE_DIR/history/health.json`
-//! by the watcher and read by `mise doctor` and `mise dot
+//! Background health, persisted under `$PAKRO_STATE_DIR/history/health.json`
+//! by the watcher and read by `pakro doctor` and `pakro dot
 //! status`. This is pull-based visibility: nothing here gets the user's
 //! attention on its own. Readers distinguish stale information (the last
 //! update is older than the watcher's reconcile period while a watcher
@@ -43,7 +43,7 @@ pub struct WatcherHealth {
     pub consecutive_failures: u32,
     #[serde(default)]
     pub degraded: Vec<String>,
-    /// The mise executable this watcher started from is gone, so the
+    /// The pakro executable this watcher started from is gone, so the
     /// process runs old code that only a service restart replaces. Not a
     /// degraded watch: captures still run.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -51,11 +51,11 @@ pub struct WatcherHealth {
 }
 
 /// What to tell the user when `WatcherHealth::executable_gone` is set.
-pub const EXECUTABLE_GONE_ADVICE: &str = "the mise executable this watcher runs from is gone, so it keeps running the old version; run `mise bootstrap services apply` to restart it on the installed one";
+pub const EXECUTABLE_GONE_ADVICE: &str = "the pakro executable this watcher runs from is gone, so it keeps running the old version; run `pakro bootstrap services apply` to restart it on the installed one";
 
 /// What to tell the user when a watcher predates the executable replacement
 /// check and cannot read a newer enrollment record.
-pub const STALE_WATCHER_SCHEMA_ADVICE: &str = "the history watcher is running an older mise that cannot read current dotfile tracking metadata; run `mise bootstrap services apply` to restart it on the installed version";
+pub const STALE_WATCHER_SCHEMA_ADVICE: &str = "the history watcher is running an older pakro that cannot read current dotfile tracking metadata; run `pakro bootstrap services apply` to restart it on the installed version";
 
 /// Whether a capture error came from a watcher whose enrollment schema
 /// predates tracked-entry exclusions, includes, and plaintext selection.

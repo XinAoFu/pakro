@@ -46,7 +46,7 @@ use app_version::*;
 use artifacts::*;
 use fetch::*;
 use flight::*;
-pub(super) use mise_brew_metadata::cask::*;
+pub(super) use pakro_brew_metadata::cask::*;
 use paths::*;
 use running::*;
 use state::*;
@@ -60,13 +60,13 @@ const DEFAULT_APP_DIR: &str = "/Applications";
 /// user-facing override for the `app` artifact destination, mirroring
 /// `brew install --appdir`; see [`target_app_dir`] and
 /// docs/bootstrap/packages/brew.md
-const APP_DIR_ENV: &str = "MISE_BREW_CASK_OPT_APPDIR";
+const APP_DIR_ENV: &str = "PAKRO_BREW_CASK_OPT_APPDIR";
 const MAX_NESTED_CASK_ARCHIVES: usize = 16;
 
 /// Drives the cask install pipeline for one of two managers.
 ///
 /// `brew-cask` resolves metadata from Homebrew and shares its Caskroom;
-/// `macos-app` takes an inline declaration and records ownership under mise's
+/// `macos-app` takes an inline declaration and records ownership under pakro's
 /// own state directory. Everything between those two ends — download, checksum,
 /// extraction, adoption, and the app swap — is identical, so both are the same
 /// manager configured differently, as with `flatpak` and `flatpak-user`.
@@ -229,47 +229,47 @@ trait CaskArtifactsExt {
 
 impl CaskArtifactsExt for CaskArtifacts {
     fn print_install_plan(&self, cask: &Cask) -> Result<()> {
-        miseprintln!("install cask {}/{}", cask.token, cask.version);
+        pakroprintln!("install cask {}/{}", cask.token, cask.version);
         for app in &self.apps {
             // Resolved, not raw: an absolute target in cask metadata is
             // relocated into the app directory override, so printing the
             // declared name would name a path the install never touches.
-            miseprintln!(
+            pakroprintln!(
                 "link app {}",
                 cask_app_target_path(cask, app.target_name()?)?.display()
             );
         }
         for binary in &self.binaries {
-            miseprintln!("link binary {}", binary.target_name()?);
+            pakroprintln!("link binary {}", binary.target_name()?);
         }
         for wrapper in &self.command_wrappers {
-            miseprintln!("link command wrapper {}", wrapper.target_name()?);
+            pakroprintln!("link command wrapper {}", wrapper.target_name()?);
         }
         for pkg in &self.pkgs {
-            miseprintln!("install pkg {}", pkg.source);
+            pakroprintln!("install pkg {}", pkg.source);
         }
         for installer in &self.installers {
             if installer.sudo {
-                miseprintln!("run installer {} with sudo", installer.executable);
+                pakroprintln!("run installer {} with sudo", installer.executable);
             } else {
-                miseprintln!("run installer {}", installer.executable);
+                pakroprintln!("run installer {}", installer.executable);
             }
         }
         for artifact in &self.generic {
-            miseprintln!("install artifact {}", artifact.target);
+            pakroprintln!("install artifact {}", artifact.target);
         }
         for font in &self.fonts {
-            miseprintln!("install font {}", font.source);
+            pakroprintln!("install font {}", font.source);
         }
         for completion in &self.completions {
-            miseprintln!(
+            pakroprintln!(
                 "install {} completion {}",
                 completion.shell.name(),
                 completion.source
             );
         }
         for generated in &self.generated_completions {
-            miseprintln!("generate completions from {}", generated.executable);
+            pakroprintln!("generate completions from {}", generated.executable);
         }
         Ok(())
     }
@@ -620,7 +620,7 @@ impl BrewCaskManager {
         // Validate the whole app batch before dependencies, downloads, or hooks
         // can mutate anything, including when producing a dry-run plan.
         artifacts.app_target_paths_for(&cask)?;
-        let installed_version = mise_installed_cask_version(&cask)?;
+        let installed_version = pakro_installed_cask_version(&cask)?;
         // Read before the download for the fast-path skip and the dry-run
         // plan only. Anything that mutates must use the read taken under the
         // installation lock below, since another process can install or
@@ -718,7 +718,7 @@ impl BrewCaskManager {
             &cask,
             &artifacts,
             locked_ownership.as_ref(),
-            mise_installed_cask_version(&cask)?.as_deref(),
+            pakro_installed_cask_version(&cask)?.as_deref(),
             mode,
         )? {
             file::remove_all(stage)?;
@@ -1256,7 +1256,7 @@ fn declared_app_cask(name: &str, spec: &crate::system::AppSpec) -> Result<Cask> 
         aliases: Vec::new(),
         old_tokens: Vec::new(),
         version: spec.version.clone(),
-        // An inline declaration pins one artifact, so mise always owns the
+        // An inline declaration pins one artifact, so pakro always owns the
         // installed bundle and never defers to an app's own updater.
         auto_updates: false,
         url: spec.url.clone(),
@@ -1385,7 +1385,7 @@ async fn prewarm_downloads(
         // Same again: defer to the serial pass on any error rather than guessing.
         // `.ok()` here would turn a real failure into "not installed" and feed
         // the wrong input to the skip check below.
-        let Ok(installed) = mise_installed_cask_version(&cask) else {
+        let Ok(installed) = pakro_installed_cask_version(&cask) else {
             continue;
         };
         // Ownership is per target, so the skip check needs the receipt as well
@@ -1618,8 +1618,8 @@ fn install_app_in(
     // Suffix hashes stay derived from the logical path so temporary and backup
     // names are stable across runs.
     let name_hash = crate::hash::hash_to_str(&logical_target.display().to_string());
-    let tmp_name = replace_bundle_extension(&name, &format!("mise-tmp-{name_hash}"));
-    let old_name = replace_bundle_extension(&name, &format!("mise-old-{name_hash}"));
+    let tmp_name = replace_bundle_extension(&name, &format!("pakro-tmp-{name_hash}"));
+    let old_name = replace_bundle_extension(&name, &format!("pakro-old-{name_hash}"));
     remove_all_at(&parent.fd, &tmp_name)?;
     ditto_into(&caskroom_app, &parent.fd, &tmp_name)?;
     if defer_if_running && app_is_running(&logical_target) {
@@ -1703,7 +1703,7 @@ fn requires_unowned_target(
     // first-install behavior: an existing app at the normal target is
     // replaced unless the user chose `adopt`. A per-cask `appdir` is a new
     // destination with no such behavior to preserve, and the user never
-    // pointed mise at whatever already lives there, so it is refused unless
+    // pointed pakro at whatever already lives there, so it is refused unless
     // adopted.
     (!manager.uses_homebrew_caskroom() || explicit_appdir || previous.is_some())
         && !app_target_is_owned(previous, target)
@@ -1829,7 +1829,7 @@ fn unowned_target_error(manager: CaskManager, target: &Path) -> eyre::Report {
     eyre!(
         "{}: '{}' already exists and is not owned by this entry; set adopt = true \
          to take it over if it is identical to the download, or remove it to \
-         install a different build. mise will not replace it silently, because \
+         install a different build. pakro will not replace it silently, because \
          swapping a bundle revokes the app's macOS Privacy & Security grants \
          (Accessibility, Screen Recording, Full Disk Access, etc.) and strands \
          any other manager's record of it",
@@ -1864,7 +1864,7 @@ fn validate_adoptable_apps(cask: &Cask, stage: &Path, apps: &[AppArtifact]) -> R
 }
 
 /// Replace an app bundle's extension for a bare file name
-/// (`Firefox.app` + `mise-tmp-ab12` -> `Firefox.mise-tmp-ab12`).
+/// (`Firefox.app` + `pakro-tmp-ab12` -> `Firefox.pakro-tmp-ab12`).
 fn replace_bundle_extension(name: &std::ffi::OsStr, extension: &str) -> std::ffi::OsString {
     Path::new(name).with_extension(extension).into_os_string()
 }
@@ -1901,8 +1901,8 @@ fn activate_app_at(
 #[cfg(unix)]
 fn replace_caskroom_app_with_symlink(caskroom_app: &Path, target: &Path) -> Result<()> {
     let suffix = crate::hash::hash_to_str(&caskroom_app.display().to_string());
-    let staged_link = caskroom_app.with_extension(format!("mise-link-{suffix}"));
-    let staged_copy = caskroom_app.with_extension(format!("mise-copy-{suffix}"));
+    let staged_link = caskroom_app.with_extension(format!("pakro-link-{suffix}"));
+    let staged_copy = caskroom_app.with_extension(format!("pakro-copy-{suffix}"));
     file::remove_all(&staged_link)?;
     file::remove_all(&staged_copy)?;
     file::make_symlink(target, &staged_link)?;
@@ -1959,7 +1959,7 @@ fn swap_app_at(
         // rename that follows replaces only this empty directory, which POSIX
         // allows for an empty target. A platform no-replace rename
         // (`RENAME_NOREPLACE`, `RENAME_EXCL`) would express this in one step,
-        // but neither is portable across the targets mise ships.
+        // but neither is portable across the targets pakro ships.
         match nix::sys::stat::mkdirat(
             &parent.fd,
             name,
@@ -2453,7 +2453,7 @@ fn copy_generic_artifact_unprivileged(from: &Path, to: &Path) -> Result<()> {
     let name = to
         .file_name()
         .ok_or_else(|| eyre!("brew-cask: generic artifact target has no filename"))?;
-    let staging_name = format!(".mise-copy-{}", crate::rand::random_string(16));
+    let staging_name = format!(".pakro-copy-{}", crate::rand::random_string(16));
     nix::sys::stat::mkdirat(
         &parent.fd,
         staging_name.as_str(),
@@ -2498,7 +2498,7 @@ fn copy_generic_artifact_unprivileged(from: &Path, to: &Path) -> Result<()> {
 fn copy_generic_artifact_elevated(from: &Path, to: &Path) -> Result<()> {
     ensure_target_absent(to)?;
     let staging = tempfile::Builder::new()
-        .prefix("mise-cask-copy-")
+        .prefix("pakro-cask-copy-")
         .tempdir()?;
     let payload = staging.path().join("payload");
     copy_cask_artifact(from, &payload)?;
@@ -2530,7 +2530,7 @@ fn ensure_strict_elevated_target(target: &Path) -> Result<PathBuf> {
             Err(err) => return Err(err.into()),
         }
     }
-    let trusted = open_trusted_operation_parent(&existing.join(".mise-validation"), false, false)?;
+    let trusted = open_trusted_operation_parent(&existing.join(".pakro-validation"), false, false)?;
     let stable_existing = trusted.stable_path()?;
     validate_strict_elevated_ancestors(&stable_existing)?;
     let missing = parent.strip_prefix(existing)?;
@@ -3018,7 +3018,7 @@ fn run_installer_artifact(
 ///
 /// Homebrew stages casks in the caskroom version directory, so casks often
 /// name the executable as `$HOMEBREW_PREFIX/Caskroom/<token>/<version>/<path>`.
-/// mise runs installers from its own stage, so that form is rewritten to the
+/// pakro runs installers from its own stage, so that form is rewritten to the
 /// stage-relative `<path>`. The metadata names Homebrew's caskroom even when
 /// macos-app keeps its state elsewhere.
 fn expand_installer_artifact(
@@ -3313,7 +3313,7 @@ fn ditto(from: &Path, to: &Path) -> Result<()> {
 ///
 /// Passing a pathname to a subprocess would let it re-resolve every component,
 /// which a same-uid replacement can redirect. `fchdir` in the child pins
-/// resolution to the descriptor mise already verified, so relative names cannot
+/// resolution to the descriptor pakro already verified, so relative names cannot
 /// escape the validated application directory.
 #[cfg(unix)]
 fn run_in_trusted_dir<Fd: std::os::fd::AsFd>(
@@ -3482,7 +3482,7 @@ fn link_font(caskroom: &Path, font: &FontArtifact) -> Result<()> {
     // Atomic swap: rename existing font aside before copying the new one so
     // that a failure during copy leaves the old font intact.
     let old_target = target.with_extension(format!(
-        "mise-old-{}",
+        "pakro-old-{}",
         crate::hash::hash_to_str(&target.display().to_string())
     ));
     file::remove_all(&old_target)?;

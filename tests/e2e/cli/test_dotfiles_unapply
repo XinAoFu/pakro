@@ -15,7 +15,7 @@ cat <<'EOF' >dotfiles/mutating.tmpl
 {{ exec(command="printf tampered > $HOME/.managed-copy; if [ -e $HOME/mutate-edit ]; then rm -f $HOME/.managed-rc; ln -s $HOME/edit-victim $HOME/.managed-rc; fi") }}mutating
 EOF
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [dotfiles]
 "~/.managed-link" = "dotfiles/linked"
 "~/.managed-copy" = { source = "dotfiles/copied", mode = "copy" }
@@ -33,7 +33,7 @@ EOF
 echo "possibly preexisting" >~/.managed-lines
 printf '\357\273\277keep me\r\n' >~/.managed-bom
 printf 'before\n\n' >~/.managed-rc
-assert_succeed "mise bootstrap dotfiles apply --yes"
+assert_succeed "pakro bootstrap dotfiles apply --yes"
 assert_succeed "test -L $HOME/.managed-link"
 assert_contains "cat ~/.managed-rc" "managed block"
 
@@ -41,27 +41,27 @@ assert_contains "cat ~/.managed-rc" "managed block"
 # during a real unapply can execute template functions.
 rm ~/unapply-rendered
 if [[ $(uname) == "Darwin" ]]; then
-  assert_contains "script -q /dev/null env -u MISE_YES __USAGE=1 mise bootstrap dotfiles unapply ~/.managed-rendered" "dotfiles: skipped"
+  assert_contains "script -q /dev/null env -u PAKRO_YES __USAGE=1 pakro bootstrap dotfiles unapply ~/.managed-rendered" "dotfiles: skipped"
 else
-  assert_contains "script -qec 'env -u MISE_YES __USAGE=1 mise bootstrap dotfiles unapply ~/.managed-rendered' /dev/null" "dotfiles: skipped"
+  assert_contains "script -qec 'env -u PAKRO_YES __USAGE=1 pakro bootstrap dotfiles unapply ~/.managed-rendered' /dev/null" "dotfiles: skipped"
 fi
 assert_fail "test -e $HOME/unapply-rendered"
 assert_succeed "test -e $HOME/.managed-rendered"
-assert_contains "mise bootstrap dotfiles unapply ~/.managed-rendered --dry-run" "if unchanged"
+assert_contains "pakro bootstrap dotfiles unapply ~/.managed-rendered --dry-run" "if unchanged"
 # The hidden top-level command remains a compatibility path while it is deprecated.
-assert_contains "mise dotfiles unapply ~/.managed-rendered --dry-run" "if unchanged"
+assert_contains "pakro dotfiles unapply ~/.managed-rendered --dry-run" "if unchanged"
 assert_fail "test -e $HOME/unapply-rendered"
 assert_succeed "test -e $HOME/.managed-rendered"
 
 # Default unapply refuses ambiguous line edits before changing any edit.
-assert_fail "mise bootstrap dotfiles unapply --yes" "line edits have no ownership marker"
+assert_fail "pakro bootstrap dotfiles unapply --yes" "line edits have no ownership marker"
 assert_contains "cat ~/.managed-rc" "managed block"
 assert_succeed "test -L $HOME/.managed-link"
 
 # Template functions can change another selected target. Revalidate every file
 # after all templates render instead of deleting from a stale plan.
 cp dotfiles/copied ~/.managed-copy
-assert_fail "mise bootstrap dotfiles unapply ~/.managed-copy ~/.managed-mutating --yes" "use --force"
+assert_fail "pakro bootstrap dotfiles unapply ~/.managed-copy ~/.managed-mutating --yes" "use --force"
 assert "cat ~/.managed-copy" "tampered"
 assert_succeed "test -e $HOME/.managed-mutating"
 
@@ -70,31 +70,31 @@ assert_succeed "test -e $HOME/.managed-mutating"
 cp ~/.managed-rc ~/.managed-rc.saved
 echo "do not edit" >~/edit-victim
 touch ~/mutate-edit
-assert_fail "mise bootstrap dotfiles unapply ~/.managed-rc/block ~/.managed-mutating --yes" "target is a symlink"
+assert_fail "pakro bootstrap dotfiles unapply ~/.managed-rc/block ~/.managed-mutating --yes" "target is a symlink"
 assert "cat ~/edit-victim" "do not edit"
 rm ~/mutate-edit ~/.managed-rc
 mv ~/.managed-rc.saved ~/.managed-rc
 
 # File and edit entries are all validated before either kind is removed.
 echo "locally modified" >~/.managed-copy
-assert_fail "mise bootstrap dotfiles unapply ~/.managed-rc/block ~/.managed-copy --yes" "use --force"
+assert_fail "pakro bootstrap dotfiles unapply ~/.managed-rc/block ~/.managed-copy --yes" "use --force"
 assert_contains "cat ~/.managed-rc" "managed block"
 
 # Exact symlinks and marker-owned blocks can be removed safely.
-assert_succeed "mise bootstrap dotfiles unapply ~/.managed-link --yes"
+assert_succeed "pakro bootstrap dotfiles unapply ~/.managed-link --yes"
 assert_fail "test -e $HOME/.managed-link"
 
 # Removing a block preserves byte-for-byte CRLF, blank lines, and a missing
 # final newline in all surrounding content.
 perl -0pi -e 's/\n/\r\n/g' ~/.managed-rc
 printf 'after-no-newline' >>~/.managed-rc
-assert_succeed "mise bootstrap dotfiles unapply ~/.managed-rc/block --yes"
-assert_not_contains "cat ~/.managed-rc" "mise:block"
+assert_succeed "pakro bootstrap dotfiles unapply ~/.managed-rc/block --yes"
+assert_not_contains "cat ~/.managed-rc" "pakro:block"
 assert "od -An -tx1 ~/.managed-rc | tr -d ' \n'" "6265666f72650d0a0d0a61667465722d6e6f2d6e65776c696e65"
 
 # Removing a first-line edit preserves a leading BOM and all following bytes.
-assert_fail "mise bootstrap dotfiles unapply ~/.managed-bom/line --yes"
-assert_succeed "mise bootstrap dotfiles unapply ~/.managed-bom/line --force --yes"
+assert_fail "pakro bootstrap dotfiles unapply ~/.managed-bom/line --yes"
+assert_succeed "pakro bootstrap dotfiles unapply ~/.managed-bom/line --force --yes"
 printf '\357\273\277keep me\r\n' >expected-bom-unapply
 assert_succeed "cmp expected-bom-unapply ~/.managed-bom"
 
@@ -103,11 +103,11 @@ assert_succeed "cmp expected-bom-unapply ~/.managed-bom"
 # A manifest remains sufficient ownership evidence when the complete source
 # directory has been deleted.
 rm -r dotfiles/missing-links
-assert_succeed "mise bootstrap dotfiles unapply ~/.managed-missing-links --yes"
+assert_succeed "pakro bootstrap dotfiles unapply ~/.managed-missing-links --yes"
 assert_fail "test -L $HOME/.managed-missing-links/file"
 mkdir ~/.managed-links/private
 chmod 000 ~/.managed-links/private
-assert_not_contains "MISE_DEBUG=1 mise bootstrap dotfiles unapply ~/.managed-links --dry-run 2>&1" "$HOME/.managed-links/private"
+assert_not_contains "PAKRO_DEBUG=1 pakro bootstrap dotfiles unapply ~/.managed-links --dry-run 2>&1" "$HOME/.managed-links/private"
 chmod 700 ~/.managed-links/private
 ln -s "$PWD/dotfiles/links/one" ~/.managed-links/alias
 ln -s "$PWD/dotfiles/links/excluded" ~/.managed-links/excluded
@@ -115,48 +115,48 @@ rm ~/.managed-links/one
 relative_one="$(realpath --relative-to="$HOME/.managed-links" "$PWD/dotfiles/links/one")"
 ln -s "$relative_one" ~/.managed-links/one
 rm dotfiles/links/stale
-assert_succeed "mise bootstrap dotfiles unapply ~/.managed-links --yes"
+assert_succeed "pakro bootstrap dotfiles unapply ~/.managed-links --yes"
 assert_fail "test -e $HOME/.managed-links/one"
 assert_fail "test -e $HOME/.managed-links/stale"
 assert "readlink ~/.managed-links/alias" "$PWD/dotfiles/links/one"
 assert "readlink ~/.managed-links/excluded" "$PWD/dotfiles/links/excluded"
 # symlink-each ownership state is gone; template records live one level down
-assert "find '$MISE_STATE_DIR/dotfiles' -maxdepth 1 -type f | wc -l | tr -d ' '" "0"
+assert "find '$PAKRO_STATE_DIR/dotfiles' -maxdepth 1 -type f | wc -l | tr -d ' '" "0"
 
 # Modified copies are refused unless forced.
-assert_fail "mise bootstrap dotfiles unapply ~/.managed-copy --yes" "use --force"
+assert_fail "pakro bootstrap dotfiles unapply ~/.managed-copy --yes" "use --force"
 assert "cat ~/.managed-copy" "locally modified"
-assert_succeed "mise bootstrap dotfiles unapply ~/.managed-copy --force --yes"
+assert_succeed "pakro bootstrap dotfiles unapply ~/.managed-copy --force --yes"
 assert_fail "test -e $HOME/.managed-copy"
 
 # Directory copies are removed file-by-file. Modified managed files need
 # --force, and unmanaged neighbors always survive.
 echo "locally modified" >~/.managed-copydir/managed
 echo "keep me" >~/.managed-copydir/unmanaged
-assert_fail "mise bootstrap dotfiles unapply ~/.managed-copydir --yes" "use --force"
-assert_succeed "mise bootstrap dotfiles unapply ~/.managed-copydir --force --yes"
+assert_fail "pakro bootstrap dotfiles unapply ~/.managed-copydir --yes" "use --force"
+assert_succeed "pakro bootstrap dotfiles unapply ~/.managed-copydir --force --yes"
 assert_fail "test -e $HOME/.managed-copydir/managed"
 assert "cat ~/.managed-copydir/unmanaged" "keep me"
 
 # A real template unapply verifies content, then removes it.
-records="find '$MISE_STATE_DIR/dotfiles/targets' -type f | wc -l | tr -d ' '"
+records="find '$PAKRO_STATE_DIR/dotfiles/targets' -type f | wc -l | tr -d ' '"
 assert "$records" "2"
-assert_succeed "mise bootstrap dotfiles unapply ~/.managed-rendered --yes"
+assert_succeed "pakro bootstrap dotfiles unapply ~/.managed-rendered --yes"
 assert_succeed "test -e $HOME/unapply-rendered"
 assert_fail "test -e $HOME/.managed-rendered"
 # its ownership record goes with it
 assert "$records" "1"
 
 # Plain lines require explicit force because they carry no marker.
-assert_fail "mise bootstrap dotfiles unapply ~/.managed-lines/line --yes"
-assert_succeed "mise bootstrap dotfiles unapply ~/.managed-lines/line --force --yes"
+assert_fail "pakro bootstrap dotfiles unapply ~/.managed-lines/line --yes"
+assert_succeed "pakro bootstrap dotfiles unapply ~/.managed-lines/line --force --yes"
 assert_not_contains "cat ~/.managed-lines" "possibly preexisting"
 
 # A repointed declared symlink is left alone unless forced.
 ln -s /somewhere-else ~/.managed-link
-assert_fail "mise bootstrap dotfiles unapply ~/.managed-link --yes" "use --force"
+assert_fail "pakro bootstrap dotfiles unapply ~/.managed-link --yes" "use --force"
 assert "readlink ~/.managed-link" "/somewhere-else"
-assert_succeed "mise bootstrap dotfiles unapply ~/.managed-link --force --yes"
+assert_succeed "pakro bootstrap dotfiles unapply ~/.managed-link --force --yes"
 assert_fail "test -L $HOME/.managed-link"
 
-assert_fail "mise bootstrap dotfiles unapply ~/.not-managed --yes" "no dotfiles matched"
+assert_fail "pakro bootstrap dotfiles unapply ~/.not-managed --yes" "no dotfiles matched"

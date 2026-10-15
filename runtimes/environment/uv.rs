@@ -57,7 +57,7 @@ pub(crate) async fn uv_venv(config: &Arc<Config>, ts: &Toolset) -> Result<&'stat
                         warn_once!(
                             "uv venv not found at: {p}\n\n\
                             To create it, run a `uv` command like `uv sync` or `uv venv`. \
-                            Alternatively, enable `[deps.uv]` and run `mise deps`.",
+                            Alternatively, enable `[deps.uv]` and run `pakro deps`.",
                             p = display_path(&venv_path)
                         );
                     }

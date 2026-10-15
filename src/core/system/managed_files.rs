@@ -51,9 +51,9 @@ pub struct ManagedDirectoryTomlConfig {
     pub notify: Vec<String>,
 }
 
-pub use mise_bootstrap::ManagedFilePhase;
+pub use pakro_bootstrap::ManagedFilePhase;
 
-pub use mise_bootstrap::ManagedState;
+pub use pakro_bootstrap::ManagedState;
 
 #[derive(Clone, Debug)]
 pub struct ManagedFileRequest {
@@ -710,7 +710,7 @@ impl ManagedFileRequest {
     }
 
     /// A metadata-only target that does not exist is skipped, not created:
-    /// mise has no content to create it with.
+    /// pakro has no content to create it with.
     fn is_missing_metadata_only_target(&self) -> bool {
         self.is_metadata_only() && matches!(self.inspection, Some(PathInspection::Missing))
     }
@@ -816,7 +816,7 @@ fn validate_metadata_only(path: &Path, config: &ManagedFileTomlConfig) -> Result
     }
     if config.replace {
         bail!(
-            "[bootstrap.files].\"{}\": replace requires source or content; a file whose content mise does not manage is never replaced",
+            "[bootstrap.files].\"{}\": replace requires source or content; a file whose content pakro does not manage is never replaced",
             path.display()
         );
     }
@@ -972,7 +972,7 @@ pub fn apply_with_accounts(
     for file in files {
         if file.is_missing_metadata_only_target() {
             warn!(
-                "not setting permissions on {}: it is absent; its content is not managed by mise",
+                "not setting permissions on {}: it is absent; its content is not managed by pakro",
                 file.path.display()
             );
             continue;
@@ -1026,7 +1026,7 @@ pub fn apply_with_accounts(
         .collect::<Vec<_>>();
     if dry_run {
         for description in descriptions {
-            miseprintln!("would {description}");
+            pakroprintln!("would {description}");
         }
         for resource in &unknown {
             warn!(
@@ -2975,7 +2975,7 @@ mod tests {
             replace: false,
             notify: vec![],
             origin: ResourceOrigin {
-                config: PathBuf::from("/mise.toml"),
+                config: PathBuf::from("/pakro.toml"),
                 config_root: PathBuf::from("/"),
                 environment: vec![],
                 source: None,
@@ -2997,7 +2997,7 @@ mod tests {
             replace: false,
             notify: vec![],
             origin: ResourceOrigin {
-                config: PathBuf::from("/mise.toml"),
+                config: PathBuf::from("/pakro.toml"),
                 config_root: PathBuf::from("/"),
                 environment: vec![],
                 source: None,

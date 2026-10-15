@@ -3,13 +3,13 @@ use std::path::PathBuf;
 use eyre::Result;
 
 use crate::config::config_file::ConfigFile;
-use crate::config::config_file::mise_toml::MiseToml;
+use crate::config::config_file::pakro_toml::PakroToml;
 use crate::config::{ConfigPathOptions, resolve_target_config_path};
 use crate::file::display_path;
 
 /// Remove Homebrew tap URLs from [bootstrap.brew.taps]
 #[derive(Debug, usage_rs::Args)]
-#[usage(verbatim_doc_comment, visible_aliases = ["remove", "rm"], example(r###"mise bootstrap packages brew untap railwaycat/emacsmacport"###))]
+#[usage(verbatim_doc_comment, visible_aliases = ["remove", "rm"], example(r###"pakro bootstrap packages brew untap railwaycat/emacsmacport"###))]
 pub(crate) struct SystemBrewUntap {
     /// Tap name(s), e.g. `owner/repo`
     #[usage(required = true)]
@@ -46,7 +46,7 @@ impl SystemBrewUntap {
         })?;
         if self.dry_run {
             for tap in &self.taps {
-                miseprintln!(
+                pakroprintln!(
                     "{}: remove [bootstrap.brew.taps].\"{}\"",
                     display_path(&path),
                     tap
@@ -61,7 +61,7 @@ impl SystemBrewUntap {
             );
             return Ok(());
         }
-        let mut cf = MiseToml::from_file(&path)?;
+        let mut cf = PakroToml::from_file(&path)?;
         for tap in &self.taps {
             cf.remove_bootstrap_brew_tap(tap)?;
         }

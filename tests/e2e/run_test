@@ -27,8 +27,8 @@ fi
 # An external binary a test opts into (a pitchfork build) is used from inside the
 # isolated environment, where the caller's working directory means nothing, and
 # Docker rejects a relative mount destination. Resolve it once, up front.
-if [[ -n ${MISE_TEST_PITCHFORK:-} && -f $MISE_TEST_PITCHFORK ]]; then
-  MISE_TEST_PITCHFORK="$(realpath "$MISE_TEST_PITCHFORK")"
+if [[ -n ${PAKRO_TEST_PITCHFORK:-} && -f $PAKRO_TEST_PITCHFORK ]]; then
+  PAKRO_TEST_PITCHFORK="$(realpath "$PAKRO_TEST_PITCHFORK")"
 fi
 
 setup_isolated_env() {
@@ -48,12 +48,12 @@ setup_isolated_env() {
   TEST_WORKDIR="$TEST_HOME/workdir"
   TEST_TMPDIR="$TEST_ISOLATED_DIR/tmp"
 
-  # Tell mise to look for its directory in the isolated environment
-  MISE_SYSTEM_DIR="$TEST_ISOLATED_DIR/etc/mise"
-  MISE_DATA_DIR="$TEST_HOME/.local/share/mise"
-  MISE_CACHE_DIR="$TEST_HOME/.cache/mise"
-  MISE_CONFIG_DIR="$TEST_HOME/.config/mise"
-  MISE_STATE_DIR="$TEST_HOME/.local/state/mise"
+  # Tell pakro to look for its directory in the isolated environment
+  PAKRO_SYSTEM_DIR="$TEST_ISOLATED_DIR/etc/pakro"
+  PAKRO_DATA_DIR="$TEST_HOME/.local/share/pakro"
+  PAKRO_CACHE_DIR="$TEST_HOME/.cache/pakro"
+  PAKRO_CONFIG_DIR="$TEST_HOME/.config/pakro"
+  PAKRO_STATE_DIR="$TEST_HOME/.local/state/pakro"
 
   # Set default values
   : "${CARGO_HOME:=$HOME/.cargo}"
@@ -62,16 +62,16 @@ setup_isolated_env() {
 
 create_isolated_env() {
   # Create the required directories
-  mkdir -p "$TEST_HOME/bin" "$TEST_WORKDIR" "$TEST_TMPDIR" "$MISE_SYSTEM_DIR" "$MISE_DATA_DIR" "$MISE_STATE_DIR" "$MISE_CACHE_DIR" "$MISE_CONFIG_DIR"
+  mkdir -p "$TEST_HOME/bin" "$TEST_WORKDIR" "$TEST_TMPDIR" "$PAKRO_SYSTEM_DIR" "$PAKRO_DATA_DIR" "$PAKRO_STATE_DIR" "$PAKRO_CACHE_DIR" "$PAKRO_CONFIG_DIR"
 
   # The dummy and needs-dummy plugins are required for some tests
-  mkdir -p "$MISE_DATA_DIR/plugins"
-  ln -s "$ROOT/tests/support/data/plugins/dummy" "$MISE_DATA_DIR/plugins/dummy"
-  ln -s "$ROOT/tests/support/data/plugins/needs-dummy" "$MISE_DATA_DIR/plugins/needs-dummy"
+  mkdir -p "$PAKRO_DATA_DIR/plugins"
+  ln -s "$ROOT/tests/support/data/plugins/dummy" "$PAKRO_DATA_DIR/plugins/dummy"
+  ln -s "$ROOT/tests/support/data/plugins/needs-dummy" "$PAKRO_DATA_DIR/plugins/needs-dummy"
 }
 
 remove_isolated_env() {
-  if [[ ${MISE_E2E_INSIDE_DOCKER:-0} == 1 ]]; then
+  if [[ ${PAKRO_E2E_INSIDE_DOCKER:-0} == 1 ]]; then
     rm -rf "$TEST_ISOLATED_DIR"
   else
     rm -rf "$TEST_ISOLATED_DIR" &
@@ -88,14 +88,14 @@ within_isolated_env() {
   [[ -n ${NO_PROXY:-} ]] && proxy_vars+=(NO_PROXY="$NO_PROXY")
 
   # Forward the token vars only when they hold something. Passing an unset
-  # variable through as "" is not the same as leaving it unset: mise reads the
+  # variable through as "" is not the same as leaving it unset: pakro reads the
   # first token variable that *exists* and only then rejects empty values, so an
-  # empty MISE_GITHUB_TOKEN means "no token" and hides a real GITHUB_TOKEN (see
+  # empty PAKRO_GITHUB_TOKEN means "no token" and hides a real GITHUB_TOKEN (see
   # get_token in src/env.rs). An empty GITHUB_TOKEN is worse than useless on its
   # own too: the ubi crate reads it directly, sends an empty bearer, and turns
   # a request that would have worked unauthenticated into a 401.
   local token_vars=()
-  [[ -n ${MISE_GITHUB_TOKEN:-} ]] && token_vars+=(MISE_GITHUB_TOKEN="$MISE_GITHUB_TOKEN")
+  [[ -n ${PAKRO_GITHUB_TOKEN:-} ]] && token_vars+=(PAKRO_GITHUB_TOKEN="$PAKRO_GITHUB_TOKEN")
   [[ -n ${GITHUB_TOKEN:-} ]] && token_vars+=(GITHUB_TOKEN="$GITHUB_TOKEN")
 
   (
@@ -120,27 +120,27 @@ within_isolated_env() {
         LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}" \
         LLVM_PROFILE_FILE="${LLVM_PROFILE_FILE:-}" \
         ${proxy_vars[@]+"${proxy_vars[@]}"} \
-        MISE_CACHE_DIR="$MISE_CACHE_DIR" \
-        MISE_HISTORY_NOTIFY=0 \
-        MISE_URL_REPLACEMENTS="${MISE_URL_REPLACEMENTS:-}" \
-        MISE_CACHE_PRUNE_AGE="0" \
-        MISE_CONFIG_DIR="$MISE_CONFIG_DIR" \
-        MISE_DATA_DIR="$MISE_DATA_DIR" \
-        MISE_DEBUG="${MISE_DEBUG:-0}" \
-        MISE_EXPERIMENTAL=1 \
-        MISE_TEST_PITCHFORK="${MISE_TEST_PITCHFORK:-}" \
-        MISE_GPG_VERIFY="${MISE_GPG_VERIFY:-}" \
-        MISE_LOG_LEVEL="${MISE_LOG_LEVEL:-}" \
-        MISE_STATE_DIR="$MISE_STATE_DIR" \
-        MISE_SYSTEM_DIR="$MISE_SYSTEM_DIR" \
-        MISE_TIMINGS="${MISE_TIMINGS:-0}" \
-        MISE_TMP_DIR="$TEST_TMPDIR" \
-        MISE_TRACE="${MISE_TRACE:-0}" \
-        MISE_TRUSTED_CONFIG_PATHS="$TEST_ISOLATED_DIR" \
-        MISE_USE_VERSIONS_HOST="${MISE_USE_VERSIONS_HOST:-1}" \
-        MISE_USE_VERSIONS_HOST_TRACK=0 \
-        MISE_YES=1 \
-        PATH="${CARGO_TARGET_DIR:-$ROOT/target}/debug:$HOME/mise/bin:$CARGO_HOME/bin:$TEST_HOME/bin:$HOME/.local/bin:/opt/homebrew/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin" \
+        PAKRO_CACHE_DIR="$PAKRO_CACHE_DIR" \
+        PAKRO_HISTORY_NOTIFY=0 \
+        PAKRO_URL_REPLACEMENTS="${PAKRO_URL_REPLACEMENTS:-}" \
+        PAKRO_CACHE_PRUNE_AGE="0" \
+        PAKRO_CONFIG_DIR="$PAKRO_CONFIG_DIR" \
+        PAKRO_DATA_DIR="$PAKRO_DATA_DIR" \
+        PAKRO_DEBUG="${PAKRO_DEBUG:-0}" \
+        PAKRO_EXPERIMENTAL=1 \
+        PAKRO_TEST_PITCHFORK="${PAKRO_TEST_PITCHFORK:-}" \
+        PAKRO_GPG_VERIFY="${PAKRO_GPG_VERIFY:-}" \
+        PAKRO_LOG_LEVEL="${PAKRO_LOG_LEVEL:-}" \
+        PAKRO_STATE_DIR="$PAKRO_STATE_DIR" \
+        PAKRO_SYSTEM_DIR="$PAKRO_SYSTEM_DIR" \
+        PAKRO_TIMINGS="${PAKRO_TIMINGS:-0}" \
+        PAKRO_TMP_DIR="$TEST_TMPDIR" \
+        PAKRO_TRACE="${PAKRO_TRACE:-0}" \
+        PAKRO_TRUSTED_CONFIG_PATHS="$TEST_ISOLATED_DIR" \
+        PAKRO_USE_VERSIONS_HOST="${PAKRO_USE_VERSIONS_HOST:-1}" \
+        PAKRO_USE_VERSIONS_HOST_TRACK=0 \
+        PAKRO_YES=1 \
+        PATH="${CARGO_TARGET_DIR:-$ROOT/target}/debug:$HOME/pakro/bin:$CARGO_HOME/bin:$TEST_HOME/bin:$HOME/.local/bin:/opt/homebrew/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin" \
         ROOT="$ROOT" \
         RUSTUP_HOME="$RUSTUP_HOME" \
         RUST_BACKTRACE="${RUST_BACKTRACE:-1}" \
@@ -151,15 +151,15 @@ within_isolated_env() {
         TEST_SCRIPT="$TEST_SCRIPT" \
         TMPDIR="$TEST_TMPDIR" \
         EXCLUDE_FROM_CI="${CI:-}" \
-        MISE_E2E_INSIDE_DOCKER="${MISE_E2E_INSIDE_DOCKER:-}" \
+        PAKRO_E2E_INSIDE_DOCKER="${PAKRO_E2E_INSIDE_DOCKER:-}" \
         "$@"
   ) || return $?
 }
 
 run_test() {
-  # Check for problematic /tmp/mise.toml that can interfere with tests
-  if [[ -f /tmp/mise.toml ]]; then
-    err "/tmp/mise.toml exists and will interfere with e2e tests. Please remove it."
+  # Check for problematic /tmp/pakro.toml that can interfere with tests
+  if [[ -f /tmp/pakro.toml ]]; then
+    err "/tmp/pakro.toml exists and will interfere with e2e tests. Please remove it."
     return 1
   fi
 
@@ -214,12 +214,12 @@ os() {
 }
 
 run_in_docker() {
-  local image="${MISE_E2E_DOCKER_IMAGE:-ghcr.io/jdx/mise:e2e}"
-  local mise_bin
-  mise_bin="$(resolve_mise_bin)"
+  local image="${PAKRO_E2E_DOCKER_IMAGE:-ghcr.io/jdx/mise:e2e}"
+  local pakro_bin
+  pakro_bin="$(resolve_pakro_bin)"
 
-  if ! file "$mise_bin" | grep -q "ELF"; then
-    err "The mise binary at '$mise_bin' is not a Linux ELF. On macOS, set MISE_E2E_BIN to a Linux-compiled mise binary."
+  if ! file "$pakro_bin" | grep -q "ELF"; then
+    err "The pakro binary at '$pakro_bin' is not a Linux ELF. On macOS, set PAKRO_E2E_BIN to a Linux-compiled pakro binary."
     return 1
   fi
 
@@ -227,11 +227,11 @@ run_in_docker() {
   # `--tmpfs` (which is RAM-backed and capped at ~half of RAM). Multi-GB tool
   # installs (e.g. swift) do not fit in tmpfs and fail with ENOSPC. On
   # namespace/GHA runners RUNNER_TEMP lives on the workspace disk.
-  local host_tmp_root="${MISE_E2E_HOST_TMP:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}}"
+  local host_tmp_root="${PAKRO_E2E_HOST_TMP:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}}"
   local host_tmp host_root host_home
-  host_tmp="$(mktemp -d "$host_tmp_root/mise-e2e-tmp.XXXXXX")"
-  host_root="$(mktemp -d "$host_tmp_root/mise-e2e-root.XXXXXX")"
-  host_home="$(mktemp -d "$host_tmp_root/mise-e2e-home.XXXXXX")"
+  host_tmp="$(mktemp -d "$host_tmp_root/pakro-e2e-tmp.XXXXXX")"
+  host_root="$(mktemp -d "$host_tmp_root/pakro-e2e-root.XXXXXX")"
+  host_home="$(mktemp -d "$host_tmp_root/pakro-e2e-home.XXXXXX")"
   chmod 777 "$host_tmp" "$host_root" "$host_home"
 
   local docker_args=(
@@ -252,38 +252,38 @@ run_in_docker() {
     -v "$host_tmp:/tmp"
     # writable /home so tests can create /home/linuxbrew (rootfs is read-only)
     -v "$host_home:/home"
-    -v "$ROOT:/mise-src:ro"
-    -v "$mise_bin:/usr/local/lib/mise/debug/mise:ro"
-    -e ROOT=/mise-src
+    -v "$ROOT:/pakro-src:ro"
+    -v "$pakro_bin:/usr/local/lib/pakro/debug/pakro:ro"
+    -e ROOT=/pakro-src
     -e CI="${CI:-}"
     -e GITHUB_ACTION="${GITHUB_ACTION:-}"
-    -e MISE_DEBUG="${MISE_DEBUG:-0}"
-    -e MISE_TRACE="${MISE_TRACE:-0}"
-    -e MISE_LOG_LEVEL="${MISE_LOG_LEVEL:-}"
+    -e PAKRO_DEBUG="${PAKRO_DEBUG:-0}"
+    -e PAKRO_TRACE="${PAKRO_TRACE:-0}"
+    -e PAKRO_LOG_LEVEL="${PAKRO_LOG_LEVEL:-}"
     -e RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
-    -e MISE_E2E_INSIDE_DOCKER=1
-    -e CARGO_TARGET_DIR=/usr/local/lib/mise
+    -e PAKRO_E2E_INSIDE_DOCKER=1
+    -e CARGO_TARGET_DIR=/usr/local/lib/pakro
   )
   # Same rule as the non-docker path: an empty token var is not an absent one.
-  [[ -n ${MISE_GITHUB_TOKEN:-} ]] && docker_args+=(-e MISE_GITHUB_TOKEN="$MISE_GITHUB_TOKEN")
+  [[ -n ${PAKRO_GITHUB_TOKEN:-} ]] && docker_args+=(-e PAKRO_GITHUB_TOKEN="$PAKRO_GITHUB_TOKEN")
   [[ -n ${GITHUB_TOKEN:-} ]] && docker_args+=(-e GITHUB_TOKEN="$GITHUB_TOKEN")
   # An external binary a test opts into (a pitchfork build) lives on the host, so
   # it has to be mounted at the same path for the variable to mean anything
   # inside the container. Without this the test would see an unset variable and
   # skip.
-  if [[ -n ${MISE_TEST_PITCHFORK:-} && -f $MISE_TEST_PITCHFORK ]]; then
-    docker_args+=(-v "$MISE_TEST_PITCHFORK:$MISE_TEST_PITCHFORK:ro" -e MISE_TEST_PITCHFORK="$MISE_TEST_PITCHFORK")
+  if [[ -n ${PAKRO_TEST_PITCHFORK:-} && -f $PAKRO_TEST_PITCHFORK ]]; then
+    docker_args+=(-v "$PAKRO_TEST_PITCHFORK:$PAKRO_TEST_PITCHFORK:ro" -e PAKRO_TEST_PITCHFORK="$PAKRO_TEST_PITCHFORK")
   fi
 
   local rc=0
-  "${docker_args[@]}" "$image" bash /mise-src/tests/e2e/run_test "$TEST" || rc=$?
+  "${docker_args[@]}" "$image" bash /pakro-src/tests/e2e/run_test "$TEST" || rc=$?
   rm -rf "$host_tmp" "$host_root" "$host_home" 2>/dev/null || true
   return "$rc"
 }
 
-if [[ ${MISE_E2E_DOCKER:-0} == 1 ]]; then
+if [[ ${PAKRO_E2E_DOCKER:-0} == 1 ]]; then
   as_group "E2E $TEST" run_in_docker
-elif [[ ${MISE_E2E_INSIDE_DOCKER:-0} == 1 ]]; then
+elif [[ ${PAKRO_E2E_INSIDE_DOCKER:-0} == 1 ]]; then
   run_test
 else
   as_group "E2E $TEST" run_test

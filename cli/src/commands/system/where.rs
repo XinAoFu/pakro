@@ -36,7 +36,7 @@ impl SystemWhere {
                 bail!("brew:{name}: package lookup supports macOS arm64 and Linux x86_64/arm64");
             }
             let root = brew::package_root(&name)?;
-            miseprintln!("{}", path_for_output(&root)?);
+            pakroprintln!("{}", path_for_output(&root)?);
             Ok(())
         }
         #[cfg(not(unix))]

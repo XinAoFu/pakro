@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Show output on failure for commands"
+#PAKRO description="Show output on failure for commands"
 set -euo pipefail
 
 if output=$("$@" 2>&1); then

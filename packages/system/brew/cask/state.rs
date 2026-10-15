@@ -16,7 +16,7 @@ pub(super) fn installed_version(manager: CaskManager, token: &str) -> Option<Str
 }
 
 pub(super) fn installed_versions(manager: CaskManager, token: &str) -> Vec<String> {
-    // Version discovery excludes mise's transaction directories. Cleanup is
+    // Version discovery excludes pakro's transaction directories. Cleanup is
     // intentionally broader: remove_stale_versions removes those stale temp
     // and backup directories after replace_caskroom completes.
     let dir = caskroom_token_dir(manager, token);
@@ -30,7 +30,7 @@ pub(super) fn installed_versions(manager: CaskManager, token: &str) -> Vec<Strin
             entry
                 .file_type()
                 .ok()
-                .filter(|ft| ft.is_dir() && name != ".metadata" && !name.starts_with(".mise-"))
+                .filter(|ft| ft.is_dir() && name != ".metadata" && !name.starts_with(".pakro-"))
                 .map(|_| name)
         })
         .collect()
@@ -65,7 +65,7 @@ pub(super) fn homebrew_installed_versions(token: &str) -> Result<Vec<String>> {
                 path.display()
             )
         })?;
-        if file_type.is_dir() && name != ".metadata" && !name.starts_with(".mise-") {
+        if file_type.is_dir() && name != ".metadata" && !name.starts_with(".pakro-") {
             versions.push(name);
         }
     }
@@ -100,7 +100,7 @@ pub(super) fn ensure_homebrew_did_not_take_ownership(token: &str, stage: &Path) 
         Err(err) => {
             file::remove_all(stage).wrap_err_with(|| {
                 format!(
-                    "failed to remove mise stage after Homebrew ownership check failed: {err:#}"
+                    "failed to remove pakro stage after Homebrew ownership check failed: {err:#}"
                 )
             })?;
             return Err(err);
@@ -411,13 +411,13 @@ pub(super) fn remove_obsolete_binary_links(
 }
 
 #[cfg(not(test))]
-pub(super) fn mise_installed_cask_version(cask: &Cask) -> Result<Option<String>> {
+pub(super) fn pakro_installed_cask_version(cask: &Cask) -> Result<Option<String>> {
     installed_cask_version_in(cask, &crate::dirs::STATE)
 }
 
 #[cfg(test)]
-pub(super) fn mise_installed_cask_version(cask: &Cask) -> Result<Option<String>> {
-    installed_cask_version_in(cask, &prefix::prefix().join(".mise-test-state"))
+pub(super) fn pakro_installed_cask_version(cask: &Cask) -> Result<Option<String>> {
+    installed_cask_version_in(cask, &prefix::prefix().join(".pakro-test-state"))
 }
 
 pub(super) fn installed_cask_version_in(cask: &Cask, state_dir: &Path) -> Result<Option<String>> {
@@ -478,7 +478,7 @@ pub(super) fn package_state(req: &PackageRequest, cask: &Cask) -> Result<Package
     if let Some(state) = platform_unavailable_state(cask, &artifacts) {
         return Ok(state);
     }
-    let installed = mise_installed_cask_version(cask)?;
+    let installed = pakro_installed_cask_version(cask)?;
     // A retarget leaves the recorded version matching while the declared app
     // is not installed anywhere, so reporting it installed would hide work
     // that apply still has to do.
@@ -583,7 +583,7 @@ pub(super) fn write_receipt_with_flight_targets(
         prune_blocker,
     };
     let body = toml::to_string_pretty(&receipt)?;
-    write_durable_file(&caskroom.join(".mise-cask.toml"), body.as_bytes())?;
+    write_durable_file(&caskroom.join(".pakro-cask.toml"), body.as_bytes())?;
     Ok(())
 }
 
@@ -1007,7 +1007,7 @@ pub(super) fn write_durable_file(path: &Path, body: &[u8]) -> Result<()> {
 }
 
 pub(super) fn read_receipt(caskroom: &Path) -> Result<Option<CaskReceipt>> {
-    let path = caskroom.join(".mise-cask.toml");
+    let path = caskroom.join(".pakro-cask.toml");
     if !path.exists() {
         return Ok(None);
     }
@@ -1225,8 +1225,9 @@ pub(super) fn cask_prune_plan_from_tokens(
                 Ok(None) => {}
                 Err(err) => {
                     claims_complete = false;
-                    receipt_error =
-                        Some(format!("mise ownership receipt could not be read: {err:#}"));
+                    receipt_error = Some(format!(
+                        "pakro ownership receipt could not be read: {err:#}"
+                    ));
                 }
             }
         }
@@ -1259,7 +1260,7 @@ pub(super) fn cask_prune_plan_from_tokens(
             if !configured {
                 plan.skipped.push(CaskPruneSkip {
                     token,
-                    reason: "mise ownership receipt is missing".to_string(),
+                    reason: "pakro ownership receipt is missing".to_string(),
                 });
             }
             continue;
@@ -1358,7 +1359,7 @@ pub(super) fn apply_cask_prune_plan_in(
 ) -> Result<usize> {
     if dry_run {
         for candidate in &plan.remove {
-            miseprintln!("remove brew-cask:{}@{}", candidate.token, candidate.version);
+            pakroprintln!("remove brew-cask:{}@{}", candidate.token, candidate.version);
         }
         return Ok(0);
     }
@@ -1427,9 +1428,9 @@ pub(super) fn apply_cask_prune_plan_in(
 /// Serialize every app-directory mutation, across managers.
 ///
 /// `brew-cask` and `macos-app` keep separate records but install into the same
-/// application directory, so a per-manager lock alone would let two mise
+/// application directory, so a per-manager lock alone would let two pakro
 /// processes interleave the rename sequence on one bundle. This lives in
-/// mise's state directory rather than Homebrew's prefix, so a machine without
+/// pakro's state directory rather than Homebrew's prefix, so a machine without
 /// Homebrew never has to create one to take it.
 ///
 /// Taken before [`lock_caskroom`] wherever both are held, so the order is the
@@ -1448,7 +1449,7 @@ pub(super) fn lock_app_mutations() -> Result<fslock::LockFile> {
 /// Serialize installs within one manager's own records.
 ///
 /// `brew-cask` keeps its historical Caskroom lock so a concurrently running
-/// older mise still excludes it. `macos-app` writes nothing under Homebrew's
+/// older pakro still excludes it. `macos-app` writes nothing under Homebrew's
 /// prefix, so locking there would create — and on a machine without Homebrew,
 /// need to elevate to create — a Caskroom it never touches.
 pub(super) fn lock_caskroom(manager: CaskManager) -> Result<fslock::LockFile> {
@@ -1457,7 +1458,7 @@ pub(super) fn lock_caskroom(manager: CaskManager) -> Result<fslock::LockFile> {
         CaskManager::MacosApp => cask_state_root(manager),
     };
     file::create_dir_all(&root)?;
-    let path = root.join(".mise.lock");
+    let path = root.join(".pakro.lock");
     let mut lock = fslock::LockFile::open(&path)?;
     if !lock.try_lock()? {
         debug!("waiting for brew-cask lock on {}", path.display());
@@ -1710,12 +1711,12 @@ pub(super) fn symlink_resolves_below(path: &Path, root: &Path) -> bool {
 
 /// Root holding `manager`'s per-token install records.
 ///
-/// `brew-cask` uses Homebrew's Caskroom: mise writes its own `.mise-cask.toml`
-/// receipt beside the versioned bundle so an installed Homebrew and mise
+/// `brew-cask` uses Homebrew's Caskroom: pakro writes its own `.pakro-cask.toml`
+/// receipt beside the versioned bundle so an installed Homebrew and pakro
 /// observe the same records and can arbitrate ownership of a token.
 ///
 /// `macos-app` installs nothing through Homebrew, so its records live under
-/// mise's own state directory. That keeps a Homebrew-shaped path free of
+/// pakro's own state directory. That keeps a Homebrew-shaped path free of
 /// non-Homebrew state, and keeps `macos-app:<token>` from colliding with
 /// `brew-cask:<token>` over one directory.
 pub(super) fn cask_state_root(manager: CaskManager) -> PathBuf {
@@ -1736,13 +1737,13 @@ pub(super) fn caskroom_version_dir(manager: CaskManager, token: &str, version: &
 pub(super) fn caskroom_tmp_dir(cask: &Cask) -> PathBuf {
     let key = format!("{}-{}", cask.token, cask.version);
     caskroom_token_dir(cask.manager, &cask.token)
-        .join(format!(".mise-tmp-{}", hash::hash_to_str(&key)))
+        .join(format!(".pakro-tmp-{}", hash::hash_to_str(&key)))
 }
 
 pub(super) fn caskroom_backup_dir(cask: &Cask) -> PathBuf {
     let key = format!("{}-{}", cask.token, cask.version);
     caskroom_token_dir(cask.manager, &cask.token)
-        .join(format!(".mise-backup-{}", hash::hash_to_str(&key)))
+        .join(format!(".pakro-backup-{}", hash::hash_to_str(&key)))
 }
 
 #[derive(Debug)]
@@ -1773,7 +1774,7 @@ impl ArtifactLinkTransaction {
                         .parent()
                         .ok_or_else(|| eyre!("brew-cask: artifact target has no parent"))?;
                     let backup = parent.join(format!(
-                        ".mise-link-backup-{}",
+                        ".pakro-link-backup-{}",
                         hash::hash_to_str(&target.display().to_string())
                     ));
                     remove_artifact_target_elevating(&backup)?;

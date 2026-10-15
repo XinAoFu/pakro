@@ -2,49 +2,49 @@
 export NO_PROXY=127.0.0.1,localhost,::1
 export no_proxy="$NO_PROXY"
 set -euo pipefail
-export MISE_EXPERIMENTAL=0
-export MISE_PYTHON_GITHUB_ATTESTATIONS=0
+export PAKRO_EXPERIMENTAL=0
+export PAKRO_PYTHON_GITHUB_ATTESTATIONS=0
 FIXTURE="$TEST_ROOT/fixtures/native_python_context.py"
-RUNTIME="$MISE_DATA_DIR/installs/python/3.10.14"
+RUNTIME="$PAKRO_DATA_DIR/installs/python/3.10.14"
 mkdir -p wheels request-log
 python3 "$FIXTURE" "$RUNTIME" "$PWD/wheels" 14 cpython
 start_http_server --headers-log "$PWD/request-log" --handler "$FIXTURE" "$PWD/wheels"
-export MISE_PYPI_URL="http://127.0.0.1:$HTTP_PORT"
+export PAKRO_PYPI_URL="http://127.0.0.1:$HTTP_PORT"
 
 # CLI-only already-installed runtime survives install_all_versions's filtering/reset.
-mise install python@3.10.14+demo@1.0
-assert_contains "cat mise.packages.lock" 'name = "patch14"'
-assert_not_contains "cat mise.packages.lock" 'name = "patch13"'
-assert_contains "cat .mise/venvs/python-3.10.14/pyvenv.cfg" 'version = 3.10.14'
-assert_directory_exists .mise/venvs/python-3.10.14/lib/python3.10/site-packages/demo
+pakro install python@3.10.14+demo@1.0
+assert_contains "cat pakro.packages.lock" 'name = "patch14"'
+assert_not_contains "cat pakro.packages.lock" 'name = "patch13"'
+assert_contains "cat .pakro/venvs/python-3.10.14/pyvenv.cfg" 'version = 3.10.14'
+assert_directory_exists .pakro/venvs/python-3.10.14/lib/python3.10/site-packages/demo
 EXPECTED_PYTHON=$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$RUNTIME/bin/python")
-assert "readlink .mise/venvs/python-3.10.14/bin/python" "$EXPECTED_PYTHON"
+assert "readlink .pakro/venvs/python-3.10.14/bin/python" "$EXPECTED_PYTHON"
 
 # Configured already-installed runtime takes the other actual install entry.
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 python = "3.10.14"
 [packages."python@3.10.14"]
 demo = "1.0"
 TOML
-mise install
-assert_contains "cat mise.packages.lock" 'name = "patch14"'
+pakro install
+assert_contains "cat pakro.packages.lock" 'name = "patch14"'
 
 # Same opaque install label, different observed patch: raw JSON is re-evaluated.
 python3 "$FIXTURE" "$RUNTIME" "$PWD/wheels" 13 cpython
-mise install
-assert_contains "cat mise.packages.lock" 'name = "patch13"'
-assert_not_contains "cat mise.packages.lock" 'name = "patch14"'
-assert_contains "cat .mise/venvs/python-3.10.14/pyvenv.cfg" 'version = 3.10.13'
+pakro install
+assert_contains "cat pakro.packages.lock" 'name = "patch13"'
+assert_not_contains "cat pakro.packages.lock" 'name = "patch14"'
+assert_contains "cat .pakro/venvs/python-3.10.14/pyvenv.cfg" 'version = 3.10.13'
 
 # PyPy's actual prefix remains unsupported; old digests must not bypass its guard.
-cp mise.packages.lock before-pypy.lock
+cp pakro.packages.lock before-pypy.lock
 COUNT_BEFORE=$(python3 -c 'import pathlib,sys; print(len(list(pathlib.Path(sys.argv[1]).glob("request_*.json"))))' "$PWD/request-log")
 python3 "$FIXTURE" "$RUNTIME" "$PWD/wheels" 14 pypy
-assert_fail_contains "mise install 2>&1" 'PyPy package installation requires the verified prefix'
-assert "cmp before-pypy.lock mise.packages.lock && echo unchanged" 'unchanged'
+assert_fail_contains "pakro install 2>&1" 'PyPy package installation requires the verified prefix'
+assert "cmp before-pypy.lock pakro.packages.lock && echo unchanged" 'unchanged'
 COUNT_AFTER=$(python3 -c 'import pathlib,sys; print(len(list(pathlib.Path(sys.argv[1]).glob("request_*.json"))))' "$PWD/request-log")
 assert "echo $COUNT_AFTER" "$COUNT_BEFORE"
 
 # offline query is an explicit state, not '?' marked as an available update.
-assert_contains "MISE_OFFLINE=1 mise outdated 2>&1" 'unavailable: offline metadata replay requires H3'
+assert_contains "PAKRO_OFFLINE=1 pakro outdated 2>&1" 'unavailable: offline metadata replay requires H3'

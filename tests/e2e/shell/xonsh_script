@@ -4,24 +4,24 @@ tiny1 = """
 [tools]
 tiny = "1.0.0"
 """
-echo @(tiny1) > .mise.toml
+echo @(tiny1) > .pakro.toml
 
 tiny2 = """
 [tools]
 tiny = "2.0.0"
 """
 mkdir -p subdir
-echo @(tiny2) > subdir/.mise.toml
+echo @(tiny2) > subdir/.pakro.toml
 
-mise install tiny@1.0.0 tiny@2.0.0
+pakro install tiny@1.0.0 tiny@2.0.0
 
 # shellcheck disable=SC1073,SC1065,SC1064,SC1072
-execx($(mise activate -s xonsh))
+execx($(pakro activate -s xonsh))
 
-# check that mise was activated at all
-assert 'mise' in aliases
-assert list(events.on_pre_prompt)[0].__name__ == 'mise_hook'
-assert list(events.on_chdir)[0].__name__ == 'mise_hook'
+# check that pakro was activated at all
+assert 'pakro' in aliases
+assert list(events.on_pre_prompt)[0].__name__ == 'pakro_hook'
+assert list(events.on_chdir)[0].__name__ == 'pakro_hook'
 
 # check that correct tiny version is being used
 events.on_pre_prompt.fire() # prompt doesn't render in non-interactive mode, so do this manually
@@ -33,8 +33,8 @@ assert $(rtx-tiny).strip() == 'rtx-tiny: v2.0.0 args:'
 cd ..
 assert $(rtx-tiny).strip() == 'rtx-tiny: v1.0.0 args:'
 
-# check that mise is correctly deactivated
-mise deactivate
-assert 'mise' not in aliases
+# check that pakro is correctly deactivated
+pakro deactivate
+assert 'pakro' not in aliases
 assert len(list(events.on_pre_prompt)) == 0
 assert len(list(events.on_chdir)) == 0

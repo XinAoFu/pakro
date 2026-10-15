@@ -3,22 +3,22 @@ use std::path::PathBuf;
 use eyre::Result;
 
 use crate::config::config_file::ConfigFile;
-use crate::config::config_file::mise_toml::MiseToml;
+use crate::config::config_file::pakro_toml::PakroToml;
 use crate::config::{ConfigPathOptions, resolve_target_config_path};
 
 /// Remove environment variable(s) from the config file
 ///
 /// By default, this command selects the nearest configuration directory and
-/// modifies its lowest-precedence TOML file, creating `mise.toml` here if none exists.
+/// modifies its lowest-precedence TOML file, creating `pakro.toml` here if none exists.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise unset NODE_ENV"###,
+        r###"pakro unset NODE_ENV"###,
         help = r###"Remove NODE_ENV from the selected project config"###
     ),
     example(
-        r###"mise unset NODE_ENV -g"###,
+        r###"pakro unset NODE_ENV -g"###,
         help = r###"Remove NODE_ENV from the global config"###
     )
 )]
@@ -28,12 +28,12 @@ pub(crate) struct Unset {
     #[usage(verbatim_doc_comment, value_name = "ENV_KEY")]
     keys: Vec<String>,
 
-    /// Specify a file to use instead of `mise.toml`
+    /// Specify a file to use instead of `pakro.toml`
     ///
-    /// Can be a file path or directory. If a directory is provided, will create/use mise.toml in that directory.
+    /// Can be a file path or directory. If a directory is provided, will create/use pakro.toml in that directory.
     ///
-    /// Defaults to [`MISE_DEFAULT_CONFIG_FILENAME`](https://mise.jdx.dev/configuration.html#mise_default_config_filename) environment variable, or `mise.toml`.
-    /// Use [`MISE_GLOBAL_CONFIG_FILE`](https://mise.jdx.dev/configuration.html#mise_global_config_file) to choose a different global config path.
+    /// Defaults to [`PAKRO_DEFAULT_CONFIG_FILENAME`](https://mise.jdx.dev/configuration.html#mise_default_config_filename) environment variable, or `pakro.toml`.
+    /// Use [`PAKRO_GLOBAL_CONFIG_FILE`](https://mise.jdx.dev/configuration.html#mise_global_config_file) to choose a different global config path.
     #[usage(short, long, visible_alias = "path", value_hint = usage_rs::ValueHint::FilePath)]
     file: Option<PathBuf>,
 
@@ -53,7 +53,7 @@ impl Unset {
             prevent_home_local: true,
         })?;
 
-        let mut config = MiseToml::from_file(&filename).unwrap_or_default();
+        let mut config = PakroToml::from_file(&filename).unwrap_or_default();
 
         for name in self.keys.iter() {
             config.remove_env(name)?;

@@ -1,6 +1,6 @@
 name: perf
 
-# Records mise's startup cost for every commit that lands on main, into the
+# Records pakro's startup cost for every commit that lands on main, into the
 # git-notes ref `refs/notes/tak`. The data lives in this repository — there is
 # no external service holding it, and `git fetch origin refs/notes/tak:refs/notes/tak`
 # gets you the whole history.
@@ -27,7 +27,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
-  TAK_RUNNER: jdx-perf-v1-ubuntu24.04-x64-mise-rust1.97.1-img5263c143
+  TAK_RUNNER: jdx-perf-v1-ubuntu24.04-x64-pakro-rust1.97.1-img5263c143
 
 jobs:
   measure:
@@ -53,13 +53,13 @@ jobs:
         with:
           persist-credentials: false
 
-      # Compile inside the pinned job container. mise's cache remains disabled:
+      # Compile inside the pinned job container. pakro's cache remains disabled:
       # mbx uses the appliance-local content-addressed store mounted above.
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - uses: ./.github/actions/pakro-tools
         with:
           cache: false
         env:
-          MISE_LOCKED: "1"
+          PAKRO_LOCKED: "1"
 
       # cachegrind is the whole point: it counts instructions, which reproduce
       # to ~0.02% run-to-run where wall clock on this same hardware moves by
@@ -74,7 +74,7 @@ jobs:
             echo 'image: ghcr.io/jdx/perf-runner@sha256:5263c143b12ce2234e7b0b21d3d6501c2ed05837b42937d0eaeaa191cd5c8e68'
             uname -a
             lscpu
-            mise --version
+            pakro --version
             mbx --version
             mbx cache dir
             rustc --version
@@ -91,7 +91,7 @@ jobs:
 
       - name: Measure and record
         run: |
-          taskset -c 0-3 mise run perf:record
+          taskset -c 0-3 pakro run perf:record
       - name: Package measurement note
         if: github.ref == 'refs/heads/main'
         run: |

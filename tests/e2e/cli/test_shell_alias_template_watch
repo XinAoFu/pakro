@@ -7,16 +7,16 @@
 # Create a file that will be read by the template
 echo "initial value" >dynamic.txt
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [shell_alias]
 debug = "echo '{{ read_file(path='dynamic.txt') | trim }}'"
 EOF
 
 # Establish initial session
-unset __MISE_SESSION
-unset __MISE_DIFF
-assert_contains "mise hook-env -s bash --force" "initial value"
-eval "$(mise hook-env -s bash --force)"
+unset __PAKRO_SESSION
+unset __PAKRO_DIFF
+assert_contains "pakro hook-env -s bash --force" "initial value"
+eval "$(pakro hook-env -s bash --force)"
 
 # Change the referenced file (NOT the config file)
 sleep 1 # ensure mtime difference even on filesystems with 1-second resolution
@@ -24,8 +24,8 @@ echo "updated value" >dynamic.txt
 
 # hook-env should detect the file change and re-evaluate the template
 # Without the fix, this will produce no output (fast-path exit) because
-# only mise.toml mtime is checked, not dynamic.txt
-output=$(mise hook-env -s bash)
+# only pakro.toml mtime is checked, not dynamic.txt
+output=$(pakro hook-env -s bash)
 if [[ $output == *"updated value"* ]]; then
   ok "alias updated after referenced file changed"
 else

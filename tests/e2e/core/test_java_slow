@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 
 # Enable idiomatic version files for java
-mise settings set idiomatic_version_file_enable_tools java
+pakro settings set idiomatic_version_file_enable_tools java
 
 cat <<EOF >.sdkmanrc
 java=17.0.2
 EOF
-mise i java
-assert_contains "mise x java -- java -version 2>&1" 'openjdk version "17.0.2"'
+pakro i java
+assert_contains "pakro x java -- java -version 2>&1" 'openjdk version "17.0.2"'
 rm .sdkmanrc
 
 cat <<EOF >.java-version
 17.0.2
 EOF
-assert_contains "mise x java -- java -version 2>&1" 'openjdk version "17.0.2"'
+assert_contains "pakro x java -- java -version 2>&1" 'openjdk version "17.0.2"'
 rm .java-version
 
 # Test installing EA version of Java
@@ -22,5 +22,5 @@ EA_MAJOR=$(curl -sSL "https://jdk.java.net" | grep -o 'Early access:.*href="/[0-
 if [[ -z $EA_MAJOR ]]; then
   EA_MAJOR=27
 fi
-mise i "java[release_type=ea]@openjdk-${EA_MAJOR}.0.0-ea"
-assert_contains "mise x java@openjdk-${EA_MAJOR}.0.0-ea -- java -version 2>&1" "openjdk version \"${EA_MAJOR}-ea\""
+pakro i "java[release_type=ea]@openjdk-${EA_MAJOR}.0.0-ea"
+assert_contains "pakro x java@openjdk-${EA_MAJOR}.0.0-ea -- java -version 2>&1" "openjdk version \"${EA_MAJOR}-ea\""

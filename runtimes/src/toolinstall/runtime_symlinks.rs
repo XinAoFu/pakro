@@ -166,8 +166,8 @@ fn rebuild_symlinks_in_dir(
         if let Err(err) = file::make_dir_link(to, &from) {
             if cfg!(windows) {
                 warn!(
-                    "could not create {} -> {}: {err:#}. The tool works through mise, but \
-                     external programs cannot use this path; run `mise where` for the real \
+                    "could not create {} -> {}: {err:#}. The tool works through pakro, but \
+                     external programs cannot use this path; run `pakro where` for the real \
                      install path.",
                     from.display(),
                     to.display()
@@ -284,7 +284,7 @@ fn is_install_incomplete(backend: &Arc<dyn Backend>, installs_dir: &Path, v: &st
 /// link. An interrupted install is not eligible for links, but its directory
 /// still holds whatever the installer got to: a `1.1` that never finished must
 /// not be wiped and turned into a link to a complete `1.1.0`. The marker alone
-/// is enough: a directory mise was installing into is protected whatever its
+/// is enough: a directory pakro was installing into is protected whatever its
 /// name, even one in a selector slot like `latest`.
 fn concrete_installs_in_dir(backend: &Arc<dyn Backend>, installs_dir: &Path) -> HashSet<String> {
     installed_versions_in_dir(backend, installs_dir)
@@ -330,7 +330,7 @@ fn generated_names_for(v: &str) -> Vec<String> {
     names
 }
 
-/// Every name mise generates for the real installs in this directory.
+/// Every name pakro generates for the real installs in this directory.
 ///
 /// Derived from all real installs, not just the eligible ones: a link is only
 /// stale *because* its version stopped being eligible, so the version that
@@ -365,7 +365,7 @@ fn configured_alias_names(
         .collect()
 }
 
-/// Remove runtime symlinks mise generated that the current install state no
+/// Remove runtime symlinks pakro generated that the current install state no
 /// longer supports.
 ///
 /// The rebuild loop is additive — it writes the links it wants, and
@@ -376,15 +376,15 @@ fn configured_alias_names(
 /// pointing into the half-installed directory.
 ///
 /// A link is removed only when all of these hold:
-/// - its name is one mise generates for a real install here,
+/// - its name is one pakro generates for a real install here,
 /// - this rebuild did not ask for that name, and
 /// - its target is not an install that is currently eligible for links.
 ///
-/// A generated name holding a relative `./` link is mise's to manage, whoever
+/// A generated name holding a relative `./` link is pakro's to manage, whoever
 /// wrote it. There is no ownership marker, and none is implied: the rebuild
 /// loop above already removes and repoints any such link whose target no longer
 /// matches, without asking who put it there. What survives a prune is therefore
-/// what survives a rewrite — a name mise does not generate (a configured alias,
+/// what survives a rewrite — a name pakro does not generate (a configured alias,
 /// `next`, any hand-picked label) or a link that is not in `./` form.
 ///
 /// The one other writer of links here, a `Sub` request, is named
@@ -464,7 +464,7 @@ pub(crate) fn remove_missing_symlinks_in_dir(installs_dir: &Path) -> Result<()> 
         file::remove_dir_link(&path)?;
     }
     // remove install dir if empty (ignore metadata)
-    file::remove_dir_ignore(installs_dir, vec![".mise.backend.json", ".mise.backend"])?;
+    file::remove_dir_ignore(installs_dir, vec![".pakro.backend.json", ".pakro.backend"])?;
     Ok(())
 }
 
@@ -624,7 +624,7 @@ mod tests {
         let temp_dir = tempfile::tempdir()?;
         let installs_dir = temp_dir.path().join("installs").join("dummy");
         fs::create_dir_all(&installs_dir)?;
-        fs::write(installs_dir.join(".mise.backend.json"), "{}")?;
+        fs::write(installs_dir.join(".pakro.backend.json"), "{}")?;
         make_symlink_or_file(Path::new("./2.0.0"), &installs_dir.join("2"))?;
         make_symlink_or_file(Path::new("./2.0.0"), &installs_dir.join("latest"))?;
 
@@ -684,7 +684,7 @@ mod tests {
     }
 
     /// `1.3.1-3` carries no channel tag, so only the backend knows it is a
-    /// pre-release and that links an older mise wrote into it are stale.
+    /// pre-release and that links an older pakro wrote into it are stale.
     #[test]
     fn prune_stale_generated_symlinks_removes_links_into_backend_prereleases() -> Result<()> {
         let temp_dir = tempfile::tempdir()?;
@@ -731,7 +731,7 @@ mod tests {
         Ok(())
     }
 
-    /// Only names mise derives from an install are pruned; `next` is someone
+    /// Only names pakro derives from an install are pruned; `next` is someone
     /// else's, even though it points at the same ineligible version.
     #[test]
     fn prune_stale_generated_symlinks_keeps_names_it_does_not_generate() -> Result<()> {
@@ -766,7 +766,7 @@ mod tests {
         Ok(())
     }
 
-    /// An alias may be named like a version prefix mise also generates.
+    /// An alias may be named like a version prefix pakro also generates.
     #[test]
     fn prune_stale_generated_symlinks_keeps_configured_aliases() -> Result<()> {
         let temp_dir = tempfile::tempdir()?;
@@ -804,7 +804,7 @@ mod tests {
 
     /// The namespace has to come from every real install, including the ones
     /// that are no longer eligible — that is the only thing tying a stale name
-    /// back to mise.
+    /// back to pakro.
     #[test]
     fn generated_symlink_namespace_covers_ineligible_installs() -> Result<()> {
         let temp_dir = tempfile::tempdir()?;
@@ -822,9 +822,9 @@ mod tests {
         Ok(())
     }
 
-    /// A relative link in a generated name is mise's to manage whoever wrote
+    /// A relative link in a generated name is pakro's to manage whoever wrote
     /// it, matching what `rebuild_symlinks_in_dir` already does when it
-    /// repoints one. A name mise does not generate, or a link that is not in
+    /// repoints one. A name pakro does not generate, or a link that is not in
     /// `./` form, is left alone.
     #[test]
     fn prune_stale_generated_symlinks_claims_generated_names_whoever_wrote_them() -> Result<()> {
@@ -833,11 +833,11 @@ mod tests {
         let backend = unique_backend(&temp_dir);
         fs::create_dir_all(installs_dir.join("2.1.0"))?;
         let _interrupted = interrupted_install(&backend, "2.1.0")?;
-        // hand-made, but occupying a name mise generates
+        // hand-made, but occupying a name pakro generates
         make_symlink_or_file(Path::new("./2.1.0"), &installs_dir.join("latest"))?;
-        // hand-made, name mise never generates
+        // hand-made, name pakro never generates
         make_symlink_or_file(Path::new("./2.1.0"), &installs_dir.join("mine"))?;
-        // generated name, but not a `./` link, so not mise's to touch
+        // generated name, but not a `./` link, so not pakro's to touch
         make_symlink_or_file(&temp_dir.path().join("elsewhere"), &installs_dir.join("2"))?;
 
         prune_stale_generated_symlinks(&backend, &installs_dir, &IndexMap::new(), &HashSet::new())?;

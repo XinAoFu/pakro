@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# An interrupted `mise installs migrate` is undone by the next run, even when it
+# An interrupted `pakro installs migrate` is undone by the next run, even when it
 # stopped after the new installation's receipt and version link were written but
 # before its postinstall finished.
-export MISE_EXPERIMENTAL=1
-installs="$MISE_DATA_DIR/installs"
-plugin="$MISE_DATA_DIR/plugins/asdf-slow"
+export PAKRO_EXPERIMENTAL=1
+installs="$PAKRO_DATA_DIR/installs"
+plugin="$PAKRO_DATA_DIR/plugins/asdf-slow"
 mkdir -p "$plugin/bin"
 cat >"$plugin/bin/list-all" <<'SH'
 #!/usr/bin/env bash
@@ -19,17 +19,17 @@ SH
 chmod +x "$plugin/bin/"*
 hold="$PWD/hold"
 started="$PWD/started"
-cat >mise.toml <<TOML
+cat >pakro.toml <<TOML
 [tools]
 "asdf:slow" = { version = "1.0.0", postinstall = "if [ -e '$hold' ]; then touch '$started'; while [ -e '$hold' ]; do sleep 0.1; done; fi" }
 TOML
-assert "MISE_INSTALL_LAYOUT=legacy mise install"
+assert "PAKRO_INSTALL_LAYOUT=legacy pakro install"
 echo old >"$installs/asdf-slow/1.0.0/marker"
-export MISE_INSTALL_LAYOUT=identity
+export PAKRO_INSTALL_LAYOUT=identity
 
 echo "=== a migration killed while its replacement's postinstall runs ==="
 touch "$hold"
-mise installs migrate asdf:slow@1.0.0 &
+pakro installs migrate asdf:slow@1.0.0 &
 pid=$!
 for _ in $(seq 300); do
   [[ -e $started ]] && break
@@ -41,11 +41,11 @@ wait "$pid" 2>/dev/null || true
 rm "$hold"
 # the replacement already has its receipt and version link
 made="$(readlink -f "$installs/asdf-slow/1.0.0")"
-assert "test -f '$made/.mise-install.toml'"
+assert "test -f '$made/.pakro-install.toml'"
 
 echo "=== the next run undoes it, then migrates the version again ==="
-assert_contains "mise installs migrate 2>&1" "restored"
+assert_contains "pakro installs migrate 2>&1" "restored"
 assert "test ! -e '$installs/asdf-slow/1.0.0/marker'"
-assert "test -f '$(mise where asdf:slow@1.0.0)/.mise-install.toml'"
-assert_empty "ls '$installs/.mise/migrations'"
-assert_empty "find '$installs/asdf-slow' -maxdepth 1 -name '.*mise-migrating'"
+assert "test -f '$(pakro where asdf:slow@1.0.0)/.pakro-install.toml'"
+assert_empty "ls '$installs/.pakro/migrations'"
+assert_empty "find '$installs/asdf-slow' -maxdepth 1 -name '.*pakro-migrating'"

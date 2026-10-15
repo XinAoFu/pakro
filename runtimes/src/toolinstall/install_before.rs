@@ -39,7 +39,7 @@ pub(crate) enum BeforeDateSource {
 ///    backends that provide release timestamps.
 ///
 /// All string-based durations (e.g. `"3d"`) are resolved against
-/// [`crate::duration::process_now`] so that every call within a single mise
+/// [`crate::duration::process_now`] so that every call within a single pakro
 /// invocation produces the same absolute timestamp. Downstream code can then
 /// use the resolved timestamp both to resolve which version to install *and*
 /// to build the corresponding package-manager CLI flag (e.g.
@@ -244,7 +244,7 @@ pub async fn resolve_before_date_for_backend<B: Backend + ?Sized>(
 
 /// Human-readable fragments describing a release hidden by `minimum_release_age`:
 /// when it came out and when it becomes eligible, plus the configured age value.
-/// Shared by `mise upgrade`'s warning and the resolution error raised when the
+/// Shared by `pakro upgrade`'s warning and the resolution error raised when the
 /// cutoff hides every candidate.
 pub fn format_hidden_release_details(
     created_at: Option<Timestamp>,

@@ -5,20 +5,20 @@
 # shim for a tool that is NOT in any config file must NOT recurse infinitely.
 #
 # Root cause: which_shim's PATH fallback skipped only dirs::SHIMS (user shims).
-# If a second mise shims dir (e.g. /usr/local/share/mise/shims) was also on
+# If a second pakro shims dir (e.g. /usr/local/share/pakro/shims) was also on
 # PATH it would be found as the "fallback binary" and exec'd, re-entering the
 # same shim logic — infinite loop.
 
-shimdir="$MISE_DATA_DIR/shims"
+shimdir="$PAKRO_DATA_DIR/shims"
 mkdir -p "$shimdir"
 
 # Simulate a second (system-level) shims directory on PATH.
-# The binary inside it is a symlink to the mise binary, exactly like a real
-# system shim created by `mise install --system`.
+# The binary inside it is a symlink to the pakro binary, exactly like a real
+# system shim created by `pakro install --system`.
 sys_shimdir="$(mktemp -d)"
 trap 'rm -rf "$sys_shimdir"' EXIT
-mise_bin="$(command -v mise)"
-ln -s "$mise_bin" "$sys_shimdir/dummy"
+pakro_bin="$(command -v pakro)"
+ln -s "$pakro_bin" "$sys_shimdir/dummy"
 
 # Put both shims dirs on PATH — the user shims dir first, then the fake
 # system shims dir.  This is the exact PATH layout that triggered the bug.

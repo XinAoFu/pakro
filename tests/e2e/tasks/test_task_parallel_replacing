@@ -3,7 +3,7 @@
 # Regression test: parallel sub-tasks with "replacing" output mode should not
 # panic due to missing progress reporter entries (GitHub discussion #8985).
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [settings.task]
 output = "replacing"
 
@@ -22,4 +22,4 @@ run = "echo 'task 3 done'"
 EOF
 
 # Should complete without panicking
-assert "mise run parallel"
+assert "pakro run parallel"

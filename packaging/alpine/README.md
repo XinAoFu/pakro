@@ -1,7 +1,11 @@
-To generate new release keys, first start the alpine docker container:
+Pakro has no independent Alpine release identity yet. The image below is an
+existing upstream development container; it does not provide a Pakro product
+release or Pakro signing keys.
+
+When configuring an independent Alpine release, first start the development container:
 
 ```bash
-docker run -it --rm -v $(pwd):/work/mise ghcr.io/jdx/mise:alpine
+docker run -it --rm -v $(pwd):/work/pakro ghcr.io/jdx/mise:alpine
 ```
 
 And inside the container:

@@ -9,7 +9,7 @@ use xx::regex;
 use crate::fuzzy::{FuzzyMatcher, FuzzyPattern};
 use crate::registry::RegistryTool;
 use crate::tool_catalog::{ToolCatalogEntry, ToolCatalogSource};
-use crate::{config::Settings, ui::table::MiseTable};
+use crate::{config::Settings, ui::table::PakroTable};
 
 #[derive(Debug, Clone, usage_rs::ValueEnum)]
 pub(crate) enum MatchType {
@@ -32,7 +32,7 @@ pub(crate) enum MatchType {
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     example(
-        r###"mise search jq
+        r###"pakro search jq
 Tool  Description
 jq    Command-line JSON processor. https://github.com/jqlang/jq
 jqp   A TUI playground to experiment with jq. https://github.com/noahgorstein/jqp
@@ -40,12 +40,12 @@ jiq   jid on jq - interactive JSON query tool using jq expressions. https://gith
 gojq  Pure Go implementation of jq. https://github.com/itchyny/gojq"###
     ),
     example(
-        r###"mise search --match-type equal cargo:ripgrep
+        r###"pakro search --match-type equal cargo:ripgrep
 Tool           Description
 cargo:ripgrep  ripgrep is a line-oriented search tool that recursively searches the current directory for a regex pattern."###
     ),
     example(
-        r###"mise search --interactive
+        r###"pakro search --interactive
 Tool
 Search a tool
 ❯ jq    Command-line JSON processor. https://github.com/jqlang/jq
@@ -61,7 +61,7 @@ pub(crate) struct Search {
     /// The tool to search for
     name: Option<String>,
 
-    /// Search the mise registry and the cargo, gem, and dotnet package registries
+    /// Search the pakro registry and the cargo, gem, and dotnet package registries
     #[usage(long, short)]
     all: bool,
 
@@ -151,7 +151,7 @@ impl Search {
             );
         }
 
-        let mut table = MiseTable::new(self.no_header, &["Tool", "Description"]);
+        let mut table = PakroTable::new(self.no_header, &["Tool", "Description"]);
         for row in tools {
             table.add_row(row);
         }
@@ -264,13 +264,13 @@ impl Search {
     fn print_completions(&self, tools: &[ToolCatalogEntry], descriptions: bool) -> Result<()> {
         for tool in tools {
             if descriptions {
-                miseprintln!(
+                pakroprintln!(
                     "{}:{}",
                     tool.id.replace(':', "\\:"),
                     tool.selector_description().replace(':', "\\:")
                 );
             } else {
-                miseprintln!("{}", tool.id);
+                pakroprintln!("{}", tool.id);
             }
         }
         Ok(())

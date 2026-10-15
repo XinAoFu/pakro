@@ -19,7 +19,7 @@ use crate::hash::hash_to_str;
 use crate::install_context::InstallContext;
 use crate::plugins::Script::{Download, ExecEnv, Install, ParseIdiomaticFile};
 use crate::plugins::asdf_plugin::AsdfPlugin;
-use crate::plugins::mise_plugin_toml::MisePluginToml;
+use crate::plugins::pakro_plugin_toml::PakroPluginToml;
 use crate::plugins::{PluginType, Script, ScriptManager};
 use crate::toolset::{ToolRequest, ToolVersion, Toolset};
 use crate::ui::progress_report::SingleReport;
@@ -30,13 +30,13 @@ use color_eyre::eyre::{Result, WrapErr, bail, eyre};
 use console::style;
 use heck::ToKebabCase;
 
-/// This represents a plugin installed to ~/.local/share/mise/plugins
+/// This represents a plugin installed to ~/.local/share/pakro/plugins
 pub(crate) struct AsdfBackend {
     pub ba: Arc<BackendArg>,
     pub name: String,
     pub plugin_path: PathBuf,
     pub repo_url: Option<String>,
-    pub toml: MisePluginToml,
+    pub toml: PakroPluginToml,
     plugin: Arc<AsdfPlugin>,
     plugin_enum: PluginEnum,
     cache: ExternalPluginCache,
@@ -50,8 +50,8 @@ impl AsdfBackend {
         let name = ba.tool_name.clone();
         let plugin_path = dirs::PLUGINS.join(ba.short.to_kebab_case());
         let plugin = AsdfPlugin::new(name.clone(), plugin_path.clone());
-        let toml_path = plugin_path.join("mise.plugin.toml");
-        let toml = MisePluginToml::from_file(&toml_path).unwrap();
+        let toml_path = plugin_path.join("pakro.plugin.toml");
+        let toml = PakroPluginToml::from_file(&toml_path).unwrap();
         let plugin = Arc::new(plugin);
         let plugin_enum = PluginEnum::Asdf(plugin.clone());
         Self {
@@ -90,7 +90,7 @@ impl AsdfBackend {
     ///
     /// The cache holds the output of `normalize_idiomatic_contents`, and an entry written before
     /// that stripped the byte-order mark still carries it. Nothing retires such an entry on its
-    /// own: it is compared only against the source file's modification time, and upgrading mise
+    /// own: it is compared only against the source file's modification time, and upgrading pakro
     /// moves neither. So the mark is treated as a miss — the file is re-read through the current
     /// normaliser and the entry rewritten clean, once.
     ///
@@ -244,7 +244,7 @@ impl AsdfBackend {
     ) -> Result<ScriptManager> {
         let mut sm = self.plugin.script_man.clone();
         for (key, value) in tv.request.options().opts_as_strings() {
-            let k = format!("MISE_TOOL_OPTS__{}", key.to_uppercase());
+            let k = format!("PAKRO_TOOL_OPTS__{}", key.to_uppercase());
             sm = sm.with_env(k, value);
         }
         for (key, value) in tv.install_env() {
@@ -255,7 +255,7 @@ impl AsdfBackend {
         }
         if let Some(project_root) = &config.project_root {
             let project_root = project_root.to_string_lossy().to_string();
-            sm = sm.with_env("MISE_PROJECT_ROOT", project_root);
+            sm = sm.with_env("PAKRO_PROJECT_ROOT", project_root);
         }
         let install_type = match &tv.request {
             ToolRequest::Version { .. } | ToolRequest::Prefix { .. } => "version",
@@ -270,7 +270,7 @@ impl AsdfBackend {
             ToolRequest::Ref { ref_: v, .. } => v, // should not have "ref:" prefix
             _ => &tv.version,
         };
-        // add env vars from mise.toml files
+        // add env vars from pakro.toml files
         for (key, value) in config.env().await? {
             sm = sm.with_env(key, value.clone());
         }
@@ -281,10 +281,10 @@ impl AsdfBackend {
             .with_env("ASDF_INSTALL_PATH", &install)
             .with_env("ASDF_INSTALL_TYPE", install_type)
             .with_env("ASDF_INSTALL_VERSION", install_version)
-            .with_env("MISE_DOWNLOAD_PATH", download)
-            .with_env("MISE_INSTALL_PATH", install)
-            .with_env("MISE_INSTALL_TYPE", install_type)
-            .with_env(env::MISE_INSTALL_VERSION_ENV_VAR, install_version);
+            .with_env("PAKRO_DOWNLOAD_PATH", download)
+            .with_env("PAKRO_INSTALL_PATH", install)
+            .with_env("PAKRO_INSTALL_TYPE", install_type)
+            .with_env(env::PAKRO_INSTALL_VERSION_ENV_VAR, install_version);
         Ok(sm)
     }
 }
@@ -509,7 +509,7 @@ impl Backend for AsdfBackend {
         if matches!(tv.request, ToolRequest::System { .. }) {
             return Ok(BTreeMap::new());
         }
-        if !self.plugin.script_man.script_exists(&ExecEnv) || *env::__MISE_SCRIPT {
+        if !self.plugin.script_man.script_exists(&ExecEnv) || *env::__PAKRO_SCRIPT {
             // if the script does not exist, or we're already running from within a script,
             // the second is to prevent infinite loops
             return Ok(BTreeMap::new());
@@ -532,7 +532,7 @@ impl Backend for AsdfBackend {
 /// Verifies that `bin/install` actually put something in `$ASDF_INSTALL_PATH`.
 ///
 /// `bin/install` is a plugin-supplied shell script, and one that installs nothing can still exit 0
-/// — a missing `set -e`, a build that fails inside a pipeline, a download that 404s. mise would
+/// — a missing `set -e`, a build that fails inside a pipeline, a download that 404s. pakro would
 /// otherwise report `✓ installed`, record the version in install state, and keep resolving to an
 /// empty directory afterwards (#5288).
 ///
@@ -580,7 +580,7 @@ mod tests {
             Some("20.0.0".to_string())
         );
         // The mark is what `normalize_idiomatic_contents` used to leave in the cache. Modification
-        // time is the entry's only invalidation and upgrading mise moves neither file's, so
+        // time is the entry's only invalidation and upgrading pakro moves neither file's, so
         // without this the stale version outlives the fix indefinitely.
         assert_eq!(
             AsdfBackend::cached_idiomatic_version("\u{feff}20.0.0\n"),
@@ -623,7 +623,7 @@ mod tests {
         for (key, value) in entries {
             results.env.insert(
                 (*key).to_string(),
-                ((*value).to_string(), PathBuf::from("mise.toml")),
+                ((*value).to_string(), PathBuf::from("pakro.toml")),
             );
         }
         results.env_remove = removals.iter().map(|key| (*key).to_string()).collect();
@@ -685,7 +685,7 @@ mod tests {
     fn version_listing_script_manager_applies_config_env() {
         let backend = AsdfBackend::from_arg("dummy".into());
         let results = env_results(
-            &[("MISE_TEST_VERSION_CHANNEL", "private")],
+            &[("PAKRO_TEST_VERSION_CHANNEL", "private")],
             &["REMOVE_ME"],
             &["/first/bin", "/second/bin"],
         );
@@ -693,7 +693,7 @@ mod tests {
         let sm = backend.script_man_for_version_listing(&results).unwrap();
 
         assert_eq!(
-            sm.env.get(&OsString::from("MISE_TEST_VERSION_CHANNEL")),
+            sm.env.get(&OsString::from("PAKRO_TEST_VERSION_CHANNEL")),
             Some(&OsString::from("private"))
         );
         assert!(!sm.env.contains_key(&OsString::from("REMOVE_ME")));

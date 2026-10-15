@@ -3,7 +3,7 @@ pub(super) mod git_credential;
 pub(crate) mod github;
 mod gitlab;
 
-/// Display git provider tokens mise will use
+/// Display git provider tokens pakro will use
 #[derive(Debug, usage_rs::Args)]
 #[usage(verbatim_doc_comment)]
 pub(crate) struct Token {
@@ -13,11 +13,11 @@ pub(crate) struct Token {
 
 #[derive(Debug, usage_rs::Subcommands)]
 enum Commands {
-    /// Show the Forgejo token mise will use
+    /// Show the Forgejo token pakro will use
     Forgejo(forgejo::Forgejo),
-    /// Show the GitHub token mise will use
+    /// Show the GitHub token pakro will use
     Github(github::Github),
-    /// Show the GitLab token mise will use
+    /// Show the GitLab token pakro will use
     Gitlab(gitlab::Gitlab),
 }
 

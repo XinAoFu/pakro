@@ -3,7 +3,7 @@ use crate::backend::backend_type::BackendType;
 use crate::backend::options::BackendOptions;
 use crate::backend::platform_target::PlatformTarget;
 use crate::backend::{
-    MISE_BINS_DIR, VersionInfo, filter_cached_prereleases, mark_prerelease,
+    PAKRO_BINS_DIR, VersionInfo, filter_cached_prereleases, mark_prerelease,
     runtime_path_for_install_path,
 };
 use crate::config::Config;
@@ -155,7 +155,7 @@ impl CondaBackend {
             .finish())
     }
 
-    /// Map a mise PlatformTarget to a rattler conda Platform
+    /// Map a pakro PlatformTarget to a rattler conda Platform
     fn target_to_conda_platform(target: &PlatformTarget) -> CondaPlatform {
         match (target.os_name(), target.arch_name()) {
             ("linux", "x64") => CondaPlatform::Linux64,
@@ -624,14 +624,14 @@ impl CondaBackend {
         Ok(())
     }
 
-    /// Creates a `.mise-bins` directory with entries only for binaries from the main package.
+    /// Creates a `.pakro-bins` directory with entries only for binaries from the main package.
     /// Uses the PathsEntry list returned by rattler's link_package to identify which files
     /// belong to the main package (excluding transitive dependency binaries). Commands that
     /// need the package prefix get a launcher that activates it only for the command they
     /// start, so dependencies are available to that command without exposing their binaries
     /// on the user's PATH; the rest are plain symlinks. See `package_needs_activation`.
     fn create_bin_launcher_dir(&self, tv: &ToolVersion, main_paths: &[PathsEntry]) -> Result<()> {
-        // `MISE_DATA_DIR` is only tilde-expanded, never absolutized, so `install_path()` can
+        // `PAKRO_DATA_DIR` is only tilde-expanded, never absolutized, so `install_path()` can
         // be relative. Neither entry kind survives that: a relative symlink target resolves
         // against the link's own directory, and a relative path inside a launcher resolves
         // against whatever cwd the caller happens to have. Pin both to an absolute prefix.
@@ -641,7 +641,7 @@ impl CondaBackend {
                 file::display_path(tv.install_path())
             )
         })?;
-        let symlink_dir = install_path.join(MISE_BINS_DIR);
+        let symlink_dir = install_path.join(PAKRO_BINS_DIR);
         file::create_dir_all(&symlink_dir)?;
         let bin_dirs: &[&std::path::Path] = if cfg!(windows) {
             &[
@@ -770,15 +770,15 @@ impl CondaBackend {
         Ok(())
     }
 
-    /// Places one of the package's commands in `.mise-bins`.
+    /// Places one of the package's commands in `.pakro-bins`.
     ///
     /// A command that needs the prefix activated gets a launcher; the rest are symlinked.
-    /// A symlinked command is invoked as `<prefix>/.mise-bins/<name>` rather than
+    /// A symlinked command is invoked as `<prefix>/.pakro-bins/<name>` rather than
     /// `<prefix>/bin/<name>`, so its `argv[0]` differs from the launcher's. That is safe
     /// only because the two directories sit at the same depth: `dirname(argv[0])/../share`
     /// reaches `<prefix>/share` either way, and a sibling lookup finds the package's other
     /// commands, which this directory holds in full whenever it is symlinked. See
-    /// `mise_bins_dir_sits_beside_bin`.
+    /// `pakro_bins_dir_sits_beside_bin`.
     ///
     /// `link` is the symlink step, taken as an argument so the fallback below can be tested.
     fn place_bin_entry(
@@ -806,7 +806,7 @@ impl CondaBackend {
     }
 
     /// Whether the commands in this package have to run through an activation launcher
-    /// rather than a plain symlink in `.mise-bins`.
+    /// rather than a plain symlink in `.pakro-bins`.
     ///
     /// The launcher activates the prefix for one command: it exports `CONDA_PREFIX`, sources
     /// `etc/conda/activate.d`, and puts the prefix's `bin` ahead of the user's `PATH` so the
@@ -886,7 +886,7 @@ impl CondaBackend {
                 return Ok(true);
             }
             if Self::is_script(&entry.path())? {
-                // A script entry point can expand `${CONDA_PREFIX}` (the bug `.mise-bins`
+                // A script entry point can expand `${CONDA_PREFIX}` (the bug `.pakro-bins`
                 // was introduced for) or take its interpreter off PATH.
                 return Ok(true);
             }
@@ -976,12 +976,12 @@ impl CondaBackend {
              export CONDA_DEFAULT_ENV={prefix}\n\
              export CONDA_SHLVL=1\n\
              export PATH=\"$CONDA_PREFIX/bin${{PATH:+:$PATH}}\"\n\
-             for _mise_conda_script in \"$CONDA_PREFIX\"/etc/conda/activate.d/*.sh; do\n\
-             \tif [ -f \"$_mise_conda_script\" ]; then\n\
-             \t\t. \"$_mise_conda_script\" || exit $?\n\
+             for _pakro_conda_script in \"$CONDA_PREFIX\"/etc/conda/activate.d/*.sh; do\n\
+             \tif [ -f \"$_pakro_conda_script\" ]; then\n\
+             \t\t. \"$_pakro_conda_script\" || exit $?\n\
              \tfi\n\
              done\n\
-             unset _mise_conda_script\n\
+             unset _pakro_conda_script\n\
              exec {target} \"$@\"\n"
         )
     }
@@ -1203,9 +1203,9 @@ impl Backend for CondaBackend {
         tv: &ToolVersion,
     ) -> Result<Vec<PathBuf>> {
         let install_path = tv.install_path();
-        let mise_bins = install_path.join(MISE_BINS_DIR);
-        if mise_bins.exists() {
-            return Ok(vec![runtime_path_for_install_path(tv, mise_bins)]);
+        let pakro_bins = install_path.join(PAKRO_BINS_DIR);
+        if pakro_bins.exists() {
+            return Ok(vec![runtime_path_for_install_path(tv, pakro_bins)]);
         }
 
         // Fallback for tools installed before this change
@@ -1246,7 +1246,7 @@ fn cmd_escape_value(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{CondaBackend, CondaOptions, MISE_BINS_DIR, rewrite_request_url};
+    use super::{CondaBackend, CondaOptions, PAKRO_BINS_DIR, rewrite_request_url};
     #[cfg(unix)]
     use crate::file;
     use crate::toolset::ToolVersionOptions;
@@ -1478,19 +1478,19 @@ mod tests {
     #[test]
     fn windows_native_executable_uses_cmd_launcher_path() {
         let launcher = CondaBackend::bin_launcher_path(
-            Path::new("/prefix/.mise-bins"),
+            Path::new("/prefix/.pakro-bins"),
             std::ffi::OsStr::new("tool.exe"),
             true,
         );
 
-        assert_eq!(launcher, Path::new("/prefix/.mise-bins/tool.cmd"));
+        assert_eq!(launcher, Path::new("/prefix/.pakro-bins/tool.cmd"));
         assert_eq!(
             CondaBackend::bin_launcher_path(
-                Path::new("/prefix/.mise-bins"),
+                Path::new("/prefix/.pakro-bins"),
                 std::ffi::OsStr::new("tool.cmd"),
                 true,
             ),
-            Path::new("/prefix/.mise-bins/tool.cmd")
+            Path::new("/prefix/.pakro-bins/tool.cmd")
         );
     }
 
@@ -1546,7 +1546,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let prefix = temp.path().join("prefix");
         let target = prefix.join("bin/tool");
-        let dst = prefix.join(MISE_BINS_DIR).join("tool");
+        let dst = prefix.join(PAKRO_BINS_DIR).join("tool");
         file::create_dir_all(target.parent().unwrap()).unwrap();
         file::create_dir_all(dst.parent().unwrap()).unwrap();
         file::write(&target, "\x7fELF-ish binary").unwrap();
@@ -1564,13 +1564,13 @@ mod tests {
 
     /// A tool that resolves its resources relative to `argv[0]` without following the
     /// symlink — `dirname(argv[0])/../share` is the common shape — keeps working through
-    /// `.mise-bins` only while that directory is as deep in the prefix as `bin` is. Moving
+    /// `.pakro-bins` only while that directory is as deep in the prefix as `bin` is. Moving
     /// it deeper would send those lookups outside the package, and nothing about a compiled
     /// binary would reveal the breakage at install time.
     #[test]
-    fn mise_bins_dir_sits_beside_bin() {
+    fn pakro_bins_dir_sits_beside_bin() {
         assert_eq!(
-            Path::new(MISE_BINS_DIR).components().count(),
+            Path::new(PAKRO_BINS_DIR).components().count(),
             Path::new("bin").components().count()
         );
     }

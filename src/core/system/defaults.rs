@@ -3,7 +3,7 @@
 //! Entries are read and written with Core Foundation's preferences API so
 //! nested property-list values retain their types. Like `[bootstrap.packages]`
 //! they are machine-global, declarative, and only ever applied when explicitly
-//! requested with `mise bootstrap macos defaults apply` or `mise bootstrap`.
+//! requested with `pakro bootstrap macos defaults apply` or `pakro bootstrap`.
 
 use indexmap::IndexMap;
 
@@ -78,7 +78,7 @@ impl std::fmt::Display for DefaultsRequest {
     }
 }
 
-/// Property-list values that mise can write and verify. TOML arrays and tables
+/// Property-list values that pakro can write and verify. TOML arrays and tables
 /// are converted recursively, preserving the types of nested values.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DefaultsValue {
@@ -272,9 +272,9 @@ pub async fn apply(requests: &[DefaultsRequest], dry_run: bool) -> Result<()> {
                 }
                 args.extend(["write".to_string(), domain, req.key.clone()]);
                 args.extend(write_args);
-                miseprintln!("defaults {}", shell_words::join(&args));
+                pakroprintln!("defaults {}", shell_words::join(&args));
             } else {
-                miseprintln!("macOS preference {req}");
+                pakroprintln!("macOS preference {req}");
             }
             continue;
         }
@@ -795,7 +795,7 @@ mod tests {
     #[test]
     #[cfg(target_os = "macos")]
     fn test_dock_apps_native_round_trip() {
-        let domain = format!("com.mise.dock-test.{}", uuid::Uuid::now_v7());
+        let domain = format!("com.pakro.dock-test.{}", uuid::Uuid::now_v7());
         let temp = tempfile::tempdir().unwrap();
         let app = temp.path().join("Example App.app");
         std::fs::create_dir(&app).unwrap();
@@ -965,7 +965,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn test_host_scopes_are_independent() {
-        let domain = format!("com.mise.defaults-test.{}", uuid::Uuid::now_v7());
+        let domain = format!("com.pakro.defaults-test.{}", uuid::Uuid::now_v7());
         let any = DefaultsRequest {
             dock_apps: false,
             domain: domain.clone(),
@@ -1001,7 +1001,7 @@ mod tests {
     fn patch(path: &[&str], value: DefaultsValue) -> DefaultsRequest {
         DefaultsRequest {
             dock_apps: false,
-            domain: "com.mise.patch-test".into(),
+            domain: "com.pakro.patch-test".into(),
             key: "Shortcuts".into(),
             host: HostScope::Any,
             path: Some(path.iter().map(|s| s.to_string()).collect()),
@@ -1152,7 +1152,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn test_patch_native_round_trip_and_preflight() {
-        let domain = format!("com.mise.patch-test.{}", uuid::Uuid::now_v7());
+        let domain = format!("com.pakro.patch-test.{}", uuid::Uuid::now_v7());
         let original =
             DefaultsValue::from_toml(&val(r#"{ "64" = { enabled = true }, data = [1, 2] }"#))
                 .unwrap();
@@ -1206,7 +1206,7 @@ mod tests {
                 host: HostScope::Any,
                 path: None,
                 domain: "NSGlobalDomain".into(),
-                key: "_mise_test_nonexistent_key_42".into(),
+                key: "_pakro_test_nonexistent_key_42".into(),
                 value: DefaultsValue::Bool(true),
             },
             // domain doesn't exist at all
@@ -1214,7 +1214,7 @@ mod tests {
                 dock_apps: false,
                 host: HostScope::Any,
                 path: None,
-                domain: "com.mise.nonexistent".into(),
+                domain: "com.pakro.nonexistent".into(),
                 key: "TestKey".into(),
                 value: DefaultsValue::Bool(true),
             },
@@ -1235,7 +1235,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn test_nested_value_round_trip() {
-        let domain = "com.mise.defaults-test";
+        let domain = "com.pakro.defaults-test";
         let key = "NestedValue";
         let value = DefaultsValue::from_toml(&val(
             r#"[{ name = "Terminal", enabled = true, position = 1, scale = 1.5, metadata = { kind = "file-tile" } }]"#,
@@ -1320,7 +1320,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn test_sandboxed_round_trip_writes_container() {
-        let domain = format!("com.mise.sandbox-test.{}", uuid::Uuid::now_v7());
+        let domain = format!("com.pakro.sandbox-test.{}", uuid::Uuid::now_v7());
         let home = macos::preferences_home();
         let container = home.join("Library/Containers").join(&domain);
         let prefs = container.join("Data/Library/Preferences");
@@ -1400,7 +1400,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn test_host_uuid_names_core_foundation_byhost_files() {
-        let domain = format!("com.mise.byhost-test.{}", uuid::Uuid::now_v7());
+        let domain = format!("com.pakro.byhost-test.{}", uuid::Uuid::now_v7());
         let request = DefaultsRequest {
             dock_apps: false,
             host: HostScope::Current,

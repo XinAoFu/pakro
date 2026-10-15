@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-current=$(mise version | tail -n1 | awk '{print $1}' | sed 's/-DEBUG$//')
-export MISE_CACHE_DIR="$PWD/update-cache"
+current=$(pakro version | tail -n1 | awk '{print $1}' | sed 's/-DEBUG$//')
+export PAKRO_CACHE_DIR="$PWD/update-cache"
 now=$(date +%s)
 mkdir -p served
 printf 'v9999.1.0 %s\nv%s %s\nv0.1.0 %s\n' "$((now - 3600))" "$current" "$((now - 172800))" "$((now - 864000))" >served/releases.tsv
@@ -16,7 +16,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         url = urlsplit(self.path)
-        if url.path == "/repos/acme/mise/releases":
+        if url.path == "/repos/acme/pakro/releases":
             page = int(parse_qs(url.query)["page"][0])
             body = Path(f"served/page{page}.json").read_bytes()
             self.send_response(200)
@@ -26,30 +26,30 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         else:
             super().do_GET()
 PYTHON
-export MISE_URL_REPLACEMENTS="{\"https://mise.jdx.dev\":\"http://127.0.0.1:$HTTP_PORT\"}"
-unset MISE_MINIMUM_RELEASE_AGE MISE_SELF_UPDATE_MINIMUM_RELEASE_AGE
+export PAKRO_URL_REPLACEMENTS="{\"https://mise.jdx.dev\":\"http://127.0.0.1:$HTTP_PORT\"}"
+unset PAKRO_MINIMUM_RELEASE_AGE PAKRO_SELF_UPDATE_MINIMUM_RELEASE_AGE
 
-assert "mise version --json | jq -r .latest" "$current"
-assert_contains "mise self-update --no-plugins 2>&1" "already up to date"
+assert "pakro version --json | jq -r .latest" "$current"
+assert_contains "pakro self-update --no-plugins 2>&1" "already up to date"
 
 # Changing the age must not reuse the previously selected version cache.
-export MISE_MINIMUM_RELEASE_AGE=7d
-assert "mise version --json | jq -r .latest" "0.1.0"
-export MISE_SELF_UPDATE_MINIMUM_RELEASE_AGE=24h
-assert "mise version --json | jq -r .latest" "$current"
-export MISE_SELF_UPDATE_MINIMUM_RELEASE_AGE=0s
-assert "mise version --json | jq -r .latest" "9999.1.0"
+export PAKRO_MINIMUM_RELEASE_AGE=7d
+assert "pakro version --json | jq -r .latest" "0.1.0"
+export PAKRO_SELF_UPDATE_MINIMUM_RELEASE_AGE=24h
+assert "pakro version --json | jq -r .latest" "$current"
+export PAKRO_SELF_UPDATE_MINIMUM_RELEASE_AGE=0s
+assert "pakro version --json | jq -r .latest" "9999.1.0"
 
 # The command flag beats both environment settings. --force cannot downgrade.
-assert_contains "mise self-update --minimum-release-age 7d --force --no-plugins 2>&1" "Selected mise 0.1.0"
-assert_contains "mise self-update --minimum-release-age 7d --force --no-plugins 2>&1" "already up to date"
+assert_contains "pakro self-update --minimum-release-age 7d --force --no-plugins 2>&1" "Selected pakro 0.1.0"
+assert_contains "pakro self-update --minimum-release-age 7d --force --no-plugins 2>&1" "already up to date"
 
 # Pins bypass even an invalid policy and unavailable metadata.
 printf 'invalid\n' >served/releases.tsv
-export MISE_SELF_UPDATE_MINIMUM_RELEASE_AGE=invalid
-assert_contains "mise self-update $current --no-plugins 2>&1" "already up to date"
-export MISE_SELF_UPDATE_MINIMUM_RELEASE_AGE=24h
-assert_fail "mise self-update --no-plugins" "invalid mise release index"
+export PAKRO_SELF_UPDATE_MINIMUM_RELEASE_AGE=invalid
+assert_contains "pakro self-update $current --no-plugins 2>&1" "already up to date"
+export PAKRO_SELF_UPDATE_MINIMUM_RELEASE_AGE=24h
+assert_fail "pakro self-update --no-plugins" "invalid pakro release index"
 
 # A custom mirror needs pagination past a full page of too-young releases.
 python3 - "$current" "$now" <<'PYTHON'
@@ -66,11 +66,11 @@ def release(tag, age):
 Path("served/page1.json").write_text(json.dumps([release("v9999.1.0", 3600)] * 100))
 Path("served/page2.json").write_text(json.dumps([dict(release("nightly", 0), published_at=None), release("v" + current, 172800)]))
 PYTHON
-export MISE_SELF_UPDATE_API_URL=https://mirror.example.test
-export MISE_SELF_UPDATE_REPOSITORY=acme/mise
-export MISE_URL_REPLACEMENTS="{\"https://mirror.example.test\":\"http://127.0.0.1:$HTTP_PORT\"}"
-assert "mise version --json | jq -r .latest" "$current"
-assert_contains "mise self-update --no-plugins 2>&1" "already up to date"
+export PAKRO_SELF_UPDATE_API_URL=https://mirror.example.test
+export PAKRO_SELF_UPDATE_REPOSITORY=acme/pakro
+export PAKRO_URL_REPLACEMENTS="{\"https://mirror.example.test\":\"http://127.0.0.1:$HTTP_PORT\"}"
+assert "pakro version --json | jq -r .latest" "$current"
+assert_contains "pakro self-update --no-plugins 2>&1" "already up to date"
 
 # A mirror missing publication dates must not use the old commit's created_at.
 python3 - <<'PYTHON'
@@ -81,4 +81,4 @@ releases = json.loads(p.read_text())
 releases[1].pop("published_at")
 p.write_text(json.dumps(releases))
 PYTHON
-assert_fail "mise self-update --no-plugins" "missing publication date"
+assert_fail "pakro self-update --no-plugins" "missing publication date"

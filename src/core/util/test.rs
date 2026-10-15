@@ -25,7 +25,7 @@ fn init() {
     crate::testing::init();
 }
 
-pub(crate) use mise_util::testing::{EnvVarGuard, lock_ignoring_poison};
+pub(crate) use pakro_util::testing::{EnvVarGuard, lock_ignoring_poison};
 
 /// Held by every test that replaces the process-wide settings, and by every test that reads a
 /// setting it needs to stay put. One lock for the whole crate: with a lock per module, a reset in
@@ -63,7 +63,7 @@ pub(crate) fn replace_path(input: &str) -> String {
     input
         .replace(&path, "$PATH")
         .replace(&home, "~")
-        .replace(&*env::MISE_BIN.to_string_lossy(), "mise")
+        .replace(&*env::PAKRO_BIN.to_string_lossy(), "pakro")
 }
 
 #[macro_export]
@@ -104,7 +104,7 @@ mod tests {
 
     #[test]
     fn a_child_test_process_leaves_the_parent_cwd_intact() {
-        const CHILD_ENV: &str = "MISE_TEST_HARNESS_CHILD";
+        const CHILD_ENV: &str = "PAKRO_TEST_HARNESS_CHILD";
         if std::env::var_os(CHILD_ENV).is_some() {
             return;
         }
@@ -124,6 +124,6 @@ mod tests {
         // Had the child reset the fixture tree, this process would be left in an
         // unlinked directory: getcwd fails and relative fixture paths vanish.
         assert_eq!(std::env::current_dir().unwrap(), cwd);
-        assert!(std::path::Path::new(".mise/tasks/filetask").is_file());
+        assert!(std::path::Path::new(".pakro/tasks/filetask").is_file());
     }
 }

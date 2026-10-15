@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-# Set MISE_TEST_PITCHFORK to test a local build instead of the released version.
-if [[ -z ${MISE_TEST_PITCHFORK:-} ]]; then
+# Set PAKRO_TEST_PITCHFORK to test a local build instead of the released version.
+if [[ -z ${PAKRO_TEST_PITCHFORK:-} ]]; then
   # Exercise this exact release even during the default release-age delay.
-  mise install pitchfork@2.25.0 --minimum-release-age 0s
-  MISE_TEST_PITCHFORK="$(mise which pitchfork --tool pitchfork@2.25.0)"
+  pakro install pitchfork@2.25.0 --minimum-release-age 0s
+  PAKRO_TEST_PITCHFORK="$(pakro which pitchfork --tool pitchfork@2.25.0)"
 fi
 export PITCHFORK_STATE_DIR="$TMPDIR/pf"
 export PITCHFORK_CONFIG_DIR="$TMPDIR/pf-config"
@@ -12,15 +12,15 @@ export PITCHFORK_AUTOSTOP_DELAY=0s
 export PITCHFORK_INTERVAL=100ms
 export PITCHFORK_PROXY_ENABLE=false
 mkdir -p "$PITCHFORK_STATE_DIR" "$PITCHFORK_CONFIG_DIR"
-# Keep the fixture executable available when testing mise prune.
-cp "$MISE_TEST_PITCHFORK" ~/bin/pitchfork
+# Keep the fixture executable available when testing pakro prune.
+cp "$PAKRO_TEST_PITCHFORK" ~/bin/pitchfork
 export PATH="$HOME/bin:$PATH"
 trap 'pitchfork supervisor stop >/dev/null 2>&1 || true' EXIT
 
 mkdir -p project other
 cd project
 project_dir="$PWD"
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons.api]
@@ -29,59 +29,59 @@ ready_delay = 0
 auto = ["start", "stop"]
 TOML
 assert "test ! -f '$PITCHFORK_CONFIG_DIR/config.toml'"
-assert_contains "mise daemons ls --json" '"status": "available"'
+assert_contains "pakro daemons ls --json" '"status": "available"'
 assert "test ! -f '$PITCHFORK_CONFIG_DIR/config.toml'"
-mise daemons start api
-assert_contains "mise daemons ls --json" '"status": "running"'
+pakro daemons start api
+assert_contains "pakro daemons ls --json" '"status": "running"'
 # A second profile cannot overwrite a running project.
-assert_contains "MISE_ENV=alternate mise daemons start 2>&1 || true" 'another daemon profile is active'
-mise daemons stop
+assert_contains "PAKRO_ENV=alternate pakro daemons start 2>&1 || true" 'another daemon profile is active'
+pakro daemons stop
 
 # A namespace change lists each daemon once and preserves active IDs until stopped.
-cp mise.toml original.toml
-cat >>mise.toml <<'TOML'
+cp pakro.toml original.toml
+cat >>pakro.toml <<'TOML'
 [daemons_settings]
 namespace = "renamed"
 TOML
-assert "test $(mise daemons ls --json | jq length) -eq 1"
-assert_contains "mise daemons ls --json" '"id": "renamed/api"'
+assert "test $(pakro daemons ls --json | jq length) -eq 1"
+assert_contains "pakro daemons ls --json" '"id": "renamed/api"'
 # An ordinary activation must update registration even if daemon definitions match.
-mise hook-env -s bash --shell-pid $$ >/dev/null
+pakro hook-env -s bash --shell-pid $$ >/dev/null
 assert_contains "pitchfork config list --json" '"namespace": "renamed"'
-mise daemons start
-cp original.toml mise.toml
-cat >>mise.toml <<'TOML'
+pakro daemons start
+cp original.toml pakro.toml
+cat >>pakro.toml <<'TOML'
 [daemons_settings]
 namespace = "next"
 [daemons.extra]
 run = "exec sleep 600"
 TOML
-assert "test $(mise daemons ls --json | jq length) -eq 2"
-assert_contains "mise daemons ls --json" '"id": "renamed/api"'
-assert_contains "mise daemons ls --json" '"id": "next/extra"'
-assert_contains "mise daemons ls --json" '"status": "running"'
-mise daemons stop api
-assert_contains "mise daemons ls --json" '"id": "next/api"'
-cp original.toml mise.toml
-assert "test $(mise daemons ls --json | jq length) -eq 1"
-mise daemons start
-mise daemons stop
+assert "test $(pakro daemons ls --json | jq length) -eq 2"
+assert_contains "pakro daemons ls --json" '"id": "renamed/api"'
+assert_contains "pakro daemons ls --json" '"id": "next/extra"'
+assert_contains "pakro daemons ls --json" '"status": "running"'
+pakro daemons stop api
+assert_contains "pakro daemons ls --json" '"id": "next/api"'
+cp original.toml pakro.toml
+assert "test $(pakro daemons ls --json | jq length) -eq 1"
+pakro daemons start
+pakro daemons stop
 
-# An explicit start restores a registration removed outside mise.
+# An explicit start restores a registration removed outside pakro.
 registration=$(pitchfork config list --json | jq -r '.[0].config[0]')
 pitchfork config remove "$registration"
 assert "test $(pitchfork config list --json | jq length) -eq 0"
-mise daemons start
-assert_contains "mise daemons ls --json" '"status": "running"'
+pakro daemons start
+assert_contains "pakro daemons ls --json" '"status": "running"'
 assert "test $(pitchfork config list --json | jq length) -eq 1"
-mise daemons stop
+pakro daemons stop
 
 # Evaluate the activation output, preserving each simulated shell's environment.
 hook_session() {
   local key="daemon_session_$1"
-  export __MISE_DAEMON_SESSIONS="${!key-}"
-  eval "$(mise hook-env --shell-pid "$1" --force -s bash)"
-  printf -v "$key" '%s' "${__MISE_DAEMON_SESSIONS:-}"
+  export __PAKRO_DAEMON_SESSIONS="${!key-}"
+  eval "$(pakro hook-env --shell-pid "$1" --force -s bash)"
+  printf -v "$key" '%s' "${__PAKRO_DAEMON_SESSIONS:-}"
 }
 # Each shell owns an independent session. Explicit --force also exercises retry paths.
 sleep 600 &
@@ -99,21 +99,21 @@ assert "test $(pitchfork project list --json | jq length) -eq 2"
 # unchanged prompts must not register configs or emit session commands.
 sleep 1
 for _ in {1..5}; do
-  hook_output=$(mise hook-env --shell-pid "$second_pid" -s bash)
+  hook_output=$(pakro hook-env --shell-pid "$second_pid" -s bash)
   eval "$hook_output"
 done
 assert "test ${#hook_output} -eq 0"
 
 # A new activated shell must enter even when it inherits an up-to-date hook cache.
 cat >"$TMPDIR/activation.fish" <<'FISH'
-mise activate fish | source
+pakro activate fish | source
 jobs -p >"$CHILD_JOBS"
 while not test -f "$CHILD_DONE"
   sleep 0.1
 end
 FISH
 cat >"$TMPDIR/activation.sh" <<'SH'
-eval "$(mise activate "$1")"
+eval "$(pakro activate "$1")"
 jobs -p >"$CHILD_JOBS"
 while [[ ! -f "$CHILD_DONE" ]]; do sleep 0.1; done
 SH
@@ -142,9 +142,9 @@ for activation_shell in bash zsh fish; do
   assert "test $(pitchfork project list --json | jq length) -eq 2"
 done
 
-mise daemons stop
-assert_contains "MISE_ENV=alternate mise daemons start 2>&1 || true" "another daemon profile is active"
-mise daemons start
+pakro daemons stop
+assert_contains "PAKRO_ENV=alternate pakro daemons start 2>&1 || true" "another daemon profile is active"
+pakro daemons start
 cd ../other
 # A failed leave must retain enough shell state for a later forced hook to retry.
 mv ~/bin/pitchfork ~/bin/pitchfork.real
@@ -164,7 +164,7 @@ for _ in {1..100}; do
 done
 assert "test $(pitchfork project list --json | jq length) -eq 1"
 cd "$project_dir"
-assert_contains "mise daemons ls --json" '"status": "running"'
+assert_contains "pakro daemons ls --json" '"status": "running"'
 cd ../other
 hook_session "$second_pid"
 for _ in {1..100}; do
@@ -173,10 +173,10 @@ for _ in {1..100}; do
 done
 assert "test $(pitchfork project list --json | jq length) -eq 0"
 cd "$project_dir"
-mise daemons stop
+pakro daemons stop
 
 # Leaving while readiness is pending must not strand a shell session.
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons.api]
@@ -186,7 +186,7 @@ auto = ["start", "stop"]
 TOML
 hook_session $$
 sleep 0.2
-assert "test ! -d '$MISE_STATE_DIR/daemons/sessions'"
+assert "test ! -d '$PAKRO_STATE_DIR/daemons/sessions'"
 cd ../other
 hook_session $$
 sleep 5
@@ -196,22 +196,22 @@ for _ in {1..100}; do
 done
 assert "test $(pitchfork project list --json | jq length) -eq 0"
 cd "$project_dir"
-mise daemons stop
+pakro daemons stop
 
 # Empty declarations detach the generated file and keep stopped IDs inspectable.
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 TOML
-mise daemons stop
+pakro daemons stop
 assert "test $(pitchfork config list --json | jq length) -eq 1"
 # Synchronization belongs to start, even when there are no remaining daemons.
-mise daemons start 2>/dev/null || true
+pakro daemons start 2>/dev/null || true
 assert "test $(pitchfork config list --json | jq length) -eq 0"
 
 # A named start prepares imported dependencies in their owning environment.
 mkdir -p ../import-app ../import-owner
-cat >../import-owner/mise.toml <<'TOML'
+cat >../import-owner/pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 node = "system"
@@ -222,7 +222,7 @@ preset = "redis"
 version = "1"
 tool = "node"
 TOML
-cat >../import-app/mise.toml <<'TOML'
+cat >../import-app/pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons_settings]
@@ -240,13 +240,13 @@ ready_delay = 0
 TOML
 cd ../import-app
 # The local worker must not select or validate the imported worker.
-mise daemons start worker
+pakro daemons start worker
 assert_contains "pitchfork status app/worker --json" '"status": "running"'
-mise daemons stop worker
-assert_contains "mise daemons start api 2>&1 || true" 'daemon worker requires node@1'
+pakro daemons stop worker
+assert_contains "pakro daemons start api 2>&1 || true" 'daemon worker requires node@1'
 assert "test $(pitchfork status app/api --json | jq -r .status) != running"
 # Register the owner's full dependency chain before starting the app.
-cat >../import-owner/mise.toml <<'TOML'
+cat >../import-owner/pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 node = "system"
@@ -268,21 +268,21 @@ preset = "redis"
 version = "1"
 tool = "node"
 TOML
-mise daemons start api
+pakro daemons start api
 assert_contains "pitchfork status app/api --json" '"status": "running"'
 assert_contains "pitchfork status remote/worker --json" '"status": "running"'
 assert_contains "pitchfork status remote/helper --json" '"status": "running"'
 assert "test $(pitchfork status remote/idle --json | jq -r .status) != running"
-mise daemons stop
+pakro daemons stop
 cd ../import-owner
-mise daemons stop
+pakro daemons stop
 
 # `--all` covers every daemon in the project, including ones a `default` group
 # leaves out, and never reaches another project. Pitchfork rejects its own `--all`
-# next to the IDs mise passes, so mise must not forward the flag.
+# next to the IDs pakro passes, so pakro must not forward the flag.
 mkdir -p ../all-bystander ../all-project
 cd ../all-bystander
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons_settings]
@@ -291,9 +291,9 @@ namespace = "bystander"
 run = "exec sleep 600"
 ready_delay = 0
 TOML
-mise daemons start
+pakro daemons start
 cd ../all-project
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tools]
 pitchfork = "system"
 [daemons_settings]
@@ -307,17 +307,17 @@ ready_delay = 0
 [daemon_groups]
 default = ["web"]
 TOML
-mise daemons start
+pakro daemons start
 assert_contains "pitchfork status allproj/web --json" '"status": "running"'
 assert "test $(pitchfork status allproj/extra --json | jq -r .status) != running"
-mise daemons stop
-mise daemons start --all
+pakro daemons stop
+pakro daemons start --all
 assert_contains "pitchfork status allproj/web --json" '"status": "running"'
 assert_contains "pitchfork status allproj/extra --json" '"status": "running"'
-assert_fail_contains "mise daemons stop --all web" "--all selects every daemon"
-mise daemons stop --all
+assert_fail_contains "pakro daemons stop --all web" "--all selects every daemon"
+pakro daemons stop --all
 assert "test $(pitchfork status allproj/web --json | jq -r .status) != running"
 assert "test $(pitchfork status allproj/extra --json | jq -r .status) != running"
 assert_contains "pitchfork status bystander/other --json" '"status": "running"'
 cd ../all-bystander
-mise daemons stop
+pakro daemons stop

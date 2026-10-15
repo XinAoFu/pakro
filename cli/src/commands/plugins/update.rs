@@ -17,9 +17,9 @@ use super::{PluginTaskNames, PluginTaskResult, join_plugin_tasks, spawn_plugin_t
 /// not the tool versions it manages. Linked local plugins are skipped; archive
 /// installations cannot be updated with Git.
 #[derive(Debug, usage_rs::Args)]
-#[usage(verbatim_doc_comment, visible_aliases = ["up", "upgrade"], example(r###"mise plugins update              # update all installed plugins
-mise plugins update my-tool      # update one Git plugin
-mise plugins update my-tool#main # select an upstream ref"###))]
+#[usage(verbatim_doc_comment, visible_aliases = ["up", "upgrade"], example(r###"pakro plugins update              # update all installed plugins
+pakro plugins update my-tool      # update one Git plugin
+pakro plugins update my-tool#main # select an upstream ref"###))]
 pub(super) struct Update {
     /// Plugin(s) to update
     #[usage()]

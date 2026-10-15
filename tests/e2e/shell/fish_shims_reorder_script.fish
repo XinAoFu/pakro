@@ -1,27 +1,27 @@
 #!/usr/bin/env fish
-# Test that mise activate --shims reorders shims to front of PATH
+# Test that pakro activate --shims reorders shims to front of PATH
 # even when shims are already present (e.g. VS Code re-sourcing config.fish)
 # See: https://github.com/jdx/mise/discussions/6072
 
-# Get the mise binary path from argv (passed by the wrapper)
-set -l mise_dir $argv[1]
+# Get the pakro binary path from argv (passed by the wrapper)
+set -l pakro_dir $argv[1]
 
 # Ensure shims directory exists (fish_add_path skips nonexistent dirs)
-mkdir -p $HOME/.local/share/mise/shims
+mkdir -p $HOME/.local/share/pakro/shims
 
-# Clear any pre-existing __MISE_BIN so the debug binary uses current_exe()
-set -e __MISE_BIN
+# Clear any pre-existing __PAKRO_BIN so the debug binary uses current_exe()
+set -e __PAKRO_BIN
 
 # Simulate VS Code scenario: shims already in PATH but at low priority
 # (after /opt/homebrew/bin, like VS Code would arrange it)
-set -gx PATH $mise_dir /opt/homebrew/bin /usr/bin $HOME/.local/share/mise/shims /bin
+set -gx PATH $pakro_dir /opt/homebrew/bin /usr/bin $HOME/.local/share/pakro/shims /bin
 
 # Helper to find path indices
 function find_path_indices
     set -l shims_idx 0
     set -l brew_idx 0
     for i in (seq (count $PATH))
-        if test "$PATH[$i]" = "$HOME/.local/share/mise/shims"
+        if test "$PATH[$i]" = "$HOME/.local/share/pakro/shims"
             set shims_idx $i
         end
         if test "$PATH[$i]" = "/opt/homebrew/bin"
@@ -44,8 +44,8 @@ end
 
 echo "Before: shims at index $shims_idx, brew at index $brew_idx (shims after brew)"
 
-# Now activate with --shims using the mise binary, simulating config.fish re-source
-$mise_dir/mise activate fish --shims | source
+# Now activate with --shims using the pakro binary, simulating config.fish re-source
+$pakro_dir/pakro activate fish --shims | source
 
 # Check that shims are now before /opt/homebrew/bin
 set indices (find_path_indices)

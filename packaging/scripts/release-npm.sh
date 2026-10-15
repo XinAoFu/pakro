@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/release-env.sh"
+pakro_require_repository
+if [[ "${DRY_RUN:-1}" == "0" ]]; then pakro_require_release; fi
+
 error() {
 	echo "$@" >&2
 	exit 1
@@ -8,8 +12,8 @@ error() {
 
 write_update_instructions() {
 	mkdir -p "$RELEASE_DIR/npm/lib"
-	cat >"$RELEASE_DIR/npm/lib/mise-self-update-instructions.toml" <<'EOF'
-message = "Update mise using the package manager that installed it (npm, pnpm, or yarn)."
+	cat >"$RELEASE_DIR/npm/lib/pakro-self-update-instructions.toml" <<'EOF'
+message = "Update pakro using the package manager that installed it (npm, pnpm, or yarn)."
 EOF
 }
 
@@ -23,7 +27,7 @@ dist_tag_from_version() {
 	IFS="." read -r -a version_split <<<"${version_split[1]:-latest}"
 	echo "${version_split[0]}"
 }
-dist_tag="$(dist_tag_from_version "$MISE_VERSION")"
+dist_tag="$(dist_tag_from_version "$PAKRO_VERSION")"
 
 if [ "$PUBLISH_PLATFORM_PACKAGES" != "0" ]; then
 	platforms=(
@@ -43,23 +47,23 @@ if [ "$PUBLISH_PLATFORM_PACKAGES" != "0" ]; then
 			os="darwin"
 		fi
 
-		cp "$RELEASE_DIR/$MISE_VERSION/mise-$MISE_VERSION-$platform.tar.gz" "$RELEASE_DIR/mise-latest-$platform.tar.gz"
-		cp "$RELEASE_DIR/$MISE_VERSION/mise-$MISE_VERSION-$platform.tar.xz" "$RELEASE_DIR/mise-latest-$platform.tar.xz"
-		tar -xzvf "$RELEASE_DIR/mise-latest-$platform.tar.gz" -C "$RELEASE_DIR"
+		cp "$RELEASE_DIR/$PAKRO_VERSION/pakro-$PAKRO_VERSION-$platform.tar.gz" "$RELEASE_DIR/pakro-latest-$platform.tar.gz"
+		cp "$RELEASE_DIR/$PAKRO_VERSION/pakro-$PAKRO_VERSION-$platform.tar.xz" "$RELEASE_DIR/pakro-latest-$platform.tar.xz"
+		tar -xzvf "$RELEASE_DIR/pakro-latest-$platform.tar.gz" -C "$RELEASE_DIR"
 		rm -rf "$RELEASE_DIR/npm"
-		mv "$RELEASE_DIR/mise" "$RELEASE_DIR/npm"
+		mv "$RELEASE_DIR/pakro" "$RELEASE_DIR/npm"
 		write_update_instructions
 		cat <<EOF >"$RELEASE_DIR/npm/package.json"
 {
   "name": "$NPM_PLATFORM_PREFIX-$os-$arch",
-  "version": "$MISE_VERSION",
+  "version": "$PAKRO_VERSION",
   "description": "Dev tools, env vars, and tasks in one CLI",
   "bin": {
-    "mise": "bin/mise"
+    "pakro": "bin/pakro"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/jdx/mise"
+    "url": "https://github.com/$PAKRO_RELEASE_REPOSITORY"
   },
   "files": [
     "bin",
@@ -120,7 +124,7 @@ function installArchSpecificPackage(version) {
     cp.on('close', function(code) {
         var pkgJson = require.resolve(['$NPM_PLATFORM_PREFIX', platform, arch].join('-') + '/package.json');
         var subpkg = JSON.parse(fs.readFileSync(pkgJson, 'utf8'));
-        var executable = subpkg.bin.mise;
+        var executable = subpkg.bin.pakro;
         var bin = path.resolve(path.dirname(pkgJson), executable);
 
         try {
@@ -135,8 +139,8 @@ function installArchSpecificPackage(version) {
 
         if (platform == 'windows') {
             var pkg = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package.json')));
-            fs.writeFileSync(path.resolve(process.cwd(), 'bin/mise'), 'This file intentionally left blank');
-            pkg.bin.mise = 'bin/mise.exe';
+            fs.writeFileSync(path.resolve(process.cwd(), 'bin/pakro'), 'This file intentionally left blank');
+            pkg.bin.pakro = 'bin/pakro.exe';
             fs.writeFileSync(path.resolve(process.cwd(), 'package.json'), JSON.stringify(pkg, null, 2));
         }
 
@@ -164,10 +168,10 @@ cat <<EOF >"$RELEASE_DIR/npm/package.json"
 {
   "name": "$NPM_PREFIX",
   "description": "Dev tools, env vars, and tasks in one CLI",
-  "version": "$MISE_VERSION",
+  "version": "$PAKRO_VERSION",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jdx/mise"
+    "url": "https://github.com/$PAKRO_RELEASE_REPOSITORY"
   },
   "files": [
     "installArchSpecificPackage.js",
@@ -179,7 +183,7 @@ cat <<EOF >"$RELEASE_DIR/npm/package.json"
     "preinstall": "node installArchSpecificPackage.js"
   },
   "bin": {
-    "mise": "./bin/mise"
+    "pakro": "./bin/pakro"
   },
   "license": "MIT",
   "engines": {

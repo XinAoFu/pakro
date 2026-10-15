@@ -23,13 +23,22 @@ concurrency:
   # not know this key yet; GitHub documents it and accepts it.)
   queue: max
 
+env:
+  PAKRO_ENABLE_RELEASE: ${{ vars.PAKRO_ENABLE_RELEASE || 'false' }}
+  PAKRO_RELEASE_REPOSITORY: ${{ github.repository }}
+  PAKRO_DOWNLOAD_BASE_URL: ${{ vars.PAKRO_DOWNLOAD_BASE_URL }}
+  PAKRO_R2_ENDPOINT_URL: ${{ vars.PAKRO_R2_ENDPOINT_URL }}
+  PAKRO_RELEASE_BUCKET: ${{ vars.PAKRO_RELEASE_BUCKET }}
+  PAKRO_CLOUDFLARE_ACCOUNT_ID: ${{ vars.PAKRO_CLOUDFLARE_ACCOUNT_ID }}
+  PAKRO_CLOUDFLARE_WORKER_NAME: ${{ vars.PAKRO_CLOUDFLARE_WORKER_NAME }}
+  PAKRO_CLOUDFLARE_ZONES: ${{ vars.PAKRO_CLOUDFLARE_ZONES }}
+  PAKRO_GPG_SIGNING_KEY: ${{ vars.PAKRO_GPG_SIGNING_KEY }}
+  PAKRO_RELEASE_NAME: ${{ vars.PAKRO_RELEASE_NAME }}
+  PAKRO_RELEASE_EMAIL: ${{ vars.PAKRO_RELEASE_EMAIL }}
+
 jobs:
   publish-version:
-    if: |
-      (github.event_name == 'release' &&
-       startsWith(github.event.release.tag_name, 'v') &&
-       !github.event.release.prerelease) ||
-      github.event_name == 'workflow_dispatch'
+    if: ${{ vars.PAKRO_ENABLE_RELEASE == 'true' && github.repository != 'jdx/mise' && ((github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v') && !github.event.release.prerelease) || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-24.04
     # Release lookups and index generation may take hours, but only because they
     # wait out a rate-limit window. This is the outer ceiling; each step sets

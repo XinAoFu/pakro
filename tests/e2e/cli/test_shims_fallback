@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
-eval "$(mise activate bash --shims)"
-mise i dummy@1.0.0 tiny@1.0.0
+eval "$(pakro activate bash --shims)"
+pakro i dummy@1.0.0 tiny@1.0.0
 
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [tools]
 dummy = "1.0.0"
 tiny = "1.0.1"

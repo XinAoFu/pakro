@@ -4,23 +4,23 @@
 # Issue: https://github.com/jdx/mise/discussions/6631
 
 # Ensure we start with a clean slate - no trusted configs
-export MISE_TRUSTED_CONFIG_PATHS=""
+export PAKRO_TRUSTED_CONFIG_PATHS=""
 unset CI GITHUB_ACTIONS GITHUB_ACTION 2>/dev/null || true
 
 # A config that only defines tasks is safe: tasks execute nothing until the
 # user explicitly runs one, so no trust is required
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.make]
 run = "echo 'hello from task'"
 EOF
 
-assert_contains "MISE_YES=0 mise run make" "hello from task"
+assert_contains "PAKRO_YES=0 pakro run make" "hello from task"
 
 # Paranoid mode requires trust for unsafe configs (here: [env]). Running a task
 # from one should give a helpful error message:
 # 1. Prompt the user to trust the config (when interactive), or
 # 2. Show a clear "config not trusted" error (not "no tasks defined")
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [env]
 FOO = "bar"
 
@@ -29,7 +29,7 @@ run = "echo 'hello from task'"
 EOF
 
 # This test verifies we don't get the misleading "no tasks defined" error
-output=$(MISE_PARANOID=1 MISE_YES=0 mise run make 2>&1 || true)
+output=$(PAKRO_PARANOID=1 PAKRO_YES=0 pakro run make 2>&1 || true)
 
 # The error should mention "trust" or "untrusted", not just "no tasks defined"
 if echo "$output" | grep -q "no tasks defined.*Are you in a project directory"; then

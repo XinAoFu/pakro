@@ -1,5 +1,5 @@
 # Upstream ships bare per-platform binaries (cliamp-linux-amd64,
-# cliamp-darwin-arm64, ...), which mise normalises onto `cliamp`.
+# cliamp-darwin-arm64, ...), which pakro normalises onto `cliamp`.
 #
 # The macOS binaries link dynamically against Homebrew's FLAC, Vorbis, Ogg and
 # mpg123; upstream documents `brew install flac libvorbis libogg mpg123` for the

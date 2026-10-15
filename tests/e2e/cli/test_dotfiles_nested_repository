@@ -4,11 +4,11 @@
 # nothing is recorded for it, not its files and not a commit pointer.
 # Capture, status and paths name it and say what to do instead, and
 # tracking the repository itself captures its working files without
-# `.git`. A pointer already in a history from an older mise is read and
+# `.git`. A pointer already in a history from an older pakro is read and
 # skipped rather than failing or emptying the repository it names.
 require_cmd git
-export MISE_HISTORY_NOTIFY=false
-repo="$MISE_STATE_DIR/history/repo.git"
+export PAKRO_HISTORY_NOTIFY=false
+repo="$PAKRO_STATE_DIR/history/repo.git"
 origin="$PWD/nested-origin.git"
 git init -q --bare -b main "$origin"
 plugin=~/.hammerspoon/Spoons/Sky.spoon
@@ -21,54 +21,54 @@ git -C "$plugin" -c user.name=t -c user.email=t@example.com commit -q -m init
 sha=$(git -C "$plugin" rev-parse HEAD)
 
 # Enrollment and every save say what a nested repository leaves out.
-assert_contains 'mise dot track ~/.hammerspoon 2>&1' 'nested: ~/.hammerspoon/Spoons/Sky.spoon (a separate Git repository'
+assert_contains 'pakro dot track ~/.hammerspoon 2>&1' 'nested: ~/.hammerspoon/Spoons/Sky.spoon (a separate Git repository'
 # nothing is recorded for it: no files, and no commit pointer either
 assert "git --git-dir=$repo ls-tree HEAD home/.hammerspoon/Spoons/Sky.spoon" ''
 assert_fail "git --git-dir=$repo cat-file -e HEAD:home/.hammerspoon/Spoons/Sky.spoon/init.lua"
 assert "git --git-dir=$repo show HEAD:home/.hammerspoon/init.lua" 'hs.alert("hi")'
 echo 'hs.alert("hello")' >~/.hammerspoon/init.lua
-assert_contains 'mise dot save 2>&1' 'nested: ~/.hammerspoon/Spoons/Sky.spoon (a separate Git repository'
-assert_contains 'mise dot paths' 'nested: ~/.hammerspoon/Spoons/Sky.spoon (a separate Git repository; track it directly to capture its working files)'
-assert "mise dot paths --json | jq -r '.nested[0].path'" '~/.hammerspoon/Spoons/Sky.spoon'
-assert_contains 'mise dot status' 'tracked (1 nested)'
-assert_contains 'mise dot status' '1 nested repository skipped'
-assert "mise dot status --json | jq -r '.history.nested | length'" 1
-assert_contains 'mise dot history show' 'nested: ~/.hammerspoon/Spoons/Sky.spoon'
+assert_contains 'pakro dot save 2>&1' 'nested: ~/.hammerspoon/Spoons/Sky.spoon (a separate Git repository'
+assert_contains 'pakro dot paths' 'nested: ~/.hammerspoon/Spoons/Sky.spoon (a separate Git repository; track it directly to capture its working files)'
+assert "pakro dot paths --json | jq -r '.nested[0].path'" '~/.hammerspoon/Spoons/Sky.spoon'
+assert_contains 'pakro dot status' 'tracked (1 nested)'
+assert_contains 'pakro dot status' '1 nested repository skipped'
+assert "pakro dot status --json | jq -r '.history.nested | length'" 1
+assert_contains 'pakro dot history show' 'nested: ~/.hammerspoon/Spoons/Sky.spoon'
 # one skip, said once: the checkpoint carries it to other machines as an
 # omission, and this machine's own record keeps the reason that can be
 # acted on — it is not both
-assert "mise dot history show 2>&1 | grep -c 'Spoons/Sky.spoon'" '1'
+assert "pakro dot history show 2>&1 | grep -c 'Spoons/Sky.spoon'" '1'
 
 # Removing the `.git` makes the directory ordinary content — and a
 # rollback to a checkpoint that skipped it does not delete those files,
 # because the checkpoint recorded that it never held them.
 cp -r "$plugin" ~/plugin-copy
 rm -rf "$plugin/.git"
-before_rm="$(mise dot history --json | jq -r '.[0].id')"
-assert_contains "mise dot rollback ~/.hammerspoon --to $before_rm --dry-run 2>&1" 'a separate Git repository'
-assert_succeed "mise dot rollback ~/.hammerspoon --to $before_rm --yes"
+before_rm="$(pakro dot history --json | jq -r '.[0].id')"
+assert_contains "pakro dot rollback ~/.hammerspoon --to $before_rm --dry-run 2>&1" 'a separate Git repository'
+assert_succeed "pakro dot rollback ~/.hammerspoon --to $before_rm --yes"
 assert "cat $plugin/init.lua" 'return {}'
 rm -rf "$plugin" && cp -r ~/plugin-copy "$plugin"
 
 # The remedy works: tracking the repository itself captures its working
 # files, and never `.git`.
-assert_succeed 'mise dot track ~/.hammerspoon/Spoons/Sky.spoon'
+assert_succeed 'pakro dot track ~/.hammerspoon/Spoons/Sky.spoon'
 assert "git --git-dir=$repo show HEAD:home/.hammerspoon/Spoons/Sky.spoon/init.lua" 'return {}'
 assert_fail "git --git-dir=$repo cat-file -e HEAD:home/.hammerspoon/Spoons/Sky.spoon/.git/HEAD"
-assert_not_contains 'mise dot paths' 'nested:'
+assert_not_contains 'pakro dot paths' 'nested:'
 # untracking stops managing it; it never deletes the live files, and no
 # pointer takes its place
-assert_succeed 'mise dot untrack ~/.hammerspoon/Spoons/Sky.spoon'
-assert_succeed 'mise dot save'
+assert_succeed 'pakro dot untrack ~/.hammerspoon/Spoons/Sky.spoon'
+assert_succeed 'pakro dot save'
 assert "cat $plugin/init.lua" 'return {}'
 assert "git --git-dir=$repo ls-tree HEAD home/.hammerspoon/Spoons/Sky.spoon" ''
 
 # Another machine adopts the setup: the pointer is skipped with a reason,
 # the ordinary files arrive, and a nested repository it already has is
 # left alone.
-assert_succeed "mise dot track $MISE_CONFIG_DIR/config.toml"
-assert_succeed "mise dot origin set file://$origin --yes"
-# a pointer a previous mise left in the shared history: written straight
+assert_succeed "pakro dot track $PAKRO_CONFIG_DIR/config.toml"
+assert_succeed "pakro dot origin set file://$origin --yes"
+# a pointer a previous pakro left in the shared history: written straight
 # into the origin, since this version never creates one
 work="$PWD/legacy-pointer"
 git clone -q "$origin" "$work"
@@ -82,10 +82,10 @@ wrapper() {
   mkdir -p "$home"
   cat <<EOF2 >"$script"
 #!/usr/bin/env bash
-export HOME="$home" XDG_CONFIG_HOME="$home/.config" MISE_CONFIG_DIR="$home/.config/mise" \\
-  MISE_STATE_DIR="$home/.local/state/mise" MISE_DATA_DIR="$home/.local/share/mise" \\
-  MISE_CACHE_DIR="$home/.cache/mise" MISE_TRUSTED_CONFIG_PATHS="$home" MISE_HISTORY_NOTIFY=false
-cd "\$HOME" && exec mise "\$@"
+export HOME="$home" XDG_CONFIG_HOME="$home/.config" PAKRO_CONFIG_DIR="$home/.config/pakro" \\
+  PAKRO_STATE_DIR="$home/.local/state/pakro" PAKRO_DATA_DIR="$home/.local/share/pakro" \\
+  PAKRO_CACHE_DIR="$home/.cache/pakro" PAKRO_TRUSTED_CONFIG_PATHS="$home" PAKRO_HISTORY_NOTIFY=false
+cd "\$HOME" && exec pakro "\$@"
 EOF2
   chmod +x "$script"
 }
@@ -101,7 +101,7 @@ assert_contains "$b bootstrap --adopt file://$origin --yes --only dotfiles 2>&1"
 assert "cat $second/.hammerspoon/init.lua" 'hs.alert("hello")'
 assert "cat $second/.hammerspoon/Spoons/Sky.spoon/init.lua" 'return { second = true }'
 assert_succeed "test -d $second/.hammerspoon/Spoons/Sky.spoon/.git"
-assert_contains "$b dot status" 'not shared: ~/.hammerspoon/Spoons/Sky.spoon (a separate Git repository; a pointer from an older mise, skipped'
+assert_contains "$b dot status" 'not shared: ~/.hammerspoon/Spoons/Sky.spoon (a separate Git repository; a pointer from an older pakro, skipped'
 assert "$b dot status --json | jq -r '.history.sync.pending_applications | length'" 0
 assert_succeed "$b dot sync"
 
@@ -142,20 +142,20 @@ assert "cat $third/.hammerspoon/Spoons/Sky.spoon/new.lua" 'incoming addition'
 # `vendor` out, the `!` rule names a file below it — which is what stops
 # the walk pruning `vendor` and makes it descend — and the repository in
 # there is still skipped, reported, and left uncaptured.
-repo="$MISE_STATE_DIR/history/repo.git"
+repo="$PAKRO_STATE_DIR/history/repo.git"
 mkdir -p ~/.tooling/vendor/checkout
 echo 'settings' >~/.tooling/config.toml
 echo 'theirs' >~/.tooling/vendor/checkout/secret.txt
 git -C ~/.tooling/vendor/checkout init -q -b main
-cat >"$MISE_CONFIG_DIR/config.toml" <<'TOML'
+cat >"$PAKRO_CONFIG_DIR/config.toml" <<'TOML'
 [dotfiles]
 "~/.tooling" = { mode = "track" }
 
 [history]
 exclude = ["vendor", "!~/.tooling/vendor/checkout/secret.txt"]
 TOML
-assert_succeed 'mise dot save'
+assert_succeed 'pakro dot save'
 assert "git --git-dir=$repo show HEAD:home/.tooling/config.toml" 'settings'
 assert_fail "git --git-dir=$repo cat-file -e HEAD:home/.tooling/vendor/checkout/secret.txt"
-assert_contains 'mise dot paths' '~/.tooling/vendor/checkout'
-assert_contains 'mise dot paths' 'a separate Git repository'
+assert_contains 'pakro dot paths' '~/.tooling/vendor/checkout'
+assert_contains 'pakro dot paths' 'a separate Git repository'

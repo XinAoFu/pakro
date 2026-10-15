@@ -254,7 +254,7 @@ pub trait DepsProvider: Debug + Send + Sync {
     /// Whether this provider is applicable, with an actionable reason if not.
     fn applicability(&self) -> DepsProviderApplicability;
 
-    /// Whether this provider should auto-run before mise x/run
+    /// Whether this provider should auto-run before pakro x/run
     fn is_auto(&self) -> bool {
         self.base().is_auto()
     }
@@ -294,7 +294,7 @@ pub trait DepsProvider: Debug + Send + Sync {
 /// Warn if any auto-enabled deps providers are stale
 pub fn notify_if_stale(config: &Arc<Config>, effective_env: &BTreeMap<String, String>) {
     // Skip in shims or quiet mode
-    if *env::__MISE_SHIM || Settings::get().quiet {
+    if *env::__PAKRO_SHIM || Settings::get().quiet {
         return;
     }
 
@@ -314,7 +314,7 @@ pub fn notify_if_stale(config: &Arc<Config>, effective_env: &BTreeMap<String, St
             .map(|(id, reason)| format!("{id} ({reason})"))
             .collect();
         let summary = providers.join(", ");
-        warn!("deps: {summary} — run `mise deps`");
+        warn!("deps: {summary} — run `pakro deps`");
     }
 }
 

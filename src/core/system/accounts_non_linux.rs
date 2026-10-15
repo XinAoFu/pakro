@@ -7,7 +7,7 @@ use serde::Deserialize;
 use crate::config::Config;
 use crate::system::resources::{ResourceAction, ResourceId, ResourcePlan};
 
-pub use mise_bootstrap::AccountState;
+pub use pakro_bootstrap::AccountState;
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct GroupTomlConfig {

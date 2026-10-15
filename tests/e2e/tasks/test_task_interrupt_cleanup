@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tasks.interrupt]
 run = """
 touch "$READY_FILE"
@@ -25,16 +25,16 @@ cleanup_prerequisite_file="$TMPDIR/task-interrupt-cleanup-prerequisite-ran"
 output_file="$TMPDIR/task-interrupt-cleanup-output"
 READY_FILE="$ready_file" CLEANUP_FILE="$cleanup_file" \
   CLEANUP_PREREQUISITE_FILE="$cleanup_prerequisite_file" \
-  mise run interrupt >"$output_file" 2>&1 &
-mise_pid=$!
-wait_for_file "$ready_file" "interruptible task child" 30 "$mise_pid"
-kill -INT "$mise_pid"
+  pakro run interrupt >"$output_file" 2>&1 &
+pakro_pid=$!
+wait_for_file "$ready_file" "interruptible task child" 30 "$pakro_pid"
+kill -INT "$pakro_pid"
 
 status=0
-wait "$mise_pid" || status=$?
+wait "$pakro_pid" || status=$?
 output="$(cat "$output_file")"
 if [[ $status -ne 130 ]]; then
-  fail "mise run expected exit code 130 after Ctrl-C, got $status: $output"
+  fail "pakro run expected exit code 130 after Ctrl-C, got $status: $output"
 fi
 if [[ ! -e $cleanup_file ]]; then
   fail "post-dependency cleanup did not run after Ctrl-C: $output"

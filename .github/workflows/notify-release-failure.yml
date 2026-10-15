@@ -21,10 +21,23 @@ on: # zizmor: ignore[dangerous-triggers] no permissions, no checkout, and it onl
 
 permissions: {}
 
+env:
+  PAKRO_ENABLE_RELEASE: ${{ vars.PAKRO_ENABLE_RELEASE || 'false' }}
+  PAKRO_RELEASE_REPOSITORY: ${{ github.repository }}
+  PAKRO_DOWNLOAD_BASE_URL: ${{ vars.PAKRO_DOWNLOAD_BASE_URL }}
+  PAKRO_R2_ENDPOINT_URL: ${{ vars.PAKRO_R2_ENDPOINT_URL }}
+  PAKRO_RELEASE_BUCKET: ${{ vars.PAKRO_RELEASE_BUCKET }}
+  PAKRO_CLOUDFLARE_ACCOUNT_ID: ${{ vars.PAKRO_CLOUDFLARE_ACCOUNT_ID }}
+  PAKRO_CLOUDFLARE_WORKER_NAME: ${{ vars.PAKRO_CLOUDFLARE_WORKER_NAME }}
+  PAKRO_CLOUDFLARE_ZONES: ${{ vars.PAKRO_CLOUDFLARE_ZONES }}
+  PAKRO_GPG_SIGNING_KEY: ${{ vars.PAKRO_GPG_SIGNING_KEY }}
+  PAKRO_RELEASE_NAME: ${{ vars.PAKRO_RELEASE_NAME }}
+  PAKRO_RELEASE_EMAIL: ${{ vars.PAKRO_RELEASE_EMAIL }}
+
 jobs:
   notify:
     name: notify
-    if: ${{ github.repository == 'jdx/mise' && github.event.workflow_run.event == 'release' && contains(fromJSON('["failure", "timed_out", "startup_failure"]'), github.event.workflow_run.conclusion) }}
+    if: ${{ vars.PAKRO_ENABLE_RELEASE == 'true' && github.repository != 'jdx/mise' && (github.repository != 'jdx/mise' && github.event.workflow_run.event == 'release' && contains(fromJSON('["failure", "timed_out", "startup_failure"]'), github.event.workflow_run.conclusion)) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -59,9 +72,9 @@ jobs:
             '
             ("https://github.com/\($repo)/releases/tag/\($tag | @uri)") as $release_url |
             {
-              from: "mise Releases <mise@en.dev>",
+              from: "pakro Releases <pakro@en.dev>",
               to: [$to],
-              subject: "❌ mise \($tag): \($workflow) \($conclusion)",
+              subject: "❌ pakro \($tag): \($workflow) \($conclusion)",
               html: (
                 "<p>The <strong>\($workflow | @html)</strong> workflow for <strong>\($tag | @html)</strong> finished with <strong>\($conclusion | @html)</strong> on attempt \($attempt | @html).</p>"
                 + "<p>The release is published but whatever this workflow ships did not go out. Re-run it once the cause is fixed.</p>"

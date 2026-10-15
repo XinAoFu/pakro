@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
-assert_contains "MISE_GLOBAL_CONFIG_FILE=~/.mise.global.toml mise global dummy@latest" "~/.mise.global.toml"
-assert "cat ~/.mise.global.toml" '[tools]
+assert_contains "PAKRO_GLOBAL_CONFIG_FILE=~/.pakro.global.toml pakro global dummy@latest" "~/.pakro.global.toml"
+assert "cat ~/.pakro.global.toml" '[tools]
 dummy = "latest"'
 
-assert_contains "MISE_GLOBAL_CONFIG_FILE=~/.config/mise/.tool-versions mise global dummy@latest" "~/.config/mise/.tool-versions"
-assert "cat ~/.config/mise/.tool-versions" 'dummy latest'
+assert_contains "PAKRO_GLOBAL_CONFIG_FILE=~/.config/pakro/.tool-versions pakro global dummy@latest" "~/.config/pakro/.tool-versions"
+assert "cat ~/.config/pakro/.tool-versions" 'dummy latest'
 
-assert_contains "MISE_ASDF_COMPAT=1 mise global dummy@3" "~/.tool-versions"
+assert_contains "PAKRO_ASDF_COMPAT=1 pakro global dummy@3" "~/.tool-versions"
 assert "cat ~/.tool-versions" 'dummy 3'

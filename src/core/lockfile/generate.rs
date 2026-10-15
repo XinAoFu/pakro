@@ -152,7 +152,7 @@ pub fn read_previous(config: &Config, path: &Path, upgrade: bool) -> Result<Lock
             exists = true;
         } else if previous.lockfile_version != legacy.lockfile_version {
             if !upgrade {
-                bail!("incompatible monorepo lockfile formats; run `mise lock --upgrade`");
+                bail!("incompatible monorepo lockfile formats; run `pakro lock --upgrade`");
             }
             previous.lockfile_version = previous.lockfile_version.max(legacy.lockfile_version);
         }
@@ -237,7 +237,7 @@ pub(crate) type Tool = (crate::args::BackendArg, ToolVersion);
 
 /// A conservative check for a complete, unfiltered warm install. Compare the
 /// resolved inputs, not file timestamps: environment-dependent options and
-/// verification settings can change without editing mise.toml.
+/// verification settings can change without editing pakro.toml.
 ///
 /// Multiple requests for one short and shared dependency tables use the normal
 /// generator, which owns binding conflicts and dependency-table cleanup.
@@ -554,7 +554,7 @@ pub async fn generate(
 /// resolution that does check it. Another signer cannot drop them:
 /// [`crate::packslip_forge::lock_entry_continues`] refuses it.
 ///
-/// Likewise the owner ID alone, which only an older mise recorded, when the
+/// Likewise the owner ID alone, which only an older pakro recorded, when the
 /// new entry records the same repository: it is ignored, but kept so that an
 /// unchanged entry is not rewritten.
 fn carry_forge_ids(old: &PlatformInfo, new: &mut PlatformInfo) {
@@ -1297,7 +1297,7 @@ mod tests {
         };
         assert!(ensure_no_downgrade(&old, &squatted, backend).is_err());
         // A transfer to another owner is the same repository, like a rename,
-        // whatever owner ID an older mise recorded.
+        // whatever owner ID an older pakro recorded.
         let transferred = PlatformInfo {
             signer: signer("acme/tool"),
             repository_owner_id: Some("8".into()),
@@ -1328,7 +1328,7 @@ mod tests {
         let mut not_carried = unchecked_renamed.clone();
         carry_forge_ids(&old, &mut not_carried);
         assert_eq!(not_carried.repository_id, None);
-        // A new entry records no owner ID; the one an older mise recorded for
+        // A new entry records no owner ID; the one an older pakro recorded for
         // the same repository stays, and only for it.
         let ownerless = PlatformInfo {
             repository_owner_id: None,
@@ -1353,7 +1353,7 @@ mod tests {
         };
         assert!(ensure_no_downgrade(&old, &other_workflow, backend).is_err());
 
-        // An entry locked before mise recorded forge IDs keeps the exact
+        // An entry locked before pakro recorded forge IDs keeps the exact
         // signer comparison, and gains the IDs from the next resolution.
         let legacy = PlatformInfo {
             repository_id: None,

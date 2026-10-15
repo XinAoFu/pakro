@@ -1,33 +1,33 @@
 #!/usr/bin/env bash
 # Mode-only versions and content merges preserve both chmod +x and chmod -x.
 require_cmd git
-export MISE_HISTORY_NOTIFY=false
+export PAKRO_HISTORY_NOTIFY=false
 
 origin="$PWD/origin.git"
 git init -q --bare -b main "$origin"
 B="$(dirname "$HOME")/permissions-b"
-mkdir -p "$B/.config/mise"
+mkdir -p "$B/.config/pakro"
 cat <<EOF >"$PWD/b"
 #!/usr/bin/env bash
-export HOME="$B" XDG_CONFIG_HOME="$B/.config" MISE_CONFIG_DIR="$B/.config/mise" \\
-  MISE_STATE_DIR="$B/.local/state/mise" MISE_DATA_DIR="$B/.local/share/mise" \\
-  MISE_CACHE_DIR="$B/.cache/mise" MISE_TRUSTED_CONFIG_PATHS="$B"
-cd "\$HOME" && exec mise "\$@"
+export HOME="$B" XDG_CONFIG_HOME="$B/.config" PAKRO_CONFIG_DIR="$B/.config/pakro" \\
+  PAKRO_STATE_DIR="$B/.local/state/pakro" PAKRO_DATA_DIR="$B/.local/share/pakro" \\
+  PAKRO_CACHE_DIR="$B/.cache/pakro" PAKRO_TRUSTED_CONFIG_PATHS="$B"
+cd "\$HOME" && exec pakro "\$@"
 EOF
 chmod +x "$PWD/b"
 b="$PWD/b"
 
 printf 'first\nmiddle\nlast\n' >~/.script
 chmod 644 ~/.script
-assert_succeed "mise bootstrap dotfiles track ~/.script"
-assert_succeed "mise bootstrap dotfiles origin set file://$origin --yes"
+assert_succeed "pakro bootstrap dotfiles track ~/.script"
+assert_succeed "pakro bootstrap dotfiles origin set file://$origin --yes"
 assert_succeed "$b bootstrap --adopt file://$origin --yes"
 assert_fail "test -x $B/.script"
 
 # Identical bytes, different mode: publish and apply the mode-only edit.
 chmod +x ~/.script
-assert_succeed "mise bootstrap dotfiles save"
-assert_succeed "mise bootstrap dotfiles sync"
+assert_succeed "pakro bootstrap dotfiles save"
+assert_succeed "pakro bootstrap dotfiles sync"
 assert_succeed "$b bootstrap dotfiles sync"
 assert_succeed "$b bootstrap dotfiles pull --yes"
 assert_succeed "test -x $B/.script"
@@ -38,12 +38,12 @@ assert_contains "git --git-dir=$origin ls-tree main home/.script" "100755"
 printf 'local\nmiddle\nlast\n' >~/.script
 chmod -x ~/.script
 printf 'first\nmiddle\nremote\n' >"$B/.script"
-assert_succeed "mise bootstrap dotfiles save"
+assert_succeed "pakro bootstrap dotfiles save"
 assert_succeed "$b bootstrap dotfiles save"
 assert_succeed "$b bootstrap dotfiles sync"
-assert_succeed "mise bootstrap dotfiles sync"
-assert_succeed "mise bootstrap dotfiles pull --yes"
-assert_succeed "mise bootstrap dotfiles sync"
+assert_succeed "pakro bootstrap dotfiles sync"
+assert_succeed "pakro bootstrap dotfiles pull --yes"
+assert_succeed "pakro bootstrap dotfiles sync"
 assert_succeed "$b bootstrap dotfiles sync"
 assert_succeed "$b bootstrap dotfiles pull --yes"
 assert "cat ~/.script" $'local\nmiddle\nremote'
@@ -59,16 +59,16 @@ else
   mode_of="stat -c %a"
 fi
 chmod 600 ~/.script
-assert_succeed "mise bootstrap dotfiles save"
-assert_succeed "mise bootstrap dotfiles sync"
+assert_succeed "pakro bootstrap dotfiles save"
+assert_succeed "pakro bootstrap dotfiles sync"
 assert_succeed "$b bootstrap dotfiles sync"
 assert_succeed "$b bootstrap dotfiles pull --yes"
 assert "$mode_of $B/.script" "600"
 
 # An unsaved chmod after fetching is an edit, not permission to overwrite.
 chmod 640 ~/.script
-assert_succeed "mise bootstrap dotfiles save"
-assert_succeed "mise bootstrap dotfiles sync"
+assert_succeed "pakro bootstrap dotfiles save"
+assert_succeed "pakro bootstrap dotfiles sync"
 assert_succeed "$b bootstrap dotfiles sync --fetch-only"
 chmod 400 "$B/.script"
 assert_fail "$b bootstrap dotfiles pull --yes"

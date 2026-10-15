@@ -171,7 +171,7 @@ pub fn requests_from_config(
 }
 
 /// Splits CLI tool arguments into real tools and bare package pins. An
-/// argument naming something mise cannot resolve as a backend is a package
+/// argument naming something pakro cannot resolve as a backend is a package
 /// candidate; it binds to the single package-capable runtime
 /// (`python`/`node`) among the given runtimes. No runtime → instructions;
 /// several → the bound `+` syntax is required.
@@ -195,7 +195,7 @@ pub fn split_bare_packages(
         match runtimes {
             [] => {
                 return Err(format!(
-                    "{:?} looks like a package but no package-capable runtime (python/node) is declared; run e.g. `mise use python@3.10.14` first",
+                    "{:?} looks like a package but no package-capable runtime (python/node) is declared; run e.g. `pakro use python@3.10.14` first",
                     tool.ba.short
                 ));
             }

@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, de};
 
-use crate::config::config_file::mise_toml::EnvList;
+use crate::config::config_file::pakro_toml::EnvList;
 
 pub(crate) struct TomlParser<'a> {
     table: &'a toml::Value,

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Extract Homebrew Cask metadata used by mise without loading Homebrew.
+# Extract Homebrew Cask metadata used by pakro without loading Homebrew.
 
 module JSON
   def self.generate(value)
@@ -32,9 +32,9 @@ module JSON
   end
 end
 
-CASK_FILE = ENV.fetch("MISE_BREW_SOURCE_PATH")
+CASK_FILE = ENV.fetch("PAKRO_BREW_SOURCE_PATH")
 
-# Preserve target interpolation for resolution against mise's configured prefix.
+# Preserve target interpolation for resolution against pakro's configured prefix.
 HOMEBREW_PREFIX = "$HOMEBREW_PREFIX".freeze
 
 # Match Homebrew's serialized Pathname-like staged_path while keeping the value
@@ -52,8 +52,8 @@ class Dir
 end
 
 module OS
-  def self.mac? = ENV.fetch("MISE_BREW_OS") == "macos"
-  def self.linux? = ENV.fetch("MISE_BREW_OS") == "linux"
+  def self.mac? = ENV.fetch("PAKRO_BREW_OS") == "macos"
+  def self.linux? = ENV.fetch("PAKRO_BREW_OS") == "linux"
 end
 
 class MacOSVersion
@@ -66,7 +66,7 @@ class MacOSVersion
   }.freeze
 
   def self.host
-    @host ||= new(ENV.fetch("MISE_BREW_MACOS_VERSION"))
+    @host ||= new(ENV.fetch("PAKRO_BREW_MACOS_VERSION"))
   end
 
   def self.from_symbol(symbol) = new(SYMBOLS.fetch(symbol.to_sym))
@@ -93,7 +93,7 @@ end
 
 module Hardware
   module CPU
-    def self.arm? = ENV.fetch("MISE_BREW_ARCH").match?(/arm|aarch64/)
+    def self.arm? = ENV.fetch("PAKRO_BREW_ARCH").match?(/arm|aarch64/)
     def self.intel? = !arm?
     def self.arch = arm? ? :arm64 : :x86_64
   end
@@ -199,7 +199,7 @@ class CaskMetadata
 
   # Metadata extraction never knows the real install location, so interpolate
   # the relocatable `$APPDIR` marker the Rust installer resolves against the
-  # actual appdir (honoring `MISE_BREW_CASK_OPT_APPDIR`); the install-time shim
+  # actual appdir (honoring `PAKRO_BREW_CASK_OPT_APPDIR`); the install-time shim
   # answers `appdir` with the real path directly.
   def appdir = "$APPDIR"
 
@@ -341,9 +341,9 @@ class CaskMetadata
         "cask" => @cask_dependencies
       },
       "conflicts_with" => { "cask" => @conflicting_casks },
-      "ruby_source_path" => ENV.fetch("MISE_BREW_SOURCE_PATH"),
-      "ruby_source_checksum" => { "sha256" => ENV.fetch("MISE_BREW_SOURCE_CHECKSUM") },
-      "tap_git_head" => ENV.fetch("MISE_BREW_TAP_COMMIT")
+      "ruby_source_path" => ENV.fetch("PAKRO_BREW_SOURCE_PATH"),
+      "ruby_source_checksum" => { "sha256" => ENV.fetch("PAKRO_BREW_SOURCE_CHECKSUM") },
+      "tap_git_head" => ENV.fetch("PAKRO_BREW_TAP_COMMIT")
     }
   end
 
@@ -369,13 +369,13 @@ class CaskMetadata
 end
 
 def cask(token, &block)
-  $mise_cask_metadata = CaskMetadata.new(token)
-  $mise_cask_metadata.instance_eval(&block)
+  $pakro_cask_metadata = CaskMetadata.new(token)
+  $pakro_cask_metadata.instance_eval(&block)
 end
 
 eval(STDIN.read.force_encoding("UTF-8"), TOPLEVEL_BINDING, CASK_FILE, 1)
-metadata = $mise_cask_metadata
+metadata = $pakro_cask_metadata
 raise "no cask block found" if metadata.nil?
-expected = ENV.fetch("MISE_BREW_TOKEN")
+expected = ENV.fetch("PAKRO_BREW_TOKEN")
 raise "expected cask #{expected}, got #{metadata.token}" if metadata.token != expected
 puts JSON.generate(metadata.to_h)

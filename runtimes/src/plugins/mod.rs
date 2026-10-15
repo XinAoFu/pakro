@@ -23,7 +23,7 @@ use std::{
 
 pub(crate) mod asdf_plugin;
 pub mod core;
-pub(crate) mod mise_plugin_toml;
+pub(crate) mod pakro_plugin_toml;
 pub(crate) mod script_manager;
 
 #[derive(Clone, Debug)]
@@ -494,7 +494,7 @@ impl Display for PluginDrift {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "plugin {} {}; run `mise plugins install --force {}` to reinstall it from [plugins]",
+            "plugin {} {}; run `pakro plugins install --force {}` to reinstall it from [plugins]",
             self.name, self.reason, self.name
         )
     }
@@ -504,7 +504,7 @@ impl Display for PluginDrift {
 /// local git state.
 ///
 /// `[plugins]` is applied when a plugin is installed, so editing an entry
-/// afterwards leaves the old checkout in place. mise doesn't move it on its
+/// afterwards leaves the old checkout in place. pakro doesn't move it on its
 /// own; this lets commands point out the mismatch instead.
 pub fn plugin_drift(config: &Config) -> Vec<PluginDrift> {
     let mut drift: Vec<_> = config
@@ -549,7 +549,7 @@ fn git_plugin_drift(name: &str, configured: &str) -> Result<Option<String>> {
     }
     let repo_path = match managed_git_plugin_repo_path(name, &plugin_path)? {
         Some(repo_path) => repo_path,
-        // A symlink mise didn't create is a linked local plugin.
+        // A symlink pakro didn't create is a linked local plugin.
         None if plugin_path.is_symlink() => return Ok(None),
         None => plugin_path,
     };
@@ -580,7 +580,7 @@ fn git_plugin_drift(name: &str, configured: &str) -> Result<Option<String>> {
             "is checked out at {head_short}, but [plugins] pins {git_ref}"
         )));
     }
-    // A branch pin also needs HEAD on that branch, or `mise plugins update`
+    // A branch pin also needs HEAD on that branch, or `pakro plugins update`
     // won't follow it. Only local refs count, so upstream commits on the
     // branch aren't reported, and a same-named tag keeps a detached checkout
     // of that tag valid.
@@ -596,7 +596,7 @@ fn git_plugin_drift(name: &str, configured: &str) -> Result<Option<String>> {
 }
 
 /// Strips credentials from a git URL before it is shown to the user, since
-/// drift warnings end up in install logs and shared `mise doctor` reports.
+/// drift warnings end up in install logs and shared `pakro doctor` reports.
 fn display_git_url(url: &str) -> String {
     let Ok(mut parsed) = url::Url::parse(url) else {
         // scp-style `user@host:path` can't carry a password.

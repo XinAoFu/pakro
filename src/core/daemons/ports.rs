@@ -109,7 +109,7 @@ fn port_field(name: &str, table: &toml::Table, key: &str) -> Result<Option<u16>>
 /// single copy of their project, so they take slot 0 and the default
 /// single-checkout experience is unchanged.
 ///
-/// A project root is the directory holding `mise.toml`, often nested well below
+/// A project root is the directory holding `pakro.toml`, often nested well below
 /// the checkout (`/repo/packages/api`), so the enclosing checkout decides, not
 /// the config directory. That ancestor walk, and the rules that separate a real
 /// worktree from a submodule, live in [`crate::git::in_linked_worktree`].
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn nested_project_roots_inherit_their_checkout() {
-        // A mise.toml well below the checkout root is the common case in a
+        // A pakro.toml well below the checkout root is the common case in a
         // monorepo. The enclosing worktree decides, not the config directory.
         let tmp = tempfile::tempdir().unwrap();
         let wt = worktree(tmp.path(), "feature");

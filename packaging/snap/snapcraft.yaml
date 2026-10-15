@@ -4,32 +4,21 @@
 #
 # ```shell
 # (cd packaging/snap && snapcraft pack)
-# snap install ./mise_20xx.xx.x_amd64.snap --dangerous --classic
+# snap install ./pakro_20xx.xx.x_amd64.snap --dangerous --classic
 # ```
 
-name: mise
-title: mise-en-place
+name: pakro
+title: pakro
 version: "2026.10.3"
 summary: Dev tools, env vars, and tasks in one CLI
 description: |
-  mise-en-place prepares your development environment before each command runs.
+  pakro prepares your development environment before each command runs.
 
-  - Install and switch between [dev tools](https://mise.jdx.dev/dev-tools/) like node, python, cmake, terraform, and [hundreds more](https://mise.jdx.dev/registry.html).
-  - Load [environment variables](https://mise.jdx.dev/environments/) for each project directory.
-  - Define and run [tasks](https://mise.jdx.dev/tasks/) used to build, test, lint, and deploy projects.
-
-  See the [documentation](https://mise.jdx.dev/getting-started.html) to learn more.
+  - Install and switch between dev tools like node, python, cmake, terraform, and hundreds more.
+  - Load environment variables for each project directory.
+  - Define and run tasks used to build, test, lint, and deploy projects.
 
 license: MIT
-website: https://mise.jdx.dev
-source-code: https://github.com/jdx/mise.git
-issues: https://github.com/jdx/mise/issues
-contact:
-  - https://github.com/jdx/mise/discussions
-  - https://phanective.org
-donation:
-  - https://jdx.dev/sponsors.html
-
 grade: stable
 confinement: classic
 
@@ -41,7 +30,7 @@ platforms:
 base: core24
 
 parts:
-  mise:
+  pakro:
     source: "../.."
     source-type: local
 
@@ -59,10 +48,10 @@ parts:
     source: ../snapcraft
     source-type: local
     organize:
-      "mise-self-update-instructions.toml": lib/
+      "pakro-self-update-instructions.toml": lib/
     stage:
       - lib/
 
 apps:
-  mise:
-    command: bin/mise
+  pakro:
+    command: bin/pakro

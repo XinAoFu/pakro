@@ -6,7 +6,7 @@ use indexmap::IndexSet;
 use crate::config::Config;
 use crate::system::packages::{PackageRequest, PackageState};
 
-pub use mise_bootstrap::{
+pub use pakro_bootstrap::{
     BootstrapPlan, BootstrapPlanOutput, PlanSummary, ResourceAction, ResourceId, ResourceOrigin,
     ResourcePlan, serialize_path,
 };

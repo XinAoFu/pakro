@@ -9,7 +9,7 @@ if [[ "$(uname)" != "Linux" ]]; then
   exit 0
 fi
 
-cat >mise.toml <<'TOML'
+cat >pakro.toml <<'TOML'
 [tasks.create]
 run = "touch test.txt"
 allow_read = ["test.txt"]
@@ -22,7 +22,7 @@ TOML
 # (src/sandbox/landlock.rs), so the write here succeeds through that rule even
 # though the rule naming test.txt was dropped. Which is the point of the
 # wording: a dropped rule is not by itself a denial.
-mise run create >out.log 2>&1 || true
+pakro run create >out.log 2>&1 || true
 
 assert_contains "cat out.log" "does not exist, so its rule was dropped"
 # The workaround has to name a directory that exists, not just the parent.

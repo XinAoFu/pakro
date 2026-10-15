@@ -1,4 +1,4 @@
-//! Running mise as a shim: find which tool the shim stands for and hand off to `mise exec`.
+//! Running pakro as a shim: find which tool the shim stands for and hand off to `pakro exec`.
 
 use crate::cli::exec::Exec;
 use crate::config::{CommandWrapper, Config, Settings, load_command_wrappers};
@@ -18,14 +18,14 @@ use std::sync::atomic::Ordering;
 
 pub(crate) async fn handle_shim() -> Result<()> {
     // TODO: instead, check if bin is in shims dir
-    let bin_name = *env::MISE_BIN_NAME;
-    if env::is_mise_binary(bin_name) || cfg!(test) {
+    let bin_name = *env::PAKRO_BIN_NAME;
+    if env::is_pakro_binary(bin_name) || cfg!(test) {
         return Ok(());
     }
     #[cfg(windows)]
     {
         let shim_path = invoked_shim_path();
-        if env::var_path(env::MISE_SHIM_PATH_ENV)
+        if env::var_path(env::PAKRO_SHIM_PATH_ENV)
             .as_ref()
             .is_some_and(|previous| {
                 file::paths_eq(
@@ -39,19 +39,19 @@ pub(crate) async fn handle_shim() -> Result<()> {
                 display_path(&shim_path)
             );
         }
-        *env::MISE_SHIM_PATH.write().unwrap() = Some(shim_path.clone());
-        env::set_var(env::MISE_SHIM_PATH_ENV, &shim_path);
+        *env::PAKRO_SHIM_PATH.write().unwrap() = Some(shim_path.clone());
+        env::set_var(env::PAKRO_SHIM_PATH_ENV, &shim_path);
     }
     let mut config = Config::get().await?;
     let mut args = env::ARGS.read().unwrap().clone();
     env::PREFER_OFFLINE.store(true, Ordering::Relaxed);
     trace!("shim[{bin_name}] args: {}", args.join(" "));
-    let (bin, ts, wrapper) = which_shim(&mut config, &env::MISE_BIN_NAME, &args).await?;
+    let (bin, ts, wrapper) = which_shim(&mut config, &env::PAKRO_BIN_NAME, &args).await?;
     args[0] = bin.to_string_lossy().to_string();
     if let Some(wrapper) = &wrapper {
         args.splice(1..1, wrapper.args().iter().cloned());
     }
-    env::set_var("__MISE_SHIM", "1");
+    env::set_var("__PAKRO_SHIM", "1");
     let exec = Exec {
         tool: vec![],
         c: None,
@@ -106,10 +106,10 @@ fn invoked_shim_path() -> PathBuf {
         .unwrap_or(argv0)
 }
 
-/// Apply the command wrapper for `mise x -- <name>` run by a native Windows shim.
+/// Apply the command wrapper for `pakro x -- <name>` run by a native Windows shim.
 ///
-/// `exe`- and `file`-mode shims on Windows are not mise itself: they run `mise x -- <name>` with
-/// `__MISE_SHIM_PATH` naming themselves, so `handle_shim` never sees them. Left to `mise x`, the
+/// `exe`- and `file`-mode shims on Windows are not pakro itself: they run `pakro x -- <name>` with
+/// `__PAKRO_SHIM_PATH` naming themselves, so `handle_shim` never sees them. Left to `pakro x`, the
 /// wrapper is lost: the PATH lookup reaches the wrapper's own shim, skips it as the active shim,
 /// and runs the real tool (#13671). When a wrapper applies, `command` is rewritten to run it and
 /// the wrapper's environment is returned.
@@ -118,7 +118,7 @@ pub(crate) async fn apply_native_shim_command_wrapper(
     ts: &mut Toolset,
     command: &mut Vec<String>,
 ) -> Result<Option<BTreeMap<String, String>>> {
-    let Some(shim_path) = env::MISE_SHIM_PATH.read().unwrap().clone() else {
+    let Some(shim_path) = env::PAKRO_SHIM_PATH.read().unwrap().clone() else {
         return Ok(None);
     };
     let Some(program) = command.first() else {
@@ -306,18 +306,18 @@ async fn which_shim(
     }
     // fallback for "system"
     if Settings::get().not_found_system_fallback {
-        let mise_bin = file::canonicalize_or_self(&env::MISE_BIN);
+        let pakro_bin = file::canonicalize_or_self(&env::PAKRO_BIN);
         for path in &*env::PATH {
-            if file::is_mise_shims_dir(path) || file::is_command_wrapper_dir(path) {
+            if file::is_pakro_shims_dir(path) || file::is_command_wrapper_dir(path) {
                 continue;
             }
             let bin = path.join(bin_name);
             if bin.is_file() && file::is_executable(&bin) {
-                if file::is_active_mise_shim(&bin) {
+                if file::is_active_pakro_shim(&bin) {
                     continue;
                 }
-                // Skip if this binary is a mise shim (symlink pointing to the mise binary)
-                if file::canonicalize_cached(&bin).is_some_and(|bin| bin == mise_bin) {
+                // Skip if this binary is a pakro shim (symlink pointing to the pakro binary)
+                if file::canonicalize_cached(&bin).is_some_and(|bin| bin == pakro_bin) {
                     continue;
                 }
                 trace!("shim[{bin_name}] SYSTEM {bin}", bin = display_path(&bin));

@@ -4,28 +4,28 @@ set -euo pipefail
 mkdir -p managed-bin
 managed_bin="$PWD/managed-bin"
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [env]
 MANAGED_VALUE = "initial"
 DEFAULT_VALUE = { default = "fallback" }
 _.path = ["$managed_bin"]
 EOF
 
-eval "$(mise activate bash)"
+eval "$(pakro activate bash)"
 
 # Complete the initial prompt refresh before applying runtime overrides.
-eval "$(mise hook-env -s bash --reason precmd)"
+eval "$(pakro hook-env -s bash --reason precmd)"
 
 export MANAGED_VALUE=changed
 export DEFAULT_VALUE=changed
 PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -Fvx "$managed_bin" | paste -sd ':' -)
 export PATH
 
-output=$(mise hook-env -s bash --reason precmd)
+output=$(pakro hook-env -s bash --reason precmd)
 eval "$output"
 
 assert "printf '%s' \"$MANAGED_VALUE\"" "changed"
 assert "printf '%s' \"$DEFAULT_VALUE\"" "changed"
 if printf '%s' "$PATH" | tr ':' '\n' | grep -Fxq "$managed_bin"; then
-  fail "runtime removal of a mise-added PATH entry was reverted"
+  fail "runtime removal of a pakro-added PATH entry was reverted"
 fi

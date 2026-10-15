@@ -31,7 +31,7 @@ pub struct TaskLoadContext {
     /// e.g., ["foo/bar", "baz/qux"] from patterns "//foo/bar:task" and "//baz/qux:task"
     pub path_hints: Vec<String>,
 
-    /// If true, load all tasks from the entire monorepo (for `mise tasks ls --all`)
+    /// If true, load all tasks from the entire monorepo (for `pakro tasks ls --all`)
     /// If false (default), only load tasks from current directory hierarchy
     pub load_all: bool,
 }

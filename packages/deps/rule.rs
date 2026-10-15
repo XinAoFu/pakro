@@ -42,7 +42,7 @@ pub(super) const BUILTIN_PROVIDERS: &[&str] = &[
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DepsProviderConfig {
-    /// Whether to auto-run this provider before mise x/run (default: false)
+    /// Whether to auto-run this provider before pakro x/run (default: false)
     #[serde(default)]
     pub auto: bool,
     /// Command to run when stale (required for custom, optional override for built-in)
@@ -256,7 +256,7 @@ mod tests {
             depends: vec!["dependency".into()],
             timeout: Some("timeout".into()),
             template_context: Some(DepsTemplateContext {
-                config_path: PathBuf::from("mise.toml"),
+                config_path: PathBuf::from("pakro.toml"),
                 provider_id: "test".into(),
                 context,
             }),
@@ -316,7 +316,7 @@ mod tests {
             depends: vec!["{{ env.EFFECTIVE }}".into()],
             timeout: Some("{{ env.TIMEOUT }}s".into()),
             template_context: Some(DepsTemplateContext {
-                config_path: PathBuf::from("mise.toml"),
+                config_path: PathBuf::from("pakro.toml"),
                 provider_id: "test".into(),
                 context,
             }),

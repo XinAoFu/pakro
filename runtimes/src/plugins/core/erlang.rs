@@ -834,12 +834,12 @@ fn parse_hex_build_checksum(builds: &str, release_tag: &str) -> Result<String> {
 fn require_locked_precompiled_checksum(version: &str, checksum: Option<&str>) -> Result<String> {
     let checksum = checksum.ok_or_else(|| {
         eyre::eyre!(
-            "No lockfile checksum found for precompiled Erlang/OTP {version}; regenerate mise.lock with `mise lock`"
+            "No lockfile checksum found for precompiled Erlang/OTP {version}; regenerate pakro.lock with `pakro lock`"
         )
     })?;
     if !regex!(r"^sha256:[0-9a-f]{64}$").is_match(checksum) {
         bail!(
-            "Invalid lockfile checksum for precompiled Erlang/OTP {version}; regenerate mise.lock with `mise lock`"
+            "Invalid lockfile checksum for precompiled Erlang/OTP {version}; regenerate pakro.lock with `pakro lock`"
         );
     }
 
@@ -909,7 +909,7 @@ mod tests {
                 crate::config::env_directive::EnvValue::from("--without-javac"),
             ),
         ]);
-        let kerl_base_dir = Path::new("/mise/kerl");
+        let kerl_base_dir = Path::new("/pakro/kerl");
         let env = source_build_kerl_env(install_env, kerl_base_dir);
 
         assert_eq!(

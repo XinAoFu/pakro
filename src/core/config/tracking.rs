@@ -55,10 +55,10 @@ impl Tracker {
         Ok(output)
     }
 
-    /// The path an entry records, or `None` when it is not one mise wrote.
+    /// The path an entry records, or `None` when it is not one pakro wrote.
     ///
     /// Entries are symlinks on unix and, since Windows symlinks need a
-    /// privilege mise does not require, plain files holding the path there —
+    /// privilege pakro does not require, plain files holding the path there —
     /// see `file::make_symlink_or_file`. Both forms have to be resolved before
     /// anything can be decided about what they point at.
     fn tracked_path(entry: &Path) -> Result<Option<PathBuf>> {
@@ -113,7 +113,7 @@ mod tests {
     fn keeps_an_entry_pointing_at_a_file() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("tracked");
-        let config = tmp.path().join("mise.toml");
+        let config = tmp.path().join("pakro.toml");
         fs::write(&config, "[tools]\n").unwrap();
 
         let entry = track(&dir, &config);
@@ -150,7 +150,7 @@ mod tests {
         // not the clean removed it, so `exists` would pass on unix regardless.
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("tracked");
-        let config = tmp.path().join("mise.toml");
+        let config = tmp.path().join("pakro.toml");
         fs::write(&config, "[tools]\n").unwrap();
 
         let entry = track(&dir, &config);

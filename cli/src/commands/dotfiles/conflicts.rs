@@ -59,7 +59,7 @@ impl DotfilesConflicts {
             return Ok(());
         }
         for (path, conflict) in selected {
-            miseprintln!(
+            pakroprintln!(
                 "Conflict: {} ({})",
                 display_path(&path),
                 conflict.kind.describe()
@@ -109,10 +109,10 @@ fn print_diff(repo: &HistoryRepo, conflict: &Conflict, path: &Path) -> Result<()
     let remote = side_file(repo, conflict.remote.as_ref(), path, "remote")?;
     let output = git_diff(repo, &local, &remote, path, console::colors_enabled())?;
     if !output.stdout.is_empty() {
-        miseprint!("{}", String::from_utf8_lossy(&output.stdout))?;
+        pakroprint!("{}", String::from_utf8_lossy(&output.stdout))?;
     }
     if local.mode != remote.mode {
-        miseprintln!("mode: {} -> {}", local.mode, remote.mode);
+        pakroprintln!("mode: {} -> {}", local.mode, remote.mode);
     }
     Ok(())
 }
@@ -144,7 +144,7 @@ fn run_difftool(
         bail!("Git difftool failed ({status})");
     }
     if local.mode != remote.mode {
-        miseprintln!("mode: {} -> {}", local.mode, remote.mode);
+        pakroprintln!("mode: {} -> {}", local.mode, remote.mode);
     }
     Ok(())
 }
@@ -166,7 +166,7 @@ fn side_file(
         .map(|extension| format!(".{}", extension.to_string_lossy()))
         .unwrap_or_default();
     let mut file = tempfile::Builder::new()
-        .prefix(&format!("mise-{side}-"))
+        .prefix(&format!("pakro-{side}-"))
         .suffix(&suffix)
         .tempfile()?;
     let mode = object
@@ -234,9 +234,9 @@ fn git_diff(
 static AFTER_LONG_HELP: &str = color_print::cstr!(
     r#"<bold><underline>Examples:</underline></bold>
 
-    $ <bold>mise dot conflicts</bold>
-    $ <bold>mise dot conflicts ~/.zshrc</bold>
-    $ <bold>mise dot conflicts --difftool ~/.zshrc</bold>
-    $ <bold>mise dot conflicts --difftool --tool meld ~/.zshrc</bold>
+    $ <bold>pakro dot conflicts</bold>
+    $ <bold>pakro dot conflicts ~/.zshrc</bold>
+    $ <bold>pakro dot conflicts --difftool ~/.zshrc</bold>
+    $ <bold>pakro dot conflicts --difftool --tool meld ~/.zshrc</bold>
 "#
 );

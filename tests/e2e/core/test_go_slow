@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 
-export MISE_GO_DEFAULT_PACKAGES_FILE="$HOME/.default-go-packages"
+export PAKRO_GO_DEFAULT_PACKAGES_FILE="$HOME/.default-go-packages"
 
-cat >"$MISE_GO_DEFAULT_PACKAGES_FILE" <<EOF
+cat >"$PAKRO_GO_DEFAULT_PACKAGES_FILE" <<EOF
 github.com/jdx/go-example # comment
 EOF
 
-mise use golang@1.20
+pakro use golang@1.20
 
-assert_contains "mise x -- go version" "go version go1.20"
-assert "mise x -- go env GOBIN" "${MISE_DATA_DIR}/installs/go/1.20/bin"
-assert_contains "mise x -- go-example" "hello world"
+assert_contains "pakro x -- go version" "go version go1.20"
+assert "pakro x -- go env GOBIN" "${PAKRO_DATA_DIR}/installs/go/1.20/bin"
+assert_contains "pakro x -- go-example" "hello world"
 
 # ensure go.mod does not prevent installation on version mismatch
 mkdir -p "$HOME/go-mod/"
@@ -19,8 +19,8 @@ cat >"go.mod" <<EOF
 package github.com/jdx/go-example
 go 1.22
 EOF
-assert_fail "mise x go@1.21.4 -- go version"
-assert_contains "mise ls go" "go  1.21.4"
+assert_fail "pakro x go@1.21.4 -- go version"
+assert_contains "pakro ls go" "go  1.21.4"
 cd -
 rm -rf "$HOME/go-mod/"
 

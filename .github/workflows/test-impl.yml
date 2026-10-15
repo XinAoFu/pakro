@@ -8,9 +8,9 @@ on:
     secrets:
       FORGEJO_TOKEN:
         required: false
-      MISE_GH_TOKEN:
+      PAKRO_GH_TOKEN:
         required: false
-      MISE_VERSIONS_API_SECRET:
+      PAKRO_VERSIONS_API_SECRET:
         required: false
 
 concurrency:
@@ -22,12 +22,12 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
   CARGO_PROFILE_DEV_DEBUG: "line-tables-only"
-  MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
-  MISE_EXPERIMENTAL: 1
-  MISE_LOCKFILE: 1
+  PAKRO_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+  PAKRO_EXPERIMENTAL: 1
+  PAKRO_LOCKFILE: 1
   RUST_BACKTRACE: 1
-  MISE_GITHUB_TOKEN: ${{ secrets.MISE_GH_TOKEN || secrets.GITHUB_TOKEN }}
-  GITHUB_TOKEN: ${{ secrets.MISE_GH_TOKEN || secrets.GITHUB_TOKEN }}
+  PAKRO_GITHUB_TOKEN: ${{ secrets.PAKRO_GH_TOKEN || secrets.GITHUB_TOKEN }}
+  GITHUB_TOKEN: ${{ secrets.PAKRO_GH_TOKEN || secrets.GITHUB_TOKEN }}
   FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
 
 jobs:
@@ -80,17 +80,17 @@ jobs:
       - run: |
           cargo build --all-features --ignore-rust-version
           echo "$PWD/target/debug" >> "$GITHUB_PATH"
-      - run: mise -v
+      - run: pakro -v
       # Downstream jobs only execute this binary. Compile with line tables
       # (CARGO_PROFILE_DEV_DEBUG) and strip the uploaded copy further.
-      - name: Prepare mise artifact
+      - name: Prepare pakro artifact
         run: |
-          install -Dm755 target/debug/mise target/ci-artifacts/mise
-          strip --strip-debug target/ci-artifacts/mise
+          install -Dm755 target/debug/pakro target/ci-artifacts/pakro
+          strip --strip-debug target/ci-artifacts/pakro
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: mise-ubuntu-latest
-          path: target/ci-artifacts/mise
+          name: pakro-ubuntu-latest
+          path: target/ci-artifacts/pakro
 
   build-windows:
     runs-on: ${{ inputs.trusted && vars.WINDOWS_SELF_HOSTED == 'true' && fromJSON('["self-hosted", "jdx-win-trusted-v1"]') || 'windows-latest' }}
@@ -98,8 +98,8 @@ jobs:
     needs: [classify-changes]
     if: needs.classify-changes.outputs.full-ci == 'true'
     env:
-      MISE_DATA_DIR: ~/.local/share/mise
-      MISE_CACHE_DIR: ~/.cache/mise
+      PAKRO_DATA_DIR: ~/.local/share/pakro
+      PAKRO_CACHE_DIR: ~/.cache/pakro
       # Runs on the self-hosted runner (repository variable WINDOWS_SELF_HOSTED=true, trusted runs
       # only) use its shared mbx cache.
       MBX_DISABLE: ${{ inputs.trusted && vars.WINDOWS_SELF_HOSTED == 'true' && '0' || '1' }}
@@ -119,12 +119,12 @@ jobs:
           ${{ inputs.trusted && vars.WINDOWS_SELF_HOSTED == 'true' && 'mbx' || 'cargo' }} build --no-default-features --features rustls-native-roots,self_update --all-targets
           Add-Content $env:GITHUB_PATH "$env:GITHUB_WORKSPACE\target\debug"
       - parallel:
-          - run: mise -v
+          - run: pakro -v
           - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
             with:
-              name: mise-windows-latest
+              name: pakro-windows-latest
               path: |
-                target/debug/mise.exe
+                target/debug/pakro.exe
 
   unit:
     name: unit-macos
@@ -133,13 +133,13 @@ jobs:
     needs: [classify-changes]
     if: needs.classify-changes.outputs.full-ci == 'true'
     env:
-      # Enable the mise Cargo wrapper for unit tests and E2E rebuilds.
+      # Enable the pakro Cargo wrapper for unit tests and E2E rebuilds.
       MBX_DISABLE: "0"
       MBX_CACHE_DIR: ${{ github.workspace }}/.mbx-cache
-      # Keep the bootstrap binary at target/debug/mise with either backend.
+      # Keep the bootstrap binary at target/debug/pakro with either backend.
       MBX_TARGET_VIEWS: "0"
-      MISE_CARGO_BUILD_COMMAND: cargo build
-      MISE_CARGO_BUILD_EXTRA_ARGS: --ignore-rust-version
+      PAKRO_CARGO_BUILD_COMMAND: cargo build
+      PAKRO_CARGO_BUILD_EXTRA_ARGS: --ignore-rust-version
       # Untrusted runs land on a shared macos-14 runner that is roughly twice as
       # slow, where the strict per-test ceilings only produce false failures.
       NEXTEST_PROFILE: ${{ inputs.trusted && 'ci' || 'ci-shared' }}
@@ -163,7 +163,7 @@ jobs:
             ~/.cargo/.global-cache
       # Namespace builds reuse local objects. Main also publishes a target/registry
       # archive so GitHub-hosted untrusted builds have a cache to restore.
-      # Install mbx before bootstrapping this checkout's mise.
+      # Install mbx before bootstrapping this checkout's pakro.
       - uses: jdx/mr-boxington-action@9df1d4b18b2147788a7ee7a2c7b84ecf62fd89d3 # v1.5.0
         with:
           backend: ${{ inputs.trusted && !(github.event_name == 'push' && github.ref == 'refs/heads/main') && 'local' || 'github' }}
@@ -173,26 +173,26 @@ jobs:
       - run: |
           mbx build --all-features --ignore-rust-version
           echo "$PWD/target/debug" >> "$GITHUB_PATH"
-      - uses: ./.github/actions/mise-tools
+      - uses: ./.github/actions/pakro-tools
       # The CI profile fails ordinary tests after one second and explicitly
       # budgeted full-command-graph tests after two seconds.
-      - run: mise run test:unit-ci
+      - run: pakro run test:unit-ci
       # The full E2E suite runs on Linux. Tests whose filenames contain `macos`
       # are also discovered and exercised here for platform-specific coverage.
-      - run: mise run test:e2e macos
+      - run: pakro run test:e2e macos
       # Linux runs this in the full suite. Always replace a disposable copy,
       # never the CI runner binary.
-      - run: mise run test:e2e cli/test_self_update_install
+      - run: pakro run test:e2e cli/test_self_update_install
       # Tracked history shells out to git and needs the Xcode Command
       # Line Tools guard exercised on a real macOS runner. Each test has its
-      # own HOME, TMPDIR, and mise directories, so these run concurrently.
+      # own HOME, TMPDIR, and pakro directories, so these run concurrently.
       # They are listed longest first so the slowest start immediately.
       # macos-14 runners have 3 cores; Namespace runners have 6.
       - name: Test dotfiles and bootstrap e2e
         env:
           E2E_JOBS: ${{ inputs.trusted && '3' || '2' }}
         run: >-
-          mise run test:e2e
+          pakro run test:e2e
           '^test_dotfiles_rollback_types$' '^test_dotfiles_sync_files_encrypted$'
           '^test_dotfiles_rollback$' '^test_dotfiles_capture$'
           '^test_dotfiles_track$' '^test_dotfiles_rollback_review$'
@@ -207,7 +207,7 @@ jobs:
       # serial so concurrent tests cannot delay filesystem events.
       - name: Test dotfiles watcher e2e
         run: >-
-          mise run test:e2e
+          pakro run test:e2e
           '^test_dotfiles_watch_throttle$' '^test_dotfiles_watch$'
           '^test_dotfiles_watch_pending$'
 
@@ -229,18 +229,18 @@ jobs:
               tool: cargo-deny,cargo-msrv,cargo-machete
           - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
             with:
-              name: mise-ubuntu-latest
+              name: pakro-ubuntu-latest
               path: target/debug
-      - run: echo "$PWD/target/debug" >> "$GITHUB_PATH" && chmod +x target/debug/mise
-      - uses: ./.github/actions/mise-tools
+      - run: echo "$PWD/target/debug" >> "$GITHUB_PATH" && chmod +x target/debug/pakro
+      - uses: ./.github/actions/pakro-tools
       # build-ubuntu produced this commit's binary, downloaded above.
-      - run: mise run render
+      - run: pakro run render
         env:
-          MISE_TASK_SKIP: build
+          PAKRO_TASK_SKIP: build
       - name: assert render produces no diff
         run: |
           if [ -n "$(git status --porcelain)" ]; then
-            echo "::error::'mise run render' produced changes. Run it locally and commit."
+            echo "::error::'pakro run render' produced changes. Run it locally and commit."
             git status
             git diff HEAD
             exit 1
@@ -255,7 +255,7 @@ jobs:
           - run: cargo machete --with-metadata
           - run: ./tests/scripts/test-standalone.sh
           - run: ./tests/scripts/test-check-glibc.sh
-          - run: mise run lint
+          - run: pakro run lint
             env:
               HK_SKIP_STEPS: cargo-check
           # MSRV uses a separate target directory so its older compiler cannot
@@ -294,19 +294,19 @@ jobs:
         id: tokens
         uses: ./.github/actions/fetch-token
         with:
-          api-secret: ${{ secrets.MISE_VERSIONS_API_SECRET }}
+          api-secret: ${{ secrets.PAKRO_VERSIONS_API_SECRET }}
           count: "8"
       - parallel:
           - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
             with:
-              name: mise-ubuntu-latest
+              name: pakro-ubuntu-latest
               path: target/debug
           - name: Pull e2e Docker image
             run: docker pull ghcr.io/jdx/mise:e2e
-      - run: echo "$PWD/target/debug" >> "$GITHUB_PATH" && chmod +x target/debug/mise
+      - run: echo "$PWD/target/debug" >> "$GITHUB_PATH" && chmod +x target/debug/pakro
       - name: Test e2e runner
         run: python3 tests/scripts/test-e2e-runner.py
-      # Tests run in ephemeral containers and do not need host mise tools.
+      # Tests run in ephemeral containers and do not need host pakro tools.
       # Four branches on a large runner; each handles two token-isolated
       # tranches sequentially, capped at eight containers total.
       - parallel:
@@ -316,17 +316,17 @@ jobs:
               E2E_JOBS: 2
               E2E_MAX_ATTEMPTS: 2
               E2E_RETRY_WAIT_SECONDS: 30
-              MISE_E2E_DOCKER: "1"
+              PAKRO_E2E_DOCKER: "1"
               TEST_ALL: ${{(github.head_ref == 'release' || github.ref == 'refs/heads/release') && '1' || '0'}}
               TEST_TRANCHE_COUNT: 8
               TRANCHE_A: 0
               TRANCHE_B: 4
-              TOKEN_A: ${{ steps.tokens.outputs.token_0 || secrets.MISE_GH_TOKEN || secrets.GITHUB_TOKEN }}
-              TOKEN_B: ${{ steps.tokens.outputs.token_4 || secrets.MISE_GH_TOKEN || secrets.GITHUB_TOKEN }}
+              TOKEN_A: ${{ steps.tokens.outputs.token_0 || secrets.PAKRO_GH_TOKEN || secrets.GITHUB_TOKEN }}
+              TOKEN_B: ${{ steps.tokens.outputs.token_4 || secrets.PAKRO_GH_TOKEN || secrets.GITHUB_TOKEN }}
             run: &e2e-run |
               e2e_status=0
-              MISE_GITHUB_TOKEN="$TOKEN_A" GITHUB_TOKEN="$TOKEN_A" TEST_TRANCHE="$TRANCHE_A" ./tests/e2e/run_all_tests || e2e_status=$?
-              MISE_GITHUB_TOKEN="$TOKEN_B" GITHUB_TOKEN="$TOKEN_B" TEST_TRANCHE="$TRANCHE_B" ./tests/e2e/run_all_tests || e2e_status=$?
+              PAKRO_GITHUB_TOKEN="$TOKEN_A" GITHUB_TOKEN="$TOKEN_A" TEST_TRANCHE="$TRANCHE_A" ./tests/e2e/run_all_tests || e2e_status=$?
+              PAKRO_GITHUB_TOKEN="$TOKEN_B" GITHUB_TOKEN="$TOKEN_B" TEST_TRANCHE="$TRANCHE_B" ./tests/e2e/run_all_tests || e2e_status=$?
               exit "$e2e_status"
           - name: Test tranches 1 and 5
             timeout-minutes: 60
@@ -334,13 +334,13 @@ jobs:
               E2E_JOBS: 2
               E2E_MAX_ATTEMPTS: 2
               E2E_RETRY_WAIT_SECONDS: 30
-              MISE_E2E_DOCKER: "1"
+              PAKRO_E2E_DOCKER: "1"
               TEST_ALL: ${{(github.head_ref == 'release' || github.ref == 'refs/heads/release') && '1' || '0'}}
               TEST_TRANCHE_COUNT: 8
               TRANCHE_A: 1
               TRANCHE_B: 5
-              TOKEN_A: ${{ steps.tokens.outputs.token_1 || secrets.MISE_GH_TOKEN || secrets.GITHUB_TOKEN }}
-              TOKEN_B: ${{ steps.tokens.outputs.token_5 || secrets.MISE_GH_TOKEN || secrets.GITHUB_TOKEN }}
+              TOKEN_A: ${{ steps.tokens.outputs.token_1 || secrets.PAKRO_GH_TOKEN || secrets.GITHUB_TOKEN }}
+              TOKEN_B: ${{ steps.tokens.outputs.token_5 || secrets.PAKRO_GH_TOKEN || secrets.GITHUB_TOKEN }}
             run: *e2e-run
           - name: Test tranches 2 and 6
             timeout-minutes: 60
@@ -348,13 +348,13 @@ jobs:
               E2E_JOBS: 2
               E2E_MAX_ATTEMPTS: 2
               E2E_RETRY_WAIT_SECONDS: 30
-              MISE_E2E_DOCKER: "1"
+              PAKRO_E2E_DOCKER: "1"
               TEST_ALL: ${{(github.head_ref == 'release' || github.ref == 'refs/heads/release') && '1' || '0'}}
               TEST_TRANCHE_COUNT: 8
               TRANCHE_A: 2
               TRANCHE_B: 6
-              TOKEN_A: ${{ steps.tokens.outputs.token_2 || secrets.MISE_GH_TOKEN || secrets.GITHUB_TOKEN }}
-              TOKEN_B: ${{ steps.tokens.outputs.token_6 || secrets.MISE_GH_TOKEN || secrets.GITHUB_TOKEN }}
+              TOKEN_A: ${{ steps.tokens.outputs.token_2 || secrets.PAKRO_GH_TOKEN || secrets.GITHUB_TOKEN }}
+              TOKEN_B: ${{ steps.tokens.outputs.token_6 || secrets.PAKRO_GH_TOKEN || secrets.GITHUB_TOKEN }}
             run: *e2e-run
           - name: Test tranches 3 and 7
             timeout-minutes: 60
@@ -362,13 +362,13 @@ jobs:
               E2E_JOBS: 2
               E2E_MAX_ATTEMPTS: 2
               E2E_RETRY_WAIT_SECONDS: 30
-              MISE_E2E_DOCKER: "1"
+              PAKRO_E2E_DOCKER: "1"
               TEST_ALL: ${{(github.head_ref == 'release' || github.ref == 'refs/heads/release') && '1' || '0'}}
               TEST_TRANCHE_COUNT: 8
               TRANCHE_A: 3
               TRANCHE_B: 7
-              TOKEN_A: ${{ steps.tokens.outputs.token_3 || secrets.MISE_GH_TOKEN || secrets.GITHUB_TOKEN }}
-              TOKEN_B: ${{ steps.tokens.outputs.token_7 || secrets.MISE_GH_TOKEN || secrets.GITHUB_TOKEN }}
+              TOKEN_A: ${{ steps.tokens.outputs.token_3 || secrets.PAKRO_GH_TOKEN || secrets.GITHUB_TOKEN }}
+              TOKEN_B: ${{ steps.tokens.outputs.token_7 || secrets.PAKRO_GH_TOKEN || secrets.GITHUB_TOKEN }}
             run: *e2e-run
 
   bootstrap-linux-host:
@@ -382,11 +382,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: mise-ubuntu-latest
+          name: pakro-ubuntu-latest
           path: target/debug
-      - run: chmod +x target/debug/mise
+      - run: chmod +x target/debug/pakro
       - name: Converge a complete Linux host over SSH
-        run: tests/scripts/test-bootstrap-linux-host.sh target/debug/mise
+        run: tests/scripts/test-bootstrap-linux-host.sh target/debug/pakro
 
   windows-unit:
     runs-on: ${{ inputs.trusted && vars.WINDOWS_SELF_HOSTED == 'true' && fromJSON('["self-hosted", "jdx-win-trusted-v1"]') || 'windows-latest' }}
@@ -394,8 +394,8 @@ jobs:
     needs: [classify-changes]
     if: needs.classify-changes.outputs.full-ci == 'true'
     env:
-      MISE_DATA_DIR: ~/.local/share/mise
-      MISE_CACHE_DIR: ~/.cache/mise
+      PAKRO_DATA_DIR: ~/.local/share/pakro
+      PAKRO_CACHE_DIR: ~/.cache/pakro
       # Runs on the self-hosted runner (repository variable WINDOWS_SELF_HOSTED=true, trusted runs
       # only) use its shared mbx cache.
       MBX_DISABLE: ${{ inputs.trusted && vars.WINDOWS_SELF_HOSTED == 'true' && '0' || '1' }}
@@ -418,7 +418,7 @@ jobs:
       # Windows is where the members rot fastest: their tests assume POSIX paths and shells
       # unless something runs them here.
       - name: cargo test (workspace members)
-        run: ${{ inputs.trusted && vars.WINDOWS_SELF_HOSTED == 'true' && 'mbx' || 'cargo' }} test --workspace --exclude mise
+        run: ${{ inputs.trusted && vars.WINDOWS_SELF_HOSTED == 'true' && 'mbx' || 'cargo' }} test --workspace --exclude pakro
   # Not a duplicate of the Linux lint: `#[cfg]` decides whether code exists, so
   # Windows-only code is never seen by Clippy on Linux. A job of its own keeps it
   # off windows-unit's time limit. Default features only: `aws-lc-sys` needs NASM

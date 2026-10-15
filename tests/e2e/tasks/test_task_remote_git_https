@@ -4,17 +4,17 @@
 # Setup
 #################################################################################
 
-PORT_FILE="$TMPDIR/mise_git_http_port"
-READY_FILE="$TMPDIR/mise_git_http_ready"
-INFO_FILE="$TMPDIR/mise_git_http_info"
+PORT_FILE="$TMPDIR/pakro_git_http_port"
+READY_FILE="$TMPDIR/pakro_git_http_ready"
+INFO_FILE="$TMPDIR/pakro_git_http_info"
 
 # Clean up any previous server files
 rm -f "$PORT_FILE" "$READY_FILE" "$INFO_FILE"
 
 # Start local git HTTP server with OS-assigned port to avoid race conditions
-MISE_GIT_HTTP_PORT_FILE="$PORT_FILE" \
-  MISE_GIT_HTTP_READY_FILE="$READY_FILE" \
-  MISE_GIT_HTTP_INFO_FILE="$INFO_FILE" \
+PAKRO_GIT_HTTP_PORT_FILE="$PORT_FILE" \
+  PAKRO_GIT_HTTP_READY_FILE="$READY_FILE" \
+  PAKRO_GIT_HTTP_INFO_FILE="$INFO_FILE" \
   python3 "${TEST_ROOT}/helpers/scripts/git_http_backend_server.py" 0 &
 SERVER_PID=$!
 
@@ -43,10 +43,10 @@ SERVER_PORT=$(cat "$PORT_FILE")
 LOCAL_GIT_URL="http://localhost:${SERVER_PORT}/repo.git"
 
 # Update cache directory paths for local server
-REMOTE_TASKS_DIR="${MISE_CACHE_DIR}/remote-git-tasks-cache"
+REMOTE_TASKS_DIR="${PAKRO_CACHE_DIR}/remote-git-tasks-cache"
 # Hash for localhost URL will be different than GitHub URL
 LOCAL_CACHE_HASH=$(echo -n "${LOCAL_GIT_URL}v2025.1.17" | shasum -a 256 | cut -d' ' -f1)
-MISE_LOCAL_CACHE_DIR="${REMOTE_TASKS_DIR}/${LOCAL_CACHE_HASH}"
+PAKRO_LOCAL_CACHE_DIR="${REMOTE_TASKS_DIR}/${LOCAL_CACHE_HASH}"
 
 git init
 
@@ -61,65 +61,65 @@ trap cleanup EXIT
 # Test remote tasks with no ref
 #################################################################################
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.remote_lint_https_latest]
 file  = "git::${LOCAL_GIT_URL}//xtasks/lint/remote-task"
 EOF
 
-assert_contains "mise tasks" "remote_lint_https_latest"
-assert_succeed "mise run remote_lint_https_latest" # Remote task should be downloaded
+assert_contains "pakro tasks" "remote_lint_https_latest"
+assert_succeed "pakro run remote_lint_https_latest" # Remote task should be downloaded
 assert_directory_exists "${REMOTE_TASKS_DIR}"
 assert_directory_not_empty "${REMOTE_TASKS_DIR}"
-assert_directory_not_exists "${MISE_LOCAL_CACHE_DIR}"
+assert_directory_not_exists "${PAKRO_LOCAL_CACHE_DIR}"
 
-mise cache clear # Clear cache to force redownload
+pakro cache clear # Clear cache to force redownload
 
-assert_succeed "MISE_TASK_REMOTE_NO_CACHE=true mise run remote_lint_https_latest" # Remote task should be redownloaded
+assert_succeed "PAKRO_TASK_REMOTE_NO_CACHE=true pakro run remote_lint_https_latest" # Remote task should be redownloaded
 assert_directory_not_exists "${REMOTE_TASKS_DIR}"
-assert_directory_not_exists "${MISE_LOCAL_CACHE_DIR}"
+assert_directory_not_exists "${PAKRO_LOCAL_CACHE_DIR}"
 
-assert_succeed "mise run --no-cache remote_lint_https_latest" # Remote task should be redownloaded
+assert_succeed "pakro run --no-cache remote_lint_https_latest" # Remote task should be redownloaded
 assert_directory_not_exists "${REMOTE_TASKS_DIR}"
-assert_directory_not_exists "${MISE_LOCAL_CACHE_DIR}"
+assert_directory_not_exists "${PAKRO_LOCAL_CACHE_DIR}"
 
-assert_succeed "mise run remote_lint_https_latest" # Cache should be used
+assert_succeed "pakro run remote_lint_https_latest" # Cache should be used
 assert_directory_exists "${REMOTE_TASKS_DIR}"
 assert_directory_not_empty "${REMOTE_TASKS_DIR}"
-assert_directory_not_exists "${MISE_LOCAL_CACHE_DIR}"
+assert_directory_not_exists "${PAKRO_LOCAL_CACHE_DIR}"
 
-mise cache clear # Clear cache to force redownload
+pakro cache clear # Clear cache to force redownload
 
 #################################################################################
 # Test remote tasks with ref
 #################################################################################
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.remote_lint_https_ref]
 file  = "git::${LOCAL_GIT_URL}//xtasks/lint/remote-task?ref=v2025.1.17"
 EOF
 
-assert_contains "mise tasks" "remote_lint_https_ref"
-assert_succeed "mise run remote_lint_https_ref" # Remote task should be downloaded
+assert_contains "pakro tasks" "remote_lint_https_ref"
+assert_succeed "pakro run remote_lint_https_ref" # Remote task should be downloaded
 assert_directory_exists "${REMOTE_TASKS_DIR}"
 assert_directory_not_empty "${REMOTE_TASKS_DIR}"
-assert_directory_exists "${MISE_LOCAL_CACHE_DIR}"
-assert_directory_not_empty "${MISE_LOCAL_CACHE_DIR}"
+assert_directory_exists "${PAKRO_LOCAL_CACHE_DIR}"
+assert_directory_not_empty "${PAKRO_LOCAL_CACHE_DIR}"
 
-mise cache clear # Clear cache to force redownload
+pakro cache clear # Clear cache to force redownload
 
-assert_succeed "MISE_TASK_REMOTE_NO_CACHE=true mise run remote_lint_https_ref" # Remote task should be redownloaded
+assert_succeed "PAKRO_TASK_REMOTE_NO_CACHE=true pakro run remote_lint_https_ref" # Remote task should be redownloaded
 assert_directory_not_exists "${REMOTE_TASKS_DIR}"
-assert_directory_not_exists "${MISE_LOCAL_CACHE_DIR}"
+assert_directory_not_exists "${PAKRO_LOCAL_CACHE_DIR}"
 
-assert_succeed "mise run --no-cache remote_lint_https_ref" # Remote task should be redownloaded
+assert_succeed "pakro run --no-cache remote_lint_https_ref" # Remote task should be redownloaded
 assert_directory_not_exists "${REMOTE_TASKS_DIR}"
-assert_directory_not_exists "${MISE_LOCAL_CACHE_DIR}"
+assert_directory_not_exists "${PAKRO_LOCAL_CACHE_DIR}"
 
-assert_succeed "mise run remote_lint_https_ref" # Cache should be used
+assert_succeed "pakro run remote_lint_https_ref" # Cache should be used
 assert_directory_exists "${REMOTE_TASKS_DIR}"
 assert_directory_not_empty "${REMOTE_TASKS_DIR}"
-assert_directory_exists "${MISE_LOCAL_CACHE_DIR}"
-assert_directory_not_empty "${MISE_LOCAL_CACHE_DIR}"
+assert_directory_exists "${PAKRO_LOCAL_CACHE_DIR}"
+assert_directory_not_empty "${PAKRO_LOCAL_CACHE_DIR}"
 
 #################################################################################
 # Test usage and info commands with git remote tasks
@@ -127,15 +127,15 @@ assert_directory_not_empty "${MISE_LOCAL_CACHE_DIR}"
 #################################################################################
 
 # Usage should work and show task in completion output
-assert_contains "mise tasks ls --usage" 'cmd remote_lint_https_ref'
+assert_contains "pakro tasks ls --usage" 'cmd remote_lint_https_ref'
 
 # Info should show local cached path, not git URL
-assert_contains "mise tasks info remote_lint_https_ref" "remote-git-tasks-cache"
-assert_not_contains "mise tasks info remote_lint_https_ref" "git::http"
+assert_contains "pakro tasks info remote_lint_https_ref" "remote-git-tasks-cache"
+assert_not_contains "pakro tasks info remote_lint_https_ref" "git::http"
 
 # JSON output should also work
-assert_contains "mise tasks info remote_lint_https_ref --json" '"file":'
-assert_contains "mise tasks info remote_lint_https_ref --json" "remote-git-tasks-cache"
+assert_contains "pakro tasks info remote_lint_https_ref --json" '"file":'
+assert_contains "pakro tasks info remote_lint_https_ref --json" "remote-git-tasks-cache"
 
 # Validate should work with remote tasks
-assert_succeed "mise tasks validate remote_lint_https_ref"
+assert_succeed "pakro tasks validate remote_lint_https_ref"

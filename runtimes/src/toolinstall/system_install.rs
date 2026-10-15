@@ -17,7 +17,7 @@ use crate::toolset::{ToolVersion, install_state};
 const HELPER: &str = "__publish-system-install";
 
 /// The privileged half of a system installation, run as root by
-/// `mise __publish-system-install`. Reads one request and its archive from
+/// `pakro __publish-system-install`. Reads one request and its archive from
 /// stdin; never loads configuration or backend code.
 pub fn apply_from_stdin() -> Result<()> {
     ensure!(
@@ -28,7 +28,7 @@ pub fn apply_from_stdin() -> Result<()> {
     apply(BufReader::new(std::io::stdin().lock()))
 }
 
-/// True when mise itself was started through sudo. Plain root (containers, CI)
+/// True when pakro itself was started through sudo. Plain root (containers, CI)
 /// has no `SUDO_UID`.
 pub fn under_sudo() -> bool {
     sudo::is_root() && std::env::var_os("SUDO_UID").is_some()
@@ -85,7 +85,7 @@ pub(crate) async fn install<B: Backend + ?Sized>(
         "automatic system installation cannot relocate a tool with a postinstall hook; install {} as your user instead",
         tv.short()
     );
-    sudo::ensure_elevation_available("mise install --system")?;
+    sudo::ensure_elevation_available("pakro install --system")?;
     let destination = tv.install_path();
     let directory = destination
         .parent()
@@ -104,7 +104,7 @@ pub(crate) async fn install<B: Backend + ?Sized>(
     );
     let replace = ctx.force;
     let mut installed = backend.install_version(ctx, staged).await?;
-    let manifest_path = stage.path().join(".mise-installs.toml");
+    let manifest_path = stage.path().join(".pakro-installs.toml");
     install_state::write_backend_meta_to(tv.ba(), &manifest_path)?;
     let request = Request::Install {
         directory,
@@ -347,12 +347,12 @@ fn apply_for_owner(mut input: impl BufRead, owner: u32, roots: &[PathBuf]) -> Re
         roots
             .iter()
             .any(|root| directory == root || directory.parent() == Some(root.as_path())),
-        "refusing to publish outside the system installs or shims directories: {}; configure MISE_SYSTEM_DATA_DIR or system_installs_dir for root as well",
+        "refusing to publish outside the system installs or shims directories: {}; configure PAKRO_SYSTEM_DATA_DIR or system_installs_dir for root as well",
         directory.display()
     );
     create_directory(directory, owner)?;
     let directory = fs::canonicalize(directory)?;
-    let lock_path = directory.join(".mise-publish.lock");
+    let lock_path = directory.join(".pakro-publish.lock");
     ensure!(
         !lock_path.is_symlink(),
         "system publication lock must not be a symlink"
@@ -392,7 +392,7 @@ fn apply_for_owner(mut input: impl BufRead, owner: u32, roots: &[PathBuf]) -> Re
                 incoming.len() == 1 && incoming.contains_key(&tool),
                 "invalid installation manifest"
             );
-            let manifest_path = directory.join(".mise-installs.toml");
+            let manifest_path = directory.join(".pakro-installs.toml");
             ensure!(
                 !manifest_path.is_symlink(),
                 "system manifest must not be a symlink"
@@ -403,7 +403,7 @@ fn apply_for_owner(mut input: impl BufRead, owner: u32, roots: &[PathBuf]) -> Re
                 Err(err) => return Err(err.into()),
             };
             merged.extend(incoming.clone());
-            let tool_manifest = tool_dir.join(".mise.backend.toml");
+            let tool_manifest = tool_dir.join(".pakro.backend.toml");
             ensure!(
                 !tool_manifest.is_symlink(),
                 "tool manifest must not be a symlink"
@@ -509,8 +509,8 @@ fn apply_for_owner(mut input: impl BufRead, owner: u32, roots: &[PathBuf]) -> Re
                         continue;
                     }
                     // Runtime links retarget between relative versions; shims
-                    // retarget between absolute `mise` executables. A link whose
-                    // target has a different shape or name was not made by mise.
+                    // retarget between absolute `pakro` executables. A link whose
+                    // target has a different shape or name was not made by pakro.
                     ensure!(
                         existing.is_absolute() == target.is_absolute()
                             && (target.is_relative() || existing.file_name() == target.file_name()),
@@ -623,14 +623,14 @@ mod tests {
         let roots = [root.clone()];
         apply_for_owner(&input[..], owner, &roots)?;
         assert_eq!(fs::read_to_string(root.join("uv/1/alias"))?, "binary");
-        assert!(root.join(".mise-installs.toml").is_file());
-        assert!(root.join("uv/.mise.backend.toml").is_file());
+        assert!(root.join(".pakro-installs.toml").is_file());
+        assert!(root.join("uv/.pakro.backend.toml").is_file());
         assert!(apply_for_owner(&input[..], owner, &roots).is_err());
         assert_eq!(fs::read_to_string(root.join("uv/1/tool"))?, "binary");
         let reserved = Request::Install {
             directory: root.clone(),
             tool: "uv".into(),
-            version: ".mise.backend.toml".into(),
+            version: ".pakro.backend.toml".into(),
             manifest: "[uv]\nshort = 'uv'\n".into(),
             replace: true,
         };
@@ -638,7 +638,7 @@ mod tests {
         reserved.push(b'\n');
         reserved.extend(&bytes);
         assert!(apply_for_owner(&reserved[..], owner, &roots).is_err());
-        assert!(root.join("uv/.mise.backend.toml").is_file());
+        assert!(root.join("uv/.pakro.backend.toml").is_file());
 
         // A malformed replacement must leave the previous installation intact.
         let request = Request::Install {
@@ -677,23 +677,23 @@ mod tests {
         let escape = links_request(vec![("evil", "../../outside")], vec![])?;
         assert!(apply_for_owner(&escape[..], owner, &roots).is_err());
         assert!(fs::symlink_metadata(root.join("uv/evil")).is_err());
-        // Shims retarget between `mise` executables but not to unrelated links.
-        let old_mise = source.path().join("mise");
-        let new_mise = source.path().join("bin").join("mise");
+        // Shims retarget between `pakro` executables but not to unrelated links.
+        let old_pakro = source.path().join("pakro");
+        let new_pakro = source.path().join("bin").join("pakro");
         fs::create_dir(source.path().join("bin"))?;
-        fs::write(&old_mise, "old")?;
-        fs::write(&new_mise, "new")?;
-        let shim = links_request(vec![("uv", old_mise.to_str().unwrap())], vec![])?;
+        fs::write(&old_pakro, "old")?;
+        fs::write(&new_pakro, "new")?;
+        let shim = links_request(vec![("uv", old_pakro.to_str().unwrap())], vec![])?;
         apply_for_owner(&shim[..], owner, &roots)?;
-        let shim = links_request(vec![("uv", new_mise.to_str().unwrap())], vec![])?;
+        let shim = links_request(vec![("uv", new_pakro.to_str().unwrap())], vec![])?;
         apply_for_owner(&shim[..], owner, &roots)?;
-        assert_eq!(fs::read_link(root.join("uv/uv"))?, new_mise);
+        assert_eq!(fs::read_link(root.join("uv/uv"))?, new_pakro);
         let unrelated = links_request(
             vec![("uv", source.path().join("tool").to_str().unwrap())],
             vec![],
         )?;
         assert!(apply_for_owner(&unrelated[..], owner, &roots).is_err());
-        assert_eq!(fs::read_link(root.join("uv/uv"))?, new_mise);
+        assert_eq!(fs::read_link(root.join("uv/uv"))?, new_pakro);
         // Removal only deletes symlinks, and tolerates names that are gone.
         let remove = links_request(vec![], vec!["latest", "uv", "missing"])?;
         apply_for_owner(&remove[..], owner, &roots)?;

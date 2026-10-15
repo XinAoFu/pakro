@@ -4,7 +4,7 @@
 # e.g. the `sleep` invoked from inside `sh -c`) must be terminated. Without
 # the per-task process group, sh exits on SIGTERM but `sleep` is reparented
 # to init and runs to completion, holding the inherited stdout/stderr pipes
-# open and stalling mise's pipe-reader threads — total runtime balloons to
+# open and stalling pakro's pipe-reader threads — total runtime balloons to
 # however long the longest sibling runs naturally.
 
 set -euo pipefail
@@ -16,22 +16,22 @@ rm -f "$marker"
 # abnormal exit (set -e, fail, signal).
 trap 'rm -f "$marker"' EXIT
 
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tasks.fail]
 run = "printf 'FAIL_RAN\\n' && sleep 1 && exit 1"
 
 # A side-effect file is the only reliable signal that the long task actually
-# completed — mise echoes the source command to stdout so substring matches
+# completed — pakro echoes the source command to stdout so substring matches
 # on output false-positive.
 [tasks.long]
 run = "printf 'LONG_RAN\\n' && sleep 30 && touch '$marker'"
 
 [tasks.repro]
-run = "mise run --jobs 2 fail ::: long"
+run = "pakro run --jobs 2 fail ::: long"
 EOF
 
 start=$(date +%s)
-mise run --jobs 2 fail ::: long || true
+pakro run --jobs 2 fail ::: long || true
 end=$(date +%s)
 elapsed=$((end - start))
 echo "elapsed=${elapsed}s"
@@ -48,14 +48,14 @@ if [ "$elapsed" -gt 10 ]; then
   fail "parallel run took ${elapsed}s — sibling termination did not kill the long task tree"
 fi
 
-# Now the wrapped variant (mise run repro → mise run --jobs ...).
-# Inner mise inherits MISE_TASK_PGID_MANAGED so it can't killpg without
-# also killing the outer mise. We rely on the drain timeout to keep this
+# Now the wrapped variant (pakro run repro → pakro run --jobs ...).
+# Inner pakro inherits PAKRO_TASK_PGID_MANAGED so it can't killpg without
+# also killing the outer pakro. We rely on the drain timeout to keep this
 # from hanging — it must exit reasonably fast, even if the inner sleep
 # gets reparented and runs out its clock.
 rm -f "$marker"
 start=$(date +%s)
-mise run repro || true
+pakro run repro || true
 end=$(date +%s)
 elapsed=$((end - start))
 echo "wrapped elapsed=${elapsed}s"

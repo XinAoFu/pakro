@@ -6,7 +6,7 @@ use std::io::{self, Read, Write};
 use taplo::formatter::Options;
 use toml_edit::{Array, DocumentMut, RawString, TableLike, Value};
 
-/// Format mise TOML configuration
+/// Format pakro TOML configuration
 ///
 /// Sorts keys and normalizes whitespace using TOML 1.1 syntax, including multiline
 /// inline tables. Lists whose order carries no meaning are sorted as well: task
@@ -20,13 +20,13 @@ use toml_edit::{Array, DocumentMut, RawString, TableLike, Value};
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise fmt
-mise fmt --check
-cat mise.toml | mise fmt --stdin"###
+        r###"pakro fmt
+pakro fmt --check
+cat pakro.toml | pakro fmt --stdin"###
     )
 )]
 pub(crate) struct Fmt {
-    /// Format every config file mise currently loads, not just those in the current directory
+    /// Format every config file pakro currently loads, not just those in the current directory
     #[usage(short, long)]
     pub all: bool,
 
@@ -122,8 +122,8 @@ fn sort(toml: String) -> Result<String> {
     Ok(doc.to_string())
 }
 
-/// Arrays whose entries form a set: reordering them cannot change what mise
-/// does, so `mise fmt` can put them in a canonical order.
+/// Arrays whose entries form a set: reordering them cannot change what pakro
+/// does, so `pakro fmt` can put them in a canonical order.
 ///
 /// Paths are matched key by key from the document root, and `*` matches any
 /// single key. Order-sensitive lists are deliberately absent: `env_file`,
@@ -132,7 +132,7 @@ fn sort(toml: String) -> Result<String> {
 /// `task_config.includes` fixes task discovery order, and
 /// `depends`/`depends_post`/`wait_for` are often grouped by hand.
 ///
-/// `mise fmt` only ever sees whole config files, so tasks are always nested
+/// `pakro fmt` only ever sees whole config files, so tasks are always nested
 /// under `tasks`; a standalone task TOML file listed in
 /// `task_config.includes` is not formatted and needs no path of its own.
 const UNORDERED_SETS: &[(&[&str], SetOrder)] = &[
@@ -297,7 +297,7 @@ fn format(toml: String) -> Result<String> {
 mod tests {
     use super::*;
 
-    /// Run the same pipeline `mise fmt` writes back to a config file.
+    /// Run the same pipeline `pakro fmt` writes back to a config file.
     fn fmt(toml: &str) -> String {
         format(sort(toml.to_string()).unwrap()).unwrap()
     }
@@ -336,7 +336,7 @@ sources = ["a.rs", "b?.rs", "c[0-9].rs", "d{x,y}.rs", "e*.rs"]
 redactions = ["TOKEN", "API_KEY"]
 
 [task_config]
-global_inputs = ["mise.toml", "@group:lockfiles", ".tool-versions"]
+global_inputs = ["pakro.toml", "@group:lockfiles", ".tool-versions"]
 
 [task_config.input_groups]
 lockfiles = ["pnpm-lock.yaml", "Cargo.lock"]
@@ -347,7 +347,9 @@ lockfiles = ["pnpm-lock.yaml", "Cargo.lock"]
             "{toml}"
         );
         assert!(
-            toml.contains(r#"global_inputs = ["@group:lockfiles", ".tool-versions", "mise.toml"]"#),
+            toml.contains(
+                r#"global_inputs = ["@group:lockfiles", ".tool-versions", "pakro.toml"]"#
+            ),
             "{toml}"
         );
         assert!(
@@ -436,7 +438,7 @@ sources = ["src/b.rs", "\\!important.txt"]
 redactions = ["TOKEN", "API_KEY"]
 
 [task_config]
-global_inputs = ["mise.toml", "@group:lockfiles"]
+global_inputs = ["pakro.toml", "@group:lockfiles"]
 
 [task_config.input_groups]
 lockfiles = ["pnpm-lock.yaml", "Cargo.lock"]

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Cross-platform `mise lock` for the http backend resolving published checksums
+# Cross-platform `pakro lock` for the http backend resolving published checksums
 # from a JSON manifest via `checksum_expr`. The expression must evaluate to an
 # `algo:hash` string; the manifest is fetched once and shared across platforms,
 # and no artifact is downloaded. Covers:
@@ -12,12 +12,12 @@
 #   - an algorithm taken from the manifest (sha512), and case-insensitive
 #     normalization of the algorithm name and hex.
 
-export MISE_LOCKFILE=1
+export PAKRO_LOCKFILE=1
 
 SRV="$PWD/srv"
 mkdir -p "$SRV"
 
-# Published sha256/sha512 values embedded in the served manifests. `mise lock`
+# Published sha256/sha512 values embedded in the served manifests. `pakro lock`
 # only fetches the manifest (checksum_url) and evaluates the expression; it never
 # downloads the artifact, so these are manifest data, not artifact hashes.
 # platform-keyed object (claude shape), linux-x64 / macos-x64 (darwin-x64 key)
@@ -50,17 +50,17 @@ cat >"$SRV/a_manifest.json" <<JSON
 } }
 JSON
 
-rm -f mise.lock
-cat >mise.toml <<EOF
+rm -f pakro.lock
+cat >pakro.toml <<EOF
 [tools."http:expr-platform-keyed"]
 version = "1.0.0"
 url = 'http://127.0.0.1:${HTTP_PORT}/atool_{{ version }}_{{ os(macos="darwin") }}-{{ arch() }}.bin'
 checksum_url = "http://127.0.0.1:${HTTP_PORT}/a_manifest.json"
 checksum_expr = '"sha256:" + fromJSON(body).platforms[(os == "macos" ? "darwin" : (os == "windows" ? "win32" : "linux")) + "-" + arch].checksum'
 EOF
-mise lock --platform linux-x64,macos-x64
-assert_contains "cat mise.lock" "sha256:${A_LINUX}"
-assert_contains "cat mise.lock" "sha256:${A_MACOS}"
+pakro lock --platform linux-x64,macos-x64
+assert_contains "cat pakro.lock" "sha256:${A_LINUX}"
+assert_contains "cat pakro.lock" "sha256:${A_MACOS}"
 
 # === Test 2: filename filter, per-OS manifest (flutter shape) ===
 # The sha256 lives in an OS-specific manifest (checksum_url is per platform),
@@ -72,8 +72,8 @@ cat >"$SRV/b_macos.json" <<JSON
 { "releases": [ { "archive": "stable/macos/btool_1.0.0_macos.zip", "sha256": "${B_MACOS}" } ] }
 JSON
 
-rm -f mise.lock
-cat >mise.toml <<EOF
+rm -f pakro.lock
+cat >pakro.toml <<EOF
 [tools."http:expr-filename-filter"]
 version = "1.0.0"
 checksum_expr = '"sha256:" + filter(fromJSON(body).releases, { #.archive endsWith filename })[0].sha256'
@@ -86,9 +86,9 @@ url = "http://127.0.0.1:${HTTP_PORT}/btool_{{ version }}_linux.tar.xz"
 checksum_url = "http://127.0.0.1:${HTTP_PORT}/b_macos.json"
 url = "http://127.0.0.1:${HTTP_PORT}/btool_{{ version }}_macos.zip"
 EOF
-mise lock --platform linux-x64,macos-x64
-assert_contains "cat mise.lock" "sha256:${B_LINUX}"
-assert_contains "cat mise.lock" "sha256:${B_MACOS}"
+pakro lock --platform linux-x64,macos-x64
+assert_contains "cat pakro.lock" "sha256:${B_LINUX}"
+assert_contains "cat pakro.lock" "sha256:${B_MACOS}"
 
 # === Test 3: version-keyed manifest + url match (julia shape) ===
 # manifest[version].files[].url is the fully-resolved artifact URL; the entry is
@@ -100,28 +100,28 @@ cat >"$SRV/c_versions.json" <<JSON
 ] } }
 JSON
 
-rm -f mise.lock
-cat >mise.toml <<EOF
+rm -f pakro.lock
+cat >pakro.toml <<EOF
 [tools."http:expr-version-keyed"]
 version = "1.0.0"
 url = "http://127.0.0.1:${HTTP_PORT}/ctool_{{ version }}_{{ os() }}-{{ arch() }}.tar.gz"
 checksum_url = "http://127.0.0.1:${HTTP_PORT}/c_versions.json"
 checksum_expr = '"sha256:" + filter(fromJSON(body)[version + ""].files, { #.url == url })[0].sha256'
 EOF
-mise lock --platform linux-x64,macos-x64
-assert_contains "cat mise.lock" "sha256:${C_LINUX}"
-assert_contains "cat mise.lock" "sha256:${C_MACOS}"
+pakro lock --platform linux-x64,macos-x64
+assert_contains "cat pakro.lock" "sha256:${C_LINUX}"
+assert_contains "cat pakro.lock" "sha256:${C_MACOS}"
 
 # === Test 4: bare-hash result is rejected (fail closed) ===
-# An expression that returns a bare hash (no `algo:`) must NOT be locked: mise
+# An expression that returns a bare hash (no `algo:`) must NOT be locked: pakro
 # stores checksums as algo:hash everywhere and refuses to guess. The platform is
 # still locked URL-only, with a warning, rather than writing an unusable value.
 cat >"$SRV/bare_manifest.json" <<JSON
 { "platforms": { "linux-x64": { "checksum": "${BARE_SHA}" } } }
 JSON
 
-rm -f mise.lock
-cat >mise.toml <<EOF
+rm -f pakro.lock
+cat >pakro.toml <<EOF
 [tools."http:expr-bare-hash"]
 version = "1.0.0"
 checksum_url = "http://127.0.0.1:${HTTP_PORT}/bare_manifest.json"
@@ -130,11 +130,11 @@ checksum_expr = 'fromJSON(body).platforms[os + "-" + arch].checksum'
 [tools."http:expr-bare-hash".platforms.linux-x64]
 url = "http://127.0.0.1:${HTTP_PORT}/baretool_{{ version }}_linux-x64.tar.gz"
 EOF
-output="$(mise lock --platform linux-x64 2>&1)"
+output="$(pakro lock --platform linux-x64 2>&1)"
 # The artifact is still locked (URL present)...
-assert_contains "cat mise.lock" "baretool_1.0.0_linux-x64.tar.gz"
+assert_contains "cat pakro.lock" "baretool_1.0.0_linux-x64.tar.gz"
 # ...but the bare hash is never written as a checksum.
-assert_not_contains "cat mise.lock" "${BARE_SHA}"
+assert_not_contains "cat pakro.lock" "${BARE_SHA}"
 assert_contains "echo '$output'" "could not resolve a checksum"
 
 # === Test 5: algorithm taken from the manifest (sha512) ===
@@ -144,8 +144,8 @@ cat >"$SRV/algo_manifest.json" <<JSON
 { "platforms": { "linux-x64": { "algo": "sha512", "hash": "${ALGO512}" } } }
 JSON
 
-rm -f mise.lock
-cat >mise.toml <<EOF
+rm -f pakro.lock
+cat >pakro.toml <<EOF
 [tools."http:expr-manifest-algo"]
 version = "1.0.0"
 checksum_url = "http://127.0.0.1:${HTTP_PORT}/algo_manifest.json"
@@ -154,18 +154,18 @@ checksum_expr = 'fromJSON(body).platforms[os + "-" + arch].algo + ":" + fromJSON
 [tools."http:expr-manifest-algo".platforms.linux-x64]
 url = "http://127.0.0.1:${HTTP_PORT}/algotool_{{ version }}_linux-x64.tar.gz"
 EOF
-mise lock --platform linux-x64
-assert_contains "cat mise.lock" "sha512:${ALGO512}"
+pakro lock --platform linux-x64
+assert_contains "cat pakro.lock" "sha512:${ALGO512}"
 
 # === Test 6: algorithm name and hex are normalized case-insensitively ===
 # An uppercase algorithm (SHA256) and uppercase hex from a manifest are lowered
-# to the canonical algo:hash form mise stores.
+# to the canonical algo:hash form pakro stores.
 cat >"$SRV/upper_manifest.json" <<JSON
 { "platforms": { "linux-x64": { "algo": "SHA256", "hash": "${UPPER_UPPER}" } } }
 JSON
 
-rm -f mise.lock
-cat >mise.toml <<EOF
+rm -f pakro.lock
+cat >pakro.toml <<EOF
 [tools."http:expr-uppercase-algo"]
 version = "1.0.0"
 checksum_url = "http://127.0.0.1:${HTTP_PORT}/upper_manifest.json"
@@ -174,6 +174,6 @@ checksum_expr = 'fromJSON(body).platforms[os + "-" + arch].algo + ":" + fromJSON
 [tools."http:expr-uppercase-algo".platforms.linux-x64]
 url = "http://127.0.0.1:${HTTP_PORT}/uppertool_{{ version }}_linux-x64.tar.gz"
 EOF
-mise lock --platform linux-x64
-assert_contains "cat mise.lock" "sha256:${UPPER_LOWER}"
-assert_not_contains "cat mise.lock" "SHA256:${UPPER_UPPER}"
+pakro lock --platform linux-x64
+assert_contains "cat pakro.lock" "sha256:${UPPER_LOWER}"
+assert_not_contains "cat pakro.lock" "SHA256:${UPPER_UPPER}"

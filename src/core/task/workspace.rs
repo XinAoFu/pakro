@@ -138,7 +138,7 @@ pub struct WorkspaceTask {
 /// Optional task configuration a workspace provider can derive confidently.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct WorkspaceTaskSuggestions {
-    /// Project-relative input patterns, mapped to mise task sources.
+    /// Project-relative input patterns, mapped to pakro task sources.
     pub inputs: Vec<String>,
     /// Project-relative output patterns. An empty vector means the task has no file outputs.
     pub outputs: Option<Vec<String>>,

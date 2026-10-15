@@ -9,12 +9,12 @@ idiomatic_version_file_enable_tools = [
 
 [env]
 TEST = "Hello World!"
-' >mise.toml
-assert_fail "mise fmt --check" "mise ERROR Following config files are not properly formatted"
+' >pakro.toml
+assert_fail "pakro fmt --check" "pakro ERROR Following config files are not properly formatted"
 
-mise fmt
-assert "mise fmt --check"
-assert "cat mise.toml" '[settings]
+pakro fmt
+assert "pakro fmt --check"
+assert "cat pakro.toml" '[settings]
 idiomatic_version_file_enable_tools = ["go", "ruby"]
 
 
@@ -27,7 +27,7 @@ TEST = "Hello World!"'
 echo 'redactions = ["TOKEN", "API_KEY"]
 
 [task_config]
-global_inputs = ["mise.toml", "@group:lockfiles"]
+global_inputs = ["pakro.toml", "@group:lockfiles"]
 
 [task_config.input_groups]
 lockfiles = ["pnpm-lock.yaml", "Cargo.lock"]
@@ -35,15 +35,15 @@ lockfiles = ["pnpm-lock.yaml", "Cargo.lock"]
 [tasks.build]
 sources = ["src/main.rs", "Cargo.toml", "@group:rust", "src/**/*.rs"]
 outputs = ["dist", "!dist/**/*.map"]
-' >mise.toml
-assert_fail "mise fmt --check" "mise ERROR Following config files are not properly formatted"
+' >pakro.toml
+assert_fail "pakro fmt --check" "pakro ERROR Following config files are not properly formatted"
 
-mise fmt
-assert "mise fmt --check"
-assert "cat mise.toml" 'redactions = ["API_KEY", "TOKEN"]
+pakro fmt
+assert "pakro fmt --check"
+assert "cat pakro.toml" 'redactions = ["API_KEY", "TOKEN"]
 
 [task_config]
-global_inputs = ["@group:lockfiles", "mise.toml"]
+global_inputs = ["@group:lockfiles", "pakro.toml"]
 
 [task_config.input_groups]
 lockfiles = ["Cargo.lock", "pnpm-lock.yaml"]

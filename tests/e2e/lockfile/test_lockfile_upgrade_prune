@@ -1,39 +1,39 @@
 #!/usr/bin/env bash
 
-# Test that `mise upgrade` correctly uninstalls old versions when lockfile is enabled
+# Test that `pakro upgrade` correctly uninstalls old versions when lockfile is enabled
 # This is a regression test for https://github.com/jdx/mise/discussions/7991
 # The bug: When upgrading with lockfile enabled, old versions were incorrectly kept
 # because the tracked config check was using the old locked version instead of
 # resolving to the newest installed version.
 
-export MISE_LOCKFILE=1
+export PAKRO_LOCKFILE=1
 
 # Clean up any existing installations
-mise uninstall dummy --all 2>/dev/null || true
-rm -f mise.toml mise.lock
+pakro uninstall dummy --all 2>/dev/null || true
+rm -f pakro.toml pakro.lock
 
 # Create config with a prefix version that matches multiple versions
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [tools]
 dummy = "1"
 EOF
 
 # Create a lockfile with the old version locked
-touch mise.lock
+touch pakro.lock
 
 # Install only the older version first
-mise install dummy@1.0.0
+pakro install dummy@1.0.0
 
 # Verify old version is installed
-assert_contains "mise ls --installed dummy" "1.0.0"
-assert_not_contains "mise ls --installed dummy" "1.1.0"
+assert_contains "pakro ls --installed dummy" "1.0.0"
+assert_not_contains "pakro ls --installed dummy" "1.1.0"
 
 # The lockfile should now have 1.0.0 locked
-assert_contains "cat mise.lock" "1.0.0"
+assert_contains "cat pakro.lock" "1.0.0"
 
-# Enable strict mode after the lockfile has been populated. `mise upgrade`
-# still needs to install the new version and refresh mise.lock.
-cat <<'EOF' >mise.toml
+# Enable strict mode after the lockfile has been populated. `pakro upgrade`
+# still needs to install the new version and refresh pakro.lock.
+cat <<'EOF' >pakro.toml
 [tools]
 dummy = "1"
 
@@ -44,16 +44,16 @@ EOF
 # Now upgrade with immediate pruning - this should:
 # 1. Install 1.1.0 (the latest matching version)
 # 2. Uninstall 1.0.0 (no longer needed)
-mise upgrade dummy --prune
+pakro upgrade dummy --prune
 
 # Verify NEW version is installed
-assert_contains "mise ls --installed dummy" "1.1.0"
+assert_contains "pakro ls --installed dummy" "1.1.0"
 
 # Verify OLD version was uninstalled (this is the bug - it was being kept)
-assert_not_contains "mise ls --installed dummy" "1.0.0"
+assert_not_contains "pakro ls --installed dummy" "1.0.0"
 
 # The lockfile should now have 1.1.0
-assert_contains "cat mise.lock" "1.1.0"
+assert_contains "cat pakro.lock" "1.1.0"
 
 # Clean up
-rm -f mise.toml mise.lock
+rm -f pakro.toml pakro.lock

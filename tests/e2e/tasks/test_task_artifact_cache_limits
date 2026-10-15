@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 [settings]
 experimental = true
 task.cache_max_size = "1B"
@@ -21,27 +21,27 @@ EOF
 printf 'input\n' >input.txt
 
 # An entry larger than the configured limit is evicted after publication.
-mise run build
-assert "find \"$MISE_CACHE_DIR/task-artifacts/v2\" -name '*.json' | wc -l | tr -d ' '" "0"
+pakro run build
+assert "find \"$PAKRO_CACHE_DIR/task-artifacts/v2\" -name '*.json' | wc -l | tr -d ' '" "0"
 rm -rf dist
-mise run build
+pakro run build
 assert "wc -l <runs.txt | tr -d ' '" "2"
 
 # Age limits also reject stale entries before restore.
 rm -rf dist
-MISE_TASK_CACHE_MAX_SIZE=0 MISE_TASK_CACHE_MAX_AGE=1s mise run build
+PAKRO_TASK_CACHE_MAX_SIZE=0 PAKRO_TASK_CACHE_MAX_AGE=1s pakro run build
 
 # A current-output replay counts as access for age and LRU enforcement.
-find "$MISE_CACHE_DIR/task-artifacts/v2" -type f -exec touch -t 202001010000 {} +
-assert_contains "MISE_TASK_CACHE_MAX_SIZE=0 MISE_TASK_CACHE_MAX_AGE=4000d mise run build 2>&1" "sources up-to-date, skipping"
-assert "find \"$MISE_CACHE_DIR/task-artifacts/v2\" -type f -mmin -1 | wc -l | tr -d ' '" "2"
+find "$PAKRO_CACHE_DIR/task-artifacts/v2" -type f -exec touch -t 202001010000 {} +
+assert_contains "PAKRO_TASK_CACHE_MAX_SIZE=0 PAKRO_TASK_CACHE_MAX_AGE=4000d pakro run build 2>&1" "sources up-to-date, skipping"
+assert "find \"$PAKRO_CACHE_DIR/task-artifacts/v2\" -type f -mmin -1 | wc -l | tr -d ' '" "2"
 assert "wc -l <runs.txt | tr -d ' '" "3"
 
-find "$MISE_CACHE_DIR/task-artifacts/v2" -type f -exec touch -t 197001010000 {} +
+find "$PAKRO_CACHE_DIR/task-artifacts/v2" -type f -exec touch -t 197001010000 {} +
 # Keep the outputs in place to exercise the sources-up-to-date shortcut. The
 # expired cache entry must still force task execution instead of replaying logs.
-assert_contains "MISE_TASK_CACHE_MAX_SIZE=0 MISE_TASK_CACHE_MAX_AGE=1s mise run build 2>&1" "cache entry exceeded its age limit"
+assert_contains "PAKRO_TASK_CACHE_MAX_SIZE=0 PAKRO_TASK_CACHE_MAX_AGE=1s pakro run build 2>&1" "cache entry exceeded its age limit"
 assert "wc -l <runs.txt | tr -d ' '" "4"
 
-assert_fail_contains "MISE_TASK_CACHE_MAX_SIZE=invalid mise run build" "invalid task.cache_max_size"
-assert_fail_contains "MISE_TASK_CACHE_MAX_AGE=invalid mise run build" "invalid task.cache_max_age"
+assert_fail_contains "PAKRO_TASK_CACHE_MAX_SIZE=invalid pakro run build" "invalid task.cache_max_size"
+assert_fail_contains "PAKRO_TASK_CACHE_MAX_AGE=invalid pakro run build" "invalid task.cache_max_age"

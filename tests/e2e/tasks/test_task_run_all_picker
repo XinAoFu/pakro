@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 monorepo_root = true
 
 [monorepo]
@@ -13,23 +13,23 @@ run = 'echo "default task ran"'
 EOF
 
 mkdir -p projects/frontend
-cat <<'EOF' >projects/frontend/mise.toml
+cat <<'EOF' >projects/frontend/pakro.toml
 [tasks.child]
 run = 'echo "child task ran"'
 EOF
 
-assert "mise run" "default task ran"
+assert "pakro run" "default task ran"
 
 # The default task is selected first, so move down once to select the child task.
 if [[ $(uname) == Darwin ]]; then
-  output=$(printf '\033[B\r' | script -q /dev/null mise run --all)
+  output=$(printf '\033[B\r' | script -q /dev/null pakro run --all)
 else
-  output=$(printf '\033[B\r' | script -qec 'mise run --all' /dev/null)
+  output=$(printf '\033[B\r' | script -qec 'pakro run --all' /dev/null)
 fi
 if [[ $output != *"child task ran"* ]]; then
   echo "interactive selector did not run the child task"
   exit 1
 fi
 
-assert_fail_contains "mise run --all default" "cannot be used with"
-assert_fail_contains "mise run --all --affected" "cannot be used with"
+assert_fail_contains "pakro run --all default" "cannot be used with"
+assert_fail_contains "pakro run --all --affected" "cannot be used with"

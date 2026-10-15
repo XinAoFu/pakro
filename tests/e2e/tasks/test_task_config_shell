@@ -2,7 +2,7 @@
 
 # Test that task_config.shell is inherited by inline and included TOML tasks,
 # while task-local and task-template shells take precedence.
-export MISE_EXPERIMENTAL=1
+export PAKRO_EXPERIMENTAL=1
 
 mkdir -p "shell wrappers"
 
@@ -20,7 +20,7 @@ exec bash "$@"
 SCRIPT
 chmod +x "shell wrappers/override"
 
-cat <<'EOF' >mise.toml
+cat <<'EOF' >pakro.toml
 monorepo_root = true
 
 [monorepo]
@@ -53,7 +53,7 @@ extends = "override"
 run = "echo TEMPLATED"
 EOF
 
-cat <<'EOF' >mise.local.toml
+cat <<'EOF' >pakro.local.toml
 [tasks.overlay]
 run = "echo OVERLAY"
 EOF
@@ -74,7 +74,7 @@ mkdir -p task-cwd shared-tasks "child/shell wrappers" child/task-cwd \
 cp "shell wrappers/default" "child/shell wrappers/default"
 cp "shell wrappers/override" "child-override/shell wrappers/override"
 cp "shell wrappers/default" "child-middle/nested/shell wrappers/default"
-cat <<'EOF' >child/mise.toml
+cat <<'EOF' >child/pakro.toml
 [tasks.child]
 run = "echo CHILD"
 
@@ -82,7 +82,7 @@ run = "echo CHILD"
 run = 'basename "$PWD"'
 EOF
 
-cat <<'EOF' >child-override/mise.toml
+cat <<'EOF' >child-override/pakro.toml
 [task_config]
 shell = '"{{config_root}}/shell wrappers/override" -c'
 
@@ -90,7 +90,7 @@ shell = '"{{config_root}}/shell wrappers/override" -c'
 run = "echo CHILD_OVERRIDE"
 EOF
 
-cat <<'EOF' >child-no-cascade/mise.toml
+cat <<'EOF' >child-no-cascade/pakro.toml
 [task_config]
 cascade = false
 
@@ -98,55 +98,55 @@ cascade = false
 run = "echo CHILD_NO_CASCADE"
 EOF
 
-cat <<'EOF' >child-no-cascade/nested/mise.toml
+cat <<'EOF' >child-no-cascade/nested/pakro.toml
 [tasks.child]
 run = "echo NESTED_NO_CASCADE"
 EOF
 
-cat <<'EOF' >child-middle/mise.toml
+cat <<'EOF' >child-middle/pakro.toml
 [task_config]
 dir = "{{config_root}}/middle-cwd"
 EOF
 
-cat <<'EOF' >child-middle/nested/mise.toml
+cat <<'EOF' >child-middle/nested/pakro.toml
 [tasks.child]
 run = 'echo NESTED_MERGED; basename "$PWD"'
 EOF
 
-assert "mise run inline" "TASK_CONFIG_SHELL
+assert "pakro run inline" "TASK_CONFIG_SHELL
 INLINE"
-assert "mise run included" "TASK_CONFIG_SHELL
+assert "pakro run included" "TASK_CONFIG_SHELL
 INCLUDED"
-assert "mise run explicit" "OVERRIDE_SHELL
+assert "pakro run explicit" "OVERRIDE_SHELL
 EXPLICIT"
-assert "mise run templated" "OVERRIDE_SHELL
+assert "pakro run templated" "OVERRIDE_SHELL
 TEMPLATED"
-assert "mise run included-templated" "OVERRIDE_SHELL
+assert "pakro run included-templated" "OVERRIDE_SHELL
 INCLUDED_TEMPLATED"
-assert "mise run overlay" "TASK_CONFIG_SHELL
+assert "pakro run overlay" "TASK_CONFIG_SHELL
 OVERLAY"
-assert "mise -C child run child" "TASK_CONFIG_SHELL
+assert "pakro -C child run child" "TASK_CONFIG_SHELL
 CHILD"
-assert "mise -C child run included" "TASK_CONFIG_SHELL
+assert "pakro -C child run included" "TASK_CONFIG_SHELL
 INCLUDED"
-assert "mise -C child run cwd" "TASK_CONFIG_SHELL
+assert "pakro -C child run cwd" "TASK_CONFIG_SHELL
 task-cwd"
-assert "mise -C child-override run child" "OVERRIDE_SHELL
+assert "pakro -C child-override run child" "OVERRIDE_SHELL
 CHILD_OVERRIDE"
-assert "mise run //child:child" "TASK_CONFIG_SHELL
+assert "pakro run //child:child" "TASK_CONFIG_SHELL
 CHILD"
-assert "mise run //child:included" "TASK_CONFIG_SHELL
+assert "pakro run //child:included" "TASK_CONFIG_SHELL
 INCLUDED"
-assert "mise run //child-override:child" "OVERRIDE_SHELL
+assert "pakro run //child-override:child" "OVERRIDE_SHELL
 CHILD_OVERRIDE"
-assert "mise run //child-no-cascade:child" "CHILD_NO_CASCADE"
-assert "mise run //child-no-cascade/nested:child" "NESTED_NO_CASCADE"
-assert "mise run //child-middle/nested:child" "TASK_CONFIG_SHELL
+assert "pakro run //child-no-cascade:child" "CHILD_NO_CASCADE"
+assert "pakro run //child-no-cascade/nested:child" "NESTED_NO_CASCADE"
+assert "pakro run //child-middle/nested:child" "TASK_CONFIG_SHELL
 NESTED_MERGED
 middle-cwd"
 
-mise -C child tasks add --file generated -- echo GENERATED
+pakro -C child tasks add --file generated -- echo GENERATED
 assert "test -f shared-tasks/generated && echo CREATED" "CREATED"
 
-mise -C child-no-cascade tasks add --file generated -- echo GENERATED
-assert "test -f child-no-cascade/mise-tasks/generated && echo CREATED" "CREATED"
+pakro -C child-no-cascade tasks add --file generated -- echo GENERATED
+assert "test -f child-no-cascade/pakro-tasks/generated && echo CREATED" "CREATED"

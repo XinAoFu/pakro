@@ -6,7 +6,7 @@ use serde::Serialize;
 use crate::file::display_path;
 use crate::system::files::FileMode;
 use crate::system::history::tracked::{Policy, TrackedSet, preview_set};
-use crate::ui::table::MiseTable;
+use crate::ui::table::PakroTable;
 
 /// Show what history tracks and under which policies
 ///
@@ -102,23 +102,23 @@ impl DotfilesPaths {
                 "nested": walk.nested,
                 "incomplete": walk.incomplete,
             });
-            miseprintln!("{}", serde_json::to_string_pretty(&out)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&out)?);
             return Ok(());
         }
         if let Some(path) = &self.preview {
-            miseprintln!(
+            pakroprintln!(
                 "Tracking {} would capture {}:",
                 display_path(path),
                 walk.summary()
             );
             for root in &walk.roots {
                 for rel in &root.files {
-                    miseprintln!("  {}", display_path(root.path.join(rel)));
+                    pakroprintln!("  {}", display_path(root.path.join(rel)));
                 }
             }
         } else {
             let mut table =
-                MiseTable::new(false, &["Path", "Mode", "Policy", "Files", "Declared in"]);
+                PakroTable::new(false, &["Path", "Mode", "Policy", "Files", "Declared in"]);
             for row in &rows {
                 let mode = match &row.variant {
                     Some(variant) => format!("{} ({variant})", row.mode),
@@ -135,14 +135,14 @@ impl DotfilesPaths {
             }
             table.print()?;
             for glob in &tracked.exclude {
-                miseprintln!("  exclude: {glob}");
+                pakroprintln!("  exclude: {glob}");
             }
             for row in &rows {
                 for glob in row.exclude.iter().flatten() {
-                    miseprintln!("  exclude ({}): {glob}", row.path);
+                    pakroprintln!("  exclude ({}): {glob}", row.path);
                 }
                 for glob in row.include.iter().flatten() {
-                    miseprintln!("  include ({}): {glob}", row.path);
+                    pakroprintln!("  include ({}): {glob}", row.path);
                 }
                 if let Some(considered) = row.considered {
                     // "of N" is only said when N is the whole tree: a
@@ -150,13 +150,13 @@ impl DotfilesPaths {
                     // unopened, and counting it would mean doing the
                     // work the list exists to avoid
                     if row.searched_partially {
-                        miseprintln!(
+                        pakroprintln!(
                             "  {}: {} files (include list)",
                             row.path,
                             crate::system::history::tracked::with_separators(row.files as usize),
                         );
                     } else {
-                        miseprintln!(
+                        pakroprintln!(
                             "  {}: {} of {} files (include list)",
                             row.path,
                             crate::system::history::tracked::with_separators(row.files as usize),
@@ -167,19 +167,19 @@ impl DotfilesPaths {
             }
         }
         for invalid in &tracked.invalid {
-            miseprintln!("  invalid: {} ({})", invalid.path, invalid.reason);
+            pakroprintln!("  invalid: {} ({})", invalid.path, invalid.reason);
         }
         for omitted in &walk.omitted {
-            miseprintln!("  omitted: {} ({})", omitted.path, omitted.reason);
+            pakroprintln!("  omitted: {} ({})", omitted.path, omitted.reason);
         }
         for nested in &walk.nested {
-            miseprintln!("  nested: {} ({})", nested.path, nested.reason);
+            pakroprintln!("  nested: {} ({})", nested.path, nested.reason);
         }
         for plaintext in &walk.plaintext {
-            miseprintln!("  plaintext: {} ({})", plaintext.path, plaintext.reason);
+            pakroprintln!("  plaintext: {} ({})", plaintext.path, plaintext.reason);
         }
         for incomplete in &walk.incomplete {
-            miseprintln!("  incomplete: {} ({})", incomplete.path, incomplete.reason);
+            pakroprintln!("  incomplete: {} ({})", incomplete.path, incomplete.reason);
         }
         Ok(())
     }
@@ -192,14 +192,14 @@ impl DotfilesPaths {
             &crate::system::history::store::state_dir(),
         ));
         if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&record.paths)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&record.paths)?);
             return Ok(());
         }
         if record.paths.is_empty() {
             info!("the watcher is not throttling any path");
             return Ok(());
         }
-        let mut table = MiseTable::new(
+        let mut table = PakroTable::new(
             false,
             &["Path", "Saving every", "Unsaved changes", "Last seen"],
         );
@@ -214,8 +214,8 @@ impl DotfilesPaths {
             ]);
         }
         table.print()?;
-        miseprintln!(
-            "These paths keep changing, so the watcher saves them ever more rarely (never excluded or switched to manual saving on its own). Exclude a log, cache, or database with `mise dot exclude '<glob>'`; track configuration that changes constantly with `--no-autosave` and save it explicitly."
+        pakroprintln!(
+            "These paths keep changing, so the watcher saves them ever more rarely (never excluded or switched to manual saving on its own). Exclude a log, cache, or database with `pakro dot exclude '<glob>'`; track configuration that changes constantly with `--no-autosave` and save it explicitly."
         );
         Ok(())
     }
@@ -237,10 +237,10 @@ pub(crate) fn edit_exclude(glob: &str, add: bool) -> Result<()> {
         (true, false) => info!("history: {glob} was already excluded"),
         // **Only say it is captured again when nothing still excludes
         // it.** A list can hold both a glob a user typed and the escaped
-        // rule `mise dot untrack` writes for a file of that name, and
+        // rule `pakro dot untrack` writes for a file of that name, and
         // taking back the one they named leaves the other in force.
         (false, true) if !edit.still_excluding.is_empty() => info!(
-            "history: {glob} is out of the exclude list, but {} still excludes it ({}); run `mise dot include` on that rule to take it out too",
+            "history: {glob} is out of the exclude list, but {} still excludes it ({}); run `pakro dot include` on that rule to take it out too",
             edit.still_excluding
                 .iter()
                 .map(|rule| format!("`{rule}`"))

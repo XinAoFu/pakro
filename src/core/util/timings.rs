@@ -14,7 +14,7 @@ pub fn start(module: &str) -> impl FnOnce() {
 static START: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
 
 pub fn get_time_diff(module: &str) -> String {
-    if *env::MISE_TIMINGS == 0 {
+    if *env::PAKRO_TIMINGS == 0 {
         return "".to_string();
     }
     static PREV: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
@@ -30,7 +30,7 @@ pub fn get_time_diff(module: &str) -> String {
 }
 
 fn render(module: &str, diff: Duration) -> String {
-    let diff_str = if *env::MISE_TIMINGS == 2 {
+    let diff_str = if *env::PAKRO_TIMINGS == 2 {
         let relative = time::format_duration(diff);
         let from_start =
             time::format_duration(Instant::now().duration_since(START.lock().unwrap().unwrap()));
@@ -63,7 +63,7 @@ fn render(module: &str, diff: Duration) -> String {
 #[macro_export]
 macro_rules! time {
     ($fn:expr) => {{
-        if *$crate::env::MISE_TIMINGS > 1 {
+        if *$crate::env::PAKRO_TIMINGS > 1 {
             let module = format!("{}::{}", module_path!(), format!($fn));
             eprintln!("{}", $crate::timings::get_time_diff(&module));
         } else {
@@ -71,7 +71,7 @@ macro_rules! time {
         }
     }};
     ($fn:expr, $($arg:tt)+) => {{
-        if *$crate::env::MISE_TIMINGS > 1 {
+        if *$crate::env::PAKRO_TIMINGS > 1 {
             let module = format!("{}::{}", module_path!(), format!($fn, $($arg)+));
             eprintln!("{}", $crate::timings::get_time_diff(&module));
         } else {
@@ -83,7 +83,7 @@ macro_rules! time {
 #[macro_export]
 macro_rules! progress_trace {
     ($($arg:tt)+) => {{
-        if *$crate::env::MISE_PROGRESS_TRACE {
+        if *$crate::env::PAKRO_PROGRESS_TRACE {
             eprintln!("[PROGRESS] {}", format!($($arg)+));
         }
     }};
@@ -92,7 +92,7 @@ macro_rules! progress_trace {
 #[macro_export]
 macro_rules! measure {
     ($fmt:expr, $block:block) => {{
-        if *$crate::env::MISE_TIMINGS > 0 {
+        if *$crate::env::PAKRO_TIMINGS > 0 {
             let module = format!("{}::{}", module_path!(), format!($fmt));
             let end = $crate::timings::start(&module);
             let result = $block;

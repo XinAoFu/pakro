@@ -1,5 +1,5 @@
-//! Locating and reading the global mise configuration file that commands
-//! edit in place (`mise settings set`, `mise dot track`, history sync).
+//! Locating and reading the global pakro configuration file that commands
+//! edit in place (`pakro settings set`, `pakro dot track`, history sync).
 
 use std::path::{Path, PathBuf};
 

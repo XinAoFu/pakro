@@ -27,7 +27,7 @@ pub(crate) struct DotfilesCapture {
 impl DotfilesCapture {
     pub(crate) async fn run(self) -> Result<()> {
         // Let the child observe terminal signals and preserve its exit status
-        // while the outcome checkpoint finishes, like `mise run` does.
+        // while the outcome checkpoint finishes, like `pakro run` does.
         crate::ui::ctrlc::exit_on_ctrl_c(false);
         let (program, args) = self
             .command

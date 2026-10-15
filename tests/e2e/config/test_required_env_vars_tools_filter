@@ -26,7 +26,7 @@ assert_not_contains() {
 }
 
 # Test 1: env command should NOT check tool-specific required vars
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [env]
 TOOL_REQUIRED = { required = true, tools = true }
 NORMAL_REQUIRED = { required = true }
@@ -35,8 +35,8 @@ EOF
 unset TOOL_REQUIRED NORMAL_REQUIRED || true
 
 # This should fail only on NORMAL_REQUIRED, not TOOL_REQUIRED
-if mise env 2>error.log; then
-  echo "ERROR: Expected mise env to fail but it succeeded"
+if pakro env 2>error.log; then
+  echo "ERROR: Expected pakro env to fail but it succeeded"
   exit 1
 fi
 
@@ -48,8 +48,8 @@ echo "Test 1 passed: env command doesn't check tool-specific required vars"
 export NORMAL_REQUIRED="set"
 unset TOOL_REQUIRED || true
 
-if mise exec -- echo test 2>error.log; then
-  echo "ERROR: Expected mise exec to fail but it succeeded"
+if pakro exec -- echo test 2>error.log; then
+  echo "ERROR: Expected pakro exec to fail but it succeeded"
   exit 1
 fi
 
@@ -60,20 +60,20 @@ echo "Test 2 passed: exec command checks tool-specific required vars"
 export TOOL_REQUIRED="set"
 export NORMAL_REQUIRED="set"
 
-mise env >/dev/null
-mise exec -- echo test >/dev/null
+pakro env >/dev/null
+pakro exec -- echo test >/dev/null
 echo "Test 3 passed: Both types of required vars work when satisfied"
 
 # Test 4: Non-tool directives with tools=false should be validated by env
-cat >mise.toml <<'EOF'
+cat >pakro.toml <<'EOF'
 [env]
 NON_TOOL_VAR = { required = "Set NON_TOOL_VAR for development" }
 EOF
 
 unset NON_TOOL_VAR || true
 
-if mise env 2>error.log; then
-  echo "ERROR: Expected mise env to fail but it succeeded"
+if pakro env 2>error.log; then
+  echo "ERROR: Expected pakro env to fail but it succeeded"
   exit 1
 fi
 

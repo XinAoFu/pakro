@@ -1,33 +1,33 @@
 #!/usr/bin/env bash
 
-mkdir -p mise-tasks && echo "" >mise-tasks/build.sh && chmod +x mise-tasks/build.sh
-assert "mise tasks info build" 'Task: build
+mkdir -p pakro-tasks && echo "" >pakro-tasks/build.sh && chmod +x pakro-tasks/build.sh
+assert "pakro tasks info build" 'Task: build
 Description:
-Source: ~/workdir/mise-tasks/build.sh
-File: ~/workdir/mise-tasks/build.sh
+Source: ~/workdir/pakro-tasks/build.sh
+File: ~/workdir/pakro-tasks/build.sh
 
 Usage Spec:
   name build
   bin build'
 
-assert_contains "mise tasks info build.sh --json" '"name": "build"'
+assert_contains "pakro tasks info build.sh --json" '"name": "build"'
 
-assert_json_partial_object "mise tasks info build --json" "name,source,description" '{
+assert_json_partial_object "pakro tasks info build --json" "name,source,description" '{
   "name": "build",
-  "source": "'"$PWD"'/mise-tasks/build.sh",
+  "source": "'"$PWD"'/pakro-tasks/build.sh",
   "description": ""
 }'
 
-mise tasks add lint --depends "build -v" -- 'echo "linting!"'
-assert_json "mise tasks info lint --json" "$(
+pakro tasks add lint --depends "build -v" -- 'echo "linting!"'
+assert_json "pakro tasks info lint --json" "$(
   cat <<EOF
 {
   "name": "lint",
   "aliases": [],
   "description": "",
-  "source": "$(pwd)/mise.toml",
+  "source": "$(pwd)/pakro.toml",
   "config_sources": [
-    "$(pwd)/mise.toml"
+    "$(pwd)/pakro.toml"
   ],
   "depends": [
     [

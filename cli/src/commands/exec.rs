@@ -22,12 +22,12 @@ use crate::toolset::{InstallOptions, ResolveOptions, ToolVersion, Toolset, Tools
 
 /// Execute a command with tool(s) set
 ///
-/// Use this to run a command with mise's tools and environment without modifying the shell
+/// Use this to run a command with pakro's tools and environment without modifying the shell
 /// session, or to run ad-hoc commands with tools that are not in the config.
 ///
-/// Tools are loaded from mise.toml and can be overridden with <TOOL@VERSION> args. Only the
-/// tools you name are overridden: if `mise.toml` includes `node = "20"` and you run
-/// `mise exec python@3.11 -- python -V`, node@20 is still loaded.
+/// Tools are loaded from pakro.toml and can be overridden with <TOOL@VERSION> args. Only the
+/// tools you name are overridden: if `pakro.toml` includes `node = "20"` and you run
+/// `pakro exec python@3.11 -- python -V`, node@20 is still loaded.
 ///
 /// The "--" separates tools from the command to pass along to the subprocess.
 #[derive(Debug, usage_rs::Args)]
@@ -35,16 +35,16 @@ use crate::toolset::{InstallOptions, ResolveOptions, ToolVersion, Toolset, Tools
     visible_alias = "x",
     verbatim_doc_comment,
     example(
-        r###"mise exec node@20 -- node ./app.js
-mise x node@20 -- node ./app.js"###,
+        r###"pakro exec node@20 -- node ./app.js
+pakro x node@20 -- node ./app.js"###,
         help = "Launch app.js using node-20.x, with the full command or its shorter alias."
     ),
     example(
-        r###"mise exec node@20 python@3.11 --command "node -v && python -V""###,
+        r###"pakro exec node@20 python@3.11 --command "node -v && python -V""###,
         help = r###"Specify command as a string:"###
     ),
     example(
-        r###"mise x -C /path/to/project node@20 -- node ./app.js"###,
+        r###"pakro x -C /path/to/project node@20 -- node ./app.js"###,
         help = r###"Run a command in a different directory:"###
     )
 )]
@@ -65,7 +65,7 @@ pub(crate) struct Exec {
     /// Number of jobs to run in parallel
     /// Values below 1 are treated as 1
     /// Defaults to the `jobs` setting
-    #[usage(long, short, env = "MISE_JOBS", verbatim_doc_comment)]
+    #[usage(long, short, env = "PAKRO_JOBS", verbatim_doc_comment)]
     pub jobs: Option<usize>,
 
     /// Allow specific env var through (implies --deny-env for everything else)
@@ -76,7 +76,7 @@ pub(crate) struct Exec {
     /// Allow network to specific host (implies --deny-net for everything else)
     /// Per-host filtering is unsupported on Linux and returns an error.
     /// See the sandboxing guide for current macOS host-filter limitations.
-    /// On Windows, sandboxing is unavailable: mise warns and runs without host filtering.
+    /// On Windows, sandboxing is unavailable: pakro warns and runs without host filtering.
     #[usage(long, value_name = "HOST", verbatim_doc_comment)]
     pub allow_net: Vec<String>,
 
@@ -151,10 +151,10 @@ impl Exec {
             Default::default()
         };
 
-        // A native Windows shim runs `mise x -- <name>` in place of `handle_shim`, which also
+        // A native Windows shim runs `pakro x -- <name>` in place of `handle_shim`, which also
         // resolves the tools of the task that ran it, such as a task-only command wrapper.
         let shim_task_tools =
-            if self.tool.is_empty() && env::MISE_SHIM_PATH.read().unwrap().is_some() {
+            if self.tool.is_empty() && env::PAKRO_SHIM_PATH.read().unwrap().is_some() {
                 crate::shims::task_tool_args_from_env()?
             } else {
                 vec![]
@@ -173,7 +173,7 @@ impl Exec {
                 .await?
         });
 
-        // A native Windows shim runs `mise x -- <name>` rather than mise as `<name>`, so its
+        // A native Windows shim runs `pakro x -- <name>` rather than pakro as `<name>`, so its
         // command wrapper is applied here instead of by `handle_shim`.
         if self.tool.is_empty()
             && let Some(command) = self.command.as_mut()
@@ -248,7 +248,7 @@ impl Exec {
             // in that case the user probably just wants that one tool
             missing_args_only: !self.tool.is_empty()
                 || !Settings::get().exec_auto_install
-                || *env::__MISE_SHIM,
+                || *env::__PAKRO_SHIM,
             skip_auto_install: !Settings::get().exec_auto_install || !Settings::get().auto_install,
             resolve_options,
             ..Default::default()
@@ -276,7 +276,7 @@ impl Exec {
             }
         }
 
-        // Running a lazy tool's command is what installs it, and `mise x -- <cmd>`
+        // Running a lazy tool's command is what installs it, and `pakro x -- <cmd>`
         // names that command directly. Install its provider here: program resolution
         // below deliberately looks past shim directories, so the bootstrap shim that
         // would otherwise do this never gets the chance.
@@ -321,7 +321,7 @@ impl Exec {
             ts.env_with_path_and_removals(&config).await?
         });
         env.extend(wrapper_env);
-        // Only this command is for the supervisor's context. A `mise x` the daemon
+        // Only this command is for the supervisor's context. A `pakro x` the daemon
         // runs itself must not render its arguments with it.
         let mut env_remove = env_remove;
         if pitchfork_context.is_some() {
@@ -355,42 +355,42 @@ impl Exec {
                 .await?;
         }
 
-        // Ensure MISE_ENV is set in the spawned shell if it was specified via -E flag
-        if !env::MISE_ENV.is_empty() {
-            env.insert("MISE_ENV".to_string(), env::MISE_ENV.join(","));
+        // Ensure PAKRO_ENV is set in the spawned shell if it was specified via -E flag
+        if !env::PAKRO_ENV.is_empty() {
+            env.insert("PAKRO_ENV".to_string(), env::PAKRO_ENV.join(","));
         }
 
         // Ensure cache key is propagated to subprocesses for env caching
         if Settings::get().env_cache && !self.fresh_env {
             let key = CachedEnv::ensure_encryption_key();
-            env.insert("__MISE_ENV_CACHE_KEY".to_string(), key);
+            env.insert("__PAKRO_ENV_CACHE_KEY".to_string(), key);
         }
 
-        // Embed __MISE_DIFF so a nested mise invocation can recover the pristine
+        // Embed __PAKRO_DIFF so a nested pakro invocation can recover the pristine
         // env (and pristine PATH) instead of stacking our tool dirs on top of its
-        // own. Without this, `mise -C <new> exec -- ...` invoked from inside our
+        // own. Without this, `pakro -C <new> exec -- ...` invoked from inside our
         // child process would inherit our tool dirs as user-pre-PATH and they
         // would outrank the inner toolset's resolved tool. See discussion #9754.
         // Computed after all env modifications so the diff fully describes what
-        // mise added (matches task_executor.rs).
-        let removed_mise_env = if !env::MISE_ENV.is_empty() {
-            // Keep explicit -E profiles active if the child shell sources `mise activate`.
-            env.remove("MISE_ENV")
+        // pakro added (matches task_executor.rs).
+        let removed_pakro_env = if !env::PAKRO_ENV.is_empty() {
+            // Keep explicit -E profiles active if the child shell sources `pakro activate`.
+            env.remove("PAKRO_ENV")
         } else {
             None
         };
-        env.remove("__MISE_DIFF");
+        env.remove("__PAKRO_DIFF");
         let mut final_env = env::PRISTINE_ENV.clone();
         for key in &env_remove {
             final_env.remove(key);
         }
         final_env.extend(env.clone());
         let serialized = EnvDiff::from_final_env(&env::PRISTINE_ENV, &final_env).serialize();
-        if let Some(mise_env) = removed_mise_env {
-            env.insert("MISE_ENV".to_string(), mise_env);
+        if let Some(pakro_env) = removed_pakro_env {
+            env.insert("PAKRO_ENV".to_string(), pakro_env);
         }
         if let Ok(serialized) = serialized {
-            env.insert("__MISE_DIFF".to_string(), serialized);
+            env.insert("__PAKRO_DIFF".to_string(), serialized);
         }
 
         // Build sandbox config from settings and CLI flags.
@@ -432,7 +432,7 @@ impl Exec {
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect_vec();
             for (i, (k, v)) in reapplied.into_iter().enumerate() {
-                let tmp = format!("__MISE_FISH_ENV_{i}");
+                let tmp = format!("__PAKRO_FISH_ENV_{i}");
                 cmd.push(format!(
                     "set -gx {} \"${tmp}\"; set -e {tmp}",
                     shell_escape::escape(k.as_str().into()),
@@ -470,11 +470,11 @@ impl Exec {
 }
 
 /// Set by pitchfork when it passes a daemon command through unrendered because it
-/// uses variables only mise knows. Its value is pitchfork's template context as
+/// uses variables only pakro knows. Its value is pitchfork's template context as
 /// JSON.
 const PITCHFORK_TEMPLATE_CONTEXT_ENV: &str = "PITCHFORK_TEMPLATE_CONTEXT";
 
-/// The template context for a daemon command: mise's own, with pitchfork's
+/// The template context for a daemon command: pakro's own, with pitchfork's
 /// variables added. `env` is both: a value the daemon declares wins, as it does
 /// in the process pitchfork starts.
 async fn pitchfork_tera_ctx(
@@ -574,7 +574,7 @@ async fn warn_if_command_falls_back(
             !env::PATH
                 .iter()
                 .any(|inherited| crate::file::paths_eq(inherited, dir))
-                && !crate::file::is_mise_shims_dir(dir)
+                && !crate::file::is_pakro_shims_dir(dir)
                 && !crate::file::is_command_wrapper_dir(dir)
         })
         .collect_vec();
@@ -604,7 +604,7 @@ async fn warn_if_command_falls_back(
         .join(" ");
     let many = uncovered.len() > 1;
     warn!(
-        "{versions} {} not installed and auto-install is disabled, so mise looks for {program} on PATH instead. Install {} with: mise install {versions}",
+        "{versions} {} not installed and auto-install is disabled, so pakro looks for {program} on PATH instead. Install {} with: pakro install {versions}",
         if many { "are" } else { "is" },
         if many { "them" } else { "it" },
     );
@@ -627,7 +627,7 @@ where
 {
     // Capture the marker before deny-env removes variables from the process.
     // The lazy state must retain the dispatching shim for candidate filtering.
-    drop(env::MISE_SHIM_PATH.read().unwrap());
+    drop(env::PAKRO_SHIM_PATH.read().unwrap());
     for key in env_remove {
         env::remove_var(key);
     }
@@ -663,14 +663,14 @@ where
     } else {
         let cwd = crate::dirs::CWD.clone().unwrap_or_default();
         let lookup_path = env.get(&*env::PATH_KEY).map(|path_val| {
-            // For program resolution, reorder PATH so that paths added by mise
+            // For program resolution, reorder PATH so that paths added by pakro
             // (tool bins, _.path entries) come before paths from the original
             // system PATH. This prevents wrapper scripts in the system PATH
             // (e.g. .devcontainer/bin/tool) from being found before the real
             // tool binary, which would cause infinite recursion and E2BIG.
             //
             // User-configured paths (_.path/venv) maintain their position
-            // relative to tool paths since both are "mise-added".
+            // relative to tool paths since both are "pakro-added".
             // The child process still inherits the full unmodified PATH.
             let pristine: std::collections::HashSet<_> = crate::env::PATH.iter().collect();
             let all_paths: Vec<_> = std::env::split_paths(&OsString::from(path_val)).collect();
@@ -679,12 +679,12 @@ where
                 .filter(|p| crate::file::is_command_wrapper_dir(p))
                 .cloned()
                 .collect();
-            // Mise-added paths first (preserving relative order)
-            let mise_added: Vec<_> = all_paths
+            // Pakro-added paths first (preserving relative order)
+            let pakro_added: Vec<_> = all_paths
                 .iter()
                 .filter(|p| {
                     !pristine.contains(p)
-                        && !crate::file::is_mise_shims_dir(p)
+                        && !crate::file::is_pakro_shims_dir(p)
                         && !crate::file::is_command_wrapper_dir(p)
                 })
                 .cloned()
@@ -694,7 +694,7 @@ where
                 .iter()
                 .filter(|p| {
                     pristine.contains(p)
-                        && !crate::file::is_mise_shims_dir(p)
+                        && !crate::file::is_pakro_shims_dir(p)
                         && !crate::file::is_command_wrapper_dir(p)
                 })
                 .cloned()
@@ -702,17 +702,17 @@ where
             std::env::join_paths(
                 wrappers
                     .iter()
-                    .chain(mise_added.iter())
+                    .chain(pakro_added.iter())
                     .chain(original.iter()),
             )
             .unwrap()
         });
-        let is_shim_dispatch = env::MISE_SHIM_PATH.read().unwrap().is_some();
+        let is_shim_dispatch = env::PAKRO_SHIM_PATH.read().unwrap().is_some();
         match which::which_in_all(&program, lookup_path, cwd) {
             Ok(mut candidates) => {
-                match candidates.find(|candidate| !crate::file::is_active_mise_shim(candidate)) {
+                match candidates.find(|candidate| !crate::file::is_active_pakro_shim(candidate)) {
                     Some(resolved) => resolved.into_os_string(),
-                    // When invoked as a shim (`__MISE_SHIM_PATH` set), give the
+                    // When invoked as a shim (`__PAKRO_SHIM_PATH` set), give the
                     // actionable `which_shim`-style error rather than the opaque
                     // `cannot find binary path` (discussion #11183).
                     None if is_shim_dispatch => {
@@ -736,13 +736,13 @@ where
             }
         }
     };
-    if crate::file::is_active_mise_shim(std::path::Path::new(&program)) {
+    if crate::file::is_active_pakro_shim(std::path::Path::new(&program)) {
         return Err(eyre::eyre!(
             "recursive shim invocation detected: {}",
             program.to_string_lossy()
         ));
     }
-    env::remove_var(env::MISE_SHIM_PATH_ENV);
+    env::remove_var(env::PAKRO_SHIM_PATH_ENV);
     // Apply sandbox (Landlock/seccomp on Linux, sandbox-exec on macOS)
     let args_str: Vec<String> = args
         .iter()
@@ -770,8 +770,8 @@ where
 }
 
 /// The opaque `cannot find binary path`, plus an explanation when an
-/// installed-but-unconfigured tool would have provided the bin. `mise install`
-/// writes to no config file, so its tool dirs never join the PATH `mise exec`
+/// installed-but-unconfigured tool would have provided the bin. `pakro install`
+/// writes to no config file, so its tool dirs never join the PATH `pakro exec`
 /// builds (discussion #4407).
 #[cfg(all(windows, not(test)))]
 async fn err_cannot_find_binary_path(program_name: &str) -> eyre::Report {
@@ -807,7 +807,7 @@ where
     }
     let cwd = crate::dirs::CWD.clone().unwrap_or_default();
     let program = program.to_executable();
-    // Reorder PATH for program resolution: mise-added paths first, then
+    // Reorder PATH for program resolution: pakro-added paths first, then
     // original system paths (minus shims). See Unix version for full rationale.
     let lookup_path = env.get(&*env::PATH_KEY).map(|path_val| {
         let pristine: std::collections::HashSet<_> = crate::env::PATH
@@ -825,7 +825,7 @@ where
             .filter(|p| crate::file::is_command_wrapper_dir(p))
             .cloned()
             .collect();
-        let mise_added: Vec<_> = all_paths
+        let pakro_added: Vec<_> = all_paths
             .iter()
             .filter(|p| {
                 let normalized = crate::file::replace_path(p)
@@ -833,7 +833,7 @@ where
                     .to_lowercase()
                     .replace('/', "\\");
                 !pristine.contains(&normalized)
-                    && !crate::file::is_mise_shims_dir(p)
+                    && !crate::file::is_pakro_shims_dir(p)
                     && !crate::file::is_command_wrapper_dir(p)
             })
             .cloned()
@@ -846,7 +846,7 @@ where
                     .to_lowercase()
                     .replace('/', "\\");
                 pristine.contains(&normalized)
-                    && !crate::file::is_mise_shims_dir(p)
+                    && !crate::file::is_pakro_shims_dir(p)
                     && !crate::file::is_command_wrapper_dir(p)
             })
             .cloned()
@@ -854,7 +854,7 @@ where
         std::env::join_paths(
             wrappers
                 .iter()
-                .chain(mise_added.iter())
+                .chain(pakro_added.iter())
                 .chain(original.iter()),
         )
         .unwrap()
@@ -862,10 +862,10 @@ where
     // Capture the requested program name before `which_in_all` consumes it, so
     // a resolution failure while dispatching a shim can name the tool.
     let program_name = program.to_string_lossy().into_owned();
-    let is_shim_dispatch = env::MISE_SHIM_PATH.read().unwrap().is_some();
+    let is_shim_dispatch = env::PAKRO_SHIM_PATH.read().unwrap().is_some();
     let resolved = match which::which_in_all(program, lookup_path, cwd) {
         Ok(mut candidates) => {
-            candidates.find(|candidate| !crate::file::is_active_mise_shim(candidate))
+            candidates.find(|candidate| !crate::file::is_active_pakro_shim(candidate))
         }
         Err(which::Error::CannotFindBinaryPath) if is_shim_dispatch => {
             return Err(crate::shims::err_shim_not_found(&program_name).await);
@@ -877,7 +877,7 @@ where
     };
     let program = match resolved {
         Some(program) => program,
-        // When invoked as a shim (`__MISE_SHIM_PATH` set), give the actionable
+        // When invoked as a shim (`__PAKRO_SHIM_PATH` set), give the actionable
         // `which_shim`-style error instead of the opaque `cannot find binary
         // path` (discussion #11183).
         None if is_shim_dispatch => {
@@ -885,10 +885,10 @@ where
         }
         None => return Err(err_cannot_find_binary_path(&program_name).await),
     };
-    env::remove_var(env::MISE_SHIM_PATH_ENV);
+    env::remove_var(env::PAKRO_SHIM_PATH_ENV);
     if is_shim_dispatch {
         // A native shim that finds its own path here was picked instead of the tool.
-        env::set_var(env::MISE_SHIM_TARGET_ENV, &program);
+        env::set_var(env::PAKRO_SHIM_TARGET_ENV, &program);
     }
     let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
 
@@ -897,10 +897,10 @@ where
     // the child process deal with it instead.
     win_exec::set_ctrlc_handler()?;
 
-    // `mise exec -c "<cmd>"` spawns the configured shell as `cmd /c <cmd>`. For
+    // `pakro exec -c "<cmd>"` spawns the configured shell as `cmd /c <cmd>`. For
     // cmd, pass the command verbatim so inner double quotes survive (#9355).
     // Gated on `shell_body_mode` (the `-c`/`--command` path) so a positional
-    // `mise exec -- cmd /c "echo one" two` is not reinterpreted as a shell body.
+    // `pakro exec -- cmd /c "echo one" two` is not reinterpreted as a shell body.
     // cwd is intentionally inherited from the process here, matching the duct
     // fallback below; the resolved `cwd` above governs program lookup only.
     if shell_body_mode && let (Some(prog), [.., last]) = (program.to_str(), args.as_slice()) {
@@ -916,7 +916,7 @@ where
             }
         }
     }
-    // A positional `cmd /c <command>`, which is how pitchfork runs a `mise = true`
+    // A positional `cmd /c <command>`, which is how pitchfork runs a `pakro = true`
     // daemon, also needs its command verbatim once it contains a `"`.
     if !shell_body_mode
         && let Some(prog) = program.to_str()
@@ -942,10 +942,10 @@ where
         && program
             .extension()
             .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
-        && mise_util::windows_process::has_inherited_node_ipc()
+        && pakro_util::windows_process::has_inherited_node_ipc()
     {
         let status =
-            mise_util::windows_process::status_with_inherited_node_ipc(program.as_os_str(), args)?;
+            pakro_util::windows_process::status_with_inherited_node_ipc(program.as_os_str(), args)?;
         return match status.code() {
             Some(code) => Err(crate::request_exit(code)),
             None => Err(eyre!("command failed: terminated by signal")),

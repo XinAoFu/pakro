@@ -249,7 +249,7 @@ impl Store {
         // written, and nowhere earlier.** An `[history] exclude` rule the
         // matcher cannot compile must not quietly broaden a stored — and
         // publishable — snapshot to the paths it was written to leave out.
-        // Walking is not storing: `mise dot paths`, the previews, `mise
+        // Walking is not storing: `pakro dot paths`, the previews, `pakro
         // dot status` and the watch set all still work and report the
         // rule, so the command that diagnoses the problem is not the
         // command it breaks.
@@ -552,7 +552,7 @@ impl Store {
                 affected.extend(
                     repo.changes(previous_tree.as_ref().map(|(_, tree)| tree.as_str()), tree)?
                         .into_iter()
-                        .filter(|change| !change.path.starts_with(".mise-history/"))
+                        .filter(|change| !change.path.starts_with(".pakro-history/"))
                         .map(|change| tree_path_to_display(&change.path)),
                 );
             }
@@ -586,7 +586,7 @@ impl Store {
             uuid,
             machine: self.machine.clone(),
             created_at: store::now_rfc3339(),
-            mise_version: crate::version::VERSION_PLAIN.clone(),
+            pakro_version: crate::version::VERSION_PLAIN.clone(),
             trigger: draft.trigger(),
             description,
             description_source,
@@ -1104,7 +1104,7 @@ fn heard(draft: &Draft) -> bool {
 /// one on there is nothing left to compare against and the drop can
 /// never be reported. Which command ran is not something the paths care
 /// about, and the watcher saving first is not a reason for the user to
-/// hear nothing — so a `mise dot save`, a `mise dot track` applying a
+/// hear nothing — so a `pakro dot save`, a `pakro dot track` applying a
 /// hand-edited list, and the watcher's own save all report it. It cannot
 /// repeat: the narrowing changes the tree, so the checkpoint is written,
 /// and the next parent is the narrowed one.
@@ -1196,7 +1196,9 @@ fn retain_omitted(
         if entry.tree_path(path)? != file.path {
             continue;
         }
-        if entry.policy.encrypt && !repo.blob_starts_with(&file.oid, b"mise-encrypted-file-v1\n")? {
+        if entry.policy.encrypt
+            && !repo.blob_starts_with(&file.oid, b"pakro-encrypted-file-v1\n")?
+        {
             eyre::bail!(
                 "cannot retain an unreadable plaintext version of newly encrypted {}",
                 display_path(path)
@@ -1304,7 +1306,7 @@ fn changes_from(
     };
     let mut count = 0usize;
     for change in repo.changes(from, to)? {
-        if change.path.starts_with(".mise-history/") {
+        if change.path.starts_with(".pakro-history/") {
             continue;
         }
         count += 1;
@@ -1412,7 +1414,7 @@ pub(crate) fn test_checkpoint(uuid: &str, snapshot: Option<&str>) -> Checkpoint 
             name: "test".into(),
         },
         created_at: store::now_rfc3339(),
-        mise_version: "0".into(),
+        pakro_version: "0".into(),
         trigger: Trigger::Save,
         description: "test".into(),
         description_source: DescriptionSource::Computed,
@@ -1758,7 +1760,7 @@ mod tests {
         // outside every root, only the explicitly enrolled directory counts
         let roots = super::super::sync::layout::Roots {
             home: temp.path().join("elsewhere"),
-            config_dir: temp.path().join("elsewhere/.config/mise"),
+            config_dir: temp.path().join("elsewhere/.config/pakro"),
         };
         assert_eq!(
             file_modes(&walk, &roots),
@@ -1811,7 +1813,7 @@ mod tests {
         };
         let roots = Roots {
             home: home.clone(),
-            config_dir: home.join(".config/mise"),
+            config_dir: home.join(".config/pakro"),
         };
         // the private parent is recorded; a default parent and home itself
         // (also 0700) are not
@@ -1826,7 +1828,7 @@ mod tests {
 
         // the configuration root is a boundary of its own: a file directly
         // under it carries no directory at all
-        let config_dir = home.join(".config/mise");
+        let config_dir = home.join(".config/pakro");
         std::fs::create_dir_all(&config_dir).unwrap();
         let config = config_dir.join("config.toml");
         std::fs::write(&config, "").unwrap();

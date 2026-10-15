@@ -10,23 +10,23 @@
 # "Http backend requires 'url' option" error.
 
 # Step 1: Install with a single url
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools]
-"http:hello-plat-switch" = { version = "1.0.0", url = "https://mise.jdx.dev/test-fixtures/hello-world-1.0.0.tar.gz", bin_path = "hello-world-1.0.0/bin", postinstall = "chmod +x \$MISE_TOOL_INSTALL_PATH/hello-world-1.0.0/bin/hello-world" }
+"http:hello-plat-switch" = { version = "1.0.0", url = "https://mise.jdx.dev/test-fixtures/hello-world-1.0.0.tar.gz", bin_path = "hello-world-1.0.0/bin", postinstall = "chmod +x \$PAKRO_TOOL_INSTALL_PATH/hello-world-1.0.0/bin/hello-world" }
 EOF
 
-mise install
-assert_contains "mise x -- hello-world" "hello world"
+pakro install
+assert_contains "pakro x -- hello-world" "hello world"
 
 # Step 2: Switch to platform-specific urls (same tool name, same version)
 # This previously failed with "Http backend requires 'url' option" because
 # the stale cached platforms data from parse_tool_options was mangled and
 # shadowed the correct config values during merge.
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools."http:hello-plat-switch"]
 version = "1.0.0"
 bin_path = "hello-world-1.0.0/bin"
-postinstall = "chmod +x \$MISE_TOOL_INSTALL_PATH/hello-world-1.0.0/bin/hello-world"
+postinstall = "chmod +x \$PAKRO_TOOL_INSTALL_PATH/hello-world-1.0.0/bin/hello-world"
 
 [tools."http:hello-plat-switch".platforms]
 linux-x64 = { url = "https://mise.jdx.dev/test-fixtures/hello-world-1.0.0.tar.gz" }
@@ -36,5 +36,5 @@ darwin-x64 = { url = "https://mise.jdx.dev/test-fixtures/hello-world-1.0.0.tar.g
 EOF
 
 # This should succeed, not fail with "Http backend requires 'url' option"
-mise install
-assert_contains "mise x -- hello-world" "hello world"
+pakro install
+assert_contains "pakro x -- hello-world" "hello world"

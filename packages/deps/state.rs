@@ -12,7 +12,7 @@ use crate::hash::{file_hash_blake3, hash_to_str};
 /// Stores blake3 content hashes of source files and effective commands keyed by
 /// provider ID, plus the set of output paths that existed at the last successful
 /// run and the output-rule identity used to select them.
-/// Persisted to `$MISE_STATE_DIR/deps/<hash>.toml`, keyed by project root.
+/// Persisted to `$PAKRO_STATE_DIR/deps/<hash>.toml`, keyed by project root.
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub(crate) struct DepsState {
     /// provider_id → (relative_path → blake3_hex)

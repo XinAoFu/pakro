@@ -14,9 +14,9 @@ pub(crate) enum Watcher {
     Running,
     /// `[bootstrap.services]` declares the built-in watcher and its service
     /// is running, but nothing holds this store's watch lock: the process
-    /// is an older mise's watcher (the history locks moved into the state
+    /// is an older pakro's watcher (the history locks moved into the state
     /// directory in 2026.9.5) or one started with a different
-    /// `MISE_STATE_DIR`. Applying the declaration again restarts it.
+    /// `PAKRO_STATE_DIR`. Applying the declaration again restarts it.
     ServiceNotWatching,
     /// `[bootstrap.services]` declares the built-in watcher, but none runs.
     DeclaredNotRunning,
@@ -53,7 +53,7 @@ pub(crate) async fn watcher() -> Result<Watcher> {
         return Ok(Watcher::NotDeclared);
     }
     // The service manager may be running a process that is not watching
-    // this store, which `mise bootstrap services apply` restarts. Telling
+    // this store, which `pakro bootstrap services apply` restarts. Telling
     // those two apart is what keeps the advice from repeating a step the
     // user already took.
     for request in declared_watchers(&config) {
@@ -92,13 +92,13 @@ pub(crate) fn advice(state: Watcher) -> &'static str {
     match state {
         Watcher::Running => "edits are saved automatically",
         Watcher::ServiceNotWatching => {
-            "the history service is running but is not watching this store (its process predates this mise version, or uses a different MISE_STATE_DIR): restart it with `mise bootstrap services apply`"
+            "the history service is running but is not watching this store (its process predates this pakro version, or uses a different PAKRO_STATE_DIR): restart it with `pakro bootstrap services apply`"
         }
         Watcher::DeclaredNotRunning => {
-            "the history watcher is declared but not running: run `mise bootstrap services apply`"
+            "the history watcher is declared but not running: run `pakro bootstrap services apply`"
         }
         Watcher::NotDeclared => {
-            "automatic capture is inactive: declare `[bootstrap.services.mise-history] builtin = \"history-watch\"` and run `mise bootstrap`; until then edits are saved by `mise dot save` or `mise dot watch --once`"
+            "automatic capture is inactive: declare `[bootstrap.services.pakro-history] builtin = \"history-watch\"` and run `pakro bootstrap`; until then edits are saved by `pakro dot save` or `pakro dot watch --once`"
         }
     }
 }
@@ -119,12 +119,12 @@ pub(crate) async fn report() {
                 if crate::system::history::health::is_stale_watcher_schema_error(&error) =>
             {
                 warn!(
-                    "history: {}; edits are not being saved (`mise dot status` has the capture error)",
+                    "history: {}; edits are not being saved (`pakro dot status` has the capture error)",
                     crate::system::history::health::STALE_WATCHER_SCHEMA_ADVICE
                 )
             }
             Some(error) => warn!(
-                "history: watcher running, but its captures are failing: {error}; edits are not being saved (`mise dot status` has the details)"
+                "history: watcher running, but its captures are failing: {error}; edits are not being saved (`pakro dot status` has the details)"
             ),
             None => {
                 info!("history: watcher running; autosave-enabled files are saved automatically")

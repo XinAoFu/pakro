@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Exercise mise's startup-heavy paths for profile-guided optimizers.
+# Exercise pakro's startup-heavy paths for profile-guided optimizers.
 #
 # The caller is responsible for configuring its profiler. rustc PGO sets
 # LLVM_PROFILE_FILE; BOLT instrumentation bakes its output path into the
@@ -7,7 +7,7 @@
 set -euo pipefail
 
 if [ "$#" -ne 1 ]; then
-	echo "usage: $0 <mise-binary>" >&2
+	echo "usage: $0 <pakro-binary>" >&2
 	exit 1
 fi
 
@@ -18,7 +18,7 @@ if [ ! -x "$bin" ]; then
 fi
 bin="$(cd "$(dirname "$bin")" && pwd)/$(basename "$bin")"
 
-train_dir="$(mktemp -d "${TMPDIR:-/tmp}/mise-profile-train.XXXXXX")"
+train_dir="$(mktemp -d "${TMPDIR:-/tmp}/pakro-profile-train.XXXXXX")"
 cleanup() {
 	rm -rf "$train_dir"
 }
@@ -27,7 +27,7 @@ trap cleanup EXIT
 # Hermetic project fixture: env vars (including a template), pinned tools
 # (never resolved against the network), and a trivial task.
 mkdir -p "$train_dir/home" "$train_dir/proj/subdir"
-cat >"$train_dir/proj/mise.toml" <<'EOF'
+cat >"$train_dir/proj/pakro.toml" <<'EOF'
 [env]
 TRAIN_FOO = "bar"
 TRAIN_TEMPLATED = "{{ env.HOME }}/x"
@@ -49,10 +49,10 @@ train() {
 	mkdir -p "$root"
 	env -i PATH="$PATH" HOME="$train_dir/home" TMPDIR="${TMPDIR:-/tmp}" \
 		LLVM_PROFILE_FILE="${LLVM_PROFILE_FILE:-}" \
-		MISE_DATA_DIR="$root/data" MISE_CACHE_DIR="$root/cache" \
-		MISE_CONFIG_DIR="$root/config" MISE_STATE_DIR="$root/state" \
-		MISE_GLOBAL_CONFIG_FILE="$root/config/config.toml" \
-		MISE_OFFLINE=1 MISE_HIDE_UPDATE_WARNING=1 \
+		PAKRO_DATA_DIR="$root/data" PAKRO_CACHE_DIR="$root/cache" \
+		PAKRO_CONFIG_DIR="$root/config" PAKRO_STATE_DIR="$root/state" \
+		PAKRO_GLOBAL_CONFIG_FILE="$root/config/config.toml" \
+		PAKRO_OFFLINE=1 PAKRO_HIDE_UPDATE_WARNING=1 \
 		bash -c '
 			set -e
 			bin=$1; proj=$2

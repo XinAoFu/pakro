@@ -125,7 +125,7 @@ fn same_task_without_phase(task: &Task, other: &Task) -> bool {
     task.name == other.name && task.args == other.args && env_key(task) == env_key(other)
 }
 
-/// manages a dependency graph of tasks so `mise run` knows what to run next
+/// manages a dependency graph of tasks so `pakro run` knows what to run next
 impl Deps {
     pub async fn new(config: &Arc<Config>, tasks: Vec<Task>) -> eyre::Result<Self> {
         Self::new_with_cycle_limit(config, tasks, Some(1)).await
@@ -379,7 +379,7 @@ impl Deps {
         }
     }
 
-    /// listened to by `mise run` which gets a stream of tasks to run
+    /// listened to by `pakro run` which gets a stream of tasks to run
     pub(crate) fn subscribe(&mut self) -> mpsc::UnboundedReceiver<Option<Task>> {
         let (tx, rx) = mpsc::unbounded_channel();
         self.tx = tx;

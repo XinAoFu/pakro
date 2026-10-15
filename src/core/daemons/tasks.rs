@@ -198,7 +198,7 @@ pub async fn start(
     // cannot start while that dependency is still unregistered.
     //
     // Holding several project locks at once means the order they are taken in
-    // matters: `mise daemons start` sorts its roots, so this takes them in the
+    // matters: `pakro daemons start` sorts its roots, so this takes them in the
     // same order rather than in whatever order the configuration produced, and
     // the two cannot deadlock against each other.
     wanted.sort_keys();
@@ -217,7 +217,7 @@ pub async fn start(
         let owned = !foreign.contains(&root);
         // Another project's root is registered whole but only checked for what
         // this run starts, so an unrelated daemon of theirs cannot fail a
-        // `mise run` here.
+        // `pakro run` here.
         let starting = if owned {
             set.clone()
         } else {
@@ -243,7 +243,7 @@ pub async fn start(
         super::ensure_not_blocked(&set, &will_start, Some(&root))?;
         // Let the configuration hash short-circuit re-registration. Forcing it
         // would re-probe `pitchfork usage` and re-run `config add` on every
-        // `mise run` of a task that requires daemons, even when nothing about
+        // `pakro run` of a task that requires daemons, even when nothing about
         // the daemons changed and they are already running.
         // The closure, not the names the task gave: pitchfork starts a
         // daemon's dependencies with it, so their ports are about to be bound
@@ -385,7 +385,7 @@ mod tests {
                         (*name).to_string(),
                         Daemon {
                             name: (*name).to_string(),
-                            source: PathBuf::from("/project/mise.toml"),
+                            source: PathBuf::from("/project/pakro.toml"),
                             root: PathBuf::from("/project"),
                             table: toml::Table::new(),
                             preset: None,

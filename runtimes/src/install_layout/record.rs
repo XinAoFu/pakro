@@ -1,6 +1,6 @@
 //! On-disk records: what the catalog and a receipt say about an installation.
 //!
-//! * An [`IdentityRecord`] lives in the catalog (`installs/.mise/`). It binds a
+//! * An [`IdentityRecord`] lives in the catalog (`installs/.pakro/`). It binds a
 //!   full identity digest to the directory assigned to it, so the path stays
 //!   stable even after the payload is pruned, and keeps the provenance needed
 //!   to recover the install.
@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use super::identity::{Digest, IDENTITY_ALGORITHM, IDENTITY_FORMAT, InstallIdentity};
 
 /// File name of the receipt inside an installation directory.
-pub(crate) const RECEIPT_FILE: &str = ".mise-install.toml";
+pub(crate) const RECEIPT_FILE: &str = ".pakro-install.toml";
 
 /// What was acquired for an installation. Provenance describes the inputs the
 /// install was made from, not the tree as it is now.
@@ -96,9 +96,9 @@ pub(crate) struct Receipt {
     /// display. Identity never depends on it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) requested_as: Option<String>,
-    /// The mise that wrote the receipt.
+    /// The pakro that wrote the receipt.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) mise_version: Option<String>,
+    pub(crate) pakro_version: Option<String>,
 }
 
 /// Which installation satisfies an unlocked request.
@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn plain_dir_names() {
         assert!(is_plain_dir_name("age-p4n6w2ra"));
-        for bad in ["", ".", "..", ".mise", "a/b", "a\\b", "../x", "c:", "a\0b"] {
+        for bad in ["", ".", "..", ".pakro", "a/b", "a\\b", "../x", "c:", "a\0b"] {
             assert!(!is_plain_dir_name(bad), "{bad:?}");
         }
     }
@@ -155,7 +155,7 @@ mod tests {
         let receipt = Receipt {
             record,
             requested_as: Some("age".into()),
-            mise_version: Some("2026.10.0".into()),
+            pakro_version: Some("2026.10.0".into()),
         };
         let text = toml::to_string_pretty(&receipt).unwrap();
         let back: Receipt = toml::from_str(&text).unwrap();

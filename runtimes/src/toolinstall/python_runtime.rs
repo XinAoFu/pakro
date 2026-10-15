@@ -668,8 +668,8 @@ mod tests {
     }
 
     fn real_handle() -> PythonRuntimeHandle {
-        let executable = std::env::var_os("PAK_TEST_PYTHON")
-            .expect("set PAK_TEST_PYTHON to an already existing absolute interpreter");
+        let executable = std::env::var_os("PAKRO_TEST_PYTHON")
+            .expect("set PAKRO_TEST_PYTHON to an already existing absolute interpreter");
         PythonRuntimeHandle::from_existing_executable(Path::new(&executable)).unwrap()
     }
 
@@ -750,7 +750,7 @@ if CASE in ("broken-sysconfig", "broken-importlib"):
 "#;
 
     #[tokio::test]
-    #[ignore = "requires PAK_TEST_PYTHON pointing to an existing modern Python 3.3+ host"]
+    #[ignore = "requires PAKRO_TEST_PYTHON pointing to an existing modern Python 3.3+ host"]
     async fn script_executes_legacy_and_pypy_branches() {
         let handle = real_handle();
         for case in ["old-cpython", "old-pypy", "modern-cpython"] {
@@ -794,7 +794,7 @@ if CASE in ("broken-sysconfig", "broken-importlib"):
     }
 
     #[tokio::test]
-    #[ignore = "requires PAK_TEST_PYTHON pointing to an existing modern Python 3.3+ host"]
+    #[ignore = "requires PAKRO_TEST_PYTHON pointing to an existing modern Python 3.3+ host"]
     async fn damaged_modern_stdlib_does_not_fall_back() {
         let handle = real_handle();
         for case in ["broken-sysconfig", "broken-importlib"] {
@@ -806,7 +806,7 @@ if CASE in ("broken-sysconfig", "broken-importlib"):
     }
 
     #[tokio::test]
-    #[ignore = "requires PAK_TEST_PYTHON pointing to an already existing absolute interpreter"]
+    #[ignore = "requires PAKRO_TEST_PYTHON pointing to an already existing absolute interpreter"]
     async fn cwd_and_pythonpath_cannot_supply_probe_modules() {
         let handle = real_handle();
         let poison = tempfile::tempdir().unwrap();
@@ -850,7 +850,7 @@ if CASE in ("broken-sysconfig", "broken-importlib"):
     }
 
     #[tokio::test]
-    #[ignore = "requires PAK_TEST_PYTHON pointing to an already existing absolute interpreter"]
+    #[ignore = "requires PAKRO_TEST_PYTHON pointing to an already existing absolute interpreter"]
     async fn explicitly_bound_real_interpreter_smoke() {
         let handle = real_handle();
         let descriptor = probe(&handle, Duration::from_secs(10)).await.unwrap();

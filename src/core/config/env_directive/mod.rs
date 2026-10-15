@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::{cmp::PartialEq, sync::Arc};
 
 use super::{Config, Settings};
-pub(crate) use mise_util::env_value::EnvValue;
+pub(crate) use pakro_util::env_value::EnvValue;
 
 mod file;
 mod path;
@@ -315,7 +315,7 @@ static OCI_ENV_SATISFIES_REQUIRED: AtomicBool = AtomicBool::new(false);
 
 /// Let `[oci.env]` satisfy `required` env vars for the rest of this process.
 ///
-/// `mise oci` bakes `[oci.env]` into the image, so a `required` var it defines
+/// `pakro oci` bakes `[oci.env]` into the image, so a `required` var it defines
 /// has a value in the image and needn't exist on the build host. Set before the
 /// config loads: `[env]` is validated as part of loading it.
 pub fn oci_env_satisfies_required() {
@@ -329,7 +329,7 @@ pub(crate) fn is_oci_env_satisfying_required() -> bool {
 }
 
 /// Keys the project's `[oci.env]` sections define. Global and system configs
-/// are left out: `mise oci` doesn't bake their `[oci]` unless asked to.
+/// are left out: `pakro oci` doesn't bake their `[oci]` unless asked to.
 fn oci_env_keys(config: &Config) -> BTreeSet<String> {
     if !is_oci_env_satisfying_required() {
         return BTreeSet::new();
@@ -424,7 +424,7 @@ impl EnvResults {
         let safe_mode = Settings::safe_mode();
         // In safe mode, environment directives from project (non-global) config are
         // ignored — they would otherwise be applied to the host environment and to
-        // subprocesses mise spawns during resolution (e.g. `go list`),
+        // subprocesses pakro spawns during resolution (e.g. `go list`),
         // an indirect code-execution vector (PATH, LD_PRELOAD, DYLD_INSERT_LIBRARIES,
         // NODE_OPTIONS, ...) that safe mode is meant to close. Global/system config
         // is operator-owned and still applies, mirroring the trust model. `_.source`
@@ -903,9 +903,9 @@ impl EnvResults {
             };
 
             // Variable must be defined either:
-            // 1. In the initial environment (before mise runs), OR
+            // 1. In the initial environment (before pakro runs), OR
             // 2. In a config file processed later than the one declaring it as required, OR
-            // 3. In `[oci.env]`, when `mise oci` is building the image
+            // 3. In `[oci.env]`, when `pakro oci` is building the image
             let is_predefined = initial.contains_key(&lookup);
 
             let resolved_values = if vars_mode {
@@ -935,7 +935,7 @@ impl EnvResults {
                     "environment variable"
                 };
                 let base_message = format!(
-                    "Required {} '{}' is not defined. It must be set before mise runs or in a later config file. (Required in: {})",
+                    "Required {} '{}' is not defined. It must be set before pakro runs or in a later config file. (Required in: {})",
                     variable_kind,
                     var_name,
                     display_path(declaring_source)
@@ -1040,7 +1040,7 @@ impl EnvResults {
 ///
 /// Naming the missing variable alone was not actionable. The reporter in
 /// discussion #8232 could see *which* variable was missing but not which value
-/// referenced it, and `mise env` cannot show that: a missing variable is by
+/// referenced it, and `pakro env` cannot show that: a missing variable is by
 /// definition absent from the environment. `origin` is the referencing `[env]`
 /// key where one exists, and the directive otherwise.
 fn unexpanded_var_warning(var: &str, origin: &str, path: &Path) -> String {
@@ -1249,7 +1249,7 @@ mod tests {
     /// referenced it was. See discussion #8232.
     #[test]
     fn test_unexpanded_var_warning_names_the_reference() {
-        let path = Path::new("/p/mise.toml");
+        let path = Path::new("/p/pakro.toml");
         let msg = unexpanded_var_warning("DB_HOST", "DATABASE_URL", path);
         assert!(msg.contains("'DB_HOST'"), "{msg}");
         assert!(msg.contains("`DATABASE_URL`"), "{msg}");

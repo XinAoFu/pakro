@@ -4,7 +4,7 @@ use tabled::{Table, Tabled};
 use crate::packslip_pins;
 use crate::ui::table;
 
-/// List the signers mise has accepted packslips from
+/// List the signers pakro has accepted packslips from
 #[derive(Debug, Default, usage_rs::Args)]
 #[usage(visible_alias = "list", verbatim_doc_comment)]
 pub(super) struct PackslipPins {
@@ -31,11 +31,11 @@ impl PackslipPins {
     pub(super) fn run(self) -> Result<()> {
         let pins = packslip_pins::list()?;
         if self.json {
-            miseprintln!("{}", serde_json::to_string_pretty(&pins)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&pins)?);
             return Ok(());
         }
         if pins.is_empty() {
-            miseprintln!("no packslip signers pinned yet");
+            pakroprintln!("no packslip signers pinned yet");
             return Ok(());
         }
         let rows = pins.into_iter().map(|(project, pin)| Row {

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use eyre::Result;
 
 use crate::config::config_file::ConfigFile;
-use crate::config::config_file::mise_toml::MiseToml;
+use crate::config::config_file::pakro_toml::PakroToml;
 use crate::config::{ConfigPathOptions, resolve_target_config_path};
 use crate::file::display_path;
 use crate::system::packages::brew::default_tap_url;
@@ -13,8 +13,8 @@ use crate::system::packages::brew::default_tap_url;
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise bootstrap packages brew tap railwaycat/emacsmacport
-mise bootstrap packages brew tap acme/tools https://github.com/acme/homebrew-tools.git"###
+        r###"pakro bootstrap packages brew tap railwaycat/emacsmacport
+pakro bootstrap packages brew tap acme/tools https://github.com/acme/homebrew-tools.git"###
     )
 )]
 pub(crate) struct SystemBrewTap {
@@ -59,7 +59,7 @@ impl SystemBrewTap {
             prevent_home_local: true,
         })?;
         if self.dry_run {
-            miseprintln!(
+            pakroprintln!(
                 "{}: [bootstrap.brew.taps].\"{}\" = \"{}\"",
                 display_path(&path),
                 self.tap,
@@ -68,9 +68,9 @@ impl SystemBrewTap {
             return Ok(());
         }
         let mut cf = if path.exists() {
-            MiseToml::from_file(&path)?
+            PakroToml::from_file(&path)?
         } else {
-            MiseToml::init(&path)
+            PakroToml::init(&path)
         };
         cf.update_bootstrap_brew_tap(&self.tap, &url)?;
         cf.save()?;

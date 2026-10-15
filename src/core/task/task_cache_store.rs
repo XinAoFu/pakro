@@ -7,7 +7,7 @@ use crate::task::task_cache::{
 use async_trait::async_trait;
 use eyre::{Result, bail, eyre};
 use jdx_tar::{Archive, Builder, EntryType, Header};
-use mise_cache_core::{
+use pakro_cache_core::{
     BlobSource, BlobUpload, CLIENT_METADATA_MEDIA_TYPE, CacheDigest,
     CacheDirectory as RemoteDirectory, CacheDirectoryNode as RemoteDirectoryNode,
     CacheFileNode as RemoteFileNode, CacheSymlinkNode as RemoteSymlinkNode, DIRECTORY_MEDIA_TYPE,
@@ -937,7 +937,7 @@ fn remove_file(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mise_cache_core::{ACTION_RESULT_MEDIA_TYPE, BLOB_MEDIA_TYPE};
+    use pakro_cache_core::{ACTION_RESULT_MEDIA_TYPE, BLOB_MEDIA_TYPE};
     use std::time::Duration;
 
     struct FailingTaskCacheStore {
@@ -1243,8 +1243,8 @@ mod tests {
         );
         let action_put = server
             .mock("PUT", action_path.as_str())
-            .match_header("mise-cache-protocol", "1")
-            .match_header("mise-cache-namespace", "test-namespace")
+            .match_header("pakro-cache-protocol", "1")
+            .match_header("pakro-cache-namespace", "test-namespace")
             .match_header("if-none-match", "*")
             .match_body(action.to_vec())
             .with_status(201)
@@ -1326,8 +1326,8 @@ mod tests {
         let blob_path = format!("/v1/blobs/blake3/{}/{}", digest.hash, digest.size);
         let blob_get = server
             .mock("GET", blob_path.as_str())
-            .match_header("mise-cache-protocol", "1")
-            .match_header("mise-cache-namespace", "test-namespace")
+            .match_header("pakro-cache-protocol", "1")
+            .match_header("pakro-cache-namespace", "test-namespace")
             .with_status(200)
             .with_body("substituted bytes")
             .expect(1)

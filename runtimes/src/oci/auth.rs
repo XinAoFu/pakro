@@ -1,4 +1,4 @@
-//! Registry credential resolution for `mise oci push` (and private pulls).
+//! Registry credential resolution for `pakro oci push` (and private pulls).
 //!
 //! Reads the same credential sources as docker / podman / skopeo so that
 //! `docker login` / `podman login` "just work" with the native push client:

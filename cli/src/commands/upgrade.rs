@@ -42,22 +42,22 @@ struct ExplicitConfigBump {
 
 /// Upgrade outdated tools
 ///
-/// By default, this keeps the range specified in mise.toml: with node@20 set, it upgrades to
+/// By default, this keeps the range specified in pakro.toml: with node@20 set, it upgrades to
 /// the latest 20.x.x available. Use `--bump` to upgrade to the latest version overall and
-/// rewrite the version in mise.toml.
+/// rewrite the version in pakro.toml.
 ///
-/// This also updates mise.lock if lockfiles are enabled, see https://mise.jdx.dev/configuration/settings.html#lockfile
+/// This also updates pakro.lock if lockfiles are enabled, see https://mise.jdx.dev/configuration/settings.html#lockfile
 #[derive(Debug, usage_rs::Args)]
 #[usage(visible_alias = "up", verbatim_doc_comment, after_long_help = AFTER_LONG_HELP,
-    example(r###"mise upgrade node"###, help = r###"Upgrades node to the latest version matching the range in mise.toml"###),
-    example(r###"mise upgrade node --bump"###, help = r###"Upgrades node to the latest version and bumps the version in mise.toml"###),
-    example(r###"mise upgrade"###, help = r###"Upgrades all configured tools within their current requests"###),
-    example(r###"mise upgrade --bump"###, help = r###"Upgrades all tools to the latest versions and bumps the version in mise.toml"###),
-    example(r###"mise upgrade --dry-run"###, help = r###"Just print what would be done, don't actually do it"###),
-    example(r###"mise upgrade node python"###, help = r###"Upgrades node and python within their current requests"###),
-    example(r###"mise upgrade --exclude go"###, help = r###"Upgrade all tools except go"###),
-    example(r###"mise upgrade --interactive"###, help = r###"Show a multiselect menu to choose which tools to upgrade"###),
-    example(r###"mise upgrade --local"###, help = r###"Only upgrade tools defined in local mise.toml, not global ones"###))]
+    example(r###"pakro upgrade node"###, help = r###"Upgrades node to the latest version matching the range in pakro.toml"###),
+    example(r###"pakro upgrade node --bump"###, help = r###"Upgrades node to the latest version and bumps the version in pakro.toml"###),
+    example(r###"pakro upgrade"###, help = r###"Upgrades all configured tools within their current requests"###),
+    example(r###"pakro upgrade --bump"###, help = r###"Upgrades all tools to the latest versions and bumps the version in pakro.toml"###),
+    example(r###"pakro upgrade --dry-run"###, help = r###"Just print what would be done, don't actually do it"###),
+    example(r###"pakro upgrade node python"###, help = r###"Upgrades node and python within their current requests"###),
+    example(r###"pakro upgrade --exclude go"###, help = r###"Upgrade all tools except go"###),
+    example(r###"pakro upgrade --interactive"###, help = r###"Show a multiselect menu to choose which tools to upgrade"###),
+    example(r###"pakro upgrade --local"###, help = r###"Only upgrade tools defined in local pakro.toml, not global ones"###))]
 pub(crate) struct Upgrade {
     /// Tool(s) to upgrade
     /// e.g.: node@20 python@3.10
@@ -65,16 +65,16 @@ pub(crate) struct Upgrade {
     #[usage(value_name = "INSTALLED_TOOL@VERSION", verbatim_doc_comment)]
     tool: Vec<ToolArg>,
 
-    /// Upgrade to the latest version available, bumping the version in mise.toml
+    /// Upgrade to the latest version available, bumping the version in pakro.toml
     ///
-    /// For example, if you have `node = "20.0.0"` in your mise.toml but 22.1.0 is the latest available,
+    /// For example, if you have `node = "20.0.0"` in your pakro.toml but 22.1.0 is the latest available,
     /// this will install 22.1.0 and set `node = "22.1.0"` in your config.
     ///
     /// With a bare tool, it keeps the same precision as what was there before, so if you instead had
     /// `node = "20"`, it would change your config to `node = "22"`. When an explicit selector is
     /// provided (`node@latest`, `node@3`, or `node@prefix:3`), that selector is persisted instead.
     /// For version selectors, `settings.pin` persists the resolved concrete version. Requests from non-writable
-    /// sources are not persisted. For example, `mise upgrade node@latest --bump` writes `latest`.
+    /// sources are not persisted. For example, `pakro upgrade node@latest --bump` writes `latest`.
     #[usage(long, short = 'b', verbatim_doc_comment)]
     bump: bool,
 
@@ -85,7 +85,7 @@ pub(crate) struct Upgrade {
     /// Number of jobs to run in parallel
     /// Values below 1 are treated as 1
     /// Defaults to the `jobs` setting
-    #[usage(long, short, env = "MISE_JOBS", verbatim_doc_comment)]
+    #[usage(long, short, env = "PAKRO_JOBS", verbatim_doc_comment)]
     jobs: Option<usize>,
 
     /// Deprecated shorthand for --bump
@@ -113,8 +113,8 @@ pub(crate) struct Upgrade {
 
     /// Only upgrade tools defined in local config files
     ///
-    /// This will only upgrade tools that are defined in project-local mise.toml and
-    /// will skip tools defined in the global config (~/.config/mise/config.toml).
+    /// This will only upgrade tools that are defined in project-local pakro.toml and
+    /// will skip tools defined in the global config (~/.config/pakro/config.toml).
     #[usage(long, verbatim_doc_comment)]
     local: bool,
 
@@ -128,14 +128,14 @@ pub(crate) struct Upgrade {
     #[usage(long, alias = "before", verbatim_doc_comment)]
     minimum_release_age: Option<String>,
 
-    /// Placeholder for future monorepo upgrades; `mise upgrade --monorepo` is not implemented yet.
+    /// Placeholder for future monorepo upgrades; `pakro upgrade --monorepo` is not implemented yet.
     #[usage(long, verbatim_doc_comment)]
     monorepo: bool,
 
     /// Do not uninstall the versions that were upgraded away from
     ///
     /// The old version is left in place and is not scheduled for removal. Use this when something
-    /// outside mise points at the install directory.
+    /// outside pakro points at the install directory.
     ///
     /// Set `upgrade.auto_prune = false` to make this the default.
     #[usage(long, verbatim_doc_comment, overrides = "prune")]
@@ -194,12 +194,12 @@ impl Upgrade {
                 "2026.8.5",
                 "2027.8.5",
                 "cli.upgrade.bump-l",
-                "`mise upgrade -l` is deprecated. Use `mise upgrade -b` or `mise upgrade --bump` instead. After removal, `-l` will become shorthand for `--local`."
+                "`pakro upgrade -l` is deprecated. Use `pakro upgrade -b` or `pakro upgrade --bump` instead. After removal, `-l` will become shorthand for `--local`."
             );
             self.bump = true;
         }
         if self.monorepo {
-            unimplemented!("mise upgrade --monorepo is not implemented yet");
+            unimplemented!("pakro upgrade --monorepo is not implemented yet");
         }
         let mut config = Config::get().await?;
         let mut explicit_config_bumps = Vec::new();
@@ -474,7 +474,7 @@ impl Upgrade {
                     updates.push_str(&format!("\n  … and {hidden} more"));
                 }
                 info!(
-                    "Newer versions are available but do not match the configured version ranges:\n{updates}\nRun `mise outdated --bump` to view all, or `mise upgrade --bump` to update the configuration and upgrade."
+                    "Newer versions are available but do not match the configured version ranges:\n{updates}\nRun `pakro outdated --bump` to view all, or `pakro upgrade --bump` to update the configuration and upgrade."
                 );
             }
         } else {
@@ -506,7 +506,7 @@ impl Upgrade {
         let mut outdated_with_config_files = vec![];
         for o in outdated.iter() {
             if let (Some(path), Some(_bump)) = (o.source.path(), &o.bump)
-                && !o.source.is_mise_toml_daemon()
+                && !o.source.is_pakro_toml_daemon()
             {
                 let cf = if let Some(cf) = parsed_config_files.get(path) {
                     Some(Arc::clone(cf))
@@ -568,9 +568,9 @@ impl Upgrade {
             for (o, current) in &to_remove {
                 match prune_mode {
                     PruneMode::Immediate => {
-                        miseprintln!("Would uninstall {}@{}", o.name, current);
+                        pakroprintln!("Would uninstall {}@{}", o.name, current);
                     }
-                    PruneMode::Deferred(_) => miseprintln!(
+                    PruneMode::Deferred(_) => pakroprintln!(
                         "Would schedule {}@{} for pruning after {}",
                         o.name,
                         current,
@@ -580,10 +580,10 @@ impl Upgrade {
                 }
             }
             for o in &outdated {
-                miseprintln!("Would install {}@{}", o.name, o.latest);
+                pakroprintln!("Would install {}@{}", o.name, o.latest);
             }
             for (o, cf) in &config_file_updates {
-                miseprintln!(
+                pakroprintln!(
                     "Would bump {}@{} in {}",
                     o.name,
                     o.tool_request.version(),
@@ -616,7 +616,7 @@ impl Upgrade {
                     .collect();
                 let bumps = compute_config_bumps(config, &refs);
                 for bump in &bumps {
-                    miseprintln!(
+                    pakroprintln!(
                         "Would update {} from {} to {} in {}",
                         bump.tool_name,
                         bump.old_version,
@@ -779,7 +779,7 @@ impl Upgrade {
                 return Err(eyre!("Failed to update config files:\n{errors}"));
             }
 
-            // When a specific version is provided via CLI (e.g., `mise upgrade tiny@3.0.1`),
+            // When a specific version is provided via CLI (e.g., `pakro upgrade tiny@3.0.1`),
             // update the config file prefix if the new version doesn't match the current specifier.
             // Skip if --bump was used since it already handles config updates.
             if !self.bump {
@@ -925,7 +925,7 @@ impl Upgrade {
                 hint!(
                     "upgrade_auto_prune",
                     "old tool versions are kept for {prune_after} before automatic pruning. Disable this for future upgrades with",
-                    "mise settings set upgrade.auto_prune false"
+                    "pakro settings set upgrade.auto_prune false"
                 );
             }
 
@@ -973,13 +973,13 @@ impl Upgrade {
         mpr.finish_progress();
 
         // Fix up sources and requests for lockfile update - CLI args produce
-        // ToolSource::Argument but lockfile update only processes ToolSource::MiseToml.
+        // ToolSource::Argument but lockfile update only processes ToolSource::PakroToml.
         // Also copy the config's request version (e.g., "latest") so the lockfile update
         // correctly replaces the old entry instead of adding a duplicate.
         for tv in &mut successful_versions {
             if matches!(tv.request.source(), ToolSource::Argument)
                 && let Some(tvl) = ts.versions.get(tv.ba())
-                && matches!(&tvl.source, ToolSource::MiseToml(_))
+                && matches!(&tvl.source, ToolSource::PakroToml(_))
             {
                 // Use the config's request (preserves version specifier like "latest")
                 // but keep the resolved version from the upgrade
@@ -1038,10 +1038,10 @@ impl Upgrade {
             .collect();
         if !upgraded.is_empty() {
             let s = if upgraded.len() == 1 { "" } else { "s" };
-            miseprintln!("\nUpgraded {} tool{}:", upgraded.len(), s);
+            pakroprintln!("\nUpgraded {} tool{}:", upgraded.len(), s);
             for o in &upgraded {
                 let from = o.current.as_deref().unwrap_or("(none)");
-                miseprintln!("  {} {} → {}", o.name, from, o.latest);
+                pakroprintln!("  {} {} → {}", o.name, from, o.latest);
             }
         }
         Ok(())
@@ -1050,7 +1050,7 @@ impl Upgrade {
     fn get_interactive_tool_set(&self, outdated: &Vec<OutdatedInfo>) -> Result<Vec<OutdatedInfo>> {
         ui::ctrlc::show_cursor_after_ctrl_c();
         let theme = crate::ui::theme::get_theme();
-        let mut ms = demand::MultiSelect::new("mise upgrade")
+        let mut ms = demand::MultiSelect::new("pakro upgrade")
             .description("Select tools to upgrade")
             .filterable(true)
             .theme(&theme);
@@ -1312,7 +1312,7 @@ fn effective_persistable_request<'a>(
     let request = supported.next()?;
     if supported.next().is_some()
         || request.source().path().is_none()
-        || request.source().is_mise_toml_daemon()
+        || request.source().is_pakro_toml_daemon()
     {
         return None;
     }
@@ -1321,7 +1321,7 @@ fn effective_persistable_request<'a>(
 
 fn print_explicit_config_bumps(bumps: &[ExplicitConfigBump]) -> Result<()> {
     for bump in bumps {
-        miseprintln!(
+        pakroprintln!(
             "Would bump {}@{} in {}",
             bump.request.ba().short,
             bump.persisted_request.version(),
@@ -1383,7 +1383,7 @@ async fn hidden_release_details(
 static AFTER_LONG_HELP: &str = color_print::cstr!(
     r###"<bold><underline>Deprecation:</underline></bold>
 
-The `-l` shorthand for `--bump` is deprecated and will be removed in mise 2027.8.5.
+The `-l` shorthand for `--bump` is deprecated and will be removed in pakro 2027.8.5.
 After removal, `-l` will become shorthand for `--local`. Use `-b` or `--bump` instead."###
 );
 

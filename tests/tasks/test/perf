@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-#MISE depends=["test:build-perf-workspace"]
-#MISE description="Run performance tests"
+#PAKRO depends=["test:build-perf-workspace"]
+#PAKRO description="Run performance tests"
 # shellcheck disable=SC2086,SC2129
 set -euo pipefail
 
@@ -13,14 +13,14 @@ threshold="${PERF_THRESHOLD:-15}"
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 cd "$repo_root/tests/benchmarks/.work/perf-workspace"
 mkdir -p flamegraphs
-MISE_DATA_DIR="${MISE_DATA_DIR:-$HOME/.local/share/mise}"
+PAKRO_DATA_DIR="${PAKRO_DATA_DIR:-$HOME/.local/share/pakro}"
 declare -A benchmarks
 declare -A alt_benchmarks
 names=()
 
-if [ -v MISE_ALT ]; then
-	which mise
-	which "$MISE_ALT"
+if [ -v PAKRO_ALT ]; then
+	which pakro
+	which "$PAKRO_ALT"
 fi
 
 # Time a single invocation in milliseconds, suppressing all output.
@@ -43,7 +43,7 @@ median() {
 	}'
 }
 
-# Run mise and (if set) MISE_ALT $runs times each, interleaved, with $warmups
+# Run pakro and (if set) PAKRO_ALT $runs times each, interleaved, with $warmups
 # warmup invocations of each first. Interleaving keeps runner-load drift from
 # biasing one binary; medians make a single slow iteration not move the result.
 benchmark() {
@@ -52,21 +52,21 @@ benchmark() {
 	local out=() alt_out=()
 	echo "benchmarking $name ($* — $runs runs each, $warmups warmups)" >&2
 	for _ in $(seq 1 "$warmups"); do
-		time_one mise "$@" >/dev/null
-		[ -n "${MISE_ALT:-}" ] && time_one "$MISE_ALT" "$@" >/dev/null
+		time_one pakro "$@" >/dev/null
+		[ -n "${PAKRO_ALT:-}" ] && time_one "$PAKRO_ALT" "$@" >/dev/null
 	done
 	for _ in $(seq 1 "$runs"); do
-		out+=("$(time_one mise "$@")")
-		[ -n "${MISE_ALT:-}" ] && alt_out+=("$(time_one "$MISE_ALT" "$@")")
+		out+=("$(time_one pakro "$@")")
+		[ -n "${PAKRO_ALT:-}" ] && alt_out+=("$(time_one "$PAKRO_ALT" "$@")")
 	done
 	benchmarks["$name-cached"]=$(printf '%s\n' "${out[@]}" | median)
-	if [ -n "${MISE_ALT:-}" ]; then
+	if [ -n "${PAKRO_ALT:-}" ]; then
 		alt_benchmarks["$name-cached"]=$(printf '%s\n' "${alt_out[@]}" | median)
 	fi
 	names+=("$name")
 }
 
-mise install
+pakro install
 benchmark install install
 benchmark ls ls
 benchmark bin-paths bin-paths
@@ -101,8 +101,8 @@ get_performance_warning() {
 
 print_performance_table() {
 	local output_file="$1"
-	if [ -n "${MISE_ALT:-}" ]; then
-		echo "| Command    | $MISE_ALT | mise | Variance |" >>"$output_file"
+	if [ -n "${PAKRO_ALT:-}" ]; then
+		echo "| Command    | $PAKRO_ALT | pakro | Variance |" >>"$output_file"
 		echo "|------------|-----------|------|----------|" >>"$output_file"
 		for name in "${names[@]}"; do
 			cached_variance=$(((${alt_benchmarks["$name-cached"]} - ${benchmarks["$name-cached"]}) * 100 / ${benchmarks["$name-cached"]}))
@@ -125,7 +125,7 @@ print_performance_table() {
 
 print_performance_warnings() {
 	local output_file="$1"
-	if [ -n "${MISE_ALT:-}" ]; then
+	if [ -n "${PAKRO_ALT:-}" ]; then
 		for name in "${names[@]}"; do
 			cached_variance=$(((${alt_benchmarks["$name-cached"]} - ${benchmarks["$name-cached"]}) * 100 / ${benchmarks["$name-cached"]}))
 			warning=$(get_performance_warning "$name" "$cached_variance" "cached")

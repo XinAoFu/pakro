@@ -232,12 +232,12 @@ pub async fn exec(
             RepoState::Current | RepoState::Differs | RepoState::Dirty => {}
         }
 
-        miseprintln!("repo: {}", status.request);
+        pakroprintln!("repo: {}", status.request);
         if dry_run {
             let mut parts = vec!["cd".to_string(), status.request.path.display().to_string()];
             parts.push("&&".to_string());
             parts.extend(command.iter().cloned());
-            miseprintln!("{}", shell_words::join(parts));
+            pakroprintln!("{}", shell_words::join(parts));
             continue;
         }
 
@@ -359,7 +359,7 @@ fn conflict_status(request: &RepoRequest, reason: String) -> RepoStatus {
 
 fn clone_repo(request: &RepoRequest, dry_run: bool) -> Result<()> {
     if dry_run {
-        miseprintln!("{}", shell_words::join(clone_command_parts(request)));
+        pakroprintln!("{}", shell_words::join(clone_command_parts(request)));
         if let Some(git_ref) = checkout_after_clone_ref(request) {
             print_git_command(&request.path, &["checkout", checkout_ref_for(git_ref)])?;
         }
@@ -784,7 +784,7 @@ fn print_git_command(path: &Path, args: &[&str]) -> Result<()> {
         "core.autocrlf=false".to_string(),
     ];
     parts.extend(args.iter().map(|arg| arg.to_string()));
-    miseprintln!("{}", shell_words::join(parts));
+    pakroprintln!("{}", shell_words::join(parts));
     Ok(())
 }
 
@@ -1046,7 +1046,7 @@ mod tests {
             "git@github-work:jdx/mise.git",           // ssh alias
             "ssh://git@github.com:2222/jdx/mise.git", // explicit port
             "git@github.com:jdx/other.git",           // different repo
-            "git@github.com:other/mise.git",          // different owner
+            "git@github.com:other/pakro.git",         // different owner
             "alice@github.com:jdx/mise.git",          // non-git ssh user
             "ssh://alice@github.com/jdx/mise.git",    // non-git ssh user (url form)
             "ssh://github.com/jdx/mise.git",          // userless ssh = login user, not git
@@ -1090,11 +1090,11 @@ mod tests {
         ));
         // local and file:// forms keep exact matching
         assert!(!origin_matches_config(
-            Some("/srv/git/mise.git"),
-            "file:///srv/git/mise.git"
+            Some("/srv/git/pakro.git"),
+            "file:///srv/git/pakro.git"
         ));
         assert!(!origin_matches_config(
-            Some(r"C:\repos\mise"),
+            Some(r"C:\repos\pakro"),
             "https://github.com/jdx/mise"
         ));
     }
@@ -1123,7 +1123,7 @@ mod tests {
                 "remote",
                 "set-url",
                 "origin",
-                "git@github.com:other/mise.git",
+                "git@github.com:other/pakro.git",
             ],
         );
         assert_eq!(

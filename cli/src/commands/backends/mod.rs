@@ -17,8 +17,8 @@ pub(crate) struct Backends {
 static AFTER_LONG_HELP: &str = color_print::cstr!(
     r#"<bold><underline>Deprecation:</underline></bold>
 
-The `mise b` alias is deprecated and will be removed in mise 2027.4.0.
-Use `mise backends` instead.
+The `pakro b` alias is deprecated and will be removed in pakro 2027.4.0.
+Use `pakro backends` instead.
 "#
 );
 

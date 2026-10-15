@@ -10,22 +10,22 @@ use crate::dirs;
 /// Writes one symlink per skill into DIR, named after the skill and pointing
 /// at the directory of the version that is active here. DIR defaults to the
 /// `skills.dir` setting, `.claude/skills`, under the project root: the
-/// directory of the nearest mise config. Run it again after `mise use` changes
-/// a version and the links follow, or set `skills.auto_sync` to have mise do
-/// that after every install and `mise use`.
+/// directory of the nearest pakro config. Run it again after `pakro use` changes
+/// a version and the links follow, or set `skills.auto_sync` to have pakro do
+/// that after every install and `pakro use`.
 ///
-/// Only links mise made, which point into its installs directory, are ever
+/// Only links pakro made, which point into its installs directory, are ever
 /// replaced or, with --prune or the `skills.prune` setting, removed. A real
 /// directory or a link of your own at a skill's name is left alone and reported.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
     example(
-        r###"mise skills sync"###,
+        r###"pakro skills sync"###,
         help = r###"into the project's .claude/skills, or wherever skills.dir says"###
     ),
     example(
-        r###"mise skills sync --dir .agents/skills --prune"###,
+        r###"pakro skills sync --dir .agents/skills --prune"###,
         help = r###"somewhere else, and drop links for skills that are no longer active"###
     ),
     effect = "write"
@@ -39,7 +39,7 @@ pub(super) struct SkillsSync {
     #[usage(long, short, conflicts = "dir")]
     global: bool,
 
-    /// Remove links mise made for skills that are no longer active
+    /// Remove links pakro made for skills that are no longer active
     #[usage(long)]
     prune: bool,
 }
@@ -68,9 +68,9 @@ impl SkillsSync {
         let prune = self.prune || settings.skills.prune;
         if skills.is_empty() && !prune {
             if nothing_declared {
-                miseprintln!("no skills declared by the active tools; nothing to link");
+                pakroprintln!("no skills declared by the active tools; nothing to link");
             } else {
-                miseprintln!("no skills installed; nothing to link");
+                pakroprintln!("no skills installed; nothing to link");
             }
             return Ok(());
         }
@@ -82,7 +82,7 @@ impl SkillsSync {
         )?;
         for name in &report.linked {
             let skill = skills.iter().find(|s| &s.name == name);
-            miseprintln!(
+            pakroprintln!(
                 "linked {} -> {}",
                 crate::file::display_path(dir.join(name)),
                 skill
@@ -91,13 +91,13 @@ impl SkillsSync {
             );
         }
         for name in &report.pruned {
-            miseprintln!("removed {}", crate::file::display_path(dir.join(name)));
+            pakroprintln!("removed {}", crate::file::display_path(dir.join(name)));
         }
         for (name, why) in &report.skipped {
             warn!("skipped {name}: {why}");
         }
         if report.linked.is_empty() && report.pruned.is_empty() {
-            miseprintln!(
+            pakroprintln!(
                 "{} skill(s) already linked in {}",
                 report.unchanged.len(),
                 crate::file::display_path(&dir)

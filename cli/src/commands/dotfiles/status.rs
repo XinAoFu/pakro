@@ -6,7 +6,7 @@ use crate::config::Config;
 use crate::path::PathExt;
 use crate::system;
 use crate::system::files::FileState;
-use crate::ui::table::MiseTable;
+use crate::ui::table::PakroTable;
 
 /// Show the status of dotfiles from `[dotfiles]`
 ///
@@ -15,7 +15,7 @@ use crate::ui::table::MiseTable;
 /// `applied`, `missing`, `differs`, `source_missing`, and `tracked`.
 ///
 /// Files deployed by a dotfile group that is no longer selected or declared
-/// are listed as `orphaned`; `mise dot apply --prune` removes them.
+/// are listed as `orphaned`; `pakro dot apply --prune` removes them.
 ///
 /// The management state of every declaration (applied, missing, differs,
 /// tracked) followed by the history state: what is tracked, the latest
@@ -26,10 +26,10 @@ use crate::ui::table::MiseTable;
     visible_alias = "ls",
     verbatim_doc_comment,
     example(
-        r###"mise dot status
-mise dot status ~/.zshrc
-mise dot status --json
-mise dot status --missing # exit 1 if anything is out of sync"###
+        r###"pakro dot status
+pakro dot status ~/.zshrc
+pakro dot status --json
+pakro dot status --missing # exit 1 if anything is out of sync"###
     )
 )]
 pub(crate) struct DotfilesStatus {
@@ -277,14 +277,14 @@ impl DotfilesStatus {
             if !json_orphans.is_empty() {
                 out["orphaned"] = json!(json_orphans);
             }
-            miseprintln!("{}", serde_json::to_string_pretty(&out)?);
+            pakroprintln!("{}", serde_json::to_string_pretty(&out)?);
         } else {
             if file_rows.is_empty() && edit_rows.is_empty() {
                 info!("nothing configured in [dotfiles]");
             }
             if !file_rows.is_empty() {
                 let mut table =
-                    MiseTable::new(false, &["Target", "Mode", "Source", "Config", "State"]);
+                    PakroTable::new(false, &["Target", "Mode", "Source", "Config", "State"]);
                 table.truncate(self.truncate.truncate);
                 for row in file_rows {
                     table.add_row(row);
@@ -292,7 +292,7 @@ impl DotfilesStatus {
                 table.print()?;
             }
             if !edit_rows.is_empty() {
-                let mut table = MiseTable::new(false, &["File", "Edit", "Config", "State"]);
+                let mut table = PakroTable::new(false, &["File", "Edit", "Config", "State"]);
                 table.truncate(self.truncate.truncate);
                 for row in edit_rows {
                     table.add_row(row);

@@ -7,12 +7,12 @@ use crate::ui::table;
 /// List shell aliases
 ///
 /// Shows the shell aliases that are set in the current directory.
-/// These are defined in `mise.toml` under the `[shell_alias]` section.
+/// These are defined in `pakro.toml` under the `[shell_alias]` section.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     visible_alias = "list",
     example(
-        r###"mise shell-alias ls
+        r###"pakro shell-alias ls
 alias    command
 ll       ls -la
 gs       git status"###

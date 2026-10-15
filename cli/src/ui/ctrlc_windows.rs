@@ -1,17 +1,17 @@
 //! Windows console control handling.
 //!
 //! Unix gets supervised interruption for free: `tokio::signal::ctrl_c` installs
-//! a SIGINT handler, so mise stays alive and decides how its children are torn
+//! a SIGINT handler, so pakro stays alive and decides how its children are torn
 //! down. Windows delivers `CTRL_C_EVENT` to every process attached to the
-//! console, and with no handler installed the default one ends mise
+//! console, and with no handler installed the default one ends pakro
 //! immediately. Anything that does not die on its own is then left holding the
-//! console after mise is gone — most visibly `cmd.exe` running a batch file,
+//! console after pakro is gone — most visibly `cmd.exe` running a batch file,
 //! which stops to ask `Terminate batch job (Y/N)?` and keeps reading stdin
 //! while the shell prompt is already back (discussion #13215).
 //!
-//! The handler here keeps mise alive through the event so the usual shutdown
+//! The handler here keeps pakro alive through the event so the usual shutdown
 //! path runs. It is installed by [`exit_on_ctrl_c`], so only commands that opt
-//! into mise-supervised interruption change behavior.
+//! into pakro-supervised interruption change behavior.
 
 use std::sync::LazyLock as Lazy;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -37,17 +37,17 @@ static INTERRUPTED: Lazy<Notify> = Lazy::new(Notify::new);
 /// Runs on a thread the OS creates for the event, so it cannot await anything
 /// and must return promptly. It only touches atomics and
 /// [`Notify::notify_one`], neither of which can block on a lock the rest of
-/// mise might be holding; [`exit_signal`] does the actual work.
+/// pakro might be holding; [`exit_signal`] does the actual work.
 unsafe extern "system" fn handler(ctrl_type: u32) -> BOOL {
     match ctrl_type {
         CTRL_C_EVENT | CTRL_BREAK_EVENT => {
             // Recorded before anything is torn down so a child's exit is
             // reported as cancellation rather than as a task failure.
-            if EXIT.load(Ordering::Relaxed) || mise_util::cancel::mark() {
+            if EXIT.load(Ordering::Relaxed) || pakro_util::cancel::mark() {
                 SHOULD_EXIT.store(true, Ordering::Relaxed);
             }
             INTERRUPTED.notify_one();
-            // Claim the event: the default handler would end mise here, before
+            // Claim the event: the default handler would end pakro here, before
             // it could clean up after its children.
             TRUE
         }
@@ -87,7 +87,7 @@ pub async fn exit_signal() -> i32 {
         }
         if SHOULD_EXIT.load(Ordering::Relaxed) {
             debug!("Ctrl-C pressed, exiting...");
-            // Unlike Unix, where the pgroup got the SIGINT that reached mise,
+            // Unlike Unix, where the pgroup got the SIGINT that reached pakro,
             // nothing is guaranteed to have ended the tree: a console event is
             // advisory and `cmd.exe` in particular stops to ask about it.
             CmdLineRunner::kill_all();
@@ -103,13 +103,13 @@ pub async fn exit_signal() -> i32 {
 
 pub fn exit_on_ctrl_c(do_exit: bool) {
     EXIT.store(do_exit, Ordering::Relaxed);
-    mise_util::cancel::reset();
+    pakro_util::cancel::reset();
     install_handler();
 }
 
 /// Returns true if ctrl-c has been received
 pub fn is_cancelled() -> bool {
-    mise_util::cancel::is_cancelled()
+    pakro_util::cancel::is_cancelled()
 }
 
 /// ensures cursor is displayed on ctrl-c

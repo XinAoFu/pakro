@@ -11,7 +11,7 @@ use crate::{backend, plugins};
 /// Tool installations are retained by default. Pass `--purge` to also remove
 /// installs, downloads, and cache associated with the selected plugins.
 #[derive(Debug, usage_rs::Args)]
-#[usage(verbatim_doc_comment, visible_aliases = ["remove", "rm"], example(r###"mise plugins uninstall my-tool"###))]
+#[usage(verbatim_doc_comment, visible_aliases = ["remove", "rm"], example(r###"pakro plugins uninstall my-tool"###))]
 pub(super) struct PluginsUninstall {
     /// Plugin(s) to remove
     #[usage(verbatim_doc_comment)]

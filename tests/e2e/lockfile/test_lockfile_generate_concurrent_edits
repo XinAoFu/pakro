@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-export MISE_LOCKFILE_MODE=generate
-export MISE_HTTP_RETRIES=0
+export PAKRO_LOCKFILE_MODE=generate
+export PAKRO_HTTP_RETRIES=0
 detect_platform
 
 start_http_server --handler - <<'PY'
@@ -12,10 +12,10 @@ import threading
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/config":
-            with open("mise.toml", "a") as config:
+            with open("pakro.toml", "a") as config:
                 config.write("\n# concurrent config edit\n")
         elif self.path == "/lock":
-            Path("mise.lock").write_text("# concurrent lock edit\n[tools]\n")
+            Path("pakro.lock").write_text("# concurrent lock edit\n[tools]\n")
         elif self.path == "/cancel":
             Path("started").touch()
             threading.Event().wait(30)
@@ -26,35 +26,35 @@ class Handler(BaseHTTPRequestHandler):
 PY
 
 configure() {
-  cat >mise.toml <<EOF
+  cat >pakro.toml <<EOF
 [tools."http:concurrent"]
 version = "1.0"
 url = "http://127.0.0.1:$HTTP_PORT/$1"
 EOF
 }
 
-printf '[tools]\n' >mise.lock
-cp mise.lock expected.lock
+printf '[tools]\n' >pakro.lock
+cp pakro.lock expected.lock
 configure config
-assert_fail "mise lock --platform $MISE_PLATFORM"
-diff -u expected.lock mise.lock
-assert_contains "cat mise.toml" "concurrent config edit"
+assert_fail "pakro lock --platform $PAKRO_PLATFORM"
+diff -u expected.lock pakro.lock
+assert_contains "cat pakro.toml" "concurrent config edit"
 
 configure config
-if mise install >install.log 2>&1; then
+if pakro install >install.log 2>&1; then
   echo "install unexpectedly published after a concurrent config edit" >&2
   exit 1
 fi
 assert_contains "cat install.log" "changed during installation"
-diff -u expected.lock mise.lock
+diff -u expected.lock pakro.lock
 
 configure lock
-assert_fail "mise lock --platform $MISE_PLATFORM"
-assert_contains "cat mise.lock" "concurrent lock edit"
+assert_fail "pakro lock --platform $PAKRO_PLATFORM"
+assert_contains "cat pakro.lock" "concurrent lock edit"
 
-cp mise.lock expected.lock
+cp pakro.lock expected.lock
 configure cancel
-mise lock --platform "$MISE_PLATFORM" >cancel.log 2>&1 &
+pakro lock --platform "$PAKRO_PLATFORM" >cancel.log 2>&1 &
 LOCK_PID=$!
 for _ in {1..100}; do
   [[ -f started ]] && break
@@ -66,4 +66,4 @@ if wait "$LOCK_PID"; then
   echo "cancelled lock unexpectedly succeeded" >&2
   exit 1
 fi
-diff -u expected.lock mise.lock
+diff -u expected.lock pakro.lock

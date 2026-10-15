@@ -6,13 +6,13 @@ if [[ "$(uname -s)" != "Linux" ]]; then
   exit 0
 fi
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools]
 "github:Kampfkarren/selene" = { version = "0.30.0", asset_pattern = "selene-0.30.0-linux.zip", bin = "selene" }
 EOF
 
-mise install
+pakro install
 
-install_path="$(mise where github:Kampfkarren/selene)"
+install_path="$(pakro where github:Kampfkarren/selene)"
 assert_succeed "test -x '$install_path/selene'"
-assert_contains "mise x -- selene --version" "selene 0.30.0"
+assert_contains "pakro x -- selene --version" "selene 0.30.0"

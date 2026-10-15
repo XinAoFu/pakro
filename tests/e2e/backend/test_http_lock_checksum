@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Cross-platform `mise lock` for the http backend resolves published checksums
+# Cross-platform `pakro lock` for the http backend resolves published checksums
 # for platforms other than the host, without downloading artifacts. Covers the
 # SHASUMS form (matched by filename) and the individual checksum file form, with
 # os()/arch() in the url rendered per target platform.
@@ -48,7 +48,7 @@ EOF
 # Start a static file server on an ephemeral port
 start_http_server --dir "$SRV"
 
-cat >mise.toml <<EOF
+cat >pakro.toml <<EOF
 [tools."http:xplat-shasums"]
 version = "1.0.0"
 url = "http://127.0.0.1:${HTTP_PORT}/tool_{{ version }}_{{ os() }}.tar.gz"
@@ -70,25 +70,25 @@ url = "http://127.0.0.1:${HTTP_PORT}/mismatch_{{ version }}_{{ os() }}.tar.gz"
 checksum_url = "http://127.0.0.1:${HTTP_PORT}/mismatch_{{ version }}_SHASUMS"
 EOF
 
-mise lock --platform linux-x64,macos-x64
+pakro lock --platform linux-x64,macos-x64
 
 # sha512 SHASUMS: algorithm detected from the file name, labeled sha512:
-assert_contains "cat mise.lock" "sha512:${SHA512_LINUX}"
+assert_contains "cat pakro.lock" "sha512:${SHA512_LINUX}"
 
 # SHASUMS form: each target platform gets its own filename-matched checksum
-assert_contains "cat mise.lock" "sha256:${LINUX_SHA}"
-assert_contains "cat mise.lock" "sha256:${MACOS_SHA}"
+assert_contains "cat pakro.lock" "sha256:${LINUX_SHA}"
+assert_contains "cat pakro.lock" "sha256:${MACOS_SHA}"
 # url() is rendered per target platform, not the host
-assert_contains "cat mise.lock" "tool_1.0.0_linux.tar.gz"
-assert_contains "cat mise.lock" "tool_1.0.0_macos.tar.gz"
+assert_contains "cat pakro.lock" "tool_1.0.0_linux.tar.gz"
+assert_contains "cat pakro.lock" "tool_1.0.0_macos.tar.gz"
 
 # Individual checksum file form: raw-hash file resolved per platform
-assert_contains "cat mise.lock" "sha256:${FILE_LINUX_SHA}"
-assert_contains "cat mise.lock" "sha256:${FILE_MACOS_SHA}"
-assert_contains "cat mise.lock" "file_1.0.0_linux.tar.gz"
-assert_contains "cat mise.lock" "file_1.0.0_macos.tar.gz"
+assert_contains "cat pakro.lock" "sha256:${FILE_LINUX_SHA}"
+assert_contains "cat pakro.lock" "sha256:${FILE_MACOS_SHA}"
+assert_contains "cat pakro.lock" "file_1.0.0_linux.tar.gz"
+assert_contains "cat pakro.lock" "file_1.0.0_macos.tar.gz"
 
 # SHASUMS naming mismatch: a url-only entry is written, and the unrelated first
 # hash from the list is never locked as this artifact's checksum.
-assert_contains "cat mise.lock" "mismatch_1.0.0_linux.tar.gz"
-assert_not_contains "cat mise.lock" "$BOGUS_SHA"
+assert_contains "cat pakro.lock" "mismatch_1.0.0_linux.tar.gz"
+assert_not_contains "cat pakro.lock" "$BOGUS_SHA"

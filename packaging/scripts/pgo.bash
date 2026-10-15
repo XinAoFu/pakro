@@ -1,38 +1,38 @@
 #!/usr/bin/env bash
-# Profile-Guided Optimization build for mise.
+# Profile-Guided Optimization build for pakro.
 #
 # Three-phase rustc PGO flow, adapted from jdx/aube's benchmarks/pgo.bash:
 #
-#   1. Build mise with -Cprofile-generate (instrumented binary).
+#   1. Build pakro with -Cprofile-generate (instrumented binary).
 #   2. Train via packaging/scripts/train-startup.bash against a hermetic, offline
 #      workload covering the startup
 #      hot paths: settings/config load, toolset resolution, hook-env
 #      (both the full run and the per-prompt early-exit fast path),
 #      env rendering, task listing, and exec. No network, no registry —
-#      everything runs in a throwaway HOME with isolated MISE_*_DIR s.
+#      everything runs in a throwaway HOME with isolated PAKRO_*_DIR s.
 #   3. Merge .profraw via the rustup toolchain's llvm-profdata,
 #      recompile with -Cprofile-use.
 #
-# The startup path dominates every mise invocation (shell prompts via
+# The startup path dominates every pakro invocation (shell prompts via
 # hook-env, shims, version checks), so the training workload is biased
 # toward short-lived invocations rather than long installs.
 #
 # Env hooks (mirroring aube's CI contract):
-#   MISE_PGO_PROFILE=<profile>  cargo profile for both phases
+#   PAKRO_PGO_PROFILE=<profile>  cargo profile for both phases
 #                               (default: serious, matching release
 #                               tarballs).
-#   MISE_PGO_TARGET=<triple>    cross-compilation target (default:
+#   PAKRO_PGO_TARGET=<triple>    cross-compilation target (default:
 #                               host). The instrumented binary must be
 #                               runnable on THIS machine for training —
 #                               same-arch targets only.
-#   MISE_PGO_BUILD_TOOL=<tool>  `cargo` (default) or `cross`. cross is
+#   PAKRO_PGO_BUILD_TOOL=<tool>  `cargo` (default) or `cross`. cross is
 #                               used in CI for Linux targets so the
 #                               binary keeps cross's older glibc
 #                               baseline; the cross-built instrumented
 #                               binary still runs on the host for
 #                               training (older glibc is
 #                               forward-compatible).
-#   MISE_PGO_SKIP_FINAL_BUILD=1 stop after merging .profraw, for CI
+#   PAKRO_PGO_SKIP_FINAL_BUILD=1 stop after merging .profraw, for CI
 #                               setups that delegate the final build to
 #                               a separate step picking up RUSTFLAGS.
 #
@@ -49,9 +49,9 @@ PGO_DATA_DIR="$REPO_ROOT/target/pgo-data"
 PGO_PROFRAW_DIR="$PGO_DATA_DIR/profraw"
 PGO_MERGED="$PGO_DATA_DIR/merged.profdata"
 
-PGO_PROFILE="${MISE_PGO_PROFILE:-serious}"
-PGO_TARGET="${MISE_PGO_TARGET:-}"
-PGO_BUILD_TOOL="${MISE_PGO_BUILD_TOOL:-cargo}"
+PGO_PROFILE="${PAKRO_PGO_PROFILE:-serious}"
+PGO_TARGET="${PAKRO_PGO_TARGET:-}"
+PGO_BUILD_TOOL="${PAKRO_PGO_BUILD_TOOL:-cargo}"
 
 # target_arg stays unquoted at expansion sites: empty string disappears,
 # "--target=foo" expands to one arg. Avoids bash 3.2 (macOS) array+set -u
@@ -75,7 +75,7 @@ fi
 mkdir -p "$PGO_PROFRAW_DIR"
 rm -f "$PGO_PROFRAW_DIR"/*.profraw "$PGO_MERGED"
 
-# With MISE_PGO_BUILD_TOOL=cross, rustc runs inside a container that
+# With PAKRO_PGO_BUILD_TOOL=cross, rustc runs inside a container that
 # mounts the project at a container path, so when phase 3 reads
 # -Cprofile-use=<host-path> from RUSTFLAGS the file is invisible.
 # Bind-mount PGO_DATA_DIR at the same host path inside the container so
@@ -103,9 +103,9 @@ fi
 echo ">>> [1/3] Building instrumented binary ($PGO_BUILD_TOOL, profile=$PGO_PROFILE${PGO_TARGET:+, target=$PGO_TARGET})"
 # shellcheck disable=SC2086 # intentional word-splitting on $target_arg
 RUSTFLAGS="${RUSTFLAGS:-} -Cprofile-generate=$PGO_PROFRAW_DIR" \
-	"$PGO_BUILD_TOOL" build --profile="$PGO_PROFILE" $target_arg --bin mise "$@"
+	"$PGO_BUILD_TOOL" build --profile="$PGO_PROFILE" $target_arg --bin pakro "$@"
 
-INSTRUMENTED_BIN="$REPO_ROOT/target/${target_dir_part}${PGO_PROFILE}/mise"
+INSTRUMENTED_BIN="$REPO_ROOT/target/${target_dir_part}${PGO_PROFILE}/pakro"
 if [ ! -x "$INSTRUMENTED_BIN" ]; then
 	echo "ERROR: instrumented binary missing at $INSTRUMENTED_BIN" >&2
 	exit 1
@@ -117,7 +117,7 @@ echo ">>> [2/3] Training against hermetic offline workload"
 # regardless of what -Cprofile-generate=<dir> baked in at compile time
 # (with cross, the compile-time path is a container path that doesn't
 # resolve on the host). %m disambiguates per module; %p per process.
-export LLVM_PROFILE_FILE="$PGO_PROFRAW_DIR/mise-%m-%p.profraw"
+export LLVM_PROFILE_FILE="$PGO_PROFRAW_DIR/pakro-%m-%p.profraw"
 bash "$SCRIPT_DIR/train-startup.bash" "$INSTRUMENTED_BIN"
 unset LLVM_PROFILE_FILE
 
@@ -145,8 +145,8 @@ if [ ! -f "$PGO_MERGED" ]; then
 fi
 echo ">>> merged profile written: $(stat -c %s "$PGO_MERGED" 2>/dev/null || stat -f %z "$PGO_MERGED") bytes"
 
-if [ -n "${MISE_PGO_SKIP_FINAL_BUILD:-}" ]; then
-	echo ">>> Skipping final optimized build (MISE_PGO_SKIP_FINAL_BUILD=1)"
+if [ -n "${PAKRO_PGO_SKIP_FINAL_BUILD:-}" ]; then
+	echo ">>> Skipping final optimized build (PAKRO_PGO_SKIP_FINAL_BUILD=1)"
 	echo ">>> Profile ready at: $PGO_MERGED"
 	exit 0
 fi
@@ -158,7 +158,7 @@ echo ">>> Rebuilding with -Cprofile-use"
 # a note per uncovered symbol. Uncovered functions compile normally,
 # just without PGO data.
 bolt_rustflags=""
-if [ -n "${MISE_BOLT:-}" ]; then
+if [ -n "${PAKRO_BOLT:-}" ]; then
 	# BOLT needs text relocations to safely reorder whole functions. Only the
 	# final binary needs them; keeping them out of the instrumented link saves
 	# memory and disk during phase 1.
@@ -166,7 +166,7 @@ if [ -n "${MISE_BOLT:-}" ]; then
 fi
 # shellcheck disable=SC2086 # intentional word-splitting on $target_arg
 RUSTFLAGS="${RUSTFLAGS:-} -Cprofile-use=$PGO_MERGED -Cllvm-args=-pgo-warn-missing-function=false $bolt_rustflags" \
-	"$PGO_BUILD_TOOL" build --profile="$PGO_PROFILE" $target_arg --bin mise "$@"
+	"$PGO_BUILD_TOOL" build --profile="$PGO_PROFILE" $target_arg --bin pakro "$@"
 
 # Phase 3b wrote to the same path as phase 1, so the file at
 # $INSTRUMENTED_BIN is now the PGO-optimized build, not the instrumented

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
-export MISE_LOCKFILE=1
+export PAKRO_LOCKFILE=1
 
 detect_platform
-PLATFORM="$MISE_PLATFORM"
+PLATFORM="$PAKRO_PLATFORM"
 
 # Test: upgrading a github backend tool from a version with provenance to one without
 # should error about potential supply chain attack.
@@ -13,26 +13,26 @@ PLATFORM="$MISE_PLATFORM"
 
 # Use a github backend tool (usage) that does NOT have attestations.
 # First, lock an older version and inject provenance to simulate a prior verified install.
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools]
 "github:jdx/usage" = "1.5.0"
 EOF
 
-mise lock --platform "$PLATFORM"
-assert "test -f mise.lock"
+pakro lock --platform "$PLATFORM"
+assert "test -f pakro.lock"
 
 # Inject provenance into the old version's lockfile entry
 awk -v platform="$PLATFORM" '
     { print }
     index($0, "platforms." platform) > 0 { print "provenance = \"github-attestations\"" }
-' mise.lock >mise.lock.tmp && mv mise.lock.tmp mise.lock
-assert_contains "cat mise.lock" 'provenance = "github-attestations"'
+' pakro.lock >pakro.lock.tmp && mv pakro.lock.tmp pakro.lock
+assert_contains "cat pakro.lock" 'provenance = "github-attestations"'
 
-# Now upgrade to a newer version — mise lock should fail because provenance was lost.
+# Now upgrade to a newer version — pakro lock should fail because provenance was lost.
 # The error should mention the prior version that had provenance.
-cat <<EOF >mise.toml
+cat <<EOF >pakro.toml
 [tools]
 "github:jdx/usage" = "1.6.0"
 EOF
 
-assert_fail_contains "mise lock --platform \"$PLATFORM\" 2>&1" "supply chain"
+assert_fail_contains "pakro lock --platform \"$PLATFORM\" 2>&1" "supply chain"

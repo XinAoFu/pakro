@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use crate::system::history::tracked::{global_config_dir, normalize};
 
-pub(crate) const MARKER_PATH: &str = ".mise-history/format.toml";
+pub(crate) const MARKER_PATH: &str = ".pakro-history/format.toml";
 
 #[derive(Clone, Debug)]
 pub struct Roots {
@@ -56,7 +56,7 @@ impl Roots {
         if !is_safe_branch_path(branch_path) {
             return Located::Unmapped;
         }
-        if branch_path.starts_with(".mise-history/") {
+        if branch_path.starts_with(".pakro-history/") {
             return Located::Marker;
         }
         let (stem, relative) = branch_path.split_once('/').unwrap_or((branch_path, ""));
@@ -130,7 +130,7 @@ mod tests {
     fn roots() -> Roots {
         Roots {
             home: "/home/u".into(),
-            config_dir: "/config/mise".into(),
+            config_dir: "/config/pakro".into(),
         }
     }
 
@@ -142,7 +142,7 @@ mod tests {
             Some("home/templates/gitconfig.tera".into())
         );
         assert_eq!(
-            roots.branch_path(Path::new("/config/mise/config.toml"), None),
+            roots.branch_path(Path::new("/config/pakro/config.toml"), None),
             Some("config/config.toml".into())
         );
         assert_eq!(roots.branch_path(Path::new("/etc/passwd"), None), None);
@@ -153,8 +153,8 @@ mod tests {
         let roots = roots();
         for (local, variant) in [
             ("/home/u/.zshrc", Some("macos")),
-            ("/config/mise/config.toml", None),
-            ("/config/mise", None),
+            ("/config/pakro/config.toml", None),
+            ("/config/pakro", None),
         ] {
             let path = roots.branch_path(Path::new(local), variant).unwrap();
             assert_eq!(roots.locate(&path).path(), Some(Path::new(local)));

@@ -92,7 +92,7 @@ impl Toolset {
             .collect()
     }
 
-    /// same as list_paths but includes config.list_paths, venv paths, and MISE_ADD_PATHs from self.env()
+    /// same as list_paths but includes config.list_paths, venv paths, and PAKRO_ADD_PATHs from self.env()
     pub async fn list_final_paths(
         &self,
         config: &Arc<Config>,
@@ -118,7 +118,7 @@ impl Toolset {
             paths.push(bin);
         }
 
-        // 4. tool_add_paths (MISE_ADD_PATH from tools)
+        // 4. tool_add_paths (PAKRO_ADD_PATH from tools)
         paths.extend(env_results.tool_add_paths);
 
         // 5. Tool paths
@@ -161,7 +161,7 @@ impl Toolset {
             tool_paths.push(bin);
         }
 
-        // tool_add_paths (MISE_ADD_PATH from tools)
+        // tool_add_paths (PAKRO_ADD_PATH from tools)
         tool_paths.extend(env_results.tool_add_paths);
 
         // Tool installation paths

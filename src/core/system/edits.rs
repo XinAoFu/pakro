@@ -1,21 +1,21 @@
-//! `[dotfiles]` — declarative edits to files mise doesn't own,
-//! applied by `mise dot apply` or `mise bootstrap`, and
-//! removed by `mise dot unapply`.
+//! `[dotfiles]` — declarative edits to files pakro doesn't own,
+//! applied by `pakro dot apply` or `pakro bootstrap`, and
+//! removed by `pakro dot unapply`.
 //!
 //! Where whole-file dotfile entries manage whole files, an edit owns one small piece
-//! of a file something else owns — the `mise activate` line in a shell rc,
+//! of a file something else owns — the `pakro activate` line in a shell rc,
 //! an entry in /etc/hosts. Entries are keyed by target path plus an id naming
 //! each edit within the file:
 //!
 //! ```toml
 //! [dotfiles]
-//! "~/.zshrc/activate" = { block = 'eval "$(mise activate zsh)"' }
+//! "~/.zshrc/activate" = { block = 'eval "$(pakro activate zsh)"' }
 //! "~/.zshrc/aliases" = { source = "snippets/aliases.sh", template = "tera" }
 //! "/etc/hosts/dev" = { line = "127.0.0.1 dev.local" }
 //! ```
 //!
 //! A `block` is delimited by marker comments in the target file —
-//! `# >>> mise:activate >>>` / `# <<< mise:activate <<<` — which double as
+//! `# >>> pakro:activate >>>` / `# <<< pakro:activate <<<` — which double as
 //! the ownership record: apply replaces only what's between them, so the
 //! design stays stateless like the rest of `[dotfiles]`. A `line` ensures an
 //! exact line exists, appending it if absent by default or prepending it when
@@ -39,13 +39,13 @@ use crate::system::history::journal::{self, Capture};
 use crate::system::resources::ResourceOrigin;
 use crate::ui::prompt;
 
-/// one `[dotfiles]` edit entry as written in mise.toml. Operations stay loosely typed so configs using operations
-/// from newer mise versions still parse (entries with no recognized
+/// one `[dotfiles]` edit entry as written in pakro.toml. Operations stay loosely typed so configs using operations
+/// from newer pakro versions still parse (entries with no recognized
 /// operation warn and are skipped)
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub(crate) enum EditTomlEntry {
-    /// `activate = 'eval "$(mise activate zsh)"'` — inline block content
+    /// `activate = 'eval "$(pakro activate zsh)"'` — inline block content
     Block(String),
     /// `aliases = { source = "...", template = "tera" }` /
     /// `dev = { line = "..." }`
@@ -61,7 +61,7 @@ pub(crate) struct EditTomlTable {
     #[serde(default)]
     pub source: Option<String>,
     /// template engine to render the block content with; currently only
-    /// `"tera"` (string-typed so engines from newer mise versions warn and
+    /// `"tera"` (string-typed so engines from newer pakro versions warn and
     /// skip instead of failing to parse)
     #[serde(default)]
     pub template: Option<String>,
@@ -417,17 +417,17 @@ fn infer_comment(path: &Path) -> &'static str {
 }
 
 fn begin_marker(comment: &str, id: &str) -> String {
-    format!("{comment} >>> mise:{id} >>> managed by mise — do not edit between markers")
+    format!("{comment} >>> pakro:{id} >>> managed by pakro — do not edit between markers")
 }
 
 fn end_marker(comment: &str, id: &str) -> String {
-    format!("{comment} <<< mise:{id} <<<")
+    format!("{comment} <<< pakro:{id} <<<")
 }
 
 /// a line is a marker only when the pattern sits at the start of the line,
 /// preceded by either the configured comment token or at most a short
 /// generic one (`# `, `// `, `-- `, `<!-- `) — content that merely
-/// *mentions* a marker (`echo ">>> mise:x >>>"`, docs) must not count as one
+/// *mentions* a marker (`echo ">>> pakro:x >>>"`, docs) must not count as one
 fn is_marker_line(line: &str, pat: &str, comment: &str) -> bool {
     let trimmed = line.trim_start();
     match trimmed.find(pat) {
@@ -448,8 +448,8 @@ fn find_block(
     id: &str,
     comment: &str,
 ) -> std::result::Result<Option<(usize, usize)>, String> {
-    let begin_pat = format!(">>> mise:{id} >>>");
-    let end_pat = format!("<<< mise:{id} <<<");
+    let begin_pat = format!(">>> pakro:{id} >>>");
+    let end_pat = format!("<<< pakro:{id} <<<");
     let begins: Vec<usize> = lines
         .iter()
         .enumerate()
@@ -508,7 +508,7 @@ fn desired_content(config: &Config, req: &EditRequest) -> Result<Option<String>>
     let content = content.trim_end_matches('\n').to_string();
     // a block containing its own marker lines would write a file that can't
     // be parsed back — refuse up front instead of corrupting on reapply
-    for pat in [format!(">>> mise:{id} >>>"), format!("<<< mise:{id} <<<")] {
+    for pat in [format!(">>> pakro:{id} >>>"), format!("<<< pakro:{id} <<<")] {
         if content.lines().any(|l| is_marker_line(l, &pat, comment)) {
             bail!(
                 "[dotfiles].\"{}/{}\": block content may not contain its own marker lines",
@@ -524,7 +524,7 @@ fn desired_content(config: &Config, req: &EditRequest) -> Result<Option<String>>
 ///
 /// Note: comparing a template block against existing markers requires
 /// rendering it, so this can run the template engine — including `exec()` —
-/// from `mise dot status`. That's the same trust model as `[env]`
+/// from `pakro dot status`. That's the same trust model as `[env]`
 /// templates. Rendering only happens once every render-free outcome (symlink
 /// target, missing file, absent or corrupted markers) has been ruled out,
 /// and `--dry-run` skips template rendering entirely (see [`apply`]).
@@ -549,7 +549,7 @@ pub fn check(config: &Config, req: &EditRequest) -> Result<FileState> {
 
 const SYMLINK_REASON: &str = "target is a symlink; edit the real file instead";
 
-/// outcome of inspecting one edit: an ordinary state, or a condition mise
+/// outcome of inspecting one edit: an ordinary state, or a condition pakro
 /// refuses to apply automatically (corrupted markers, symlink target)
 enum EditCheck {
     State(FileState),
@@ -733,13 +733,13 @@ pub fn apply(
             let conditional =
                 desired.is_none() && matches!(&req.op, EditOp::Block { template: true, .. });
             let suffix = if conditional { " (if changed)" } else { "" };
-            miseprintln!(
+            pakroprintln!(
                 "edit {} ({}){suffix}",
                 req.path.display_user(),
                 req.describe_op()
             );
             if opts.verbose && !conditional {
-                miseprintln!("  desired {}", req.describe_op());
+                pakroprintln!("  desired {}", req.describe_op());
             }
         }
         return Ok(true);
@@ -782,7 +782,7 @@ pub fn print_diffs(config: &Config, requests: &[EditRequest]) -> Result<()> {
         } = &req.op
             && !path.exists()
         {
-            miseprintln!(
+            pakroprintln!(
                 "{} ({}): source missing: {}",
                 req.path.display_user(),
                 req.describe_op(),
@@ -864,7 +864,7 @@ pub fn print_diffs(config: &Config, requests: &[EditRequest]) -> Result<()> {
             continue;
         }
         changed = true;
-        miseprintln!(
+        pakroprintln!(
             "edit differs: {} ({})",
             req.path.display_user(),
             req.describe_op()
@@ -877,7 +877,7 @@ pub fn print_diffs(config: &Config, requests: &[EditRequest]) -> Result<()> {
                 req.describe_op()
             ));
         let patch = opts.create_patch(&current, &output);
-        miseprint!("{}", diffy::PatchFormatter::new().fmt_patch(&patch))?;
+        pakroprint!("{}", diffy::PatchFormatter::new().fmt_patch(&patch))?;
     }
     if !problems.is_empty() {
         bail!(
@@ -1024,13 +1024,13 @@ pub fn execute_unapply(todo: &[UnapplyPlan<'_>], opts: &UnapplyOpts) -> Result<(
     }
     if opts.dry_run {
         for plan in todo {
-            miseprintln!(
+            pakroprintln!(
                 "remove edit {} ({})",
                 plan.req.path.display_user(),
                 plan.req.describe_op()
             );
             if opts.verbose {
-                miseprintln!("  preserve all content outside the managed edit");
+                pakroprintln!("  preserve all content outside the managed edit");
             }
         }
         return Ok(());
@@ -1086,7 +1086,7 @@ fn unapply_one(req: &EditRequest) -> Result<()> {
         }
         EditOp::Line { line, position } => {
             // Use the occurrence nearest the configured insertion edge as the
-            // best stateless approximation of the line mise added.
+            // best stateless approximation of the line pakro added.
             let found = match position {
                 LinePosition::Prepend => lines.iter().find(|candidate| candidate.content == line),
                 LinePosition::Append => lines.iter().rfind(|candidate| candidate.content == line),
@@ -1271,13 +1271,13 @@ mod tests {
             path: path.clone(),
             id: "activate".into(),
             op: EditOp::Line {
-                line: "eval \"$(mise activate zsh)\"".into(),
+                line: "eval \"$(pakro activate zsh)\"".into(),
                 position: LinePosition::Append,
             },
             base: dir.path().to_path_buf(),
-            config_path: dir.path().join("mise.toml"),
+            config_path: dir.path().join("pakro.toml"),
             origin: ResourceOrigin {
-                config: dir.path().join("mise.toml"),
+                config: dir.path().join("pakro.toml"),
                 config_root: dir.path().to_path_buf(),
                 environment: vec![],
                 source: None,
@@ -1288,7 +1288,7 @@ mod tests {
         let mut written = vec![];
         apply_one(&req, None, &mut written)?;
         assert_eq!(written, vec![path.clone()]);
-        assert!(file::read_to_string(&path)?.contains("mise activate"));
+        assert!(file::read_to_string(&path)?.contains("pakro activate"));
 
         // a read-only file cannot be opened for truncation: nothing changes
         // and nothing is recorded (root can open it regardless, so the case
@@ -1318,35 +1318,35 @@ mod tests {
     fn test_find_block() {
         let lines = vec![
             "before",
-            "# >>> mise:a >>> managed by mise",
+            "# >>> pakro:a >>> managed by pakro",
             "content",
-            "# <<< mise:a <<<",
+            "# <<< pakro:a <<<",
             "after",
         ];
         assert_eq!(find_block(&lines, "a", "#"), Ok(Some((1, 3))));
         assert_eq!(find_block(&lines, "b", "#"), Ok(None));
         // ids are delimited — "a" must not match "ab"
-        let lines = vec!["# >>> mise:ab >>>", "# <<< mise:ab <<<"];
+        let lines = vec!["# >>> pakro:ab >>>", "# <<< pakro:ab <<<"];
         assert_eq!(find_block(&lines, "a", "#"), Ok(None));
         // content that mentions a marker mid-line is not a marker
         let lines = vec![
-            "# >>> mise:a >>>",
-            r#"echo "keep the >>> mise:a >>> line intact""#,
-            "# <<< mise:a <<<",
+            "# >>> pakro:a >>>",
+            r#"echo "keep the >>> pakro:a >>> line intact""#,
+            "# <<< pakro:a <<<",
         ];
         assert_eq!(find_block(&lines, "a", "#"), Ok(Some((0, 2))));
         // ...but indented comment markers still count
-        let lines = vec!["  # >>> mise:a >>>", "  # <<< mise:a <<<"];
+        let lines = vec!["  # >>> pakro:a >>>", "  # <<< pakro:a <<<"];
         assert_eq!(find_block(&lines, "a", "#"), Ok(Some((0, 1))));
-        let lines = vec!["<!-- >>> mise:a >>>", "<!-- <<< mise:a <<<"];
+        let lines = vec!["<!-- >>> pakro:a >>>", "<!-- <<< pakro:a <<<"];
         assert_eq!(find_block(&lines, "a", "#"), Ok(Some((0, 1))));
-        let lines = vec!["# >>> mise:a >>>"];
+        let lines = vec!["# >>> pakro:a >>>"];
         assert!(find_block(&lines, "a", "#").is_err());
-        let lines = vec!["# <<< mise:a <<<", "# >>> mise:a >>>"];
+        let lines = vec!["# <<< pakro:a <<<", "# >>> pakro:a >>>"];
         assert!(find_block(&lines, "a", "#").is_err());
         // an exotic configured comment token (alphanumeric, like batch REM)
         // is always recognized, so written markers can be found again
-        let lines = vec!["REM >>> mise:a >>>", "REM <<< mise:a <<<"];
+        let lines = vec!["REM >>> pakro:a >>>", "REM <<< pakro:a <<<"];
         assert_eq!(find_block(&lines, "a", "REM"), Ok(Some((0, 1))));
         assert_eq!(find_block(&lines, "a", "#"), Ok(None));
     }

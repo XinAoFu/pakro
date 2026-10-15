@@ -1,4 +1,4 @@
-//! Shared helpers for `mise oci` subcommands.
+//! Shared helpers for `pakro oci` subcommands.
 
 use std::path::{Path, PathBuf};
 
@@ -11,14 +11,14 @@ use crate::toolset::{ConfigScope, ToolsetBuilder};
 
 /// Resolve the CLI binary for embedding while keeping image builds usable if
 /// the executable path is unavailable (for example, without /proc on Linux).
-pub(super) fn mise_binary_path(no_mise: bool) -> Option<PathBuf> {
-    if no_mise {
+pub(super) fn pakro_binary_path(no_pakro: bool) -> Option<PathBuf> {
+    if no_pakro {
         return None;
     }
     match std::env::current_exe() {
         Ok(path) => Some(path),
         Err(err) => {
-            warn!("could not locate mise binary to embed in image: {err}");
+            warn!("could not locate pakro binary to embed in image: {err}");
             None
         }
     }
@@ -64,15 +64,15 @@ pub(super) fn merged_oci_config(config: &Config) -> OciConfig {
 }
 
 /// Load config + toolset, merge the `[oci]` section, and build the image.
-/// Used by `mise oci build`, `mise oci run`, and `mise oci push`.
+/// Used by `pakro oci build`, `pakro oci run`, and `pakro oci push`.
 ///
 /// By default both the toolset and the `[oci]` section are scoped to configs
 /// at-or-below the project root — i.e. the user's global config, system
-/// config, and parent-directory configs above the project (e.g. a `~/mise.toml`
-/// setting personal Node defaults) are excluded. Rationale: `mise oci build`
+/// config, and parent-directory configs above the project (e.g. a `~/pakro.toml`
+/// setting personal Node defaults) are excluded. Rationale: `pakro oci build`
 /// is conceptually "package *this project's* tools into a deployable image" —
 /// personal dev tools (neovim, ripgrep, …) sitting in
-/// `~/.config/mise/config.toml` have no business in a project image, and
+/// `~/.config/pakro/config.toml` have no business in a project image, and
 /// some of them (asdf plugins) would in fact be rejected by the builder.
 /// See discussion #9690.
 ///
@@ -108,7 +108,7 @@ pub(super) async fn perform_build(opts: BuildOptions, include_global: bool) -> R
 ///
 /// `cf.project_root().is_some()` is the right scope: it's None for the global
 /// config, the system config, and parent-dir configs that live directly under
-/// $HOME (e.g. `~/mise.toml` someone uses to set their default Node). It's
+/// $HOME (e.g. `~/pakro.toml` someone uses to set their default Node). It's
 /// Some for any project config, including those walked up from CWD into a
 /// monorepo root — which we *do* want included (sub-project + monorepo root
 /// share the toolset of the deployable).
@@ -121,8 +121,8 @@ fn project_config_files(config: &Config) -> Result<ConfigMap> {
         .collect();
     if project_files.is_empty() {
         bail!(
-            "mise oci: no project mise config found in the current directory or any parent. \
-             Add a `mise.toml` to the project, or pass `--include-global` to use tools and \
+            "pakro oci: no project pakro config found in the current directory or any parent. \
+             Add a `pakro.toml` to the project, or pass `--include-global` to use tools and \
              [oci] settings from your global config (note: asdf plugins remain \
              unsupported)."
         );
@@ -135,7 +135,7 @@ async fn build_project_toolset(
     project_files: ConfigMap,
 ) -> Result<crate::toolset::Toolset> {
     // ConfigScope::LocalOnly belt-and-suspenders: the project-files filter
-    // already drops global/system, but LocalOnly *also* drops MISE_*_VERSION
+    // already drops global/system, but LocalOnly *also* drops PAKRO_*_VERSION
     // ad-hoc overrides from the environment, which shouldn't bake into an
     // image either.
     ToolsetBuilder::new()
@@ -156,7 +156,7 @@ fn reject_unsupported_system_defaults(config_files: &ConfigMap) -> Result<()> {
 
     if defaults > 0 {
         bail!(
-            "mise oci does not support [bootstrap.macos.*] defaults (found {defaults} default entries); \
+            "pakro oci does not support [bootstrap.macos.*] defaults (found {defaults} default entries); \
              macOS defaults do not apply to OCI images."
         );
     }
