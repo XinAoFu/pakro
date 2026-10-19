@@ -16,8 +16,7 @@ fn f3_verified_content_is_shared() {
     let artifact = crate::artifact_snapshot::spool_verified_reader(
         bytes.as_slice(),
         "demo-1.0-py3-none-any.whl",
-        &pakro_store::Digest::from_sha256_bytes(&bytes),
-        1024 * 1024,
+        pakro_store::Digest::from_sha256_bytes(&bytes),        1024 * 1024,
         context.requested_cache_root(),
     )
     .unwrap();
