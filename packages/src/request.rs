@@ -170,6 +170,27 @@ pub fn requests_from_config(
     Ok(out)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BarePackageBindingError {
+    MissingRuntime,
+    AmbiguousRuntime { candidate_count: usize },
+}
+
+/// Choose among already-classified package-capable candidates without IO.
+/// Both the legacy argument adapter and the program request boundary use this
+/// rule; installed-path and lock-owner validation belongs to the later binder.
+pub(crate) fn select_bare_package_runtime<T>(
+    runtimes: &[T],
+) -> Result<&T, BarePackageBindingError> {
+    match runtimes {
+        [] => Err(BarePackageBindingError::MissingRuntime),
+        [runtime] => Ok(runtime),
+        many => Err(BarePackageBindingError::AmbiguousRuntime {
+            candidate_count: many.len(),
+        }),
+    }
+}
+
 /// Splits CLI tool arguments into real tools and bare package pins. An
 /// argument naming something pakro cannot resolve as a backend is a package
 /// candidate; it binds to the single package-capable runtime
@@ -192,20 +213,21 @@ pub fn split_bare_packages(
             kept.push(tool);
             continue;
         };
-        match runtimes {
-            [] => {
+        match select_bare_package_runtime(runtimes) {
+            Err(BarePackageBindingError::MissingRuntime) => {
                 return Err(format!(
                     "{:?} looks like a package but no package-capable runtime (python/node) is declared; run e.g. `pakro use python@3.10.14` first",
                     tool.ba.short
                 ));
             }
-            [(name, version)] => pins.push(PackageInstallRequest {
+            Ok((name, version)) => pins.push(PackageInstallRequest {
                 runtime_name: name.clone(),
                 runtime_version: version.clone(),
                 name: tool.ba.short.clone(),
                 version: request.version().to_string(),
             }),
-            many => {
+            Err(BarePackageBindingError::AmbiguousRuntime { .. }) => {
+                let many = runtimes;
                 return Err(format!(
                     "{:?} is ambiguous between multiple runtimes ({}); use the bound syntax like `{}@{}+{}@{}`",
                     tool.ba.short,

@@ -1,0 +1,139 @@
+//! Actual project/file-index adapter for the pure active-policy query.
+
+use super::*;
+use crate::packages::python_resolution::candidate_policy::{
+    ActiveCandidateAssessment, ActiveCandidateContext, CandidateKnowledge, CandidatePolicyError,
+    CandidatePolicyUsage, PolicyNotice, assess_active_candidate,
+};
+use pakro_resolver::python_native::policy::{
+    ActiveCandidatePolicy, ActivePolicyDecision, ActivePolicyError, ActivePolicyQuery,
+};
+use std::cell::RefCell;
+
+pub(super) struct RegistryActivePolicy<'a, 'root, 'config> {
+    pub depot: &'a ResolveRegistryDepot<'root, 'config>,
+    pub usage: &'a RefCell<CandidatePolicyUsage>,
+    pub notices: &'a RefCell<BTreeMap<CandidateKey, Vec<PolicyNotice>>>,
+}
+fn invalid(_: RegistryDepotError) -> ActivePolicyError {
+    ActivePolicyError::InvalidInput
+}
+impl ActiveCandidatePolicy for RegistryActivePolicy<'_, '_, '_> {
+    fn evaluate(
+        &self,
+        query: ActivePolicyQuery<'_>,
+    ) -> Result<ActivePolicyDecision, ActivePolicyError> {
+        self.depot.check_live().map_err(invalid)?;
+        let entry = self
+            .depot
+            .projects
+            .get(query.name)
+            .ok_or(ActivePolicyError::InvalidInput)?;
+        let project = entry
+            .owner
+            .as_ref()
+            .ok_or(ActivePolicyError::InvalidInput)?;
+        if query.candidates.len() != entry.candidates.len() {
+            return Err(ActivePolicyError::InvalidInput);
+        }
+        if project.data.project.files().len() > self.depot.context.limits.candidates.max_files {
+            return Err(ActivePolicyError::Limit);
+        }
+        let mut knowledge = Vec::new();
+        knowledge
+            .try_reserve_exact(project.data.project.files().len())
+            .map_err(|_| ActivePolicyError::Limit)?;
+        knowledge.resize(
+            project.data.project.files().len(),
+            CandidateKnowledge::Unknown,
+        );
+        let mut selected = None;
+        for (view, actual) in query.candidates.iter().zip(&entry.candidates) {
+            if !std::ptr::eq(view.candidate, actual) {
+                return Err(ActivePolicyError::InvalidInput);
+            }
+            let file = self
+                .depot
+                .files
+                .get(&actual.key)
+                .filter(|file| file.project == query.name)
+                .ok_or(ActivePolicyError::InvalidInput)?;
+            if file.file_index >= knowledge.len() {
+                return Err(ActivePolicyError::InvalidInput);
+            }
+            let expected = self
+                .depot
+                .metadata
+                .get(&actual.key)
+                .map(|entry| &entry.input);
+            let value = match (view.metadata, expected) {
+                (None, None) => CandidateKnowledge::Unknown,
+                (Some(observed), Some(actual)) if std::ptr::eq(observed, actual) => {
+                    if actual.rejection.is_some() {
+                        CandidateKnowledge::Incompatible
+                    } else {
+                        CandidateKnowledge::Compatible
+                    }
+                }
+                _ => return Err(ActivePolicyError::InvalidInput),
+            };
+            knowledge[file.file_index] = value;
+            if actual.key == query.selected {
+                selected = Some(file.file_index);
+            }
+        }
+        let selected = selected.ok_or(ActivePolicyError::InvalidInput)?;
+        let python = checked_metadata_context(
+            self.depot.environment.view(),
+            self.depot.context.limits.markers,
+        )
+        .map_err(|_| ActivePolicyError::InvalidInput)?;
+        let mut constraints = Vec::new();
+        if query.constraints.len() > self.depot.context.limits.candidates.max_constraints {
+            return Err(ActivePolicyError::Limit);
+        }
+        constraints
+            .try_reserve_exact(query.constraints.len())
+            .map_err(|_| ActivePolicyError::Limit)?;
+        constraints.extend(query.constraints.iter().map(|constraint| constraint.raw));
+        let assessment = assess_active_candidate(
+            ActiveCandidateContext {
+                project: &project.data.project,
+                supported: self.depot.context.supported,
+                python: &python,
+                policy: self.depot.context.candidate_policy,
+                limits: self.depot.context.limits.candidates,
+            },
+            selected,
+            &constraints,
+            &knowledge,
+            &mut self.usage.borrow_mut(),
+        )
+        .map_err(|error| match error {
+            CandidatePolicyError::Limit => ActivePolicyError::Limit,
+            _ => ActivePolicyError::InvalidInput,
+        })?;
+        self.depot.check_live().map_err(invalid)?;
+        match assessment {
+            ActiveCandidateAssessment::Eligible(notices) => {
+                self.notices.borrow_mut().insert(query.selected, notices);
+                Ok(ActivePolicyDecision::Allow)
+            }
+            ActiveCandidateAssessment::Reject => Ok(ActivePolicyDecision::Reject),
+            ActiveCandidateAssessment::NeedMetadata(index) => {
+                let unknown =
+                    query
+                        .candidates
+                        .iter()
+                        .find(|candidate| {
+                            candidate.metadata.is_none()
+                                && self.depot.files.get(&candidate.candidate.key).is_some_and(
+                                    |file| file.project == query.name && file.file_index == index,
+                                )
+                        })
+                        .ok_or(ActivePolicyError::InvalidInput)?;
+                Ok(ActivePolicyDecision::NeedMetadata(unknown.candidate.key))
+            }
+        }
+    }
+}

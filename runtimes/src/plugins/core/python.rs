@@ -1,3 +1,194 @@
+pub(crate) mod native;
+
+#[cfg(unix)]
+struct NativeArtifactRead {
+    input: std::fs::File,
+    context: crate::programs::OperationContext,
+}
+#[cfg(unix)]
+impl std::io::Read for NativeArtifactRead {
+    fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+        self.context
+            .checkpoint()
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
+        let count = std::io::Read::read(&mut self.input, bytes)?;
+        self.context
+            .checkpoint()
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
+        Ok(count)
+    }
+}
+
+#[cfg(unix)]
+fn spool_native_archive(
+    archive: &mut tempfile::NamedTempFile,
+    source: &pakro_index::artifact::SourceArtifact,
+    context: &crate::programs::OperationContext,
+) -> Result<crate::artifact_snapshot::VerifiedArtifact> {
+    use std::io::Seek;
+    use std::os::unix::fs::MetadataExt;
+    let preserve_changed_name = |archive: &mut tempfile::NamedTempFile| {
+        let matches = archive
+            .as_file()
+            .metadata()
+            .ok()
+            .zip(std::fs::symlink_metadata(archive.path()).ok())
+            .is_some_and(|(held, named)| {
+                named.is_file() && (held.dev(), held.ino()) == (named.dev(), named.ino())
+            });
+        if !matches {
+            archive.disable_cleanup(true);
+        }
+    };
+    preserve_changed_name(archive);
+    let result = (|| {
+        context.checkpoint()?;
+        let mut input = archive.as_file().try_clone()?;
+        input.rewind()?;
+        let reader = NativeArtifactRead {
+            input,
+            context: context.clone(),
+        };
+        crate::artifact_snapshot::spool_verified_reader(
+            reader,
+            source.filename(),
+            source.digest(),
+            4 * 1024 * 1024 * 1024,
+            context.requested_cache_root(),
+        )
+    })();
+    preserve_changed_name(archive);
+    result
+}
+
+#[cfg(unix)]
+fn native_artifact_sha256(
+    artifact: &mut crate::artifact_snapshot::VerifiedArtifact,
+    context: &crate::programs::OperationContext,
+) -> Result<[u8; 32]> {
+    use sha2::{Digest as _, Sha256};
+    use std::io::{Read, Seek};
+    context.checkpoint()?;
+    eyre::ensure!(
+        artifact.size() <= 4 * 1024 * 1024 * 1024,
+        "native provenance artifact exceeds byte budget"
+    );
+    artifact.rewind()?;
+    let mut hash = Sha256::new();
+    let mut observed = 0u64;
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        context.checkpoint()?;
+        let count = artifact.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        observed = observed
+            .checked_add(count as u64)
+            .filter(|count| *count <= artifact.size())
+            .ok_or_else(|| eyre!("native provenance artifact length changed"))?;
+        hash.update(&buffer[..count]);
+    }
+    eyre::ensure!(
+        observed == artifact.size(),
+        "native provenance artifact is truncated"
+    );
+    artifact.rewind()?;
+    context.checkpoint()?;
+    Ok(hash.finalize().into())
+}
+
+#[cfg(unix)]
+fn publish_native_compatibility(
+    lease: &crate::libraries::language::lease::LanguageLease,
+    path: &Path,
+    context: &crate::programs::OperationContext,
+) -> Result<()> {
+    use nix::fcntl::{AtFlags, readlinkat};
+    use nix::sys::stat::{SFlag, fstatat};
+    use pakro_store::control::{FileIdentity, open_trusted_store_with_deadline};
+    use std::os::unix::fs::MetadataExt;
+    context.checkpoint()?;
+    eyre::ensure!(
+        context.policy().writes.libraries,
+        "native compatibility publication is not authorized"
+    );
+    eyre::ensure!(
+        path.is_absolute()
+            && path.components().all(|part| matches!(
+                part,
+                std::path::Component::RootDir | std::path::Component::Normal(_)
+            )),
+        "native compatibility path must be an absolute normal path"
+    );
+    let libraries = context.requested_data_root().join("languages");
+    eyre::ensure!(
+        !path.starts_with(&libraries) && !libraries.starts_with(path),
+        "native compatibility path overlaps the language library"
+    );
+    lease.check_binding()?;
+    let uid = nix::unistd::geteuid().as_raw();
+    let directory = open_trusted_store_with_deadline(path, uid, true, context.policy().deadline)?;
+    let identity = FileIdentity::of(&directory)?;
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(lease.root())? {
+        context.checkpoint()?;
+        eyre::ensure!(
+            entries.len() < 4096,
+            "native compatibility entry budget exceeded"
+        );
+        let name = entry?.file_name();
+        eyre::ensure!(
+            name.as_encoded_bytes().len() <= 16_384,
+            "native compatibility name exceeds its budget"
+        );
+        entries.push(name);
+    }
+    entries.sort();
+    // Check all conflicts before creating any reference. Existing backend
+    // receipts remain in this independent directory, outside the payload.
+    for name in &entries {
+        match fstatat(&directory, name.as_os_str(), AtFlags::AT_SYMLINK_NOFOLLOW) {
+            Ok(stat) => eyre::ensure!(
+                SFlag::from_bits_truncate(stat.st_mode) == SFlag::S_IFLNK
+                    && PathBuf::from(readlinkat(&directory, name.as_os_str())?)
+                        == lease.root().join(name),
+                "native compatibility entry conflicts with existing content"
+            ),
+            Err(nix::errno::Errno::ENOENT) => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    for name in entries {
+        context.checkpoint()?;
+        lease.check_binding()?;
+        let current =
+            open_trusted_store_with_deadline(path, uid, false, context.policy().deadline)?;
+        eyre::ensure!(
+            FileIdentity::of(&current)? == identity && current.metadata()?.uid() == uid,
+            "native compatibility directory changed"
+        );
+        let target = lease.root().join(&name);
+        match nix::unistd::symlinkat(&target, &directory, name.as_os_str()) {
+            Ok(()) => {}
+            Err(nix::errno::Errno::EEXIST) => eyre::ensure!(
+                PathBuf::from(readlinkat(&directory, name.as_os_str())?) == target,
+                "native compatibility reference changed"
+            ),
+            Err(error) => return Err(error.into()),
+        }
+    }
+    directory.sync_all()?;
+    let current = open_trusted_store_with_deadline(path, uid, false, context.policy().deadline)?;
+    eyre::ensure!(
+        FileIdentity::of(&current)? == identity,
+        "native compatibility directory changed"
+    );
+    lease.check_binding()?;
+    context.checkpoint()?;
+    Ok(())
+}
+
 use crate::args::BackendArg;
 use crate::backend::options::BackendOptions;
 use crate::backend::platform_target::PlatformTarget;
@@ -59,6 +250,7 @@ struct PypyFile {
 #[derive(Debug)]
 pub(crate) struct PythonPlugin {
     ba: Arc<BackendArg>,
+    native_plans: std::sync::Mutex<BTreeMap<String, native::pipeline::RuntimeInstallPlan>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -88,6 +280,125 @@ impl<'a> PythonOptions<'a> {
         }
         opts
     }
+}
+
+fn native_archive_target(
+    os: &str,
+    arch: &str,
+    libc: Option<&str>,
+) -> Result<native::RuntimeArchiveTarget> {
+    let platform = match os {
+        "macos" | "apple-darwin" => native::RuntimePlatform::Macos,
+        "unknown-linux-gnu" => native::RuntimePlatform::LinuxGnu,
+        "unknown-linux-musl" => native::RuntimePlatform::LinuxMusl,
+        "linux" => match libc.unwrap_or("gnu") {
+            "gnu" => native::RuntimePlatform::LinuxGnu,
+            "musl" => native::RuntimePlatform::LinuxMusl,
+            _ => bail!("unknown Python runtime libc target"),
+        },
+        _ => bail!("native Python runtime archives currently require macOS or Linux"),
+    };
+    let arch = match arch {
+        "x64" => "x86_64",
+        "arm64" => "aarch64",
+        other => other,
+    };
+    native::RuntimeArchiveTarget::new(arch, platform)
+}
+
+fn native_archive_flavor(flavor: Option<&str>) -> Result<native::RuntimeFlavor> {
+    match flavor {
+        None | Some("install_only") => Ok(native::RuntimeFlavor::InstallOnly),
+        Some("install_only_stripped") => Ok(native::RuntimeFlavor::InstallOnlyStripped),
+        Some("freethreaded-install_only") => Ok(native::RuntimeFlavor::FreeThreadedInstallOnly),
+        Some("freethreaded-install_only_stripped") => {
+            Ok(native::RuntimeFlavor::FreeThreadedInstallOnlyStripped)
+        }
+        _ => bail!("unknown native Python runtime archive flavor"),
+    }
+}
+
+fn native_provenance_record(source: &pakro_index::artifact::SourceArtifact) -> Result<Vec<u8>> {
+    eyre::ensure!(
+        source.url().query().is_none(),
+        "native runtime provenance requires a canonical URL without a query"
+    );
+    Ok(serde_json::to_vec(&serde_json::json!({
+        "schema":1,"kind":"github_attestations","repository":"astral-sh/python-build-standalone",
+        "filename":source.filename(),"url":source.url().as_str(),"digest":source.digest().to_string(),
+    }))?)
+}
+
+fn native_provenance_name(record: &[u8]) -> String {
+    let key = pakro_store::Digest::from_sha256_bytes(record).hex();
+    format!("{key}.json")
+}
+
+fn native_provenance_path(
+    root: &Path,
+    source: &pakro_index::artifact::SourceArtifact,
+) -> Result<PathBuf> {
+    Ok(root
+        .join("provenance")
+        .join(native_provenance_name(&native_provenance_record(source)?)))
+}
+
+fn native_provenance_cached(
+    root: &Path,
+    source: &pakro_index::artifact::SourceArtifact,
+) -> Result<bool> {
+    let expected = native_provenance_record(source)?;
+    let path = native_provenance_path(root, source)?;
+    let metadata = match std::fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    eyre::ensure!(
+        metadata.is_file(),
+        "native runtime provenance cache is not a regular file"
+    );
+    let file = std::fs::File::open(&path)?;
+    let mut actual = Vec::new();
+    file.take(expected.len() as u64 + 1)
+        .read_to_end(&mut actual)?;
+    eyre::ensure!(
+        actual == expected,
+        "native runtime provenance cache is corrupt or does not match its source"
+    );
+    Ok(true)
+}
+
+/// Called only after successful verification, or an exact lock carrying a
+/// previously verified attestation, and after the archive digest was checked.
+fn record_native_provenance(
+    root: &Path,
+    source: &pakro_index::artifact::SourceArtifact,
+) -> Result<()> {
+    use std::io::Write;
+    if native_provenance_cached(root, source)? {
+        return Ok(());
+    }
+    let path = native_provenance_path(root, source)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| eyre!("native provenance cache parent missing"))?;
+    std::fs::create_dir_all(parent)?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    temporary.write_all(&native_provenance_record(source)?)?;
+    temporary.flush()?;
+    temporary.as_file().sync_all()?;
+    match temporary.persist_noclobber(&path) {
+        Ok(_) => {}
+        Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+            eyre::ensure!(
+                native_provenance_cached(root, source)?,
+                "concurrent native provenance cache disappeared"
+            );
+        }
+        Err(error) => return Err(error.error.into()),
+    }
+    Ok(())
 }
 
 pub(crate) fn python_path(tv: &ToolVersion) -> PathBuf {
@@ -197,7 +508,440 @@ fn python_version_sort_key(
 impl PythonPlugin {
     pub(crate) fn new() -> Self {
         let ba = Arc::new(plugins::core::new_backend_arg("python"));
-        Self { ba }
+        Self {
+            ba,
+            native_plans: std::sync::Mutex::new(BTreeMap::new()),
+        }
+    }
+
+    fn native_policy() -> pakro_index::artifact::NetworkPolicy {
+        if Settings::get().offline() {
+            pakro_index::artifact::NetworkPolicy::Offline
+        } else {
+            pakro_index::artifact::NetworkPolicy::Allowed
+        }
+    }
+
+    fn native_target(target: &PlatformTarget) -> Result<native::RuntimeArchiveTarget> {
+        Self::native_target_using(target, &Settings::get())
+    }
+
+    fn native_target_using(
+        target: &PlatformTarget,
+        settings: &Settings,
+    ) -> Result<native::RuntimeArchiveTarget> {
+        let (os, arch) = if target.is_current() {
+            (
+                settings
+                    .python
+                    .precompiled_os
+                    .as_deref()
+                    .unwrap_or(settings.os()),
+                settings
+                    .python
+                    .precompiled_arch
+                    .as_deref()
+                    .unwrap_or(settings.arch()),
+            )
+        } else {
+            (target.os_name(), target.arch_name())
+        };
+        native_archive_target(os, arch, target.libc())
+    }
+
+    fn native_catalog_using(
+        settings: &Settings,
+        cache_root: &Path,
+        policy: pakro_index::artifact::NetworkPolicy,
+    ) -> Result<native::catalog::RuntimeCatalog> {
+        let catalog = native::catalog::RuntimeCatalog::new(
+            Self::native_client(settings).build()?,
+            cache_root.to_path_buf(),
+            native::catalog::CatalogEndpoints::official()?,
+            policy,
+            settings
+                .fetch_remote_versions_cache()
+                .unwrap_or(std::time::Duration::MAX),
+            native::catalog::CatalogLimits::default(),
+        )?;
+        Ok(catalog.with_url_replacements(settings.url_replacements.as_ref()))
+    }
+
+    fn native_client(settings: &Settings) -> reqwest::ClientBuilder {
+        reqwest::Client::builder()
+            .user_agent(pakro_util::user_agent::get())
+            .connect_timeout(settings.http_timeout())
+            .read_timeout(settings.http_timeout())
+            .timeout(settings.http_download_timeout())
+            .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                if attempt.previous().len() >= 10 {
+                    attempt.error("too many runtime artifact redirects")
+                } else if attempt
+                    .previous()
+                    .last()
+                    .is_some_and(|url| url.scheme() == "https")
+                    && attempt.url().scheme() != "https"
+                {
+                    attempt.error("runtime artifact redirect downgraded HTTPS")
+                } else {
+                    attempt.follow()
+                }
+            }))
+    }
+
+    async fn native_releases(
+        &self,
+        target: &native::RuntimeArchiveTarget,
+        pypy: bool,
+    ) -> Result<Vec<native::RuntimeRelease>> {
+        self.native_releases_using(
+            target,
+            pypy,
+            &Settings::get(),
+            &self.ba.cache_path().join("native-v1"),
+            Self::native_policy(),
+        )
+        .await
+    }
+
+    async fn native_releases_using(
+        &self,
+        target: &native::RuntimeArchiveTarget,
+        pypy: bool,
+        settings: &Settings,
+        cache_root: &Path,
+        policy: pakro_index::artifact::NetworkPolicy,
+    ) -> Result<Vec<native::RuntimeRelease>> {
+        let catalog = Self::native_catalog_using(settings, cache_root, policy)?;
+        if pypy {
+            return catalog.pypy_releases(target).await;
+        }
+        catalog
+            .pbs_releases(
+                target,
+                native_archive_flavor(settings.python.precompiled_flavor.as_deref())?,
+            )
+            .await
+    }
+
+    async fn native_plan(
+        &self,
+        tv: &ToolVersion,
+        target: &PlatformTarget,
+    ) -> Result<native::pipeline::RuntimeInstallPlan> {
+        self.native_plan_using(
+            tv,
+            target,
+            &Settings::get(),
+            &self.ba.cache_path().join("native-v1"),
+            Self::native_policy(),
+        )
+        .await
+    }
+
+    async fn native_plan_using(
+        &self,
+        tv: &ToolVersion,
+        target: &PlatformTarget,
+        settings: &Settings,
+        cache_root: &Path,
+        policy: pakro_index::artifact::NetworkPolicy,
+    ) -> Result<native::pipeline::RuntimeInstallPlan> {
+        let archive_target = Self::native_target_using(target, settings)?;
+        if let Some(info) = tv.lock_platforms.get(&target.to_key())
+            && (info.url.is_some() || info.checksum.is_some() || info.provenance.is_some())
+        {
+            let flavor = if tv.version.starts_with("pypy") {
+                native::RuntimeFlavor::PyPy
+            } else if let Some(flavor) = settings.python.precompiled_flavor.as_deref() {
+                native_archive_flavor(Some(flavor))?
+            } else if let Some(locator) = info.url.as_deref() {
+                // Honor the precise flavor in older native locks. The pipeline
+                // validates this basename against the complete official URL.
+                let url = url::Url::parse(locator)
+                    .map_err(|_| eyre!("invalid locked Python runtime locator"))?;
+                let basename = url
+                    .path_segments()
+                    .and_then(|mut parts| parts.next_back())
+                    .ok_or_else(|| eyre!("locked Python runtime filename missing"))?;
+                let filename = urlencoding::decode(basename)
+                    .map_err(|_| eyre!("invalid locked Python runtime filename"))?;
+                if filename.ends_with("-freethreaded-install_only_stripped.tar.gz") {
+                    native::RuntimeFlavor::FreeThreadedInstallOnlyStripped
+                } else if filename.ends_with("-freethreaded-install_only.tar.gz") {
+                    native::RuntimeFlavor::FreeThreadedInstallOnly
+                } else if filename.ends_with("-install_only_stripped.tar.gz") {
+                    native::RuntimeFlavor::InstallOnlyStripped
+                } else {
+                    native::RuntimeFlavor::InstallOnly
+                }
+            } else {
+                // Let the typed lock validator diagnose incomplete commitments
+                // before attempting to infer a flavor from a missing locator.
+                native::RuntimeFlavor::InstallOnly
+            };
+            let plan = native::pipeline::RuntimeInstallPlan::from_locked(
+                &tv.version,
+                &archive_target,
+                flavor,
+                info,
+            )?;
+            let cache_key = format!("{}:{}", tv.version, plan.source().digest());
+            if let Some(prepared) = self.native_plans.lock().unwrap().get(&cache_key).cloned()
+                && prepared.distribution() == plan.distribution()
+                && prepared.target() == plan.target()
+                && prepared.flavor() == plan.flavor()
+                && prepared.source().filename() == plan.source().filename()
+                && prepared.source().url() == plan.source().url()
+                && prepared.source().digest() == plan.source().digest()
+            {
+                return Ok(prepared);
+            }
+            return Ok(plan);
+        }
+        let releases = self
+            .native_releases_using(
+                &archive_target,
+                tv.version.starts_with("pypy"),
+                settings,
+                cache_root,
+                policy,
+            )
+            .await?;
+        let release = native::pipeline::choose_release(&releases, &tv.version)?;
+        Ok(native::pipeline::RuntimeInstallPlan::from_release(release))
+    }
+
+    async fn native_plan_in_context(
+        &self,
+        tv: &ToolVersion,
+        target: &PlatformTarget,
+        context: &crate::programs::OperationContext,
+    ) -> Result<native::pipeline::RuntimeInstallPlan> {
+        context.checkpoint()?;
+        if context.policy().locked {
+            eyre::ensure!(
+                tv.lock_platforms
+                    .get(&target.to_key())
+                    .is_some_and(|info| info.url.is_some() && info.checksum.is_some()),
+                "locked native installation requires an exact runtime source and digest"
+            );
+        }
+        let cache_root = context.requested_cache_root().join("python/native-v1");
+        let policy = if context.policy().offline {
+            pakro_index::artifact::NetworkPolicy::Offline
+        } else {
+            pakro_index::artifact::NetworkPolicy::Allowed
+        };
+        let cancellation = context.cancellation_token();
+        let selected = tokio::select! {
+            _=cancellation.cancelled()=>return Err(eyre!("native source selection cancelled")),
+            result=tokio::time::timeout_at(tokio::time::Instant::from_std(context.policy().deadline),self.native_plan_using(tv,target,context.settings(),&cache_root,policy))=>result.map_err(|_|eyre!("native source selection timed out"))??,
+        };
+        context.checkpoint()?;
+        Ok(selected)
+    }
+
+    async fn native_archive_in_context(
+        &self,
+        plan: &native::pipeline::RuntimeInstallPlan,
+        context: &crate::programs::OperationContext,
+    ) -> Result<tempfile::NamedTempFile> {
+        use std::io::{Read, Seek, Write};
+        context.checkpoint()?;
+        let request_source = native::transport::download_source(
+            plan.source(),
+            context.settings().url_replacements.as_ref(),
+        )?;
+        let transport =
+            pakro_index::artifact::ArtifactTransport::new(Self::native_client(context.settings()))?;
+        let operation = context.clone();
+        let expected = plan.source().clone();
+        let runtime = tokio::runtime::Handle::current();
+        tokio::task::spawn_blocking(move||runtime.block_on(async move {
+            let cache_root=operation.requested_cache_root().join("python/native-v1");
+            #[cfg(unix)]
+            let cache_pin=pakro_store::control::open_trusted_store_with_deadline(&cache_root,nix::unistd::geteuid().as_raw(),true,operation.policy().deadline)?;
+            let policy=if operation.policy().offline {pakro_index::artifact::NetworkPolicy::Offline}else{pakro_index::artifact::NetworkPolicy::Allowed};
+            let cancellation=operation.cancellation_token();
+            let mut verified=tokio::select! {
+                _=cancellation.cancelled()=>return Err(eyre!("native artifact acquisition cancelled")),
+                result=tokio::time::timeout_at(tokio::time::Instant::from_std(operation.policy().deadline),native::artifact::acquire_runtime_artifact(&request_source,&cache_root,&transport,policy))=>result.map_err(|_|eyre!("native artifact acquisition timed out"))??,
+            };
+            eyre::ensure!(verified.digest()==expected.digest() && verified.filename()==expected.filename(),"runtime artifact identity changed");
+            verified.rewind()?;
+            #[cfg(unix)]
+            eyre::ensure!(pakro_store::control::FileIdentity::of(&cache_pin)?==pakro_store::control::FileIdentity::of(&pakro_store::control::open_trusted_store_with_deadline(&cache_root,nix::unistd::geteuid().as_raw(),false,operation.policy().deadline)?)?,"native artifact cache root changed");
+            let mut private=tempfile::NamedTempFile::new_in(&cache_root)?;
+            let mut buffer=[0u8;64*1024]; let mut copied=0u64;
+            loop {
+                operation.checkpoint()?;
+                let count=verified.read(&mut buffer)?;
+                if count==0 {break;}
+                private.write_all(&buffer[..count])?;
+                copied+=count as u64;
+            }
+            eyre::ensure!(copied==verified.size(),"runtime artifact snapshot is incomplete");
+            private.flush()?;
+            #[cfg(unix)]
+            eyre::ensure!(pakro_store::control::FileIdentity::of(&cache_pin)?==pakro_store::control::FileIdentity::of(&pakro_store::control::open_trusted_store_with_deadline(&cache_root,nix::unistd::geteuid().as_raw(),false,operation.policy().deadline)?)?,"native artifact cache root changed");
+            operation.checkpoint()?;
+            Ok(private)
+        })).await?
+    }
+
+    fn native_operation_context(
+        settings: &Settings,
+        locked: bool,
+    ) -> Result<crate::programs::OperationContext> {
+        use crate::programs::{
+            AllowedWrites, OperationContextInputs, OperationPolicy, RequestBudget,
+            capture_operation_context,
+        };
+        // The legacy boundary creates one invocation budget before source IO.
+        let deadline = std::time::Instant::now()
+            .checked_add(settings.http_download_timeout())
+            .ok_or_else(|| eyre!("native installation deadline overflow"))?;
+        Ok(capture_operation_context(OperationContextInputs {
+            settings,
+            policy: OperationPolicy {
+                locked,
+                offline: settings.offline(),
+                deadline,
+                budget: RequestBudget {
+                    max_arguments: 1024,
+                    max_total_argument_bytes: 1024 * 1024,
+                    max_declarations: 65536,
+                    max_runtime_candidates: 65536,
+                },
+                writes: AllowedWrites {
+                    libraries: true,
+                    project_selection: false,
+                    lockfile: false,
+                    declarations: false,
+                },
+            },
+            cancellation: tokio_util::sync::CancellationToken::new(),
+            data_root: dirs::DATA.to_path_buf(),
+            cache_root: dirs::CACHE.to_path_buf(),
+            python_sources: None,
+            python_target_description: None,
+        })?)
+    }
+
+    async fn native_archive(
+        &self,
+        plan: &native::pipeline::RuntimeInstallPlan,
+    ) -> Result<tempfile::NamedTempFile> {
+        let operation = Self::native_operation_context(&Settings::get(), false)?;
+        self.native_archive_in_context(plan, &operation).await
+    }
+
+    #[cfg(unix)]
+    async fn install_native_runtime(
+        &self,
+        ctx: &InstallContext,
+        tv: &mut ToolVersion,
+        settings: &Settings,
+    ) -> Result<()> {
+        let operation = Self::native_operation_context(settings, ctx.locked)?;
+        let deadline = operation.policy().deadline;
+        let plan = tokio::time::timeout_at(
+            tokio::time::Instant::from_std(deadline),
+            self.native_plan_in_context(tv, &PlatformTarget::from_current(), &operation),
+        )
+        .await
+        .map_err(|_| eyre!("native installation timed out during source selection"))??;
+        operation.checkpoint()?;
+        Self::native_provenance_preflight(
+            &plan,
+            tv,
+            &self.get_platform_key(),
+            operation.settings(),
+        )?;
+        let raw_opts = tv.request.options();
+        let spec = crate::libraries::language::repository::LanguageInstallSpec::from_plan(
+            &plan,
+            PythonOptions::new(&raw_opts).patch_sysconfig(),
+        )?;
+        let install = tv.install_path();
+        let platform_key = self.get_platform_key();
+        let has_integrity = Self::has_precompiled_lockfile_integrity(tv, &platform_key);
+        let attestations = Self::github_attestations_enabled_using(operation.settings());
+        let force_proof = operation.settings().force_provenance_verify();
+        let lease=crate::programs::install::runtime::prepare_language_with_revalidation(
+            &spec,&operation,
+            || {
+                if plan.distribution()!=native::RuntimeDistribution::Pbs || !attestations { return Ok(false); }
+                Ok(force_proof || (!has_integrity && !native::provenance::cached(&operation,plan.source())?))
+            },
+            || async {
+                ctx.pr.set_message(format!("verify {}",plan.source().filename()));
+                let archive=self.native_archive_in_context(&plan,&operation).await?;
+                let hashing=operation.clone();let source=plan.source().clone();
+                let (artifact,sha256)=tokio::task::spawn_blocking(move|| {
+                    let mut archive=archive;
+                    let mut artifact=spool_native_archive(&mut archive,&source,&hashing)?;
+                    let sha256=native_artifact_sha256(&mut artifact,&hashing)?;
+                    Ok::<_,eyre::Report>((artifact,sha256))
+                }).await??;
+                operation.checkpoint()?;
+                if plan.distribution()==native::RuntimeDistribution::Pbs {
+                    if !force_proof && (has_integrity || (attestations && native::provenance::cached(&operation,plan.source())?)) {
+                        tv.lock_platforms.entry(platform_key.clone()).or_default().provenance=Some(ProvenanceType::GithubAttestations);
+                        native::provenance::record(&operation,plan.source())?;
+                    } else {
+                        eyre::ensure!(!operation.policy().offline || !attestations,"offline Python runtime is missing cached provenance; use a verified runtime lock");
+                        self.verify_precompiled_provenance_digest_using(ctx,tv,&platform_key,sha256,operation.settings()).await?;
+                        if tv.lock_platforms.get(&platform_key).is_some_and(|info|info.provenance==Some(ProvenanceType::GithubAttestations)) {
+                            native::provenance::record(&operation,plan.source())?;
+                        }
+                    }
+                }
+                operation.checkpoint()?;
+                Ok(artifact)
+            },
+        ).await?;
+        publish_native_compatibility(&lease, &install, &operation)
+    }
+
+    async fn native_version_infos(&self) -> Result<Vec<VersionInfo>> {
+        let target = Self::native_target(&PlatformTarget::from_current())?;
+        let pypy = self.native_releases(&target, true).await?;
+        let cpython = self.native_releases(&target, false).await?;
+        let infos = |releases: Vec<native::RuntimeRelease>| -> Result<Vec<VersionInfo>> {
+            let requests = releases
+                .iter()
+                .map(|release| release.request_version().to_string())
+                .collect::<std::collections::BTreeSet<_>>();
+            let mut selected = requests
+                .iter()
+                .map(|request| native::pipeline::choose_release(&releases, request))
+                .collect::<Result<Vec<_>>>()?;
+            selected.sort_by_cached_key(|release| {
+                (
+                    Versioning::new(&release.key().python_version),
+                    Versioning::new(&release.key().implementation_version),
+                    release.key().distribution_version.clone(),
+                )
+            });
+            Ok(selected
+                .into_iter()
+                .map(|release| VersionInfo {
+                    version: release.request_version().to_string(),
+                    created_at: release.release_date().map(|date| {
+                        if date.contains('T') {
+                            date.to_string()
+                        } else {
+                            format!("{date}T00:00:00Z")
+                        }
+                    }),
+                    prerelease: release.upstream_stable().map(|stable| !stable),
+                    ..Default::default()
+                })
+                .collect())
+        };
+        Ok(merge_pypy_and_cpython(infos(pypy)?, infos(cpython)?))
     }
 
     fn python_build_path(&self) -> PathBuf {
@@ -480,6 +1224,10 @@ impl PythonPlugin {
         ctx: &InstallContext,
         tv: &mut ToolVersion,
     ) -> eyre::Result<()> {
+        #[cfg(unix)]
+        if cfg!(any(target_os = "macos", target_os = "linux")) {
+            return self.install_native_runtime(ctx, tv, &Settings::get()).await;
+        }
         // Only where the precompiled list is actually the source of truth. With `compile` unset on
         // unix this function is still entered, but a `pypy*` version falls through to python-build
         // below and installs fine today — no reason to change that here.
@@ -690,16 +1438,16 @@ impl PythonPlugin {
         if !packages_file.exists() {
             return Ok(());
         }
-        if file::read_to_string(packages_file)
-            .unwrap_or_default()
+        if !file::read_to_string(packages_file)?
             .lines()
             .any(|package| Settings::parse_default_package_line(package).is_some())
         {
-            Settings::warn_default_package_file_deprecated(
-                "python.default_packages_file",
-                "python package",
-            );
+            return Ok(());
         }
+        Settings::warn_default_package_file_deprecated(
+            "python.default_packages_file",
+            "python package",
+        );
         pr.set_message("install default packages".into());
         CmdLineRunner::new(python_path(tv))
             .with_pr(pr)
@@ -821,7 +1569,32 @@ impl PythonPlugin {
     }
 
     fn github_attestations_enabled() -> bool {
-        let settings = Settings::get();
+        Self::github_attestations_enabled_using(&Settings::get())
+    }
+
+    fn native_provenance_preflight(
+        plan: &native::pipeline::RuntimeInstallPlan,
+        tv: &ToolVersion,
+        platform_key: &str,
+        settings: &Settings,
+    ) -> Result<()> {
+        if plan.distribution() == native::RuntimeDistribution::PyPy {
+            eyre::ensure!(
+                tv.lock_platforms
+                    .get(platform_key)
+                    .is_none_or(|info| info.provenance.is_none()),
+                "PyPy runtime has an unsupported locked provenance requirement"
+            );
+        } else {
+            Self::ensure_precompiled_provenance_setting_using(
+                tv,
+                platform_key,
+                Self::github_attestations_enabled_using(settings),
+            )?;
+        }
+        Ok(())
+    }
+    fn github_attestations_enabled_using(settings: &Settings) -> bool {
         settings
             .python
             .github_attestations
@@ -849,9 +1622,20 @@ impl PythonPlugin {
         tv: &ToolVersion,
         platform_key: &str,
     ) -> Result<()> {
+        Self::ensure_precompiled_provenance_setting_using(
+            tv,
+            platform_key,
+            Self::github_attestations_enabled(),
+        )
+    }
+    fn ensure_precompiled_provenance_setting_using(
+        tv: &ToolVersion,
+        platform_key: &str,
+        enabled: bool,
+    ) -> Result<()> {
         crate::backend::ensure_provenance_setting_enabled(tv, platform_key, |provenance| {
             match provenance {
-                ProvenanceType::GithubAttestations => Ok(!Self::github_attestations_enabled()),
+                ProvenanceType::GithubAttestations => Ok(!enabled),
                 _ => Err(eyre!(
                     "Lockfile has unexpected provenance type {provenance} for python tool {tv}. \
                      Update the lockfile to remove the stale provenance entry."
@@ -867,6 +1651,23 @@ impl PythonPlugin {
         platform_key: &str,
         tarball_path: &std::path::Path,
     ) -> Result<()> {
+        self.verify_precompiled_provenance_using(
+            ctx,
+            tv,
+            platform_key,
+            tarball_path,
+            &Settings::get(),
+        )
+        .await
+    }
+    async fn verify_precompiled_provenance_using(
+        &self,
+        ctx: &InstallContext,
+        tv: &mut ToolVersion,
+        platform_key: &str,
+        tarball_path: &Path,
+        settings: &Settings,
+    ) -> Result<()> {
         // Check lockfile provenance expectation before verification
         let locked_provenance = tv
             .lock_platforms
@@ -876,9 +1677,42 @@ impl PythonPlugin {
         // Verify GitHub artifact attestations for precompiled binaries
         // Returns Ok(true) if verified, Ok(false) if skipped, Err if failed
         let verified = self
-            .verify_github_artifact_attestations(ctx.pr.as_ref(), tarball_path, &tv.version)
+            .verify_github_artifact_attestations_using(
+                ctx.pr.as_ref(),
+                tarball_path,
+                &tv.version,
+                settings,
+            )
             .await?;
 
+        Self::finish_precompiled_provenance(tv, platform_key, locked_provenance, verified)
+    }
+
+    #[cfg(unix)]
+    async fn verify_precompiled_provenance_digest_using(
+        &self,
+        ctx: &InstallContext,
+        tv: &mut ToolVersion,
+        platform_key: &str,
+        sha256: [u8; 32],
+        settings: &Settings,
+    ) -> Result<()> {
+        let locked_provenance = tv
+            .lock_platforms
+            .get_mut(platform_key)
+            .and_then(|info| info.provenance.take());
+        let verified = self
+            .verify_github_artifact_digest_using(ctx.pr.as_ref(), sha256, &tv.version, settings)
+            .await?;
+        Self::finish_precompiled_provenance(tv, platform_key, locked_provenance, verified)
+    }
+
+    fn finish_precompiled_provenance(
+        tv: &mut ToolVersion,
+        platform_key: &str,
+        locked_provenance: Option<ProvenanceType>,
+        verified: bool,
+    ) -> Result<()> {
         // Record provenance only if verification actually succeeded (not skipped)
         if verified {
             let pi = tv
@@ -915,23 +1749,67 @@ impl PythonPlugin {
         tarball_path: &std::path::Path,
         version: &str,
     ) -> Result<bool> {
-        if !Self::github_attestations_enabled() {
+        self.verify_github_artifact_attestations_using(pr, tarball_path, version, &Settings::get())
+            .await
+    }
+    async fn verify_github_artifact_attestations_using(
+        &self,
+        pr: &dyn SingleReport,
+        tarball_path: &Path,
+        version: &str,
+        settings: &Settings,
+    ) -> Result<bool> {
+        if !Self::github_attestations_enabled_using(settings) {
             debug!("GitHub artifact attestations verification disabled for Python");
             return Ok(false);
         }
 
         pr.set_message("verify GitHub artifact attestations".to_string());
 
-        match crate::github::sigstore::verify_attestation(
+        let result = crate::github::sigstore::verify_attestation_using(
             tarball_path,
             "astral-sh",
             "python-build-standalone",
             None, // Accept any workflow from repo
             None,
             true,
+            settings,
         )
-        .await
-        {
+        .await;
+        Self::report_github_attestation(pr, version, result)
+    }
+
+    #[cfg(unix)]
+    async fn verify_github_artifact_digest_using(
+        &self,
+        pr: &dyn SingleReport,
+        sha256: [u8; 32],
+        version: &str,
+        settings: &Settings,
+    ) -> Result<bool> {
+        if !Self::github_attestations_enabled_using(settings) {
+            return Ok(false);
+        }
+        pr.set_message("verify GitHub artifact attestations".into());
+        let result = crate::github::sigstore::verify_attestation_sha256_using(
+            sha256,
+            "astral-sh",
+            "python-build-standalone",
+            None,
+            None,
+            true,
+            settings,
+        )
+        .await;
+        Self::report_github_attestation(pr, version, result)
+    }
+
+    fn report_github_attestation(
+        pr: &dyn SingleReport,
+        version: &str,
+        result: std::result::Result<bool, crate::github::sigstore::AttestationError>,
+    ) -> Result<bool> {
+        match result {
             Ok(true) => {
                 pr.set_message("✓ GitHub artifact attestations verified".to_string());
                 debug!(
@@ -959,7 +1837,49 @@ impl Backend for PythonPlugin {
         &self.ba
     }
 
+    fn versions_host_skip_reason(&self, _listing_opts: &ToolVersionOptions) -> Option<String> {
+        cfg!(any(target_os = "macos", target_os = "linux"))
+            .then(|| "Python runtime catalogs bind target, flavor and expected hashes".to_string())
+    }
+
+    async fn resolve_exact_version(
+        &self,
+        _config: &Arc<Config>,
+        version: &str,
+    ) -> Result<Option<String>> {
+        Ok((cfg!(any(target_os = "macos", target_os = "linux"))
+            && native::is_exact_request(version))
+        .then(|| version.to_string()))
+    }
+
+    fn is_exact_version(&self, version: &str) -> bool {
+        cfg!(any(target_os = "macos", target_os = "linux")) && native::is_exact_request(version)
+    }
+
+    async fn is_rolling_version_outdated(&self, _config: &Arc<Config>, _tv: &ToolVersion) -> bool {
+        // Listed Python releases have complete immutable version labels. A
+        // newer distribution build is adopted by an explicit forced install.
+        false
+    }
+
+    async fn remote_version_cache_context(&self, _config: &Arc<Config>) -> Result<Option<String>> {
+        if cfg!(any(target_os = "macos", target_os = "linux")) {
+            let target = Self::native_target(&PlatformTarget::from_current())?;
+            return Ok(Some(crate::hash::hash_to_str(&(
+                "python-native-catalog-v1",
+                target.arch(),
+                format!("{:?}", target.platform()),
+                Settings::get().python.precompiled_flavor.clone(),
+                native::transport::mapping_fingerprint(Settings::get().url_replacements.as_ref())?,
+            ))));
+        }
+        Ok(None)
+    }
+
     async fn _list_remote_versions(&self, _config: &Arc<Config>) -> eyre::Result<Vec<VersionInfo>> {
+        if cfg!(any(target_os = "macos", target_os = "linux")) {
+            return self.native_version_infos().await;
+        }
         if cfg!(windows) || Settings::get().python_compile(CompilePurpose::Inspect) == Some(false) {
             // python-build-standalone is CPython only, so pypy comes from its own index — and only
             // the releases that publish an archive for this platform, the way the CPython list is
@@ -1059,6 +1979,14 @@ impl Backend for PythonPlugin {
         mut tv: ToolVersion,
     ) -> Result<ToolVersion> {
         let settings = Settings::get();
+        #[cfg(unix)]
+        if cfg!(any(target_os = "macos", target_os = "linux"))
+            && settings.python_compile(CompilePurpose::Install) != Some(true)
+        {
+            validate_python_precompiled_settings(&settings)?;
+            self.install_native_runtime(ctx, &mut tv, &settings).await?;
+            return Ok(tv);
+        }
         if cfg!(windows) || settings.python_compile(CompilePurpose::Install) != Some(true) {
             validate_python_precompiled_settings(&settings)?;
             self.install_precompiled(ctx, &mut tv).await?;
@@ -1079,6 +2007,53 @@ impl Backend for PythonPlugin {
             }
         }
         Ok(tv)
+    }
+
+    async fn prepare_install_version(
+        &self,
+        ctx: &InstallContext,
+        mut tv: ToolVersion,
+    ) -> Result<ToolVersion> {
+        if !cfg!(any(target_os = "macos", target_os = "linux"))
+            || Settings::get().python_compile(CompilePurpose::Install) == Some(true)
+        {
+            return Ok(tv);
+        }
+        validate_python_precompiled_settings(&Settings::get())?;
+        let platform = self.get_platform_key();
+        if ctx.locked
+            && tv
+                .lock_platforms
+                .get(&platform)
+                .is_none_or(|info| info.url.is_none())
+        {
+            bail!("locked Python runtime is missing an exact artifact URL for {platform}");
+        }
+        if !ctx.force
+            && self
+                .is_install_satisfied_or_false(&ctx.config, &tv, true)
+                .await
+        {
+            // An installed binding remains usable without discovering a new
+            // distribution. Package installation probes that exact runtime.
+            return Ok(tv);
+        }
+        let plan = self
+            .native_plan(&tv, &PlatformTarget::from_current())
+            .await?;
+        let info = tv.lock_platforms.entry(platform).or_default();
+        info.url = Some(plan.source().url().to_string());
+        info.checksum = Some(plan.source().digest().to_string().replacen('-', ":", 1));
+        self.native_plans
+            .lock()
+            .unwrap()
+            .insert(format!("{}:{}", tv.version, plan.source().digest()), plan);
+        Ok(tv)
+    }
+
+    fn preserve_install_on_error(&self, _tv: &ToolVersion) -> bool {
+        cfg!(any(target_os = "macos", target_os = "linux"))
+            && Settings::get().python_compile(CompilePurpose::Install) != Some(true)
     }
 
     #[cfg(windows)]
@@ -1184,6 +2159,27 @@ impl Backend for PythonPlugin {
     fn install_identity_options(&self, tv: &ToolVersion) -> BTreeMap<String, String> {
         let mut options = crate::backend::static_helpers::request_identity_options(self, tv);
         let settings = Settings::get();
+        if cfg!(any(target_os = "macos", target_os = "linux"))
+            && settings.python_compile(CompilePurpose::Inspect) != Some(true)
+            && let Some(info) = tv.lock_platforms.get(&self.get_platform_key())
+        {
+            if let Some(checksum) = &info.checksum {
+                options.insert("python.archive.checksum".into(), checksum.clone());
+            }
+            if let Some(filename) = info
+                .url
+                .as_deref()
+                .and_then(|locator| url::Url::parse(locator).ok())
+                .and_then(|url| url.path_segments()?.next_back().map(str::to_string))
+                .and_then(|filename| {
+                    urlencoding::decode(&filename)
+                        .ok()
+                        .map(|name| name.into_owned())
+                })
+            {
+                options.insert("python.archive.filename".into(), filename);
+            }
+        }
         if settings.python_compile(CompilePurpose::Inspect) == Some(true) {
             if let Some(patch_url) = &settings.python.patch_url {
                 options.insert("python.patch_url".to_string(), patch_url.to_string());
@@ -1203,6 +2199,58 @@ impl Backend for PythonPlugin {
         tv: &ToolVersion,
         target: &PlatformTarget,
     ) -> Result<PlatformInfo> {
+        if cfg!(any(target_os = "macos", target_os = "linux"))
+            && Settings::get().python_compile(CompilePurpose::Inspect) != Some(true)
+        {
+            let plan = self.native_plan(tv, target).await?;
+            let platform = target.to_key();
+            let mut info = tv
+                .lock_platforms
+                .get(&platform)
+                .cloned()
+                .unwrap_or_default();
+            info.url = Some(plan.source().url().to_string());
+            info.checksum = Some(plan.source().digest().to_string().replacen('-', ":", 1));
+            if plan.distribution() == native::RuntimeDistribution::Pbs && info.provenance.is_some()
+            {
+                Self::ensure_precompiled_provenance_setting_enabled(tv, &platform)?;
+            }
+            if plan.distribution() == native::RuntimeDistribution::PyPy {
+                eyre::ensure!(
+                    info.provenance.is_none(),
+                    "PyPy runtime has an unsupported locked provenance requirement"
+                );
+            } else if Self::has_precompiled_lockfile_integrity(tv, &platform)
+                && !Settings::get().force_provenance_verify()
+            {
+                Self::ensure_precompiled_provenance_setting_enabled(tv, &platform)?;
+            } else if Self::github_attestations_enabled() {
+                let proof_root = self.ba.cache_path().join("native-v1");
+                if !Settings::get().force_provenance_verify()
+                    && native_provenance_cached(&proof_root, plan.source())?
+                {
+                    info.provenance = Some(ProvenanceType::GithubAttestations);
+                    return Ok(info);
+                }
+                eyre::ensure!(
+                    !Settings::get().offline(),
+                    "offline Python runtime is missing cached provenance; use a verified runtime lock"
+                );
+                let archive = self.native_archive(&plan).await?;
+                if self
+                    .verify_github_artifact_attestations(
+                        &crate::ui::progress_report::QuietReport::new(),
+                        archive.path(),
+                        &tv.version,
+                    )
+                    .await?
+                {
+                    info.provenance = Some(ProvenanceType::GithubAttestations);
+                    record_native_provenance(&proof_root, plan.source())?;
+                }
+            }
+            return Ok(info);
+        }
         let version = &tv.version;
         if version.starts_with("pypy") {
             return self.resolve_pypy_lock_info(version, target).await;
@@ -1583,7 +2631,260 @@ fn filter_freethreaded(v: &str, flavor: &Option<String>) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(all(unix, feature = "self_update"))]
+    mod shared_bridge;
     use super::*;
+
+    #[test]
+    fn native_provenance_cache_is_exact_and_survives_an_offline_replay() {
+        let root = tempfile::tempdir().unwrap();
+        let source = pakro_index::artifact::SourceArtifact::new(
+            "runtime.tar.gz",
+            "https://github.com/official/runtime.tar.gz",
+            pakro_store::Digest::from_sha256_bytes(b"archive"),
+        )
+        .unwrap();
+        assert!(!native_provenance_cached(root.path(), &source).unwrap());
+        record_native_provenance(root.path(), &source).unwrap();
+        assert!(native_provenance_cached(root.path(), &source).unwrap());
+        for other in [
+            pakro_index::artifact::SourceArtifact::new(
+                "other.tar.gz",
+                source.url().as_str(),
+                source.digest(),
+            )
+            .unwrap(),
+            pakro_index::artifact::SourceArtifact::new(
+                source.filename(),
+                "https://github.com/other/runtime.tar.gz",
+                source.digest(),
+            )
+            .unwrap(),
+        ] {
+            assert!(!native_provenance_cached(root.path(), &other).unwrap());
+        }
+        let other_digest = pakro_index::artifact::SourceArtifact::new(
+            source.filename(),
+            source.url().as_str(),
+            pakro_store::Digest::from_sha256_bytes(b"other"),
+        )
+        .unwrap();
+        assert!(!native_provenance_cached(root.path(), &other_digest).unwrap());
+    }
+
+    #[test]
+    fn native_provenance_cache_rejects_corrupt_or_partial_records() {
+        let root = tempfile::tempdir().unwrap();
+        let source = pakro_index::artifact::SourceArtifact::new(
+            "runtime.tar.gz",
+            "https://github.com/official/runtime.tar.gz",
+            pakro_store::Digest::from_sha256_bytes(b"archive"),
+        )
+        .unwrap();
+        let path = native_provenance_path(root.path(), &source).unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, b"{}").unwrap();
+        assert!(native_provenance_cached(root.path(), &source).is_err());
+    }
+
+    #[tokio::test]
+    async fn native_locked_plan_is_exact_and_works_offline_without_catalog() {
+        use crate::config::settings::SettingsPartial;
+        use confique::Layer;
+        let _guard = crate::test::SettingsGuard::lock();
+        let mut partial = SettingsPartial::empty();
+        partial.offline = Some(true);
+        Settings::reset(Some(partial));
+        let backend = PythonPlugin::new();
+        let mut tv = crate::backend::static_helpers::test_tool_version(&backend, "3.15.0", &[]);
+        let target = PlatformTarget::new(Platform::parse("macos-arm64").unwrap());
+        let locator = "https://github.com/astral-sh/python-build-standalone/releases/download/20261013/cpython-3.15.0%2B20261013-aarch64-apple-darwin-install_only_stripped.tar.gz";
+        let checksum = format!("sha256:{}", "a".repeat(64));
+        tv.lock_platforms.insert(
+            target.to_key(),
+            PlatformInfo {
+                url: Some(locator.into()),
+                checksum: Some(checksum.clone()),
+                ..Default::default()
+            },
+        );
+        let plan = backend.native_plan(&tv, &target).await.unwrap();
+        assert_eq!(plan.source().url().as_str(), locator);
+        assert_eq!(
+            plan.source().digest().to_string().replacen('-', ":", 1),
+            checksum
+        );
+        assert_eq!(plan.flavor(), native::RuntimeFlavor::InstallOnlyStripped);
+    }
+
+    #[tokio::test]
+    async fn native_legacy_locked_hash_requires_migration_before_catalog_or_download() {
+        use crate::config::settings::SettingsPartial;
+        use confique::Layer;
+        let _guard = crate::test::SettingsGuard::lock();
+        let mut partial = SettingsPartial::empty();
+        partial.offline = Some(true);
+        Settings::reset(Some(partial));
+        let backend = PythonPlugin::new();
+        let mut tv = crate::backend::static_helpers::test_tool_version(&backend, "3.15.0", &[]);
+        let target = PlatformTarget::new(Platform::parse("macos-arm64").unwrap());
+        tv.lock_platforms.insert(target.to_key(), PlatformInfo {
+            url: Some("https://github.com/astral-sh/python-build-standalone/releases/download/20261013/cpython-3.15.0+20261013-aarch64-apple-darwin-install_only.tar.gz".into()),
+            checksum: Some(format!("blake3:{}", "a".repeat(64))), ..Default::default()
+        });
+        let error = backend
+            .native_plan(&tv, &target)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("migration"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn native_provenance_without_an_exact_source_cannot_authorize_a_new_artifact() {
+        use crate::config::settings::SettingsPartial;
+        use confique::Layer;
+        let _guard = crate::test::SettingsGuard::lock();
+        let mut partial = SettingsPartial::empty();
+        partial.offline = Some(true);
+        Settings::reset(Some(partial));
+        let backend = PythonPlugin::new();
+        let mut tv = crate::backend::static_helpers::test_tool_version(&backend, "3.15.0", &[]);
+        let target = PlatformTarget::new(Platform::parse("macos-arm64").unwrap());
+        tv.lock_platforms.insert(
+            target.to_key(),
+            PlatformInfo {
+                provenance: Some(ProvenanceType::GithubAttestations),
+                ..Default::default()
+            },
+        );
+        let error = backend
+            .native_plan(&tv, &target)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("checksum"), "{error}");
+        assert!(backend.native_plans.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn native_archive_target_keeps_declared_os_arch_and_libc() {
+        for (os, arch, libc, expected_arch, expected_platform) in [
+            (
+                "macos",
+                "arm64",
+                None,
+                "aarch64",
+                native::RuntimePlatform::Macos,
+            ),
+            (
+                "apple-darwin",
+                "x86_64",
+                None,
+                "x86_64",
+                native::RuntimePlatform::Macos,
+            ),
+            (
+                "linux",
+                "x64",
+                Some("gnu"),
+                "x86_64",
+                native::RuntimePlatform::LinuxGnu,
+            ),
+            (
+                "linux",
+                "aarch64",
+                Some("musl"),
+                "aarch64",
+                native::RuntimePlatform::LinuxMusl,
+            ),
+            (
+                "unknown-linux-musl",
+                "x64",
+                None,
+                "x86_64",
+                native::RuntimePlatform::LinuxMusl,
+            ),
+        ] {
+            let target = native_archive_target(os, arch, libc).unwrap();
+            assert_eq!(target.arch(), expected_arch);
+            assert_eq!(target.platform(), expected_platform);
+        }
+    }
+
+    #[test]
+    fn native_archive_target_rejects_unknown_platform_without_guessing() {
+        for (os, arch, libc) in [
+            ("windows", "arm64", None),
+            ("linux", "x64", Some("unknown")),
+            ("linux", "", Some("gnu")),
+            ("macos", "../aarch64", None),
+        ] {
+            assert!(native_archive_target(os, arch, libc).is_err());
+        }
+    }
+
+    #[test]
+    fn native_archive_flavor_is_exact_and_never_falls_back() {
+        for (value, expected) in [
+            (None, native::RuntimeFlavor::InstallOnly),
+            (Some("install_only"), native::RuntimeFlavor::InstallOnly),
+            (
+                Some("install_only_stripped"),
+                native::RuntimeFlavor::InstallOnlyStripped,
+            ),
+            (
+                Some("freethreaded-install_only"),
+                native::RuntimeFlavor::FreeThreadedInstallOnly,
+            ),
+            (
+                Some("freethreaded-install_only_stripped"),
+                native::RuntimeFlavor::FreeThreadedInstallOnlyStripped,
+            ),
+        ] {
+            assert_eq!(native_archive_flavor(value).unwrap(), expected);
+        }
+        for unsupported in ["", "debug", "full", "arbitrary-install_only"] {
+            assert!(native_archive_flavor(Some(unsupported)).is_err());
+        }
+    }
+
+    #[test]
+    fn native_archive_digest_participates_in_install_identity() {
+        use crate::config::settings::SettingsPartial;
+        use confique::Layer;
+        let _guard = crate::test::SettingsGuard::lock();
+        let mut partial = SettingsPartial::empty();
+        partial.python.compile = Some(false);
+        Settings::reset(Some(partial));
+        let backend = PythonPlugin::new();
+        let mut tv = crate::backend::static_helpers::test_tool_version(&backend, "3.15.0", &[]);
+        let platform = backend.get_platform_key();
+        let identity = |tv: &ToolVersion| backend.install_identity_options(tv);
+        let plain = identity(&tv);
+        tv.lock_platforms.insert(platform.clone(), PlatformInfo {
+            url: Some("https://github.com/astral-sh/python-build-standalone/releases/download/20261013/cpython-3.15.0+20261013-aarch64-apple-darwin-install_only.tar.gz".into()),
+            checksum: Some(format!("sha256:{}", "a".repeat(64))),
+            ..Default::default()
+        });
+        let first = identity(&tv);
+        assert_ne!(first, plain);
+        tv.lock_platforms.get_mut(&platform).unwrap().checksum =
+            Some(format!("sha256:{}", "b".repeat(64)));
+        assert_ne!(first, identity(&tv));
+    }
+
+    #[test]
+    fn native_python_listing_bypasses_shared_versions_host() {
+        if cfg!(any(target_os = "macos", target_os = "linux")) {
+            assert_eq!(
+                PythonPlugin::new()
+                    .versions_host_skip_reason(&ToolVersionOptions::default())
+                    .as_deref(),
+                Some("Python runtime catalogs bind target, flavor and expected hashes")
+            );
+        }
+    }
 
     fn opts_with(key: &str, value: &str) -> ToolVersionOptions {
         opts_with_value(key, toml::Value::String(value.to_string()))

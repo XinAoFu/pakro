@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export NO_PROXY=127.0.0.1,localhost,::1
+export no_proxy="$NO_PROXY"
+mkdir request-log
+start_http_server --headers-log "$PWD/request-log"
+python3 "$TEST_ROOT/fixtures/native_python_transaction.py" suite legacy "$PWD" "http://127.0.0.1:$HTTP_PORT" "$PWD/request-log"

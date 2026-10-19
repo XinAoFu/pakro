@@ -21,6 +21,8 @@ pub(crate) struct VenvSpec<'a> {
     pub interpreter_executable: &'a Path,
     /// Actual language tuple from the validated runtime descriptor.
     pub language_version: &'a PythonVersion,
+    /// Coarse Store label from the same validated execution target as supported tags.
+    pub platform: Platform,
 }
 
 /// Materializes the venv and returns its path. Idempotent: existing links are
@@ -112,7 +114,7 @@ fn identity_of(node: &ResolvedNode, spec: &VenvSpec<'_>) -> eyre::Result<Package
             eco: Eco::Python,
             version: spec.runtime_version.to_string(),
         }),
-        platform: Platform::detect(),
+        platform: spec.platform,
         digest: digest.parse::<Digest>()?,
     })
 }
@@ -215,6 +217,7 @@ mod tests {
             runtime_version: "pbs-build-opaque",
             interpreter_executable: &executable,
             language_version: &language,
+            platform: Platform::detect(),
         };
         let venv = materialize_venv(&spec, &ResolvedGraph::default(), &store).unwrap();
         assert!(venv.join("lib/python3.10/site-packages").is_dir());
@@ -311,6 +314,7 @@ mod tests {
             runtime_version: "3.10.14",
             interpreter_executable: &executable,
             language_version: &language,
+            platform: Platform::detect(),
         };
         let venv = materialize_venv(&spec, &graph, &store).unwrap();
 
@@ -380,6 +384,7 @@ mod tests {
             runtime_version: "3.10.14",
             interpreter_executable: &executable,
             language_version: &language,
+            platform: Platform::detect(),
         };
         materialize_venv(&spec, &graph, &store).unwrap();
 
@@ -424,6 +429,7 @@ mod tests {
             runtime_version: "3.10.14",
             interpreter_executable: &executable,
             language_version: &language,
+            platform: Platform::detect(),
         };
         let venv = materialize_venv(&spec, &graph, &store).unwrap();
 
@@ -465,8 +471,34 @@ mod tests {
             runtime_version: "3.10.14",
             interpreter_executable: &executable,
             language_version: &language,
+            platform: Platform::detect(),
         };
         let err = materialize_venv(&spec, &graph, &store).unwrap_err();
         assert!(err.to_string().contains("digest"), "{err}");
+    }
+    #[test]
+    fn identity_uses_explicit_observed_platform_for_each_target() {
+        let root = tempfile::tempdir().unwrap();
+        let language = observed_language();
+        let executable = root.path().join("bound-python");
+        std::fs::write(&executable, b"fixture").unwrap();
+        let node = node(
+            "demo",
+            "1.0",
+            Some(Digest::from_sha256_bytes(b"wheel").to_string()),
+        );
+        for platform in ["linux-aarch64-musl", "macos-x86_64"] {
+            let platform = platform.parse::<Platform>().unwrap();
+            let spec = VenvSpec {
+                project_root: root.path(),
+                runtime_name: "python",
+                runtime_version: "opaque",
+                interpreter_executable: &executable,
+                language_version: &language,
+                platform,
+            };
+            let identity = identity_of(&node, &spec).unwrap();
+            assert_eq!(identity.platform, platform);
+        }
     }
 }

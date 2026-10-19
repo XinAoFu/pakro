@@ -46,6 +46,14 @@ async fn shared_verification(
     verification: impl std::future::Future<Output = AttestationResult<bool>>,
 ) -> AttestationResult<bool> {
     let settings = pakro_settings::Settings::get();
+    shared_verification_using(key, verification, &settings).await
+}
+
+async fn shared_verification_using(
+    key: String,
+    verification: impl std::future::Future<Output = AttestationResult<bool>>,
+    settings: &pakro_settings::Settings,
+) -> AttestationResult<bool> {
     if !settings.generate_lockfiles() || settings.force_provenance_verify() {
         return verification.await;
     }
@@ -82,12 +90,20 @@ fn resolve_token_for_wrapper(api_url: Option<&str>) -> Option<String> {
 }
 
 fn routed_api_url(api_url: &str, has_credentials: bool) -> AttestationResult<String> {
+    routed_api_url_using(api_url, has_credentials, &pakro_settings::Settings::get())
+}
+
+fn routed_api_url_using(
+    api_url: &str,
+    has_credentials: bool,
+    settings: &pakro_settings::Settings,
+) -> AttestationResult<String> {
     let Ok(mut url) = url::Url::parse(api_url) else {
         debug!("invalid GitHub attestation API URL, skipping url_replacements: {api_url}");
         return Ok(api_url.to_string());
     };
     let original = url.clone();
-    crate::http::apply_url_replacements(&mut url);
+    crate::http::apply_url_replacements_using(&mut url, settings);
     crate::http::ensure_secure_url_replacement(&original, &url, has_credentials)
         .map_err(|err| AttestationError::Verification(err.to_string()))?;
     if url == original {
@@ -104,6 +120,10 @@ fn routed_api_url(api_url: &str, has_credentials: bool) -> AttestationResult<Str
 /// result is pushed into `pakro-sigstore` via [`pakro_sigstore::set_tuf_url`] so
 /// the TUF root fetch follows the same mirror as the rest of pakro's traffic.
 fn routed_tuf_url() -> Option<String> {
+    routed_tuf_url_using(&pakro_settings::Settings::get())
+}
+
+fn routed_tuf_url_using(settings: &pakro_settings::Settings) -> Option<String> {
     let Ok(mut url) = url::Url::parse(pakro_sigstore::DEFAULT_TUF_URL) else {
         debug!(
             "invalid Sigstore TUF URL, skipping url_replacements: {}",
@@ -112,7 +132,7 @@ fn routed_tuf_url() -> Option<String> {
         return None;
     };
     let original = url.clone();
-    crate::http::apply_url_replacements(&mut url);
+    crate::http::apply_url_replacements_using(&mut url, settings);
     if let Err(err) = crate::http::ensure_secure_url_replacement(&original, &url, false) {
         warn!("{err}; ignoring insecure Sigstore TUF URL replacement");
         return None;
@@ -125,9 +145,13 @@ fn routed_tuf_url() -> Option<String> {
 /// using a policy hardcoded in the `pakro-sigstore` crate.
 fn pakro_retry_config() -> RetryConfig {
     let settings = pakro_settings::Settings::get();
+    pakro_retry_config_using(&settings)
+}
+
+fn pakro_retry_config_using(settings: &pakro_settings::Settings) -> RetryConfig {
     RetryConfig {
-        timeout: crate::network::http_timeout(&settings),
-        retries: crate::network::http_retries(&settings).max(0) as usize,
+        timeout: crate::network::http_timeout(settings),
+        retries: crate::network::http_retries(settings).max(0) as usize,
         ..RetryConfig::default()
     }
 }
@@ -181,6 +205,116 @@ pub async fn verify_attestation(
             api_url,
             use_versions_host,
         ),
+    )
+    .await
+}
+
+/// Verify with one frozen routing and retry policy. This path uses the existing
+/// GitHub verification core directly, avoiding the optional versions-host cache
+/// whose transport still belongs to the legacy global-settings API.
+pub async fn verify_attestation_using(
+    artifact_path: &Path,
+    owner: &str,
+    repo: &str,
+    expected_workflow: Option<&str>,
+    api_url: Option<&str>,
+    _use_versions_host: bool,
+    settings: &pakro_settings::Settings,
+) -> AttestationResult<bool> {
+    let FrozenAttestationTransport {
+        token,
+        base_url,
+        tuf_url,
+        retry_config,
+    } = frozen_attestation_transport(api_url, settings)?;
+    let digest = pakro_sigstore::calculate_file_digest(artifact_path).await?;
+    let key = format!(
+        "github:frozen:{owner}/{repo}:{digest}:{expected_workflow:?}:{base_url}:{tuf_url:?}"
+    );
+    shared_verification_using(
+        key,
+        pakro_sigstore::verify_github_attestation_with_tuf_url(
+            pakro_sigstore::GithubAttestationRequest {
+                artifact_path,
+                owner,
+                repo,
+                token: token.as_deref(),
+                signer_workflow: expected_workflow,
+                base_url: Some(&base_url),
+                digest: Some(&digest),
+                retry_config,
+            },
+            tuf_url,
+        ),
+        settings,
+    )
+    .await
+}
+
+struct FrozenAttestationTransport {
+    token: Option<String>,
+    base_url: String,
+    tuf_url: Option<String>,
+    retry_config: RetryConfig,
+}
+
+fn frozen_attestation_transport(
+    api_url: Option<&str>,
+    settings: &pakro_settings::Settings,
+) -> AttestationResult<FrozenAttestationTransport> {
+    // Resolve authentication once, then retain the secret in this request.
+    // Route and retry policy cannot be reread after an awaited fetch.
+    let token = resolve_token_for_wrapper(api_url);
+    let base_url = routed_api_url_using(
+        api_url.unwrap_or(crate::github::API_URL),
+        token.is_some(),
+        settings,
+    )?;
+    Ok(FrozenAttestationTransport {
+        token,
+        base_url,
+        tuf_url: routed_tuf_url_using(settings),
+        retry_config: pakro_retry_config_using(settings),
+    })
+}
+
+/// Verify the SHA-256 derived from a caller-held artifact capability. No path
+/// is accepted or reopened by this interface.
+pub async fn verify_attestation_sha256_using(
+    sha256: [u8; 32],
+    owner: &str,
+    repo: &str,
+    expected_workflow: Option<&str>,
+    api_url: Option<&str>,
+    _use_versions_host: bool,
+    settings: &pakro_settings::Settings,
+) -> AttestationResult<bool> {
+    let FrozenAttestationTransport {
+        token,
+        base_url,
+        tuf_url,
+        retry_config,
+    } = frozen_attestation_transport(api_url, settings)?;
+    let digest = hex::encode(sha256);
+    // Path observations cannot satisfy the stronger fixed-subject contract.
+    let key = format!(
+        "github:frozen-sha256:{owner}/{repo}:{digest}:{expected_workflow:?}:{base_url}:{tuf_url:?}"
+    );
+    shared_verification_using(
+        key,
+        pakro_sigstore::verify_github_attestation_digest_with_tuf_url(
+            pakro_sigstore::GithubAttestationDigestRequest {
+                sha256,
+                owner,
+                repo,
+                token: token.as_deref(),
+                signer_workflow: expected_workflow,
+                base_url: Some(&base_url),
+                retry_config,
+            },
+            tuf_url,
+        ),
+        settings,
     )
     .await
 }
@@ -453,10 +587,28 @@ fn mirror_may_answer_none() -> bool {
 }
 
 fn use_versions_host_for_attestations(api_url: Option<&str>, use_versions_host: bool) -> bool {
-    if !use_versions_host || !crate::versions_host::enabled_for_github_metadata() {
+    use_versions_host_for_attestations_using(
+        api_url,
+        use_versions_host,
+        &pakro_settings::Settings::get(),
+    )
+}
+
+fn use_versions_host_for_attestations_using(
+    api_url: Option<&str>,
+    use_versions_host: bool,
+    settings: &pakro_settings::Settings,
+) -> bool {
+    if !use_versions_host || !settings.use_versions_host || crate::network::prefer_offline(settings)
+    {
         return false;
     }
-
+    let original = url::Url::parse(crate::github::API_URL).expect("constant GitHub API URL");
+    let mut routed = original.clone();
+    crate::http::apply_url_replacements_using(&mut routed, settings);
+    if routed != original {
+        return false;
+    }
     api_url
         .unwrap_or(crate::github::API_URL)
         .trim_end_matches('/')
@@ -560,6 +712,138 @@ mod tests {
     use super::*;
     use crate::env as pakro_env;
     use confique::Layer;
+
+    #[tokio::test]
+    async fn r06_sigstore_frozen_force_policy_bypasses_a_previous_verification() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let _settings = SettingsGuard::new(None);
+        let mut global = pakro_settings::SettingsPartial::empty();
+        global.lockfile_mode = Some("generate".into());
+        global.locked_verify_provenance = Some(false);
+        global.paranoid = Some(false);
+        crate::testing::reset_settings(Some(global));
+        let mut frozen = (*pakro_settings::Settings::get()).clone();
+        frozen.locked_verify_provenance = true;
+        let unique = tempfile::tempdir().unwrap();
+        let key = format!("r06-frozen-force:{}", unique.path().display());
+        assert!(
+            shared_verification(key.clone(), async { Ok(true) })
+                .await
+                .unwrap()
+        );
+        let called = AtomicUsize::new(0);
+        let result = shared_verification_using(
+            key.clone(),
+            async {
+                called.fetch_add(1, Ordering::SeqCst);
+                Ok(false)
+            },
+            &frozen,
+        )
+        .await
+        .unwrap();
+        INVOCATION_VERIFICATIONS.lock().unwrap().remove(&key);
+        assert!(
+            !result,
+            "the supplied force policy must execute its new verification"
+        );
+        assert_eq!(called.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn r06_sigstore_routes_and_retry_parameters_use_the_supplied_snapshot() {
+        let _settings = SettingsGuard::new(None);
+        let mut frozen = (*pakro_settings::Settings::get()).clone();
+        frozen.url_replacements = Some(indexmap::indexmap! {
+            "https://api.github.com".into() => "https://frozen-api.example.com".into(),
+            "https://tuf-repo-cdn.sigstore.dev".into() => "https://frozen-tuf.example.com".into(),
+        });
+        frozen.http_timeout = "17s".into();
+        frozen.http_retries = 6;
+        assert_eq!(
+            routed_api_url_using(crate::github::API_URL, true, &frozen).unwrap(),
+            "https://frozen-api.example.com/"
+        );
+        assert_eq!(
+            routed_tuf_url_using(&frozen).as_deref(),
+            Some("https://frozen-tuf.example.com/")
+        );
+        let retry = pakro_retry_config_using(&frozen);
+        assert_eq!(retry.timeout, std::time::Duration::from_secs(17));
+        assert_eq!(
+            retry.retries,
+            crate::network::http_retries(&frozen).max(0) as usize
+        );
+    }
+
+    #[test]
+    fn r06_sigstore_mirror_gate_uses_the_supplied_snapshot() {
+        let _settings = SettingsGuard::with_versions_host(None, Some(true));
+        assert!(use_versions_host_for_attestations(None, true));
+        let mut frozen = (*pakro_settings::Settings::get()).clone();
+        frozen.use_versions_host = false;
+        assert!(!use_versions_host_for_attestations_using(
+            None, true, &frozen
+        ));
+    }
+
+    #[test]
+    fn r06_sigstore_frozen_route_cannot_downgrade_a_credential_request() {
+        let _settings = SettingsGuard::new(None);
+        let mut frozen = (*pakro_settings::Settings::get()).clone();
+        frozen.url_replacements = Some(indexmap::indexmap! {
+            "https://api.github.com".into() => "http://frozen-api.example.com".into(),
+        });
+        let error = routed_api_url_using(crate::github::API_URL, true, &frozen).unwrap_err();
+        assert!(error.to_string().contains("refusing to send credentials"));
+    }
+
+    #[tokio::test]
+    async fn r06_fixed_digest_api_does_not_accept_a_path_verification_memo() {
+        let _settings = SettingsGuard::new(None);
+        let _token_lock = crate::testing::lock_ignoring_poison(&crate::github::TEST_ENV_LOCK);
+        let _tokens = TokensFileOverrideGuard::set("github.com", "fixture-only-token");
+        let mut frozen = (*pakro_settings::Settings::get()).clone();
+        frozen.lockfile_mode = Some("generate".into());
+        frozen.locked_verify_provenance = false;
+        frozen.paranoid = false;
+        frozen.url_replacements = None;
+        let unique = tempfile::tempdir().unwrap();
+        let owner = format!(
+            "r06-{}",
+            unique.path().file_name().unwrap().to_string_lossy()
+        );
+        let sha256 = [73; 32];
+        let digest = hex::encode(sha256);
+        let api = "invalid attestation api URL";
+        let legacy_key = format!("github:frozen:{owner}/runtime:{digest}:None:{api}:None");
+        assert!(
+            shared_verification_using(legacy_key.clone(), async { Ok(true) }, &frozen)
+                .await
+                .unwrap()
+        );
+        // A malformed URL reaches the real verifier's request validation but
+        // cannot make any network request. Returning the seeded Path result
+        // would skip that verifier entirely, proving cross-domain memo reuse.
+        let result = verify_attestation_sha256_using(
+            sha256,
+            &owner,
+            "runtime",
+            None,
+            Some(api),
+            false,
+            &frozen,
+        )
+        .await;
+        INVOCATION_VERIFICATIONS
+            .lock()
+            .unwrap()
+            .retain(|key, _| !key.contains(&owner));
+        assert!(
+            matches!(result, Err(AttestationError::Api(ref message)) if message.contains("Invalid GitHub attestations URL")),
+            "the fixed-digest API accepted a Path API memo instead of executing its verifier: {result:?}"
+        );
+    }
 
     const TOKEN_ENV_VARS: &[&str] = &[
         "PAKRO_GITHUB_TOKEN",

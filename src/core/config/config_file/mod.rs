@@ -46,9 +46,328 @@ pub mod config_root;
 pub mod diagnostic;
 pub(crate) mod idiomatic_version;
 pub(crate) mod min_version;
+pub(crate) mod native_python;
 pub mod pakro_toml;
 pub(crate) mod toml;
 pub(crate) mod tool_versions;
+
+/// Static declarations are data only: they never expose a mutable config owner.
+#[derive(Clone)]
+pub(crate) struct StaticToolDeclaration {
+    pub(crate) name: String,
+    pub(crate) selector: String,
+    pub(crate) version: String,
+    pub(crate) options: ::toml::Table,
+}
+
+#[derive(Clone)]
+pub(crate) struct StaticConfigDeclarations {
+    pub(crate) tools: Vec<StaticToolDeclaration>,
+    pub(crate) packages: Vec<crate::packages::PackageInstallRequest>,
+    pub(crate) includes: Vec<String>,
+    pub(crate) fields: Vec<String>,
+    pub(crate) environment: Vec<EnvDirective>,
+    pub(crate) variables: Vec<EnvDirective>,
+    /// Inert original sections, including settings/aliases/tasks. The snapshot
+    /// records these declarations; it does not claim to be an effective Config.
+    pub(crate) unprojected_fields: ::toml::Table,
+    pub(crate) minimum_version_recommended: bool,
+}
+
+impl Debug for StaticToolDeclaration {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        output
+            .debug_struct("StaticToolDeclaration")
+            .finish_non_exhaustive()
+    }
+}
+
+impl Debug for StaticConfigDeclarations {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        output
+            .debug_struct("StaticConfigDeclarations")
+            .field("tool_count", &self.tools.len())
+            .field("package_count", &self.packages.len())
+            .field("include_count", &self.includes.len())
+            .field("field_count", &self.fields.len())
+            .field("environment_count", &self.environment.len())
+            .field("variable_count", &self.variables.len())
+            .field("unprojected_field_count", &self.unprojected_fields.len())
+            .field(
+                "minimum_version_recommended",
+                &self.minimum_version_recommended,
+            )
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StaticInputKind {
+    ToolTemplate,
+    Environment,
+    Variables,
+    IncludeTemplate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum StaticConfigError {
+    #[error("configuration source is not valid UTF-8")]
+    InvalidUtf8,
+    #[error("configuration document is invalid")]
+    InvalidDocument,
+    #[error("configuration package declarations are invalid")]
+    InvalidPackages,
+    #[error("configuration format has no static declaration parser")]
+    UnsupportedFormat,
+    #[error("config include contains an unsupported declaration")]
+    UnsupportedInclude,
+    #[error("configuration requires a newer Pakro version")]
+    MinimumVersionNotMet,
+    #[error("configuration requires explicit static input: {0:?}")]
+    MissingStaticInput(StaticInputKind),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ConfigDocumentFormat {
+    PakroToml,
+    ToolVersions,
+}
+
+pub(crate) fn parse_static_config_as(
+    bytes: &[u8],
+    _path: &Path,
+    format: ConfigDocumentFormat,
+) -> Result<StaticConfigDeclarations, StaticConfigError> {
+    let body = std::str::from_utf8(bytes).map_err(|_| StaticConfigError::InvalidUtf8)?;
+    match format {
+        ConfigDocumentFormat::PakroToml => PakroToml::static_declarations(body),
+        ConfigDocumentFormat::ToolVersions => Ok(StaticConfigDeclarations {
+            tools: ToolVersions::static_declarations(body)?,
+            packages: vec![],
+            includes: vec![],
+            fields: vec!["tools".to_owned()],
+            environment: vec![],
+            variables: vec![],
+            unprojected_fields: ::toml::Table::new(),
+            minimum_version_recommended: false,
+        }),
+    }
+}
+
+pub(crate) fn parse_static_config(
+    bytes: &[u8],
+    path: &Path,
+) -> Result<StaticConfigDeclarations, StaticConfigError> {
+    if path
+        .file_name()
+        .is_some_and(|name| name == ".tool-versions")
+    {
+        return parse_static_config_as(bytes, path, ConfigDocumentFormat::ToolVersions);
+    }
+    if path.extension().is_none_or(|extension| extension != "toml") {
+        return Err(StaticConfigError::UnsupportedFormat);
+    }
+    parse_static_config_as(bytes, path, ConfigDocumentFormat::PakroToml)
+}
+
+/// Check the shared include section contract. The static parser then validates
+/// declaration types and minimum-version constraints from those same bytes.
+pub(crate) fn validate_static_include(bytes: &[u8]) -> Result<(), StaticConfigError> {
+    let body = std::str::from_utf8(bytes).map_err(|_| StaticConfigError::InvalidUtf8)?;
+    PakroToml::validate_static_include(body)
+}
+
+#[cfg(test)]
+mod r03_static_tests {
+    use super::*;
+
+    #[test]
+    fn r03_static_minimum_version_hard_and_malformed_constraints_are_rejected() {
+        for body in [
+            "min_version='9999.0.0'\n[tools]\npython='3.13'",
+            "min_version={hard='9999.0.0',soft='9999.1.0'}\n",
+            "min_version=42\n",
+            "min_version={unknown='1.0.0'}\n",
+        ] {
+            assert!(
+                parse_static_config(body.as_bytes(), Path::new("/project/pakro.toml")).is_err()
+            );
+            assert!(
+                parse_static_config_as(
+                    body.as_bytes(),
+                    Path::new("/cache/include"),
+                    ConfigDocumentFormat::PakroToml
+                )
+                .is_err()
+            );
+        }
+        let recommended = parse_static_config(
+            b"min_version={hard='0.1.0',soft='9999.0.0'}",
+            Path::new("/project/pakro.toml"),
+        )
+        .unwrap();
+        assert!(recommended.minimum_version_recommended);
+    }
+
+    #[test]
+    fn r03_static_preserves_declaration_order_literal_environment_and_other_sections() {
+        let data = parse_static_config(
+            br#"
+[tools]
+nodejs = ['22', '20']
+python = { ref = 'source-main', lazy = true }
+[env]
+APP_VALUE = 'secret-literal'
+[vars]
+flavor = 'static-flavor'
+[tool_alias.python.versions]
+work = '3.13'
+[settings]
+experimental = true
+"#,
+            Path::new("/project/pakro.toml"),
+        )
+        .unwrap();
+        assert_eq!(
+            data.tools
+                .iter()
+                .map(|tool| (
+                    tool.name.as_str(),
+                    tool.selector.as_str(),
+                    tool.version.as_str()
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                ("nodejs", "version", "22"),
+                ("nodejs", "version", "20"),
+                ("python", "ref", "source-main")
+            ]
+        );
+        assert!(
+            matches!(&data.environment[0], EnvDirective::Val(name, value, _) if name == "APP_VALUE" && value == "secret-literal")
+        );
+        assert!(
+            matches!(&data.variables[0], EnvDirective::Val(name, value, _) if name == "flavor" && value == "static-flavor")
+        );
+        assert!(data.unprojected_fields.contains_key("settings"));
+        assert!(data.unprojected_fields.contains_key("tool_alias"));
+        assert!(!data.unprojected_fields.contains_key("tools"));
+        assert!(!format!("{data:?}").contains("secret-literal"));
+    }
+
+    #[test]
+    fn r03_static_explicit_formats_support_custom_filenames() {
+        let native = parse_static_config_as(
+            b"[tools]\npython='3.13'",
+            Path::new("/project/Pakrofile"),
+            ConfigDocumentFormat::PakroToml,
+        )
+        .unwrap();
+        assert_eq!(native.tools[0].version, "3.13");
+        let versions = parse_static_config_as(
+            b"python 3.12\n",
+            Path::new("/project/runtime-pins"),
+            ConfigDocumentFormat::ToolVersions,
+        )
+        .unwrap();
+        assert_eq!(versions.tools[0].version, "3.12");
+    }
+
+    #[test]
+    fn r03_static_declarations_preserve_raw_names_selectors_packages_and_inert_tasks() {
+        let data = parse_static_config(
+            br#"include = ['git::https://example.invalid/base.git//pakro.toml?ref=main']
+[tools]
+python = '3.13'
+node = { path = './node', lazy = true }
+[packages."python@3.13"]
+demo = '1.0'
+[tasks.build]
+run = '{{ exec(command="should-never-run") }}'
+"#,
+            Path::new("/project/pakro.toml"),
+        )
+        .unwrap();
+        assert_eq!(data.tools.len(), 2);
+        let node = data.tools.iter().find(|tool| tool.name == "node").unwrap();
+        assert_eq!((&*node.selector, &*node.version), ("path", "./node"));
+        assert_eq!(
+            node.options.get("lazy").and_then(::toml::Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(data.packages[0].name, "demo");
+        assert_eq!(data.includes.len(), 1);
+        assert!(data.fields.iter().any(|field| field == "tasks"));
+    }
+
+    #[test]
+    fn r03_static_templates_and_commands_are_diagnosed_without_execution() {
+        for (body, kind) in [
+            (
+                r#"[tools]
+python = "\u007b\u007b exec(command='secret-value') }}""#,
+                StaticInputKind::ToolTemplate,
+            ),
+            (
+                r#"include = ["{{ exec(command='secret-value') }}"]"#,
+                StaticInputKind::IncludeTemplate,
+            ),
+            (
+                "[env._]\nsource = 'secret-value'",
+                StaticInputKind::Environment,
+            ),
+            (
+                "[vars]\nvalue = '{{ exec(command=\"secret-value\") }}'",
+                StaticInputKind::Variables,
+            ),
+        ] {
+            let error =
+                parse_static_config(body.as_bytes(), Path::new("/project/pakro.toml")).unwrap_err();
+            assert_eq!(error, StaticConfigError::MissingStaticInput(kind));
+            assert!(!format!("{error:?} {error}").contains("secret-value"));
+        }
+    }
+
+    #[test]
+    fn r03_static_bad_packages_do_not_become_empty_and_tool_versions_is_supported() {
+        assert!(
+            parse_static_config(
+                b"[packages.python]\ndemo='1.0'",
+                Path::new("/project/pakro.toml")
+            )
+            .is_err()
+        );
+        let data = parse_static_config(
+            b"\xef\xbb\xbfpython 3.13 3.12 # retained input\nnodejs: 22\n",
+            Path::new("/project/.tool-versions"),
+        )
+        .unwrap();
+        assert_eq!(
+            data.tools
+                .iter()
+                .map(|tool| (tool.name.as_str(), tool.version.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("python", "3.13"), ("python", "3.12"), ("nodejs", "22")]
+        );
+        assert_eq!(
+            parse_static_config(b"3.13", Path::new("/project/.python-version")).unwrap_err(),
+            StaticConfigError::UnsupportedFormat
+        );
+    }
+
+    #[test]
+    fn r03_static_include_uses_the_existing_allowed_section_contract() {
+        validate_static_include(b"[tools]\npython='3.13'").unwrap();
+        assert_eq!(
+            validate_static_include(b"[packages.\"python@3.13\"]\ndemo='1.0'").unwrap_err(),
+            StaticConfigError::UnsupportedInclude
+        );
+        assert_eq!(
+            validate_static_include(b"include=['other']").unwrap_err(),
+            StaticConfigError::UnsupportedInclude
+        );
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum ConfigFileType {
@@ -759,18 +1078,34 @@ pub(crate) fn is_trusted_via_config_paths(path: &Path) -> bool {
 /// matches, and on unix it resolves symlinks. `Settings::trusted_config_paths`
 /// canonicalizes its own entries for the same reason.
 fn path_is_under_any(path: &Path, ignored: &[PathBuf]) -> bool {
+    path_is_under_any_with::<std::convert::Infallible>(path, ignored, &|path| {
+        Ok(file::canonicalize_cached(path))
+    })
+    .unwrap()
+}
+
+fn path_is_under_any_with<E>(
+    path: &Path,
+    ignored: &[PathBuf],
+    canonicalize: &impl Fn(&Path) -> std::result::Result<Option<PathBuf>, E>,
+) -> std::result::Result<bool, E> {
     if ignored.iter().any(|p| path.starts_with(p)) {
-        return true;
+        return Ok(true);
     }
-    let Some(canonical) = file::canonicalize_cached(path) else {
+    if ignored.is_empty() {
+        return Ok(false);
+    }
+    let Some(canonical) = canonicalize(path)? else {
         // Nothing on disk to resolve — the as-written pass above was the only
         // chance to match.
-        return false;
+        return Ok(false);
     };
-    ignored
-        .iter()
-        .filter_map(|p| file::canonicalize_cached(p))
-        .any(|p| canonical.starts_with(p))
+    for ignored in ignored {
+        if canonicalize(ignored)?.is_some_and(|ignored| canonical.starts_with(ignored)) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 #[derive(Default)]
@@ -781,6 +1116,20 @@ struct IgnoredConfigPathMatcher {
 
 impl IgnoredConfigPathMatcher {
     fn new(paths: &[PathBuf]) -> Self {
+        Self::build(paths, |path, err| {
+            warn!(
+                "invalid ignored_config_paths glob {}: {err}",
+                path.display()
+            );
+            Ok(())
+        })
+        .unwrap()
+    }
+
+    fn build(
+        paths: &[PathBuf],
+        mut on_invalid: impl FnMut(&Path, globset::Error) -> std::result::Result<(), ()>,
+    ) -> std::result::Result<Self, ()> {
         let mut matcher = Self::default();
         for path in paths {
             let pattern = path.to_string_lossy();
@@ -791,12 +1140,12 @@ impl IgnoredConfigPathMatcher {
             match GlobBuilder::new(&pattern).literal_separator(true).build() {
                 Ok(glob) => matcher.globs.push(glob.compile_matcher()),
                 Err(err) => {
-                    warn!("invalid ignored_config_paths glob {pattern}: {err}");
+                    on_invalid(path, err)?;
                     matcher.literals.push(path.clone());
                 }
             }
         }
-        matcher
+        Ok(matcher)
     }
 
     fn is_match(&self, path: &Path) -> bool {
@@ -804,6 +1153,52 @@ impl IgnoredConfigPathMatcher {
             || self.globs.iter().any(|glob| glob.is_match(path))
             || file::canonicalize_cached(path)
                 .is_some_and(|path| self.globs.iter().any(|glob| glob.is_match(&path)))
+    }
+
+    fn is_match_with<E>(
+        &self,
+        path: &Path,
+        canonicalize: impl Fn(&Path) -> std::result::Result<Option<PathBuf>, E>,
+    ) -> std::result::Result<bool, E> {
+        if path_is_under_any_with(path, &self.literals, &canonicalize)?
+            || self.globs.iter().any(|glob| glob.is_match(path))
+        {
+            return Ok(true);
+        }
+        if self.globs.is_empty() {
+            return Ok(false);
+        }
+        Ok(canonicalize(path)?
+            .is_some_and(|path| self.globs.iter().any(|glob| glob.is_match(&path))))
+    }
+}
+
+/// A frozen rule set with fresh filesystem reads. It shares the legacy prefix
+/// and glob semantics without consulting settings, memoized paths, or trust.
+#[derive(Default)]
+pub(super) struct FrozenIgnoredConfigPaths(IgnoredConfigPathMatcher);
+impl FrozenIgnoredConfigPaths {
+    pub(super) fn new(paths: &[PathBuf]) -> std::result::Result<Self, super::ConfigDiscoveryError> {
+        for path in paths {
+            if path.to_str().is_none() && path.to_string_lossy().contains(['*', '?', '[', '{']) {
+                return Err(super::ConfigDiscoveryError::InvalidPattern);
+            }
+        }
+        IgnoredConfigPathMatcher::build(paths, |_, _| Err(()))
+            .map(Self)
+            .map_err(|_| super::ConfigDiscoveryError::InvalidPattern)
+    }
+
+    pub(super) fn is_match(
+        &self,
+        path: &Path,
+    ) -> std::result::Result<bool, super::ConfigDiscoveryError> {
+        self.0
+            .is_match_with(path, |path| match std::fs::canonicalize(path) {
+                Ok(path) => Ok(Some(path)),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(_) => Err(super::ConfigDiscoveryError::Unavailable),
+            })
     }
 }
 

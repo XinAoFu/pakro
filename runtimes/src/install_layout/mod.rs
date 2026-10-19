@@ -19,5 +19,6 @@
 pub(crate) mod catalog;
 pub(crate) mod identity;
 pub(crate) mod label;
+pub(crate) mod publication;
 pub(crate) mod record;
 pub mod resolver;

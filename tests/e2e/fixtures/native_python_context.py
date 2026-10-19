@@ -3,7 +3,6 @@ import base64
 import hashlib
 import io
 import json
-import platform
 import shlex
 import sys
 import zipfile
@@ -29,7 +28,7 @@ def wheel_bytes(name):
     return buffer.getvalue()
 
 
-def prepare(install_root, fixture_root, micro, implementation):
+def prepare(install_root, fixture_root, micro, implementation, mode="normal"):
     install_root = Path(install_root)
     fixture_root = Path(fixture_root)
     executable = install_root / "bin/python"
@@ -40,6 +39,8 @@ def prepare(install_root, fixture_root, micro, implementation):
     language = {"major": 3, "minor": 10, "micro": micro, "release_level": "final", "serial": 0}
     pypy = implementation == "pypy"
     full = f"3.10.{micro}"
+    soabi = "pypy310-pp73-aarch64-linux-gnu" if pypy else "cpython-310-aarch64-linux-gnu"
+    ext_suffix = f".{soabi}.so"
     descriptor = {
         "schema": 1, "observation_mode": "base_runtime_site_disabled",
         "probe_flags": ["-E", "-s", "-S", "-B", "-c"], "executable": str(executable),
@@ -48,14 +49,24 @@ def prepare(install_root, fixture_root, micro, implementation):
         "implementation_version_source": "pypy_version_info" if pypy else "sys_version_info",
         "markers": {
             "implementation_name": implementation, "implementation_version": "7.3.17" if pypy else full,
-            "os_name": "posix", "platform_machine": platform.machine(),
+            "os_name": "posix", "platform_machine": "aarch64",
             "platform_python_implementation": "PyPy" if pypy else "CPython",
-            "platform_release": platform.release(), "platform_system": platform.system(),
-            "platform_version": platform.version(), "python_full_version": full,
-            "python_version": "3.10", "sys_platform": sys.platform,
+            "platform_release": "6.1.0", "platform_system": "Linux",
+            "platform_version": "fixture kernel", "python_full_version": full,
+            "python_version": "3.10", "sys_platform": "linux",
         },
-        "soabi": "pypy310-pp73" if pypy else "cpython-310", "ext_suffix": ".so",
-        "abiflags": "", "extension_suffixes": [".so"], "gil_disabled": False,
+        "soabi": soabi, "ext_suffix": ext_suffix,
+        "abiflags": "", "extension_suffixes": [ext_suffix, ".so"], "gil_disabled": False,
+        "compatibility": {
+            "pointer_bits": 64, "debug": False, "pymalloc": True, "unicode_size": None,
+            "platform": {
+                "os": "linux",
+                "elf": {"class": 2, "little_endian": True, "machine": 183, "flags": 0,
+                        "interpreter": "/lib/ld-linux-aarch64.so.1"},
+                "libc": {"family": "glibc", "major": 2, "minor": 17},
+                "manylinux": {"state": "default"},
+            },
+        },
         "sysconfig_paths": {"stdlib": str(install_root / "lib/python3.10")},
     }
     command = "#!/bin/sh\nif [ \"$#\" -eq 6 ] && [ \"${1:-}\" = '-E' ] && [ \"${2:-}\" = '-s' ] && [ \"${3:-}\" = '-S' ] && [ \"${4:-}\" = '-B' ] && [ \"${5:-}\" = '-c' ]; then\n  printf '%s' " + shlex.quote(json.dumps(descriptor)) + "\nelse\n  printf '%s\\n' 'unexpected runtime execution' >&2\n  exit 97\nfi\n"
@@ -63,6 +74,35 @@ def prepare(install_root, fixture_root, micro, implementation):
     executable.chmod(0o700)
     for name in ("demo", "patch13", "patch14"):
         (fixture_root / f"{name}-1.0-py3-none-any.whl").write_bytes(wheel_bytes(name))
+    (fixture_root / "mode").write_text(mode)
+
+
+def artifact_record(name, fixture_root, host, mode):
+    filename = f"{name}-1.0-py3-none-any.whl"
+    body = (fixture_root / filename).read_bytes()
+    record = {"filename": filename, "url": f"http://{host}/{filename}",
+              "requires_python": ">=3.0", "packagetype": "bdist_wheel",
+              "digests": {"sha256": hashlib.sha256(body).hexdigest()}}
+    if mode == "missing-winning-hash" and name == "demo":
+        record.pop("digests")
+    return record
+
+
+def response_value(name, exact, fixture_root, host, mode):
+    record = artifact_record(name, fixture_root, host, mode)
+    deps = ["patch13==1.0; python_full_version < '3.10.14'",
+            "patch14==1.0; python_full_version >= '3.10.14'"] if name == "demo" else []
+    info = {"name": name, "version": "1.0", "requires_python": ">=3.0",
+            "requires_dist": deps}
+    if exact:
+        records = [record]
+        if mode == "missing-winning-hash" and name == "demo":
+            records.append({"filename": "demo-1.0.tar.gz",
+                            "url": f"http://{host}/demo-1.0.tar.gz",
+                            "requires_python": ">=3.0", "packagetype": "sdist",
+                            "digests": {"sha256": hashlib.sha256(b"source trap").hexdigest()}})
+        return {"info": info, "urls": records}
+    return {"info": info, "releases": {"1.0": [record]}}
 
 
 if "TestHandler" in globals():
@@ -72,20 +112,12 @@ if "TestHandler" in globals():
         def do_GET(self):
             self.log_headers()
             name = self.path.split("/")[1]
+            mode_path = fixture_root / "mode"
+            mode = mode_path.read_text().strip() if mode_path.is_file() else "normal"
             if self.path.endswith("/json") and name in ("demo", "patch13", "patch14"):
-                filename = f"{name}-1.0-py3-none-any.whl"
-                if self.path == f"/{name}/json":
-                    value = {"info": {"name": name, "version": "1.0"},
-                             "releases": {"1.0": [{"filename": filename, "requires_python": ">=3.0"}]}}
-                else:
-                    wheel = (fixture_root / filename).read_bytes()
-                    deps = ["patch13==1.0; python_full_version < '3.10.14'",
-                            "patch14==1.0; python_full_version >= '3.10.14'"] if name == "demo" else []
-                    value = {"info": {"name": name, "version": "1.0", "requires_python": ">=3.0", "requires_dist": deps},
-                             "urls": [{"filename": filename, "url": f"http://{self.headers['Host']}/{filename}",
-                                       "digests": {"sha256": hashlib.sha256(wheel).hexdigest()},
-                                       "requires_python": ">=3.0", "packagetype": "bdist_wheel"}]}
-                body = json.dumps(value).encode()
+                exact = self.path != f"/{name}/json"
+                body = json.dumps(response_value(name, exact, fixture_root,
+                                                self.headers["Host"], mode)).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
             elif self.path.endswith(".whl") and (fixture_root / self.path.lstrip("/")).is_file():
@@ -99,4 +131,5 @@ if "TestHandler" in globals():
             self.end_headers()
             self.wfile.write(body)
 elif __name__ == "__main__":
-    prepare(sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4])
+    prepare(sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4],
+            sys.argv[5] if len(sys.argv) > 5 else "normal")

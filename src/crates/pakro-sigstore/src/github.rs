@@ -11,6 +11,17 @@ pub struct GithubAttestationRequest<'a> {
     pub retry_config: RetryConfig,
 }
 
+/// A fixed subject digest; this request cannot reopen an artifact by path.
+pub struct GithubAttestationDigestRequest<'a> {
+    pub sha256: [u8; 32],
+    pub owner: &'a str,
+    pub repo: &'a str,
+    pub token: Option<&'a str>,
+    pub signer_workflow: Option<&'a str>,
+    pub base_url: Option<&'a str>,
+    pub retry_config: RetryConfig,
+}
+
 pub async fn verify_github_attestation(
     artifact_path: &Path,
     owner: &str,
@@ -60,6 +71,33 @@ pub async fn verify_github_attestation_with_base_url_and_digest(
     verify_github_attestation_inner(request).await
 }
 
+/// A request-scoped TUF route, independent of legacy global overrides.
+pub async fn verify_github_attestation_with_tuf_url(
+    request: GithubAttestationRequest<'_>,
+    tuf_url: Option<String>,
+) -> Result<bool> {
+    verify_github_attestation_inner_with_roots(request, TrustRoots::with_tuf_url(tuf_url)).await
+}
+
+pub async fn verify_github_attestation_digest_with_tuf_url(
+    request: GithubAttestationDigestRequest<'_>,
+    tuf_url: Option<String>,
+) -> Result<bool> {
+    let client = github_verification_client(request.token, request.base_url, request.retry_config)?;
+    let digest = Sha256Hash::from_bytes(request.sha256);
+    let attestations =
+        fetch_attestations_for_digest(&client, request.owner, request.repo, &digest.to_hex())
+            .await?;
+    let mut trust_roots = TrustRoots::with_tuf_url(tuf_url);
+    verify_attestation_bundles(
+        &attestations,
+        Artifact::from(&digest),
+        request.signer_workflow,
+        &mut trust_roots,
+    )
+    .await
+}
+
 pub async fn verify_github_attestation_with_attestations(
     artifact_path: &Path,
     attestations: &[Attestation],
@@ -71,7 +109,13 @@ pub async fn verify_github_attestation_with_attestations(
 
     let artifact = tokio::fs::read(artifact_path).await?;
     let mut trust_roots = TrustRoots::default();
-    verify_attestation_bundles(attestations, &artifact, signer_workflow, &mut trust_roots).await
+    verify_attestation_bundles(
+        attestations,
+        Artifact::from(artifact.as_slice()),
+        signer_workflow,
+        &mut trust_roots,
+    )
+    .await
 }
 
 /// Verify attestations that did not come from GitHub's attestations API for
@@ -134,22 +178,55 @@ pub async fn verify_github_attestation_sources(
 pub(crate) async fn verify_github_attestation_inner(
     request: GithubAttestationRequest<'_>,
 ) -> Result<bool> {
-    let mut builder = AttestationClient::builder().retry_config(request.retry_config);
-    if let Some(token) = request.token {
-        builder = builder.github_token(token);
-    }
-    if let Some(base_url) = request.base_url {
-        builder = builder.base_url(base_url);
-    }
-    let client = builder.build()?;
+    verify_github_attestation_inner_with_roots(request, TrustRoots::default()).await
+}
+
+async fn verify_github_attestation_inner_with_roots(
+    request: GithubAttestationRequest<'_>,
+    mut trust_roots: TrustRoots,
+) -> Result<bool> {
+    let client = github_verification_client(request.token, request.base_url, request.retry_config)?;
     let digest = match request.digest {
         Some(digest) => digest.to_string(),
         None => calculate_file_digest(request.artifact_path).await?,
     };
+    let attestations =
+        fetch_attestations_for_digest(&client, request.owner, request.repo, &digest).await?;
+    let artifact = tokio::fs::read(request.artifact_path).await?;
+    verify_attestation_bundles(
+        &attestations,
+        Artifact::from(artifact.as_slice()),
+        request.signer_workflow,
+        &mut trust_roots,
+    )
+    .await
+}
+
+fn github_verification_client(
+    token: Option<&str>,
+    base_url: Option<&str>,
+    retry_config: RetryConfig,
+) -> Result<AttestationClient> {
+    let mut builder = AttestationClient::builder().retry_config(retry_config);
+    if let Some(token) = token {
+        builder = builder.github_token(token);
+    }
+    if let Some(base_url) = base_url {
+        builder = builder.base_url(base_url);
+    }
+    builder.build()
+}
+
+async fn fetch_attestations_for_digest(
+    client: &AttestationClient,
+    owner: &str,
+    repo: &str,
+    digest: &str,
+) -> Result<Vec<Attestation>> {
     let attestations = client
         .fetch_attestations(FetchParams {
-            owner: request.owner.to_string(),
-            repo: Some(format!("{}/{}", request.owner, request.repo)),
+            owner: owner.to_string(),
+            repo: Some(format!("{owner}/{repo}")),
             digest: format!("sha256:{digest}"),
             limit: 30,
             predicate_type: None,
@@ -160,13 +237,5 @@ pub(crate) async fn verify_github_attestation_inner(
         return Err(AttestationError::NoAttestations);
     }
 
-    let artifact = tokio::fs::read(request.artifact_path).await?;
-    let mut trust_roots = TrustRoots::default();
-    verify_attestation_bundles(
-        &attestations,
-        &artifact,
-        request.signer_workflow,
-        &mut trust_roots,
-    )
-    .await
+    Ok(attestations)
 }

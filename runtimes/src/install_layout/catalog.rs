@@ -24,6 +24,7 @@ use eyre::{Result, WrapErr};
 
 use super::identity::{DIGEST_CHARS, Digest, InstallIdentity, SHORT_CHARS};
 use super::label::label_for;
+use super::publication::{MAX_ENTRY_BYTES, PublicationUndo, PublicationValue};
 use super::record::{
     IdentityRecord, Provenance, RECEIPT_FILE, Receipt, Selection, is_plain_dir_name,
 };
@@ -244,15 +245,40 @@ impl Catalog {
         let Some(mut record) = self.lookup(identity) else {
             return Ok(());
         };
-        let merged = &mut record.provenance;
-        merged.artifacts.extend(provenance.artifacts);
-        for pin in provenance.pinned_by {
-            if !merged.pinned_by.contains(&pin) {
-                merged.pinned_by.push(pin);
-            }
-        }
-        merged.generation = merged.generation.max(provenance.generation);
+        merge_provenance(&mut record.provenance, provenance);
         write_record(&self.record_path(identity, &record.digest), &record)
+    }
+
+    /// Read the current record without following an entry symlink. The caller
+    /// already holds the catalog allocation lock through merge and publication.
+    pub(crate) fn publication_record(&self, identity: &InstallIdentity) -> Result<IdentityRecord> {
+        let digest = identity.digest().to_base32();
+        let PublicationValue::Regular { bytes, .. } =
+            PublicationValue::capture(&self.record_path(identity, &digest))?
+        else {
+            eyre::bail!("install publication identity record is missing or is not a regular file");
+        };
+        let text = std::str::from_utf8(&bytes)
+            .map_err(|_| eyre::eyre!("install publication identity record has invalid encoding"))?;
+        let record: IdentityRecord = toml::from_str(text)
+            .map_err(|_| eyre::eyre!("install publication identity record is invalid"))?;
+        eyre::ensure!(
+            record.is_consistent() && record.digest == digest && record.identity == *identity,
+            "install publication identity record does not match its allocated identity"
+        );
+        Ok(record)
+    }
+
+    pub(crate) fn write_record_tracked(
+        &self,
+        record: &IdentityRecord,
+        undo: &mut PublicationUndo,
+    ) -> Result<()> {
+        self.write_tracked_entry(
+            &self.record_path(&record.identity, &record.digest),
+            toml::to_string_pretty(record)?.as_bytes(),
+            undo,
+        )
     }
 
     /// Adopt installations that exist on disk with a receipt but are missing
@@ -400,7 +426,22 @@ impl Catalog {
     /// Hold the catalog lock, under which allocations and selections are written,
     /// for a change that has to stay in step with a selection (its version links).
     pub(crate) fn lock(&self) -> Result<fslock::LockFile> {
-        LockFile::at(&self.meta_dir().join("alloc.lock")).lock()
+        LockFile::at(&self.lock_path()).lock()
+    }
+
+    pub(crate) fn lock_path(&self) -> PathBuf {
+        self.meta_dir().join("alloc.lock")
+    }
+
+    /// The caller holds this catalog's allocation lock throughout this write.
+    pub(crate) fn write_tracked_entry(
+        &self,
+        path: &Path,
+        body: &[u8],
+        undo: &mut PublicationUndo,
+    ) -> Result<()> {
+        let (before, written) = write_raw_entry(path, body)?;
+        undo.track_change(&self.lock_path(), path, before, written)
     }
 
     /// [`Catalog::select`] for a caller already holding [`Catalog::lock`].
@@ -420,6 +461,72 @@ impl Catalog {
             toml::to_string_pretty(&selection)?,
         )
     }
+
+    /// Tracked counterpart for a caller already holding this catalog's lock.
+    pub(crate) fn write_selection_tracked(
+        &self,
+        key: &InstallIdentity,
+        selected: &IdentityRecord,
+        undo: &mut PublicationUndo,
+    ) -> Result<()> {
+        let selection = Selection {
+            request: key.clone(),
+            selected: selected.digest.clone(),
+            root: None,
+        };
+        self.write_tracked_entry(
+            &self.selection_path(key),
+            toml::to_string_pretty(&selection)?.as_bytes(),
+            undo,
+        )
+    }
+}
+
+pub(super) fn merge_provenance(merged: &mut Provenance, incoming: Provenance) {
+    merged.artifacts.extend(incoming.artifacts);
+    for pin in incoming.pinned_by {
+        if !merged.pinned_by.contains(&pin) {
+            merged.pinned_by.push(pin);
+        }
+    }
+    merged.generation = merged.generation.max(incoming.generation);
+}
+
+fn write_raw_entry(path: &Path, body: &[u8]) -> Result<(PublicationValue, PublicationValue)> {
+    use std::io::Write;
+    eyre::ensure!(
+        body.len() <= MAX_ENTRY_BYTES,
+        "install publication metadata exceeds its size limit"
+    );
+    let before = PublicationValue::capture(path)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| eyre::eyre!("install publication entry parent is missing"))?;
+    std::fs::create_dir_all(parent)?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    temporary.write_all(body)?;
+    if let PublicationValue::Regular { permissions, .. } = &before {
+        temporary.as_file().set_permissions(permissions.clone())?;
+    }
+    temporary.flush()?;
+    temporary.as_file().sync_all()?;
+    let written = PublicationValue::Regular {
+        bytes: body.to_vec(),
+        permissions: temporary.as_file().metadata()?.permissions(),
+    };
+    temporary.persist(path).map_err(|error| error.error)?;
+    // Every fallible capture and allocation precedes the atomic rename.
+    Ok((before, written))
+}
+
+/// The runtime payload guard owns this receipt's old/new directory. It must
+/// not also be undone after that guard has restored the previous payload.
+pub(super) fn write_unpublished_receipt(install_dir: &Path, receipt: &Receipt) -> Result<()> {
+    write_raw_entry(
+        &install_dir.join(RECEIPT_FILE),
+        toml::to_string_pretty(receipt)?.as_bytes(),
+    )?;
+    Ok(())
 }
 
 /// Opaque directory name for a backend's records.
@@ -504,6 +611,52 @@ mod tests {
             options: BTreeMap::new(),
             inputs: BTreeMap::new(),
         }
+    }
+
+    #[test]
+    fn tracked_publication_partial_error_restores_only_completed_owned_writes() {
+        let (_owner, catalog) = catalog();
+        let record = catalog.meta_dir().join("owned-record");
+        let blocked = catalog.meta_dir().join("blocked-selector");
+        std::fs::create_dir_all(&blocked).unwrap();
+        std::fs::write(&record, b"old record").unwrap();
+        let mut undo = PublicationUndo::new();
+        {
+            let _lock = catalog.lock().unwrap();
+            catalog
+                .write_tracked_entry(&record, b"new record", &mut undo)
+                .unwrap();
+            assert!(
+                catalog
+                    .write_tracked_entry(&blocked, b"not published", &mut undo)
+                    .is_err()
+            );
+        }
+        assert_eq!(std::fs::read(&record).unwrap(), b"new record");
+        undo.rollback().unwrap();
+        assert_eq!(std::fs::read(record).unwrap(), b"old record");
+        assert!(blocked.is_dir());
+    }
+
+    #[test]
+    fn tracked_publication_keeps_a_later_writer_to_the_same_record() {
+        let (_owner, catalog) = catalog();
+        let path = catalog.meta_dir().join("owned-record");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"pins=old").unwrap();
+        let mut undo = PublicationUndo::new();
+        {
+            let _lock = catalog.lock().unwrap();
+            catalog
+                .write_tracked_entry(&path, b"pins=ours", &mut undo)
+                .unwrap();
+        }
+        {
+            let _lock = catalog.lock().unwrap();
+            std::fs::write(&path, b"pins=ours,concurrent").unwrap();
+        }
+        assert!(undo.rollback().is_err());
+        assert_eq!(std::fs::read(path).unwrap(), b"pins=ours,concurrent");
     }
 
     fn catalog() -> (tempfile::TempDir, Catalog) {

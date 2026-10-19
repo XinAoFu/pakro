@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+
+# F1 directory selection over the shared language library (D07/D08/D10):
+# - entering A/B selects the exact declared Python from one shared payload,
+# - a complete declaration without a local instance only warns (no download,
+#   no venv, no new library instance),
+# - leaving the project directory restores the previous PATH,
+# - a second process in the same directory reads the committed selection.
+
+# The shared library is staged from the offline fixture archive through the
+# ignored cargo staging helper; F1 itself installs nothing from the network.
+# Cargo must run from the repository root: the isolated workdir has no
+# Cargo.toml above it.
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
+export CARGO_INCREMENTAL=0
+export CARGO_PROFILE_TEST_DEBUG=0
+(
+    cd "$ROOT"
+    PAKRO_F1_STAGE_DATA_ROOT="$PAKRO_DATA_DIR" \
+    PAKRO_F1_STAGE_VERSION="3.15.0" \
+        cargo test -p pakro --lib --all-features \
+            programs::install::selection::tests::f1_e2e_stage_shared_language \
+            -- --exact --ignored --nocapture
+)
+
+lang_root="$PAKRO_DATA_DIR/languages"
+# A missing language root means the staging helper above did not actually run;
+# fail here with that fact instead of a confusing allocation count.
+assert "test -d "$lang_root" && echo present" "present"
+assert "find "$lang_root" -mindepth 1 -maxdepth 1 -type d ! -name '.*' | wc -l | tr -d ' '" "1"
+
+shared_python="$(find "$lang_root" -type f -path '*/payload/bin/python' | head -1)"
+assert_contains "echo "$shared_python"" "/payload/bin/python"
+shared_root="${shared_python%/bin/python}"
+shared_stdlib="$shared_root/lib/python3.15/stdlib-marker"
+assert "test -f "$shared_stdlib" && echo present" "present"
+python_inode="$(stat -f '%i' "$shared_python" 2>/dev/null || stat -c '%i' "$shared_python")"
+stdlib_inode="$(stat -f '%i' "$shared_stdlib" 2>/dev/null || stat -c '%i' "$shared_stdlib")"
+
+# A and B declare the exact staged version; missing declares an absent one.
+mkdir -p a b missing
+printf '[tools]\npython = "3.15.0"\n' >a/pakro.toml
+printf '[tools]\npython = "3.15.0"\n' >b/pakro.toml
+printf '[tools]\npython = "3.11.14"\n' >missing/pakro.toml
+
+# The pakro binary on PATH must reflect the current tree; the staging helper
+# above only builds the lib test target.
+(cd "$ROOT" && cargo build -p pakro --all-features)
+
+# Real terminal integration: the shell hook applies each directory selection.
+eval "$(pakro activate bash)"
+
+# Entering A selects the shared payload's exact interpreter.
+cd a
+eval "$(pakro hook-env -s bash)"
+assert "command -v python" "$shared_python"
+resolved="$(command -v python)"
+assert "stat -f '%i' "$resolved" 2>/dev/null || stat -c '%i' "$resolved"" "$python_inode"
+
+# Entering B resolves to the same payload files, not a second copy.
+cd ../b
+eval "$(pakro hook-env -s bash)"
+assert "command -v python" "$shared_python"
+resolved="$(command -v python)"
+resolved_root="${resolved%/bin/python}"
+assert "stat -f '%i' "$resolved" 2>/dev/null || stat -c '%i' "$resolved"" "$python_inode"
+assert "stat -f '%i' "$resolved_root/lib/python3.15/stdlib-marker" 2>/dev/null || stat -c '%i' "$resolved_root/lib/python3.15/stdlib-marker"" "$stdlib_inode"
+
+# A complete declaration without a local instance only reports the gap.
+cd ../missing
+eval "$(pakro hook-env -s bash)"
+assert "command -v python 2>/dev/null | grep -c "$lang_root" || true" "0"
+assert "find "$lang_root" -mindepth 1 -maxdepth 1 -type d ! -name '.*' | wc -l | tr -d ' '" "1"
+assert "ls "$PAKRO_CACHE_DIR/downloads" 2>/dev/null | wc -l | tr -d ' '" "0"
+assert "test -d .venv || echo absent" "absent"
+
+# Leaving the project directory withdraws the selection from PATH.
+cd ..
+eval "$(pakro hook-env -s bash)"
+assert "command -v python 2>/dev/null | grep -c "$lang_root" || true" "0"
+
+# A new process in the project directory reads the committed selection. The
+# inherited session already matches this directory (the cd hook ran here), so
+# a bare call would fast-path by design; --force makes this process rebuild
+# the environment from the committed facts.
+cd a
+assert_contains "pakro hook-env -s bash --force" "$shared_root/bin"

@@ -1,4 +1,8 @@
 pub mod generate;
+pub(crate) mod transaction;
+
+#[cfg(test)]
+mod python_projection_tests;
 
 use crate::args::BackendArg;
 use crate::backend::backend_type::BackendType;
@@ -75,7 +79,7 @@ pub fn invalidate_caches() {
     }
 }
 
-pub const CURRENT_LOCKFILE_VERSION: u32 = 3;
+pub const CURRENT_LOCKFILE_VERSION: u32 = 4;
 const FORGE_IDS_LOCKFILE_VERSION: u32 = 3;
 // Keep the dates format bumps entered pakro here. An older format gets a
 // warning six calendar months after the first newer format was introduced.
@@ -83,6 +87,7 @@ const LOCKFILE_VERSION_DATES: &[(u32, jiff::civil::Date)] = &[
     (1, jiff::civil::date(2026, 8, 23)),
     (2, jiff::civil::date(2026, 9, 13)),
     (3, jiff::civil::date(2026, 9, 27)),
+    (4, jiff::civil::date(2026, 10, 16)),
 ];
 
 fn outdated_lockfile_version(version: u32, today: jiff::civil::Date) -> bool {
@@ -217,6 +222,19 @@ pub struct Lockfile {
     /// is the reverse link that lets `pakro lock` keep those entries current.
     #[serde(skip)]
     tool_stubs: BTreeSet<String>,
+    #[serde(skip)]
+    python: Option<NativePythonProjection>,
+}
+
+#[derive(Clone)]
+struct NativePythonProjection(toml::Table);
+
+impl std::fmt::Debug for NativePythonProjection {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        out.debug_struct("NativePythonProjection")
+            .field("fields", &self.0.len())
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -254,6 +272,7 @@ impl Default for Lockfile {
             conda_packages: BTreeMap::new(),
             entry_lockfile_versions: BTreeMap::new(),
             tool_stubs: BTreeSet::new(),
+            python: None,
         }
     }
 }
@@ -1103,6 +1122,10 @@ fn existing_lockfile_doc_url_from_path(path: &Path) -> Option<String> {
 }
 
 impl Lockfile {
+    pub(crate) fn python_projection(&self) -> Option<&toml::Table> {
+        self.python.as_ref().map(|section| &section.0)
+    }
+
     pub fn lockfile_version(&self) -> u32 {
         self.lockfile_version
     }
@@ -1259,6 +1282,16 @@ impl Lockfile {
             ..Default::default()
         };
 
+        if let Some(python) = table.remove("python") {
+            if lockfile_version < 4 {
+                bail!("Python lock section requires lockfile revision 4");
+            }
+            let toml::Value::Table(python) = python else {
+                bail!("invalid Python lock section: expected a table");
+            };
+            lockfile.python = Some(NativePythonProjection(python));
+        }
+
         for (short, value) in tools {
             let versions = match value {
                 toml::Value::Array(arr) => arr
@@ -1318,6 +1351,8 @@ impl Lockfile {
     pub fn prepare_write(&self, path: &Path) -> Result<Option<PreparedWrite>> {
         // Resolve the lockfile target before choosing sidecar locations and pointers.
         let mut source_symlink = None;
+        #[cfg(unix)]
+        let mut native_dangling = None;
         let target = if path.is_symlink() {
             // If the existing lockfile is a symlink, resolve it and update the target instead
             // of replacing the symlink
@@ -1337,6 +1372,11 @@ impl Lockfile {
                     link_target
                 }
                 Err(e) => {
+                    #[cfg(unix)]
+                    {
+                        native_dangling =
+                            Some(transaction::PreparedNativeDanglingLock::capture(path)?);
+                    }
                     // Dangling symlink – fall back to overwriting the symlink itself
                     // TODO: Maybe instead of overwriting, we should create the new lockfile at
                     // the symlink's target path?
@@ -1354,6 +1394,12 @@ impl Lockfile {
         let path = target.as_path();
 
         let mut lockfile = toml::Table::new();
+        if let Some(python) = &self.python {
+            if self.lockfile_version < 4 {
+                bail!("Python lock section requires lockfile revision 4");
+            }
+            lockfile.insert("python".into(), toml::Value::Table(python.0.clone()));
+        }
         if self.lockfile_version < FORGE_IDS_LOCKFILE_VERSION
             && self.tools.values().flatten().any(|tool| {
                 tool.platforms
@@ -1453,6 +1499,8 @@ impl Lockfile {
             tmp: Some(tmp),
             target,
             source_symlink,
+            #[cfg(unix)]
+            native_dangling,
         }))
     }
 
@@ -1855,10 +1903,16 @@ pub struct PreparedWrite {
     tmp: Option<tempfile::NamedTempFile>,
     target: PathBuf,
     source_symlink: Option<PathBuf>,
+    #[cfg(unix)]
+    native_dangling: Option<transaction::PreparedNativeDanglingLock>,
 }
 
 impl PreparedWrite {
     pub fn publish_deferred(self) -> Result<()> {
+        self.publish_with_hook(|| {})
+    }
+
+    fn publish_with_hook(mut self, before_commit: impl FnOnce()) -> Result<()> {
         // Detect a deployment switch during preparation before publishing any
         // sidecars. This is a recheck, not a lock against external symlink edits.
         if let Some(path) = &self.source_symlink
@@ -1870,8 +1924,68 @@ impl PreparedWrite {
                 display_path(path)
             );
         }
-        if let Some(tmp) = self.tmp {
-            persist_lockfile_tmp(tmp, &self.target)?;
+        if let Some(mut tmp) = self.tmp.take() {
+            #[cfg(unix)]
+            {
+                use std::io::{Read, Seek, SeekFrom};
+                use std::time::{Duration, Instant};
+
+                // Preparation may precede other package transactions. Take
+                // the shared project guard only for the final fresh merge.
+                const MAX_DOCUMENT_BYTES: usize = 64 * 1024 * 1024;
+                let deadline = Instant::now() + Duration::from_secs(30);
+                tmp.as_file_mut().seek(SeekFrom::Start(0))?;
+                let mut prepared = String::new();
+                tmp.as_file_mut()
+                    .take(MAX_DOCUMENT_BYTES as u64 + 1)
+                    .read_to_string(&mut prepared)?;
+                if prepared.len() > MAX_DOCUMENT_BYTES {
+                    bail!("prepared lockfile exceeds its byte limit");
+                }
+                if let Some(dangling) = self.native_dangling.take() {
+                    let content = overlay_current_python(&prepared, None)?;
+                    before_commit();
+                    dangling.publish(content.as_bytes(), MAX_DOCUMENT_BYTES, deadline)?;
+                    tmp.close()?;
+                    invalidate_caches();
+                    return Ok(());
+                }
+                let mut session = transaction::ProjectLockSession::acquire(
+                    self.source_symlink.as_deref().unwrap_or(&self.target),
+                    MAX_DOCUMENT_BYTES,
+                    deadline,
+                )?;
+                let target_parent = self
+                    .target
+                    .parent()
+                    .filter(|parent| !parent.as_os_str().is_empty())
+                    .unwrap_or_else(|| Path::new("."));
+                let expected_target = fs::canonicalize(target_parent)?.join(
+                    self.target
+                        .file_name()
+                        .ok_or_else(|| eyre!("lockfile target name is missing"))?,
+                );
+                if session.canonical_target() != expected_target {
+                    bail!("lockfile target changed during publication; retry the command");
+                }
+                let current = session.snapshot()?;
+                let content = overlay_current_python(&prepared, current.bytes())?;
+                if let Some(path) = &self.source_symlink
+                    && (!path.is_symlink()
+                        || !fs::canonicalize(path).is_ok_and(|target| target == self.target))
+                {
+                    bail!("lockfile symlink changed during publication; retry the command");
+                }
+                before_commit();
+                session.compare_and_replace(&current, content.as_bytes())?;
+                // The original prepared file was never the committed image.
+                tmp.close()?;
+            }
+            #[cfg(not(unix))]
+            {
+                before_commit();
+                persist_lockfile_tmp(tmp, &self.target)?;
+            }
         }
         invalidate_caches();
         Ok(())
@@ -1879,6 +1993,76 @@ impl PreparedWrite {
     pub(crate) fn publish(self) -> Result<()> {
         self.publish_deferred()
     }
+}
+
+/// Native updates own the tools projection; Python always comes from the
+/// image read under the same project guard used by Python transactions.
+#[cfg(unix)]
+fn overlay_current_python(prepared: &str, current: Option<&[u8]>) -> Result<String> {
+    #[derive(Default, Deserialize)]
+    struct CurrentProjection {
+        lockfile_version: Option<u32>,
+        python: Option<toml::Table>,
+    }
+    fn revision(document: &DocumentMut) -> Result<u32> {
+        let version = match document.get("lockfile_version") {
+            None => 0,
+            Some(value) => value
+                .as_integer()
+                .and_then(|version| u32::try_from(version).ok())
+                .ok_or_else(|| eyre!("invalid lockfile revision during native publication"))?,
+        };
+        if version > CURRENT_LOCKFILE_VERSION {
+            bail!("unsupported lockfile revision during native publication");
+        }
+        Ok(version)
+    }
+    let (_, prepared_body) = prepared
+        .split_once('\n')
+        .ok_or_else(|| eyre!("prepared lockfile header is missing"))?;
+    let mut prepared_document: DocumentMut = prepared_body
+        .parse()
+        .map_err(|_| eyre!("invalid prepared lockfile during native publication"))?;
+    let current: CurrentProjection = match current {
+        Some(bytes) => toml::from_str(
+            std::str::from_utf8(bytes)
+                .map_err(|_| eyre!("invalid lockfile encoding during native publication"))?,
+        )
+        .map_err(|_| eyre!("invalid current lockfile during native publication"))?,
+        None => CurrentProjection::default(),
+    };
+    let current_revision = current.lockfile_version.unwrap_or(0);
+    if current_revision > CURRENT_LOCKFILE_VERSION {
+        bail!("unsupported lockfile revision during native publication");
+    }
+    let mut output_revision = revision(&prepared_document)?.max(current_revision);
+    prepared_document.remove("python");
+    if let Some(python) = current.python {
+        if current_revision < 4 {
+            bail!("invalid Python lock section during native publication");
+        }
+        output_revision = output_revision.max(4);
+        let python_document: DocumentMut = toml::to_string(&python)?
+            .parse()
+            .map_err(|_| eyre!("invalid Python lock projection during native publication"))?;
+        prepared_document.insert(
+            "python",
+            toml_edit::Item::Table(python_document.into_table()),
+        );
+    }
+    if output_revision > 0 {
+        prepared_document.insert(
+            "lockfile_version",
+            toml_edit::value(i64::from(output_revision)),
+        );
+    }
+    let body = prepared_document.to_string();
+    let url =
+        existing_lockfile_doc_url(prepared).unwrap_or_else(|| DEFAULT_LOCKFILE_DOC_URL.to_string());
+    Ok(format!(
+        "{LOCKFILE_HEADER_PREFIX}{url}\n\n{}",
+        body.trim_start_matches('\n')
+    ))
 }
 
 /// Determines the lockfile path for a given config file path
@@ -1894,6 +2078,20 @@ impl PreparedWrite {
 pub fn lockfile_path_for_config(
     config_path: &Path,
     monorepo_root: Option<&Path>,
+) -> (PathBuf, bool) {
+    lockfile_path_for_config_with_folder_fragment(
+        config_path,
+        monorepo_root,
+        crate::config::is_conf_d_folder_file(config_path),
+    )
+}
+
+/// The same routing rule with directory classification supplied by the frozen
+/// observer, avoiding a second read of global configuration locations.
+pub(crate) fn lockfile_path_for_config_with_folder_fragment(
+    config_path: &Path,
+    monorepo_root: Option<&Path>,
+    is_folder_fragment: bool,
 ) -> (PathBuf, bool) {
     let is_local = is_local_config(config_path);
     let env = extract_env_from_config_path(config_path);
@@ -1913,7 +2111,7 @@ pub fn lockfile_path_for_config(
     // For conf.d files, place lockfile at parent of conf.d so all conf.d files share one lockfile
     let lockfile_dir = if parent_name == "conf.d" {
         parent.parent().unwrap_or(parent)
-    } else if crate::config::is_conf_d_folder_file(config_path) {
+    } else if is_folder_fragment {
         parent.parent().and_then(Path::parent).unwrap_or(parent)
     } else {
         parent
@@ -4689,6 +4887,7 @@ fn apply_lockfile_permissions(_tmp: &tempfile::NamedTempFile, _target: &Path) ->
     Ok(())
 }
 
+#[cfg(not(unix))]
 fn persist_lockfile_tmp(mut tmp: tempfile::NamedTempFile, target: &Path) -> Result<()> {
     const RETRIES: u32 = 20;
 
@@ -4711,7 +4910,7 @@ fn should_retry_lockfile_persist(err: &std::io::Error) -> bool {
     err.kind() == std::io::ErrorKind::PermissionDenied
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(unix, windows)))]
 fn should_retry_lockfile_persist(_err: &std::io::Error) -> bool {
     false
 }
@@ -5008,7 +5207,9 @@ mod tests {
         assert!(outdated_lockfile_version(1, date(2027, 3, 14)));
         assert!(!outdated_lockfile_version(2, date(2027, 3, 27)));
         assert!(outdated_lockfile_version(2, date(2027, 3, 28)));
-        assert!(!outdated_lockfile_version(3, date(2028, 1, 1)));
+        assert!(!outdated_lockfile_version(3, date(2027, 4, 16)));
+        assert!(outdated_lockfile_version(3, date(2027, 4, 17)));
+        assert!(!outdated_lockfile_version(4, date(2028, 1, 1)));
     }
 
     #[test]
@@ -5293,11 +5494,11 @@ mod tests {
 
         lockfile.save(&path).unwrap();
         let contents = file::read_to_string(&path).unwrap();
-        assert!(contents.contains("lockfile_version = 3"));
+        assert!(contents.contains("lockfile_version = 4"));
         assert!(contents.contains("specifiers = [\"1\"]"));
 
         let reloaded = Lockfile::read(&path).unwrap();
-        assert_eq!(reloaded.lockfile_version(), 3);
+        assert_eq!(reloaded.lockfile_version(), 4);
         assert_eq!(
             reloaded.tools["dummy"][0].specifiers,
             BTreeSet::from(["1".to_string()])
@@ -5344,7 +5545,7 @@ mod tests {
         lockfile.upgrade();
         lockfile.save(&path).unwrap();
         let contents = file::read_to_string(&path).unwrap();
-        assert!(contents.contains("lockfile_version = 3"), "{contents}");
+        assert!(contents.contains("lockfile_version = 4"), "{contents}");
         assert!(
             contents
                 .contains("repository_ids = { repository = \"922514152\", owner = \"216188\" }"),
@@ -5409,12 +5610,12 @@ mod tests {
     fn future_lockfile_versions_are_rejected() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("pakro.lock");
-        file::write(&path, "lockfile_version = 4\n[tools]\n").unwrap();
+        file::write(&path, "lockfile_version = 5\n[tools]\n").unwrap();
 
         let err = Lockfile::read(&path).unwrap_err();
         assert!(
             err.to_string()
-                .contains("unsupported lockfile version 4; this pakro supports up to version 3")
+                .contains("unsupported lockfile version 5; this pakro supports up to version 4")
         );
     }
 
@@ -5824,12 +6025,25 @@ backend = "core:python"
         let leftovers: Vec<_> = std::fs::read_dir(temp_dir.path())
             .unwrap()
             .filter_map(|e| e.ok())
-            .filter(|e| e.file_name() != std::ffi::OsStr::new("concurrent.lock"))
+            .filter(|e| {
+                e.file_name() != std::ffi::OsStr::new("concurrent.lock")
+                    && e.file_name() != std::ffi::OsStr::new(".pakro.lock.guard")
+            })
             .collect();
         assert!(
             leftovers.is_empty(),
             "unexpected temp files left behind: {leftovers:?}"
         );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let guard =
+                std::fs::symlink_metadata(temp_dir.path().join(".pakro.lock.guard")).unwrap();
+            assert!(guard.is_file());
+            assert_eq!(guard.mode() & 0o7777, 0o600);
+            assert_eq!(guard.nlink(), 1);
+            assert_eq!(guard.len(), 0);
+        }
     }
 
     #[cfg(unix)]

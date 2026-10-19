@@ -1,29 +1,33 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
+export NO_PROXY=127.0.0.1,localhost,::1
+export no_proxy="$NO_PROXY"
 export PAKRO_LOCKFILE=1
 export PAKRO_PYTHON_COMPILE=0
 export PAKRO_PYTHON_GITHUB_ATTESTATIONS=1
 export PAKRO_GITHUB_ATTESTATIONS=1
+export PAKRO_EXPERIMENTAL=0
+# The fixture reports a controlled Linux/aarch64 descriptor on every host.
+export PAKRO_OS=linux
+export PAKRO_ARCH=arm64
+PLATFORM=linux-arm64
 
-detect_platform
-PLATFORM="$PAKRO_PLATFORM"
-
-mkdir -p fake-python/python/bin
-cat <<'EOF' >fake-python/python/bin/python
-#!/usr/bin/env bash
-echo "Python 3.13.5 (fake lockfile tarball)"
-EOF
-chmod +x fake-python/python/bin/python
-tar -czf python-3.13.5.tar.gz -C fake-python python
-
-if command -v sha256sum >/dev/null 2>&1; then
-  CHECKSUM=$(sha256sum python-3.13.5.tar.gz | cut -d' ' -f1)
-else
-  CHECKSUM=$(shasum -a 256 python-3.13.5.tar.gz | cut -d' ' -f1)
-fi
-SIZE=$(wc -c <python-3.13.5.tar.gz | tr -d ' ')
-
-start_http_server
+FILENAME=cpython-3.13.5+20261013-aarch64-unknown-linux-gnu-install_only.tar.gz
+CANONICAL="https://github.com/astral-sh/python-build-standalone/releases/download/20261013/$FILENAME"
+read -r CHECKSUM SIZE < <(python3 "$TEST_ROOT/fixtures/native_python_archive.py" create "$FILENAME" "$PWD/runtime-calls.jsonl")
+mkdir request-log
+start_http_server --headers-log "$PWD/request-log"
+export PAKRO_URL_REPLACEMENTS
+PAKRO_URL_REPLACEMENTS=$(
+  python3 - "$CANONICAL" "$HTTP_PORT" <<'PY'
+import json, sys
+print(json.dumps({sys.argv[1]: f"http://127.0.0.1:{sys.argv[2]}/" + sys.argv[1].rsplit("/", 1)[1],
+                  "https://api.github.com": f"http://127.0.0.1:{sys.argv[2]}/unexpected-api",
+                  "https://downloads.python.org": f"http://127.0.0.1:{sys.argv[2]}/unexpected-python",
+                  "https://pypy.org": f"http://127.0.0.1:{sys.argv[2]}/unexpected-pypy"}))
+PY
+)
 
 cat <<EOF >pakro.toml
 [tools]
@@ -37,13 +41,35 @@ backend = "core:python"
 # patch_sysconfig = false is part of the lock identity; without it this entry
 # would not match and pakro would install the real CPython from GitHub instead.
 options = { patch_sysconfig = "false" }
-"platforms.$PLATFORM" = { checksum = "sha256:$CHECKSUM", size = $SIZE, url = "http://127.0.0.1:$HTTP_PORT/python-3.13.5.tar.gz", provenance = "github-attestations" }
+"platforms.$PLATFORM" = { checksum = "sha256:$CHECKSUM", size = $SIZE, url = "$CANONICAL", provenance = "github-attestations" }
 EOF
 
 # If install re-verifies GitHub attestations, this fake tarball fails verification.
 # With checksum + provenance already in the lockfile, install should trust the
 # checksum and only ensure the provenance setting is still enabled.
-PAKRO_GITHUB_TOKEN=invalid GITHUB_TOKEN=invalid pakro install python -f
+PAKRO_GITHUB_TOKEN=invalid GITHUB_TOKEN=invalid pakro install --locked python -f
 
-# The fake interpreter proves pakro installed the locked tarball, not upstream CPython.
-assert "$PAKRO_DATA_DIR/installs/python/3.13.5/bin/python --version" "Python 3.13.5 (fake lockfile tarball)"
+# The archive is outside the install directory, so success required downloading,
+# extracting and observing the selected interpreter through the native pipeline.
+assert "'$PAKRO_DATA_DIR/installs/python/3.13.5/bin/python' --version" "Python 3.13.5 (native archive fixture)"
+assert_contains "cat pakro.lock" "$CANONICAL"
+assert_not_contains "cat pakro.lock" "127.0.0.1"
+
+# Empty and comment-only default package files must not launch a package manager.
+# Each forced install must replay verified bytes/provenance without HTTP.
+for CONTENT in '' '# no default packages'; do
+  printf '%s\n' "$CONTENT" >default-packages
+  PAKRO_PYTHON_DEFAULT_PACKAGES_FILE="$PWD/default-packages" PAKRO_OFFLINE=1 PAKRO_GITHUB_TOKEN=invalid GITHUB_TOKEN=invalid pakro install --locked python -f
+done
+assert "'$PAKRO_DATA_DIR/installs/python/3.13.5/bin/python' --version" "Python 3.13.5 (native archive fixture)"
+python3 - "$PWD/request-log" "$FILENAME" "$PWD/runtime-calls.jsonl" <<'PY'
+import json, pathlib, sys
+from urllib.parse import unquote
+requests = [json.loads(path.read_text()) for path in pathlib.Path(sys.argv[1]).glob("request_*.json")]
+assert len(requests) == 1, requests
+assert requests[0]["method"] == "GET", requests
+assert unquote(requests[0]["path"]) == "/" + sys.argv[2], requests
+calls = [json.loads(line) for line in pathlib.Path(sys.argv[3]).read_text().splitlines()]
+assert sum(call["kind"] == "probe" for call in calls) == 3, calls
+assert all(call["kind"] in ("probe", "version") for call in calls), calls
+PY

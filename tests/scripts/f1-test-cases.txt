@@ -1,0 +1,10 @@
+# F1 registered test inventory, checked by: bash tests/scripts/f-manual-check.sh f1
+# Real inputs: offline fixture PBS archive (cpython-3.15.0), no packages in F1.
+# lib: pakro lib unit tests; bin: pakro CLI through tests/e2e/run_test.
+programs::shared::exact_version::tests::f1_incomplete_version_has_no_effects
+programs::query::paths::tests::f1_local_selection_reports_missing_and_ambiguity
+programs::install::selection::tests::f1_language_only_selection_survives_restart
+programs::install::selection::tests::f1_failed_selection_keeps_old_references
+# Env-driven staging helper; never run standalone (excluded from the f1 filter).
+programs::install::selection::tests::f1_e2e_stage_shared_language [ignored: e2e]
+tests/e2e/cli/test_f1_directory_selection

@@ -132,34 +132,8 @@ TOML
 cp pakro.lock excluded/pakro.lock
 # This final online case must also survive C2's newly wired real probe.
 # A fixed descriptor fixture proves mechanism only; it cannot run Python imports.
-python3 - "$PAKRO_DATA_DIR/installs/python/3.10.14/bin/python" <<'PY'
-import json
-import platform
-import shlex
-import sys
-from pathlib import Path
-executable = Path(sys.argv[1]).resolve()
-version = {"major":3,"minor":10,"micro":14,"release_level":"final","serial":0}
-descriptor = {
-    "schema":1,"observation_mode":"base_runtime_site_disabled",
-    "probe_flags":["-E","-s","-S","-B","-c"],"executable":str(executable),
-    "implementation":"cpython","language_version":version,"implementation_version":version,
-    "implementation_version_source":"sys_version_info",
-    "markers":{
-        "implementation_name":"cpython","implementation_version":"3.10.14",
-        "os_name":"posix","platform_machine":platform.machine(),
-        "platform_python_implementation":"CPython","platform_release":platform.release(),
-        "platform_system":platform.system(),"platform_version":platform.version(),
-        "python_full_version":"3.10.14","python_version":"3.10","sys_platform":sys.platform,
-    },
-    "soabi":"cpython-310","ext_suffix":".so","abiflags":"",
-    "extension_suffixes":[".so"],"gil_disabled":False,
-    "sysconfig_paths":{"stdlib":str(executable.parent.parent / "lib/python3.10")},
-}
-script = "#!/bin/sh\nif [ \"$#\" -eq 6 ] && [ \"$1\" = '-E' ] && [ \"$2\" = '-s' ] && [ \"$3\" = '-S' ] && [ \"$4\" = '-B' ] && [ \"$5\" = '-c' ]; then\n printf '%s' " + shlex.quote(json.dumps(descriptor)) + "\nelse\n exit 97\nfi\n"
-executable.write_text(script)
-executable.chmod(0o700)
-PY
+python3 "$TEST_ROOT/fixtures/native_python_context.py" \
+  "$PAKRO_DATA_DIR/installs/python/3.10.14" "$PWD/policy-wheels" 14 cpython
 assert_fail_contains "PAKRO_LOCKED=1 PAKRO_LOCKED_SCOPES=global,system pakro -C excluded install 2>&1" '503'
 assert_directory_not_empty request-log
 assert_fail_contains "PAKRO_LOCKED=1 PAKRO_LOCKED_SCOPES=global,system pakro -C excluded install python@3.10.14+demo@1.0 2>&1" 'native Python package lock migration required'

@@ -10,6 +10,14 @@ mkdir -p wheels request-log
 python3 "$FIXTURE" "$RUNTIME" "$PWD/wheels" 14 cpython
 start_http_server --headers-log "$PWD/request-log" --handler "$FIXTURE" "$PWD/wheels"
 export PAKRO_PYPI_URL="http://127.0.0.1:$HTTP_PORT"
+export PAKRO_URL_REPLACEMENTS
+PAKRO_URL_REPLACEMENTS=$(
+  python3 - "$HTTP_PORT" <<'PY'
+import json, sys
+print(json.dumps({origin: f"http://127.0.0.1:{sys.argv[1]}/unexpected-runtime"
+                  for origin in ("https://api.github.com", "https://downloads.python.org", "https://pypy.org")}))
+PY
+)
 
 # CLI-only already-installed runtime survives install_all_versions's filtering/reset.
 pakro install python@3.10.14+demo@1.0
@@ -48,3 +56,8 @@ assert "echo $COUNT_AFTER" "$COUNT_BEFORE"
 
 # offline query is an explicit state, not '?' marked as an available update.
 assert_contains "PAKRO_OFFLINE=1 pakro outdated 2>&1" 'unavailable: offline metadata replay requires H3'
+python3 - "$PWD/request-log" <<'PY'
+import json, pathlib, sys
+for path in pathlib.Path(sys.argv[1]).glob("request_*.json"):
+    assert "/unexpected-runtime" not in json.loads(path.read_text())["path"], path
+PY

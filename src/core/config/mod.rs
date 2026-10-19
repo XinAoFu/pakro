@@ -67,6 +67,671 @@ use crate::watch_files::WatchFile;
 use crate::wildcard::Wildcard;
 pub use command_wrapper::CommandWrapper;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ConfigDiscoveryCandidate {
+    pub(crate) directory: PathBuf,
+    pub(crate) pattern: String,
+}
+
+/// Every discovery choice belongs to the invocation, rather than process globals.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FrozenConfigDiscovery {
+    pub(crate) local_patterns: Vec<String>,
+    pub(crate) tool_versions_patterns: Vec<String>,
+    pub(crate) ceiling_paths: Vec<PathBuf>,
+    pub(crate) global_candidates: Vec<ConfigDiscoveryCandidate>,
+    pub(crate) system_candidates: Vec<ConfigDiscoveryCandidate>,
+    pub(crate) environments: Vec<String>,
+    pub(crate) env_conf_d: bool,
+    pub(crate) ignored_paths: Vec<PathBuf>,
+    pub(crate) no_config: bool,
+}
+impl FrozenConfigDiscovery {
+    pub(crate) fn new(local_patterns: Vec<String>) -> Self {
+        Self {
+            local_patterns,
+            tool_versions_patterns: vec![".tool-versions".to_owned()],
+            ceiling_paths: vec![],
+            global_candidates: vec![],
+            system_candidates: vec![],
+            environments: vec![],
+            env_conf_d: false,
+            ignored_paths: vec![],
+            no_config: false,
+        }
+    }
+
+    pub(crate) fn default_local_patterns(
+        tool_versions_filename: &str,
+        config_filename: &str,
+        tool_versions_overrides: Option<&[String]>,
+        config_overrides: &[String],
+    ) -> Vec<String> {
+        let tool_overrides = tool_versions_overrides
+            .map(|values| values.iter().map(String::as_str).collect::<Vec<_>>());
+        let config_overrides = config_overrides
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        local_config_patterns(
+            tool_versions_filename,
+            config_filename,
+            tool_overrides.as_deref(),
+            &config_overrides,
+        )
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
+    }
+
+    pub(crate) fn from_explicit_options(
+        tool_versions_filename: &str,
+        config_filename: &str,
+        tool_versions_overrides: Option<&[String]>,
+        config_overrides: &[String],
+    ) -> Self {
+        let mut options = Self::new(Self::default_local_patterns(
+            tool_versions_filename,
+            config_filename,
+            tool_versions_overrides,
+            config_overrides,
+        ));
+        options.tool_versions_patterns = tool_versions_overrides.map_or_else(
+            || {
+                [".tool-versions", tool_versions_filename]
+                    .into_iter()
+                    .unique()
+                    .map(str::to_owned)
+                    .collect()
+            },
+            |patterns| patterns.to_vec(),
+        );
+        options
+    }
+
+    pub(crate) fn format_for(
+        &self,
+        path: &Path,
+    ) -> std::result::Result<config_file::ConfigDocumentFormat, ConfigDiscoveryError> {
+        if !path.is_absolute() {
+            return Err(ConfigDiscoveryError::RelativePath);
+        }
+        for pattern in &self.tool_versions_patterns {
+            if Path::new(pattern).is_absolute() {
+                return Err(ConfigDiscoveryError::InvalidPattern);
+            }
+            let pattern =
+                glob::Pattern::new(pattern).map_err(|_| ConfigDiscoveryError::InvalidPattern)?;
+            let matches = glob::MatchOptions {
+                require_literal_separator: true,
+                ..Default::default()
+            };
+            for parent in path.ancestors().skip(1) {
+                let relative = path
+                    .strip_prefix(parent)
+                    .map_err(|_| ConfigDiscoveryError::InvalidPattern)?;
+                if pattern.matches_path_with(relative, matches) {
+                    return Ok(config_file::ConfigDocumentFormat::ToolVersions);
+                }
+            }
+        }
+        Ok(config_file::ConfigDocumentFormat::PakroToml)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ConfigDiscoveryLimits {
+    pub(crate) max_files: usize,
+    pub(crate) max_candidates: usize,
+    pub(crate) max_path_bytes: usize,
+    pub(crate) max_total_path_bytes: usize,
+}
+impl Default for ConfigDiscoveryLimits {
+    fn default() -> Self {
+        Self {
+            max_files: 1024,
+            max_candidates: 16_384,
+            max_path_bytes: 16 * 1024,
+            max_total_path_bytes: 16 * 1024 * 1024,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ConfigGlobEvidence {
+    pub(crate) directory: PathBuf,
+    pub(crate) pattern: String,
+    pub(crate) matches: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct DiscoveredConfigInputs {
+    /// Highest precedence first, including each alias spelling for observation.
+    pub(crate) files: Vec<PathBuf>,
+    pub(crate) missing_candidates: Vec<PathBuf>,
+    pub(crate) glob_scans: Vec<ConfigGlobEvidence>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum ConfigDiscoveryError {
+    #[error("configuration discovery needs absolute frozen paths")]
+    RelativePath,
+    #[error("configuration discovery has an invalid pattern")]
+    InvalidPattern,
+    #[error("configuration discovery could not inspect a candidate")]
+    Unavailable,
+    #[error("configuration discovery exceeded its input budget")]
+    Budget,
+    #[error("configuration discovery deadline expired")]
+    Expired,
+}
+
+pub(crate) fn discover_project_configs(
+    root: &Path,
+    options: &FrozenConfigDiscovery,
+    limits: ConfigDiscoveryLimits,
+    deadline: std::time::Instant,
+) -> std::result::Result<DiscoveredConfigInputs, ConfigDiscoveryError> {
+    if std::time::Instant::now() >= deadline {
+        return Err(ConfigDiscoveryError::Expired);
+    }
+    if !root.is_absolute()
+        || options
+            .ceiling_paths
+            .iter()
+            .chain(&options.ignored_paths)
+            .any(|path| !path.is_absolute())
+        || options
+            .global_candidates
+            .iter()
+            .chain(&options.system_candidates)
+            .any(|candidate| !candidate.directory.is_absolute())
+    {
+        return Err(ConfigDiscoveryError::RelativePath);
+    }
+    if options.no_config {
+        return Ok(DiscoveredConfigInputs::default());
+    }
+    let mut collector = ConfigDiscoveryCollector {
+        limits,
+        deadline,
+        options,
+        candidates: 0,
+        path_bytes: 0,
+        output: DiscoveredConfigInputs::default(),
+        files_seen: std::collections::HashSet::new(),
+        missing_seen: std::collections::HashSet::new(),
+        ignored: config_file::FrozenIgnoredConfigPaths::default(),
+    };
+    collector.charge(root.as_os_str().len())?;
+    for path in &options.ignored_paths {
+        collector.charge(path.as_os_str().len())?;
+    }
+    for pattern in &options.tool_versions_patterns {
+        collector.charge(pattern.len())?;
+        if Path::new(pattern).is_absolute() {
+            return Err(ConfigDiscoveryError::InvalidPattern);
+        }
+        glob::Pattern::new(pattern).map_err(|_| ConfigDiscoveryError::InvalidPattern)?;
+    }
+    collector.ignored = config_file::FrozenIgnoredConfigPaths::new(&options.ignored_paths)?;
+    // Both existing loading and this observation use the same filename order:
+    // low-to-high patterns, environment overlays last, nearest directory first.
+    for directory in root.ancestors().take_while(|path| {
+        !options
+            .ceiling_paths
+            .iter()
+            .any(|ceiling| *path == ceiling.as_path())
+    }) {
+        collector.check_clock()?;
+        if collector.ignored(directory)? {
+            continue;
+        }
+        for environment in options.environments.iter().rev() {
+            collector.charge(environment.len())?;
+            for pattern in env_config_patterns_with_conf_d(environment, options.env_conf_d)
+                .iter()
+                .rev()
+            {
+                collector.scan(directory, pattern, false)?;
+            }
+        }
+        for pattern in options.local_patterns.iter().rev() {
+            collector.scan(directory, pattern, false)?;
+        }
+    }
+    for candidate in options
+        .global_candidates
+        .iter()
+        .rev()
+        .chain(options.system_candidates.iter().rev())
+    {
+        collector.scan(&candidate.directory, &candidate.pattern, true)?;
+    }
+    Ok(collector.output)
+}
+
+struct ConfigDiscoveryCollector<'a> {
+    options: &'a FrozenConfigDiscovery,
+    limits: ConfigDiscoveryLimits,
+    deadline: std::time::Instant,
+    candidates: usize,
+    path_bytes: usize,
+    output: DiscoveredConfigInputs,
+    files_seen: std::collections::HashSet<PathBuf>,
+    missing_seen: std::collections::HashSet<PathBuf>,
+    ignored: config_file::FrozenIgnoredConfigPaths,
+}
+
+impl ConfigDiscoveryCollector<'_> {
+    fn check_clock(&self) -> std::result::Result<(), ConfigDiscoveryError> {
+        if std::time::Instant::now() >= self.deadline {
+            Err(ConfigDiscoveryError::Expired)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Charge before allocating/copying candidate paths or collecting glob entries.
+    fn charge(&mut self, bytes: usize) -> std::result::Result<(), ConfigDiscoveryError> {
+        self.check_clock()?;
+        if bytes > self.limits.max_path_bytes || self.candidates >= self.limits.max_candidates {
+            return Err(ConfigDiscoveryError::Budget);
+        }
+        self.path_bytes = self
+            .path_bytes
+            .checked_add(bytes)
+            .ok_or(ConfigDiscoveryError::Budget)?;
+        if self.path_bytes > self.limits.max_total_path_bytes {
+            return Err(ConfigDiscoveryError::Budget);
+        }
+        self.candidates += 1;
+        Ok(())
+    }
+
+    fn ignored(&self, path: &Path) -> std::result::Result<bool, ConfigDiscoveryError> {
+        self.check_clock()?;
+        let result = self.ignored.is_match(path)?;
+        self.check_clock()?;
+        Ok(result)
+    }
+
+    fn scan(
+        &mut self,
+        directory: &Path,
+        pattern: &str,
+        external: bool,
+    ) -> std::result::Result<(), ConfigDiscoveryError> {
+        if Path::new(pattern).is_absolute() {
+            return Err(ConfigDiscoveryError::InvalidPattern);
+        }
+        let path_bytes = directory
+            .as_os_str()
+            .len()
+            .checked_add(pattern.len())
+            .and_then(|length| length.checked_add(1))
+            .ok_or(ConfigDiscoveryError::Budget)?;
+        self.charge(path_bytes)?;
+        let path = directory.join(pattern);
+        if self.ignored(directory)? {
+            return Ok(());
+        }
+        if !is_glob_pattern(pattern) {
+            if self.ignored(&path)? {
+                return Ok(());
+            }
+            return self.record_path(path, true);
+        }
+        // Deliberately avoid GLOB_RESULTS, global/system caches and cached desymlinking.
+        // Escaping the root keeps literal bracket characters in a project path literal.
+        let root = directory
+            .to_str()
+            .ok_or(ConfigDiscoveryError::InvalidPattern)?;
+        let escaped = glob::Pattern::escape(root);
+        let glob_pattern = Path::new(&escaped).join(pattern);
+        let glob_pattern = glob_pattern
+            .to_str()
+            .ok_or(ConfigDiscoveryError::InvalidPattern)?;
+        let entries = glob::glob(glob_pattern).map_err(|_| ConfigDiscoveryError::InvalidPattern)?;
+        let mut matches = Vec::new();
+        for entry in entries {
+            self.check_clock()?;
+            let entry = entry.map_err(|_| ConfigDiscoveryError::Unavailable)?;
+            self.charge(entry.as_os_str().len())?;
+            let roots: &[&Path] = if external {
+                std::slice::from_ref(&directory)
+            } else {
+                &[]
+            };
+            if self.ignored(&entry)?
+                || !config_glob_entry_is_visible(&entry, roots)
+                || !conf_d_path_is_active(
+                    &entry,
+                    pattern,
+                    self.options.env_conf_d,
+                    &self.options.environments,
+                )
+            {
+                continue;
+            }
+            matches.push(entry);
+        }
+        matches.sort();
+        for path in matches.iter().rev() {
+            self.record_path(path.clone(), false)?;
+        }
+        self.output.glob_scans.push(ConfigGlobEvidence {
+            directory: directory.to_path_buf(),
+            pattern: pattern.to_owned(),
+            matches,
+        });
+        Ok(())
+    }
+
+    fn record_path(
+        &mut self,
+        path: PathBuf,
+        literal: bool,
+    ) -> std::result::Result<(), ConfigDiscoveryError> {
+        self.check_clock()?;
+        match std::fs::symlink_metadata(&path) {
+            Ok(entry) => {
+                let metadata = if entry.file_type().is_symlink() {
+                    std::fs::metadata(&path).map_err(|_| ConfigDiscoveryError::Unavailable)?
+                } else {
+                    entry
+                };
+                if metadata.is_dir() {
+                    return Ok(());
+                }
+                if !metadata.is_file() {
+                    return Err(ConfigDiscoveryError::Unavailable);
+                }
+                if self.files_seen.contains(&path) {
+                    return Ok(());
+                }
+                if self.output.files.len() >= self.limits.max_files {
+                    return Err(ConfigDiscoveryError::Budget);
+                }
+                self.files_seen.insert(path.clone());
+                self.output.files.push(path);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                if !literal {
+                    return Err(ConfigDiscoveryError::Unavailable);
+                }
+                if self.missing_seen.insert(path.clone()) {
+                    self.output.missing_candidates.push(path);
+                }
+            }
+            Err(_) => return Err(ConfigDiscoveryError::Unavailable),
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod r03_discovery_tests {
+    use super::*;
+    use std::time::Instant;
+
+    fn discover(root: &Path, options: &FrozenConfigDiscovery) -> DiscoveredConfigInputs {
+        discover_project_configs(
+            root,
+            options,
+            Default::default(),
+            Instant::now() + Duration::from_secs(10),
+        )
+        .unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn r03_discovery_ignored_alias_uses_the_same_identity_as_the_candidate() {
+        let temporary = tempfile::tempdir().unwrap();
+        let actual = temporary.path().join("actual");
+        let alias = temporary.path().join("ignored");
+        std::fs::create_dir(&actual).unwrap();
+        std::fs::write(actual.join("pakro.toml"), "").unwrap();
+        std::os::unix::fs::symlink(&actual, &alias).unwrap();
+        let mut options = FrozenConfigDiscovery::new(vec!["pakro.toml".into()]);
+        options.ceiling_paths.push(temporary.path().to_path_buf());
+        options.ignored_paths.push(alias.clone());
+        assert!(discover(&actual, &options).files.is_empty());
+        options.ignored_paths = vec![actual];
+        assert!(discover(&alias, &options).files.is_empty());
+    }
+
+    #[test]
+    fn r03_discovery_ignored_globs_and_invalid_patterns_are_explicit() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("project");
+        std::fs::create_dir_all(root.join(".pakro/conf.d")).unwrap();
+        std::fs::write(root.join("pakro.toml"), "").unwrap();
+        std::fs::write(root.join(".pakro/conf.d/ignored.toml"), "").unwrap();
+        let mut options =
+            FrozenConfigDiscovery::new(vec![".pakro/conf.d/*.toml".into(), "pakro.toml".into()]);
+        options.ceiling_paths.push(temporary.path().to_path_buf());
+        options
+            .ignored_paths
+            .push(root.join(".pakro/conf.d/*.toml"));
+        assert_eq!(
+            discover(&root, &options).files,
+            vec![root.join("pakro.toml")]
+        );
+        options.ignored_paths = vec![root.join("[")];
+        assert_eq!(
+            discover_project_configs(
+                &root,
+                &options,
+                Default::default(),
+                Instant::now() + Duration::from_secs(10)
+            )
+            .unwrap_err(),
+            ConfigDiscoveryError::InvalidPattern
+        );
+    }
+
+    #[test]
+    fn r03_discovery_explicit_builder_freezes_custom_format_patterns() {
+        let options =
+            FrozenConfigDiscovery::from_explicit_options("runtime-pins", "Pakrofile", None, &[]);
+        assert!(
+            options
+                .local_patterns
+                .iter()
+                .any(|pattern| pattern == "Pakrofile")
+        );
+        assert!(
+            options
+                .local_patterns
+                .iter()
+                .any(|pattern| pattern == "runtime-pins")
+        );
+        assert_eq!(
+            options
+                .format_for(Path::new("/project/runtime-pins"))
+                .unwrap(),
+            config_file::ConfigDocumentFormat::ToolVersions
+        );
+        assert_eq!(
+            options.format_for(Path::new("/project/Pakrofile")).unwrap(),
+            config_file::ConfigDocumentFormat::PakroToml
+        );
+        let options = FrozenConfigDiscovery::from_explicit_options(
+            ".tool-versions",
+            "pakro.toml",
+            Some(&["config/*.versions".to_owned()]),
+            &["project.native".to_owned()],
+        );
+        assert_eq!(
+            options
+                .format_for(Path::new("/project/config/lang.versions"))
+                .unwrap(),
+            config_file::ConfigDocumentFormat::ToolVersions
+        );
+        assert_eq!(
+            options
+                .format_for(Path::new("/project/.tool-versions"))
+                .unwrap(),
+            config_file::ConfigDocumentFormat::PakroToml
+        );
+    }
+
+    #[test]
+    fn r03_discovery_freezes_priority_and_rediscovers_literal_and_glob_additions() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("project");
+        std::fs::create_dir_all(root.join(".pakro/conf.d")).unwrap();
+        std::fs::write(root.join("pakro.toml"), "").unwrap();
+        std::fs::write(root.join(".pakro/conf.d/a.toml"), "").unwrap();
+        let mut options = FrozenConfigDiscovery::new(vec![
+            ".pakro/conf.d/*.toml".into(),
+            "pakro.toml".into(),
+            "pakro.local.toml".into(),
+        ]);
+        options.ceiling_paths.push(temporary.path().to_path_buf());
+        let before = discover(&root, &options);
+        assert_eq!(
+            before.files,
+            vec![root.join("pakro.toml"), root.join(".pakro/conf.d/a.toml")]
+        );
+        assert!(
+            before
+                .missing_candidates
+                .contains(&root.join("pakro.local.toml"))
+        );
+        std::fs::write(root.join("pakro.local.toml"), "").unwrap();
+        std::fs::write(root.join(".pakro/conf.d/z.toml"), "").unwrap();
+        let after = discover(&root, &options);
+        assert_ne!(before, after);
+        assert_eq!(after.files[0], root.join("pakro.local.toml"));
+        assert!(
+            after
+                .glob_scans
+                .iter()
+                .any(|scan| scan.matches.contains(&root.join(".pakro/conf.d/z.toml")))
+        );
+    }
+
+    #[test]
+    fn r03_discovery_orders_local_ancestors_globals_and_explicit_profiles() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("project");
+        std::fs::create_dir(&root).unwrap();
+        for path in [
+            root.join("pakro.toml"),
+            root.join("pakro.dev.toml"),
+            temporary.path().join("pakro.toml"),
+            temporary.path().join("global.toml"),
+            temporary.path().join("system.toml"),
+        ] {
+            std::fs::write(path, "").unwrap();
+        }
+        let mut options = FrozenConfigDiscovery::new(vec!["pakro.toml".into()]);
+        options
+            .ceiling_paths
+            .push(temporary.path().parent().unwrap().to_path_buf());
+        options.environments.push("dev".into());
+        options.global_candidates.push(ConfigDiscoveryCandidate {
+            directory: temporary.path().to_path_buf(),
+            pattern: "global.toml".into(),
+        });
+        options.system_candidates.push(ConfigDiscoveryCandidate {
+            directory: temporary.path().to_path_buf(),
+            pattern: "system.toml".into(),
+        });
+        assert_eq!(
+            discover(&root, &options).files,
+            vec![
+                root.join("pakro.dev.toml"),
+                root.join("pakro.toml"),
+                temporary.path().join("pakro.toml"),
+                temporary.path().join("global.toml"),
+                temporary.path().join("system.toml")
+            ]
+        );
+    }
+
+    #[test]
+    fn r03_discovery_default_patterns_and_explicit_filters_match_legacy_order() {
+        let patterns = FrozenConfigDiscovery::default_local_patterns(
+            ".tool-versions",
+            "pakro.toml",
+            None,
+            &[],
+        );
+        assert_eq!(patterns.first().map(String::as_str), Some(".tool-versions"));
+        assert_eq!(
+            patterns.last().map(String::as_str),
+            Some(".pakro.local.toml")
+        );
+        assert!(
+            patterns
+                .iter()
+                .position(|path| path == ".pakro/conf.d/*.toml")
+                < patterns.iter().position(|path| path == "pakro.toml")
+        );
+        let temporary = tempfile::tempdir().unwrap();
+        std::fs::write(temporary.path().join("pakro.toml"), "").unwrap();
+        let mut options = FrozenConfigDiscovery::new(vec!["pakro.toml".into()]);
+        options.ignored_paths.push(temporary.path().to_path_buf());
+        options
+            .ceiling_paths
+            .push(temporary.path().parent().unwrap().to_path_buf());
+        assert!(discover(temporary.path(), &options).files.is_empty());
+        options.no_config = true;
+        assert_eq!(
+            discover(temporary.path(), &options),
+            DiscoveredConfigInputs::default()
+        );
+    }
+
+    #[test]
+    fn r03_discovery_reports_invalid_inputs_and_budgets() {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut options = FrozenConfigDiscovery::new(vec!["[".into()]);
+        options
+            .ceiling_paths
+            .push(temporary.path().parent().unwrap().to_path_buf());
+        let deadline = Instant::now() + Duration::from_secs(10);
+        assert_eq!(
+            discover_project_configs(temporary.path(), &options, Default::default(), deadline)
+                .unwrap_err(),
+            ConfigDiscoveryError::InvalidPattern
+        );
+        options.local_patterns = vec!["pakro.toml".into()];
+        let limits = ConfigDiscoveryLimits {
+            max_candidates: 0,
+            ..Default::default()
+        };
+        assert_eq!(
+            discover_project_configs(temporary.path(), &options, limits, deadline).unwrap_err(),
+            ConfigDiscoveryError::Budget
+        );
+        assert_eq!(
+            discover_project_configs(
+                Path::new("relative"),
+                &options,
+                Default::default(),
+                deadline
+            )
+            .unwrap_err(),
+            ConfigDiscoveryError::RelativePath
+        );
+        assert_eq!(
+            discover_project_configs(
+                temporary.path(),
+                &options,
+                Default::default(),
+                Instant::now()
+            )
+            .unwrap_err(),
+            ConfigDiscoveryError::Expired
+        );
+    }
+}
+
 type AliasMap = IndexMap<String, Alias>;
 pub type ConfigMap = IndexMap<PathBuf, Arc<dyn ConfigFile>>;
 pub(crate) type EnvWithSources = IndexMap<String, (String, PathBuf)>;
@@ -2282,22 +2947,20 @@ async fn idiomatic_filenames_for_root(
     Ok(load_idiomatic_filenames_for_tools(&rooted.enable_tools, &rooted.disable_files).await)
 }
 
-static LOCAL_CONFIG_FILENAMES: Lazy<IndexSet<&'static str>> = Lazy::new(|| {
-    let mut paths: IndexSet<&'static str> = IndexSet::new();
-    if let Some(o) = &*env::PAKRO_OVERRIDE_TOOL_VERSIONS_FILENAMES {
-        paths.extend(o.iter().map(|s| s.as_str()));
+fn local_config_patterns<'a>(
+    tool_versions_filename: &'a str,
+    config_filename: &'a str,
+    tool_versions_overrides: Option<&[&'a str]>,
+    config_overrides: &[&'a str],
+) -> IndexSet<&'a str> {
+    let mut paths: IndexSet<&str> = IndexSet::new();
+    if let Some(o) = tool_versions_overrides {
+        paths.extend(o.iter().copied());
     } else {
-        paths.extend([
-            ".tool-versions",
-            &*env::PAKRO_DEFAULT_TOOL_VERSIONS_FILENAME, // .tool-versions
-        ]);
+        paths.extend([".tool-versions", tool_versions_filename]);
     }
-    if !env::PAKRO_OVERRIDE_CONFIG_FILENAMES.is_empty() {
-        paths.extend(
-            env::PAKRO_OVERRIDE_CONFIG_FILENAMES
-                .iter()
-                .map(|s| s.as_str()),
-        )
+    if !config_overrides.is_empty() {
+        paths.extend(config_overrides.iter().copied())
     } else {
         paths.extend([
             ".config/pakro/conf.d/*.toml",
@@ -2315,7 +2978,7 @@ static LOCAL_CONFIG_FILENAMES: Lazy<IndexSet<&'static str>> = Lazy::new(|| {
             "pakro/conf.d/*/pakro.local.toml",
             "pakro/config.toml",
             "pakro.toml",
-            &*env::PAKRO_DEFAULT_CONFIG_FILENAME, // pakro.toml
+            config_filename,
             ".pakro.toml",
             ".config/pakro/config.local.toml",
             ".config/pakro/pakro.local.toml",
@@ -2328,6 +2991,22 @@ static LOCAL_CONFIG_FILENAMES: Lazy<IndexSet<&'static str>> = Lazy::new(|| {
     }
 
     paths
+}
+
+static LOCAL_CONFIG_FILENAMES: Lazy<IndexSet<&'static str>> = Lazy::new(|| {
+    let tool_overrides = env::PAKRO_OVERRIDE_TOOL_VERSIONS_FILENAMES
+        .as_ref()
+        .map(|values| values.iter().map(String::as_str).collect::<Vec<_>>());
+    let config_overrides = env::PAKRO_OVERRIDE_CONFIG_FILENAMES
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    local_config_patterns(
+        &env::PAKRO_DEFAULT_TOOL_VERSIONS_FILENAME,
+        &env::PAKRO_DEFAULT_CONFIG_FILENAME,
+        tool_overrides.as_deref(),
+        &config_overrides,
+    )
 });
 /// Config filename patterns for a single PAKRO_ENV environment, in precedence order
 /// (later wins, matching LOCAL_CONFIG_FILENAMES ordering)
@@ -2502,16 +3181,18 @@ fn config_glob(dir: &Path, pattern: &str) -> Vec<PathBuf> {
     glob(dir, pattern)
         .unwrap_or_default()
         .into_iter()
-        .filter(|path| {
-            if path.parent().is_some_and(is_conf_d_file) {
-                return is_conf_d_folder_file(path);
-            }
-            !is_conf_d_file(path)
-                || !path
-                    .file_name()
-                    .is_some_and(|name| name.to_string_lossy().starts_with('.'))
-        })
+        .filter(|path| config_glob_entry_is_visible(path, &[&dirs::CONFIG, &dirs::SYSTEM_CONFIG]))
         .collect()
+}
+
+fn config_glob_entry_is_visible(path: &Path, global_roots: &[&Path]) -> bool {
+    if path.parent().is_some_and(is_conf_d_file) {
+        return is_conf_d_folder_file_with_config_dirs(path, global_roots);
+    }
+    !is_conf_d_file(path)
+        || !path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with('.'))
 }
 
 fn is_unconditional_conf_d_pattern(pattern: &str) -> bool {
@@ -2569,18 +3250,26 @@ fn load_config_glob(dir: &Path, pattern: &str) -> Vec<PathBuf> {
     }
     paths
         .into_iter()
-        .filter(|path| {
-            if is_unconditional_conf_d_pattern(pattern) {
-                !is_environment_conf_d_file(path)
-            } else if let Some((environment, _)) = conf_d_file_environment(path) {
-                env::PAKRO_ENV_WITH_AUTO
-                    .iter()
-                    .any(|env| env == environment)
-            } else {
-                true
-            }
-        })
+        .filter(|path| conf_d_path_is_active(path, pattern, true, &env::PAKRO_ENV_WITH_AUTO))
         .collect()
+}
+
+fn conf_d_path_is_active(
+    path: &Path,
+    pattern: &str,
+    env_conf_d: bool,
+    environments: &[String],
+) -> bool {
+    if !env_conf_d {
+        return true;
+    }
+    if is_unconditional_conf_d_pattern(pattern) {
+        !is_environment_conf_d_file(path)
+    } else if let Some((environment, _)) = conf_d_file_environment(path) {
+        environments.iter().any(|active| active == environment)
+    } else {
+        true
+    }
 }
 
 pub fn config_files_in_dir(dir: &Path) -> IndexSet<PathBuf> {
@@ -2689,6 +3378,10 @@ fn is_conf_d_file(p: &Path) -> bool {
 /// Only `conf.d` directories pakro reads count: a project that merely lives at
 /// `nginx/conf.d/site/pakro.toml` is an ordinary project.
 pub(crate) fn is_conf_d_folder_file(p: &Path) -> bool {
+    is_conf_d_folder_file_with_config_dirs(p, &[&dirs::CONFIG, &dirs::SYSTEM_CONFIG])
+}
+
+pub(crate) fn is_conf_d_folder_file_with_config_dirs(p: &Path, global_roots: &[&Path]) -> bool {
     let is_pakro_filename = p
         .file_name()
         .and_then(|name| name.to_str())
@@ -2708,8 +3401,7 @@ pub(crate) fn is_conf_d_folder_file(p: &Path) -> bool {
         owner
             .file_name()
             .is_some_and(|name| name == "pakro" || name == ".pakro")
-            || owner == *dirs::CONFIG
-            || owner == *dirs::SYSTEM_CONFIG
+            || global_roots.contains(&owner)
     })
 }
 

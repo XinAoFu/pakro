@@ -8,6 +8,7 @@
 pub mod error;
 pub mod graph;
 pub mod npmver;
+pub mod python_native;
 pub mod pyver;
 pub mod solve;
 

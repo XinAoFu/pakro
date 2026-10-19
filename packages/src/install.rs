@@ -28,9 +28,7 @@ pub use super::binding::{
 use super::lockfile::{LOCKFILE_NAME, PackageLock};
 use super::materialize::{VenvSpec, materialize_venv};
 pub use super::python::{PythonPackageLatest, latest_python_package};
-use super::python::{
-    PythonPackageRuntime, PythonSource, select_python_artifact, validate_metadata,
-};
+use super::python::{PythonPackageRuntime, PythonSource};
 
 pub struct Locations {
     /// directory receiving `pakro.packages.lock`
@@ -56,8 +54,90 @@ impl Locations {
     }
 }
 
-/// Installs every request group. Returns how many store entries were newly
-/// downloaded (0 means everything came from the store or the lock).
+/// A fully selected artifact whose identity and digest passed graph preflight.
+pub(super) struct PreparedPythonArtifact {
+    artifact: pakro_index::ArtifactDescriptor,
+    digest: Digest,
+    built_bytes: Option<Vec<u8>>,
+}
+enum PythonArtifactInput {
+    Wheel {
+        artifact: pakro_index::ArtifactDescriptor,
+        digest: Digest,
+    },
+    LegacySdist {
+        artifact: pakro_index::ArtifactDescriptor,
+        digest: Digest,
+    },
+}
+/// Validate every graph node before downloading or executing any source build.
+/// Wheels remain undownloaded until the caller opens the Store after preflight.
+pub(super) async fn prepare_python_artifacts(
+    nodes: &[pakro_resolver::ResolvedNode],
+    runtime: &PythonPackageRuntime,
+    index: &Index,
+) -> eyre::Result<Vec<PreparedPythonArtifact>> {
+    let mut inputs = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        let metadata = index
+            .metadata_for_context(&node.name, &node.version, &runtime.context)
+            .await
+            .context("fetching Python graph artifact metadata")?;
+        let candidate = super::python::select_python_release(
+            &metadata,
+            &node.name,
+            &node.version,
+            &runtime.context,
+            &runtime.supported,
+            super::python::PythonCandidatePolicy::Install,
+        )?
+        .context("no installable artifact for observed Python target")?;
+        inputs.push(match candidate {
+            super::python::PythonReleaseCandidate::Wheel { artifact, digest } => {
+                PythonArtifactInput::Wheel {
+                    artifact: artifact.clone(),
+                    digest,
+                }
+            }
+            super::python::PythonReleaseCandidate::LegacySdist { artifact, digest } => {
+                PythonArtifactInput::LegacySdist {
+                    artifact: artifact.clone(),
+                    digest,
+                }
+            }
+        });
+    }
+    let mut prepared = Vec::with_capacity(nodes.len());
+    for (node, input) in nodes.iter().zip(inputs) {
+        let artifact = match input {
+            PythonArtifactInput::Wheel { artifact, digest } => PreparedPythonArtifact {
+                artifact,
+                digest,
+                built_bytes: None,
+            },
+            PythonArtifactInput::LegacySdist { artifact, digest } => {
+                let built = build_sdist_to_wheel(
+                    &artifact,
+                    digest,
+                    &node.name,
+                    &node.version,
+                    runtime.handle.executable(),
+                    &runtime.supported,
+                )
+                .await?;
+                let digest = super::python::python_sha256(&built.descriptor)?;
+                PreparedPythonArtifact {
+                    artifact: built.descriptor,
+                    digest,
+                    built_bytes: Some(built.bytes),
+                }
+            }
+        };
+        prepared.push(artifact);
+    }
+    Ok(prepared)
+}
+/// Installs every request group. Returns the number of newly written Store entries.
 pub(crate) async fn install_packages(
     inputs: &PackageInstallInputs,
     locs: &Locations,
@@ -67,7 +147,7 @@ pub(crate) async fn install_packages(
     let mut python_runtimes = BTreeMap::new();
     for (key, tool) in &inputs.python_runtimes {
         let runtime = PythonPackageRuntime::from_tool_version(tool).await?;
-        runtime.ensure_current_prefix()?;
+        super::python::python_install_platform(&runtime)?;
         python_runtimes.insert(key.clone(), runtime);
     }
     let mut groups: BTreeMap<(String, String), Vec<&PackageInstallRequest>> = BTreeMap::new();
@@ -97,8 +177,6 @@ pub(crate) async fn install_packages(
         } else {
             None
         };
-        let platform = Platform::detect();
-        // Legacy Python locks have neither roots nor a context fingerprint.
         let reusable = if runtime_name == "node" {
             lock.graph_for(&group_key).filter(|locked| {
                 top_level_matches(
@@ -114,7 +192,7 @@ pub(crate) async fn install_packages(
         let graph = match reusable {
             Some(locked) => locked,
             None => {
-                let solve_requests: Vec<DependencyRequest> = group_requests
+                let requests: Vec<DependencyRequest> = group_requests
                     .iter()
                     .map(|request| DependencyRequest {
                         eco: runtime_name.clone(),
@@ -128,45 +206,85 @@ pub(crate) async fn install_packages(
                         node.digest = None;
                     }
                 }
-                let result = if let Some(python) = python {
+                let solved = if let Some(python) = python {
                     let source = PythonSource {
                         index: Arc::clone(&index),
                         context: python.context.clone(),
+                        supported: python.supported.clone(),
                     };
-                    pakro_resolver::solve(&solve_requests, &bias, &source, "python")
+                    pakro_resolver::solve(&requests, &bias, &source, "python")
                 } else {
                     let source = NodeSource {
                         index: Arc::clone(&index),
                     };
-                    pakro_resolver::solve(&solve_requests, &bias, &source, "node")
+                    pakro_resolver::solve(&requests, &bias, &source, "node")
                 };
-                result.map_err(|error| eyre::eyre!("resolving {group_key}: {error}"))?
+                solved.map_err(|error| eyre::eyre!("resolving {group_key}: {error}"))?
             }
         };
-        let store = Store::open(&locs.store_root)?;
         let mut nodes = graph.nodes;
-        for node in &mut nodes {
-            if python.is_some() {
-                node.digest = None;
+        if let Some(python) = python {
+            // Every node is selected again; no old digest or warm-store bypass.
+            let prepared = prepare_python_artifacts(&nodes, python, &index).await?;
+            let platform = super::python::python_install_platform(python)?;
+            let store = Store::open(&locs.store_root)?;
+            for (node, prepared) in nodes.iter_mut().zip(prepared) {
+                let identity = PackageIdentity {
+                    eco: Eco::Python,
+                    name: node.name.clone(),
+                    version: node.version.clone(),
+                    runtime: Some(RuntimeId {
+                        eco: Eco::Python,
+                        version: runtime_version.clone(),
+                    }),
+                    platform,
+                    digest: prepared.digest,
+                };
+                if !store.contains(&identity) {
+                    if let Some(bytes) = prepared.built_bytes {
+                        store.unpack(&identity, &bytes)?;
+                    } else {
+                        let bytes = http::HTTP
+                            .get_bytes(prepared.artifact.url.as_str())
+                            .await
+                            .context("downloading selected Python artifact")?;
+                        store.unpack(&identity, bytes.as_ref())?;
+                    }
+                    downloaded += 1;
+                }
+                node.digest = Some(prepared.digest.to_string());
             }
-            if node
-                .digest
-                .as_deref()
-                .is_some_and(|digest| !digest.is_empty())
+            let graph = ResolvedGraph { nodes }.sorted();
+            materialize_venv(
+                &VenvSpec {
+                    project_root: &locs.project_root,
+                    runtime_name: &runtime_name,
+                    runtime_version: &runtime_version,
+                    interpreter_executable: python.handle.executable(),
+                    language_version: &python.descriptor.language_version,
+                    platform,
+                },
+                &graph,
+                &store,
+            )?;
+            if let Some(packages) = PackageLock::from_graph(&group_key, &graph)
+                .groups
+                .remove(&group_key)
             {
-                continue;
+                lock.groups.insert(group_key, packages);
             }
-            let metadata = if let Some(python) = python {
+        } else {
+            let platform = Platform::detect();
+            let store = Store::open(&locs.store_root)?;
+            for node in &mut nodes {
+                if node
+                    .digest
+                    .as_deref()
+                    .is_some_and(|digest| !digest.is_empty())
+                {
+                    continue;
+                }
                 let metadata = index
-                    .metadata_for_context(&node.name, &node.version, &python.context)
-                    .await
-                    .with_context(|| {
-                        format!("fetching metadata for {} {}", node.name, node.version)
-                    })?;
-                validate_metadata(&metadata, &python.context)?;
-                metadata
-            } else {
-                index
                     .npm_metadata(
                         &node.name,
                         &node.version,
@@ -175,99 +293,46 @@ pub(crate) async fn install_packages(
                     .await
                     .with_context(|| {
                         format!("fetching metadata for {} {}", node.name, node.version)
-                    })?
-            };
-            let mut built_bytes: Option<Vec<u8>> = None;
-            let artifact_owned;
-            let selected = if let Some(python) = python {
-                select_python_artifact(&metadata.artifacts, python, &platform)
-            } else {
-                select_node_artifact(&metadata.artifacts)
-            };
-            let artifact = match selected {
-                Some(artifact) => artifact,
-                None if python.is_some() => {
-                    let python = python.context("Python source-build binding missing")?;
-                    let built = build_sdist_to_wheel(
-                        &metadata,
-                        &node.name,
-                        &node.version,
-                        python.handle.executable(),
-                    )
-                    .await
-                    .with_context(|| {
-                        format!(
-                            "no wheel for {} {} on {platform}; source build also failed",
-                            node.name, node.version
-                        )
                     })?;
-                    built_bytes = Some(built.bytes);
-                    artifact_owned = built.descriptor;
-                    &artifact_owned
-                }
-                None => bail!(
-                    "no installable artifact for {} {} on {platform}",
-                    node.name,
-                    node.version
-                ),
-            };
-            let digest_str = artifact
-                .digest
-                .clone()
-                .context("selected artifact has no digest")?;
-            let digest = digest_str
-                .parse::<Digest>()
-                .context("registry digest is malformed")?;
-            let identity = PackageIdentity {
-                eco: if python.is_some() {
-                    Eco::Python
-                } else {
-                    Eco::Node
-                },
-                name: node.name.clone(),
-                version: node.version.clone(),
-                runtime: python.map(|_| RuntimeId {
-                    eco: Eco::Python,
-                    version: runtime_version.clone(),
-                }),
-                platform,
-                digest,
-            };
-            if !store.contains(&identity) {
-                if let Some(bytes) = &built_bytes {
-                    store.unpack(&identity, bytes)?;
-                } else {
+                let artifact = select_node_artifact(&metadata.artifacts).with_context(|| {
+                    format!(
+                        "no installable artifact for {} {} on {platform}",
+                        node.name, node.version
+                    )
+                })?;
+                let digest_str = artifact
+                    .digest
+                    .clone()
+                    .context("selected artifact has no digest")?;
+                let digest = digest_str
+                    .parse::<Digest>()
+                    .context("registry digest is malformed")?;
+                let identity = PackageIdentity {
+                    eco: Eco::Node,
+                    name: node.name.clone(),
+                    version: node.version.clone(),
+                    runtime: None,
+                    platform,
+                    digest,
+                };
+                if !store.contains(&identity) {
                     let bytes = http::HTTP
                         .get_bytes(artifact.url.as_str())
                         .await
                         .with_context(|| format!("downloading {}", artifact.filename))?;
                     store.unpack(&identity, bytes.as_ref())?;
+                    downloaded += 1;
                 }
-                downloaded += 1;
+                node.digest = Some(digest_str);
             }
-            node.digest = Some(digest_str);
-        }
-        let graph = ResolvedGraph { nodes }.sorted();
-        if let Some(python) = python {
-            materialize_venv(
-                &VenvSpec {
-                    project_root: &locs.project_root,
-                    runtime_name: &runtime_name,
-                    runtime_version: &runtime_version,
-                    interpreter_executable: python.handle.executable(),
-                    language_version: &python.descriptor.language_version,
-                },
-                &graph,
-                &store,
-            )?;
-        } else {
+            let graph = ResolvedGraph { nodes }.sorted();
             super::materialize_node::materialize_node_modules(&locs.project_root, &graph, &store)?;
-        }
-        if let Some(packages) = PackageLock::from_graph(&group_key, &graph)
-            .groups
-            .remove(&group_key)
-        {
-            lock.groups.insert(group_key, packages);
+            if let Some(packages) = PackageLock::from_graph(&group_key, &graph)
+                .groups
+                .remove(&group_key)
+            {
+                lock.groups.insert(group_key, packages);
+            }
         }
     }
     lock.write(&lock_path)?;
@@ -434,33 +499,40 @@ struct BuiltArtifact {
 /// Uses the explicitly bound interpreter to invoke `pip wheel --no-deps`.
 /// Correct executable binding does not make this a native build.
 async fn build_sdist_to_wheel(
-    metadata: &pakro_index::PackageMetadata,
+    sdist: &pakro_index::ArtifactDescriptor,
+    source_digest: Digest,
     name: &str,
     version: &str,
     interpreter_executable: &Path,
+    supported: &pakro_index::SupportedWheelTags,
 ) -> eyre::Result<BuiltArtifact> {
-    let sdist = metadata
-        .artifacts
-        .iter()
-        .find(|a| matches!(a.kind, pakro_index::ArtifactKind::Sdist))
-        .context("no sdist available either")?;
-    warn!(
-        "no prebuilt wheel for {name} {version}; building from source (this runs the package's build code)"
+    super::python::safe_source_filename(&sdist.filename)?;
+    eyre::ensure!(
+        matches!(sdist.kind, ArtifactKind::Sdist),
+        "selected source is not sdist"
     );
-    let interpreter = interpreter_executable;
-    if !interpreter.exists() {
-        bail!("interpreter {} is not installed", interpreter.display());
+    eyre::ensure!(
+        super::python::python_sha256(sdist)? == source_digest,
+        "selected source SHA256 identity is inconsistent"
+    );
+    if !interpreter_executable.exists() {
+        bail!("bound source interpreter is not installed");
     }
     let sdist_bytes = http::HTTP
         .get_bytes(sdist.url.as_str())
         .await
-        .context("downloading sdist")?;
+        .context("downloading selected sdist")?;
+    eyre::ensure!(
+        source_digest.verify(sdist_bytes.as_ref()),
+        "source SHA256 mismatch"
+    );
     let tmp = tempfile::tempdir()?;
     let sdist_path = tmp.path().join(&sdist.filename);
     std::fs::write(&sdist_path, &sdist_bytes)?;
     let wheel_dir = tmp.path().join("wheels");
     std::fs::create_dir_all(&wheel_dir)?;
-    let status = std::process::Command::new(interpreter)
+    warn!("no prebuilt wheel for {name} {version}; using legacy source worker pending H4");
+    let status = std::process::Command::new(interpreter_executable)
         .args([
             "-m",
             "pip",
@@ -472,24 +544,49 @@ async fn build_sdist_to_wheel(
         .arg(&wheel_dir)
         .arg(&sdist_path)
         .status()
-        .context("running pip wheel")?;
+        .context("running legacy pip wheel")?;
     if !status.success() {
         bail!("pip wheel failed with {status}");
     }
-    let wheel_file = std::fs::read_dir(&wheel_dir)?
-        .flatten()
-        .find(|e| e.file_name().to_string_lossy().ends_with(".whl"))
-        .context("pip wheel produced no wheel")?;
-    let bytes = std::fs::read(wheel_file.path())?;
-    let filename = wheel_file.file_name().to_string_lossy().to_string();
-    let digest = pakro_store::Digest::from_sha256_bytes(&bytes).to_string();
-    Ok(BuiltArtifact {
-        descriptor: pakro_index::ArtifactDescriptor {
+    let mut outputs = Vec::new();
+    for entry in std::fs::read_dir(&wheel_dir)? {
+        let entry = entry?;
+        if entry.file_type()?.is_file() && entry.file_name().to_string_lossy().ends_with(".whl") {
+            outputs.push(entry);
+        }
+    }
+    eyre::ensure!(
+        outputs.len() == 1,
+        "legacy source worker must produce exactly one wheel"
+    );
+    let file = outputs
+        .pop()
+        .context("legacy source worker produced no wheel")?;
+    let filename = file
+        .file_name()
+        .to_str()
+        .context("legacy output filename is not UTF-8")?
+        .to_string();
+    let parsed = pakro_index::parse_wheel_filename(&filename)
+        .context("legacy output has an invalid wheel filename")?;
+    let bytes = std::fs::read(file.path())?;
+    let digest = Digest::from_sha256_bytes(&bytes).to_string();
+    let metadata = pakro_index::PackageMetadata {
+        name: name.into(),
+        version: version.into(),
+        requires_python: None,
+        deps: vec![],
+        artifacts: vec![pakro_index::ArtifactDescriptor {
             filename,
             url: String::new(),
             digest: Some(digest),
-            kind: pakro_index::ArtifactKind::Sdist,
-        },
+            kind: ArtifactKind::Wheel(parsed.tags),
+        }],
+    };
+    let selected = pakro_index::select_wheel_artifact(&metadata, supported)?
+        .context("legacy output wheel is incompatible with observed Python target")?;
+    Ok(BuiltArtifact {
+        descriptor: selected.clone(),
         bytes,
     })
 }
@@ -497,6 +594,7 @@ async fn build_sdist_to_wheel(
 #[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
 mod source_path_tests {
     use super::*;
+    use pakro_index::SupportedWheelTags;
     use std::os::unix::fs::PermissionsExt;
 
     #[tokio::test]
@@ -525,14 +623,21 @@ mod source_path_tests {
             artifacts: vec![pakro_index::ArtifactDescriptor {
                 filename: "demo-1.0.tar.gz".into(),
                 url: format!("{}/demo.tar.gz", server.url()),
-                digest: None,
+                digest: Some(Digest::from_sha256_bytes(b"controlled source bytes").to_string()),
                 kind: ArtifactKind::Sdist,
             }],
         };
-        let error = build_sdist_to_wheel(&metadata, "demo", "1.0", &executable)
-            .await
-            .err()
-            .unwrap();
+        let error = build_sdist_to_wheel(
+            &metadata.artifacts[0],
+            Digest::from_sha256_bytes(b"controlled source bytes"),
+            "demo",
+            "1.0",
+            &executable,
+            &source_tags(),
+        )
+        .await
+        .err()
+        .unwrap();
         assert!(error.to_string().contains("pip wheel failed"), "{error}");
         assert!(
             std::fs::read_to_string(marker)
@@ -540,5 +645,232 @@ mod source_path_tests {
                 .starts_with("-m\npip\nwheel\n")
         );
         download.assert_async().await;
+    }
+    fn source_tags() -> SupportedWheelTags {
+        SupportedWheelTags::new(vec![
+            pakro_index::WheelTag::new("py3", "none", "any").unwrap(),
+        ])
+        .unwrap()
+    }
+    fn source_descriptor(base: &str, body: &[u8]) -> pakro_index::ArtifactDescriptor {
+        pakro_index::ArtifactDescriptor {
+            filename: "demo-1.0.tar.gz".into(),
+            url: format!("{base}/source"),
+            digest: Some(Digest::from_sha256_bytes(body).to_string()),
+            kind: ArtifactKind::Sdist,
+        }
+    }
+    fn controlled_worker(root: &Path, filename: &str) -> (PathBuf, PathBuf) {
+        let executable = root.join("bound-worker");
+        let marker = root.join("executed");
+        let payload = root.join("wheel-payload");
+        std::fs::write(&payload, b"controlled built wheel payload").unwrap();
+        let quote =
+            |path: &Path| format!("'{}'", path.display().to_string().replace('\'', "'\\''"));
+        let filename = format!("'{}'", filename.replace('\'', "'\\''"));
+        std::fs::write(
+            &executable,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\ncp {} \"$7\"/{filename}\n",
+                quote(&marker),
+                quote(&payload)
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        (executable, marker)
+    }
+    #[tokio::test]
+    async fn legacy_input_digest_is_verified_before_worker_execution() {
+        let root = tempfile::tempdir().unwrap();
+        let (executable, marker) = controlled_worker(root.path(), "demo-1.0-py3-none-any.whl");
+        let mut server = mockito::Server::new_async().await;
+        let download = server
+            .mock("GET", "/source")
+            .with_body("corrupt source")
+            .expect(1)
+            .create_async()
+            .await;
+        let artifact = source_descriptor(&server.url(), b"expected source");
+        let digest = artifact.digest.as_deref().unwrap().parse().unwrap();
+        let error = build_sdist_to_wheel(
+            &artifact,
+            digest,
+            "demo",
+            "1.0",
+            &executable,
+            &source_tags(),
+        )
+        .await
+        .err()
+        .unwrap();
+        assert!(
+            error.to_string().contains("source SHA256 mismatch"),
+            "{error}"
+        );
+        assert!(!marker.exists());
+        download.assert_async().await;
+    }
+    #[tokio::test]
+    async fn legacy_missing_digest_or_unsafe_name_precedes_download_and_execution() {
+        for filename in ["demo-1.0.tar.gz", "../demo-1.0.tar.gz"] {
+            let root = tempfile::tempdir().unwrap();
+            let (executable, marker) = controlled_worker(root.path(), "demo-1.0-py3-none-any.whl");
+            let mut server = mockito::Server::new_async().await;
+            let no_download = server
+                .mock("GET", mockito::Matcher::Any)
+                .expect(0)
+                .create_async()
+                .await;
+            let mut artifact = source_descriptor(&server.url(), b"source");
+            if filename.starts_with("..") {
+                artifact.filename = filename.into();
+            } else {
+                artifact.digest = None;
+            }
+            let error = build_sdist_to_wheel(
+                &artifact,
+                Digest::from_sha256_bytes(b"source"),
+                "demo",
+                "1.0",
+                &executable,
+                &source_tags(),
+            )
+            .await
+            .err()
+            .unwrap();
+            assert!(
+                error.to_string().contains("SHA256")
+                    || error.to_string().contains("single component"),
+                "{error}"
+            );
+            assert!(!marker.exists());
+            no_download.assert_async().await;
+        }
+    }
+    #[tokio::test]
+    async fn legacy_output_filename_identity_and_supported_tags_are_enforced() {
+        for (filename, diagnostic) in [
+            (
+                "other-1.0-py3-none-any.whl",
+                "filename distribution differs from metadata",
+            ),
+            (
+                "demo-2.0-py3-none-any.whl",
+                "filename version differs from metadata",
+            ),
+            (
+                "demo-1.0-cp311-cp311-manylinux_2_17_x86_64.whl",
+                "legacy output wheel is incompatible with observed Python target",
+            ),
+            ("broken.whl", "legacy output has an invalid wheel filename"),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let (executable, marker) = controlled_worker(root.path(), filename);
+            let mut server = mockito::Server::new_async().await;
+            let download = server
+                .mock("GET", "/source")
+                .with_body("source")
+                .expect(1)
+                .create_async()
+                .await;
+            let artifact = source_descriptor(&server.url(), b"source");
+            let digest = artifact.digest.as_deref().unwrap().parse().unwrap();
+            let error = build_sdist_to_wheel(
+                &artifact,
+                digest,
+                "demo",
+                "1.0",
+                &executable,
+                &source_tags(),
+            )
+            .await
+            .err()
+            .unwrap();
+            assert!(
+                error.to_string().contains(diagnostic),
+                "{filename}: expected {diagnostic:?}, got {error}"
+            );
+            assert!(marker.exists());
+            download.assert_async().await;
+        }
+    }
+    #[tokio::test]
+    async fn legacy_valid_output_is_wheel_and_has_its_own_digest() {
+        let root = tempfile::tempdir().unwrap();
+        let (executable, marker) = controlled_worker(root.path(), "demo-1.0-py3-none-any.whl");
+        let mut server = mockito::Server::new_async().await;
+        let download = server
+            .mock("GET", "/source")
+            .with_body("source")
+            .expect(1)
+            .create_async()
+            .await;
+        let artifact = source_descriptor(&server.url(), b"source");
+        let source_digest = artifact.digest.as_deref().unwrap().parse().unwrap();
+        let output = build_sdist_to_wheel(
+            &artifact,
+            source_digest,
+            "demo",
+            "1.0",
+            &executable,
+            &source_tags(),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(output.descriptor.kind, ArtifactKind::Wheel(_)));
+        assert_eq!(output.descriptor.filename, "demo-1.0-py3-none-any.whl");
+        assert_eq!(
+            output.descriptor.digest,
+            Some(Digest::from_sha256_bytes(&output.bytes).to_string())
+        );
+        assert_ne!(output.descriptor.digest, artifact.digest);
+        assert!(marker.exists());
+        download.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn legacy_worker_zero_or_multiple_wheels_are_rejected() {
+        for count in [2, 0] {
+            let root = tempfile::tempdir().unwrap();
+            let (executable, marker) = controlled_worker(root.path(), "demo-1.0-py3-none-any.whl");
+            let mut script = std::fs::read_to_string(&executable).unwrap();
+            if count == 0 {
+                script = script
+                    .lines()
+                    .filter(|line| !line.starts_with("cp "))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+                    + "\n";
+            } else {
+                script.push_str(
+                    "cp \"$7\"/demo-1.0-py3-none-any.whl \"$7\"/demo-1.0-2-py3-none-any.whl\n",
+                );
+            }
+            std::fs::write(&executable, script).unwrap();
+            let mut server = mockito::Server::new_async().await;
+            let download = server
+                .mock("GET", "/source")
+                .with_body("source")
+                .expect(1)
+                .create_async()
+                .await;
+            let artifact = source_descriptor(&server.url(), b"source");
+            let digest = artifact.digest.as_deref().unwrap().parse().unwrap();
+            let error = build_sdist_to_wheel(
+                &artifact,
+                digest,
+                "demo",
+                "1.0",
+                &executable,
+                &source_tags(),
+            )
+            .await
+            .err()
+            .unwrap();
+            assert!(error.to_string().contains("exactly one wheel"), "{error}");
+            assert!(marker.exists());
+            download.assert_async().await;
+        }
     }
 }

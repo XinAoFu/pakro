@@ -49,12 +49,23 @@ fn is_noisy_dep_target(target: &str) -> bool {
     NOISY_DEP_TARGETS.contains(root)
 }
 
+// Kept separate from optional noisy dependency logging: parser tokens can
+// contain unregistered signed URLs and private index metadata.
+fn is_sensitive_dependency_record(level: Level, target: &str) -> bool {
+    matches!(level, Level::Debug | Level::Trace)
+        && target.split_once("::").map_or(target, |(root, _)| root) == "html5ever"
+}
+
 impl log::Log for Logger {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= *self.level.lock().unwrap()
+        !is_sensitive_dependency_record(metadata.level(), metadata.target())
+            && metadata.level() <= *self.level.lock().unwrap()
     }
 
     fn log(&self, record: &Record) {
+        if is_sensitive_dependency_record(record.level(), record.target()) {
+            return;
+        }
         // Drop Debug/Trace spam from noisy third-party crates (e.g. h2 logging
         // every received DATA frame) regardless of terminal/file level, and
         // the solver's per-step info narration, which is never terminal
@@ -236,10 +247,101 @@ fn init_log_file(log_file: &Path) -> Result<File> {
 
 #[cfg(test)]
 mod tests {
-    use crate::config::Config;
-
     use super::*;
+    use log::Log as _;
 
+    #[test]
+    fn parser_payload_levels_are_always_sensitive_but_unrelated_targets_are_not() {
+        for target in [
+            "html5ever",
+            "html5ever::tree_builder",
+            "html5ever::tokenizer",
+        ] {
+            for level in [Level::Debug, Level::Trace] {
+                assert!(
+                    is_sensitive_dependency_record(level, target),
+                    "{level} {target}"
+                );
+            }
+            for level in [Level::Error, Level::Warn, Level::Info] {
+                assert!(!is_sensitive_dependency_record(level, target));
+            }
+        }
+        for target in [
+            "html5ever_extra",
+            "pakro::html5ever",
+            "h2::proto",
+            "pakro_index",
+        ] {
+            assert!(!is_sensitive_dependency_record(Level::Trace, target));
+        }
+    }
+
+    #[test]
+    fn sensitive_dependency_records_are_disabled_even_at_trace_level() {
+        let logger = Logger {
+            level: Mutex::new(LevelFilter::Trace),
+            term_level: Mutex::new(LevelFilter::Off),
+            file_level: LevelFilter::Trace,
+            log_file: None,
+        };
+        assert!(
+            !logger.enabled(
+                &Metadata::builder()
+                    .level(Level::Debug)
+                    .target("html5ever::tree_builder")
+                    .build()
+            )
+        );
+        assert!(
+            logger.enabled(
+                &Metadata::builder()
+                    .level(Level::Warn)
+                    .target("html5ever::tree_builder")
+                    .build()
+            )
+        );
+        assert!(
+            logger.enabled(
+                &Metadata::builder()
+                    .level(Level::Debug)
+                    .target("html5ever_extra")
+                    .build()
+            )
+        );
+    }
+
+    #[test]
+    fn direct_log_calls_cannot_write_raw_parser_payloads_to_a_trace_file() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let logger = Logger {
+            level: Mutex::new(LevelFilter::Trace),
+            term_level: Mutex::new(LevelFilter::Off),
+            file_level: LevelFilter::Trace,
+            log_file: Some(Mutex::new(file.as_file().try_clone().unwrap())),
+        };
+        logger.log(&Record::builder()
+            .level(Level::Debug)
+            .target("html5ever::tree_builder")
+            .args(format_args!("href=https://private.example/artifact?token=unregistered-test-token yanked=private-reason"))
+            .build());
+        assert!(
+            std::fs::read(file.path()).unwrap().is_empty(),
+            "raw parser token reached the log file"
+        );
+        logger.log(
+            &Record::builder()
+                .level(Level::Info)
+                .target("pakro_index")
+                .args(format_args!("retained application message"))
+                .build(),
+        );
+        assert!(
+            std::fs::read_to_string(file.path())
+                .unwrap()
+                .contains("retained application message")
+        );
+    }
     #[tokio::test]
     async fn test_init() {
         let _config = Config::get().await.unwrap();

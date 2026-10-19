@@ -21,6 +21,7 @@ class E2ERunnerTests(unittest.TestCase):
         release_skip=False,
         task_args=None,
         jobs="2",
+        names=None,
     ):
         """Run tests/e2e/run_all_tests, or the `pakro run test:e2e` task script when
         task_args is given. Records the executed test order in self.order."""
@@ -38,7 +39,8 @@ class E2ERunnerTests(unittest.TestCase):
             task = root / "tests" / "tasks" / "test" / "e2e"
             task.parent.mkdir(parents=True)
             shutil.copyfile(ROOT / "tests" / "tasks" / "test" / "e2e", task)
-            names = ("test_fail", "test_flaky", "test_pass", "test_skip_slow")
+            if names is None:
+                names = ("test_fail", "test_flaky", "test_pass", "test_skip_slow")
             for name in names + tuple(extra_tests):
                 (e2e / name).touch()
             executor = e2e / "run_test"
@@ -180,6 +182,83 @@ exit "$status"
                 self.assertEqual(result.returncode, 1)
                 self.assertIn("No test matches nope", result.stderr)
                 self.assertEqual(counts, {})
+
+    def test_r00_empty_selection_is_not_success(self):
+        cases = (
+            ("empty discovery", (), None, None),
+            ("empty tranche", ("test_pass",), 1, "tranche"),
+            ("only disabled slow tests", ("test_skip_slow",), None, "slow"),
+        )
+        for scenario, names, tranche, reason in cases:
+            with self.subTest(scenario=scenario):
+                result, counts, summary = self.run_runner(names=names, tranche=tranche)
+                self.assertEqual(counts, {})
+                self.assertEqual(self.order, [])
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertIn("No e2e tests selected to run", result.stderr)
+                self.assertIn(
+                    f"E2E: ran 0 tests, skipped {len(names)} tests", result.stderr
+                )
+                for name in names:
+                    self.assertEqual(
+                        result.stderr.splitlines().count(f"SKIP: {name} ({reason})"),
+                        1,
+                        result.stderr,
+                    )
+                    self.assertIn(f"| {name} | - | :zap: ({reason}) |", summary)
+                    self.assertEqual(summary.count(f"| {name} |"), 1)
+
+    def test_r00_tranche_report_accounts_for_unexecuted_tests(self):
+        result, counts, summary = self.run_runner(attempts=2, tranche=1)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(counts, {"test_flaky": 2})
+        self.assertIn("E2E: ran 1 tests, skipped 3 tests", result.stderr)
+        skipped = (
+            ("test_fail", "tranche"),
+            ("test_pass", "tranche"),
+            ("test_skip_slow", "slow"),
+        )
+        for name, reason in skipped:
+            with self.subTest(test=name):
+                self.assertEqual(
+                    result.stderr.splitlines().count(f"SKIP: {name} ({reason})"),
+                    1,
+                    result.stderr,
+                )
+                self.assertIn(f"| {name} | - | :zap: ({reason}) |", summary)
+                self.assertEqual(summary.count(f"| {name} |"), 1)
+
+    def test_r00_slow_report_names_unexecuted_test(self):
+        result, counts, summary = self.run_runner(
+            names=("test_pass", "test_skip_slow")
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(counts, {"test_pass": 1})
+        self.assertIn("E2E: ran 1 tests, skipped 1 tests", result.stderr)
+        self.assertEqual(
+            result.stderr.splitlines().count("SKIP: test_skip_slow (slow)"),
+            1,
+            result.stderr,
+        )
+        self.assertIn("| test_skip_slow | - | :zap: (slow) |", summary)
+        self.assertEqual(summary.count("| test_skip_slow |"), 1)
+
+    def test_r00_release_skip_is_reported_as_unexecuted(self):
+        result, counts, summary = self.run_runner(release_skip=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(counts, {})
+        self.assertEqual(self.order, [])
+        self.assertIn(".release-skip-e2e", result.stderr)
+        self.assertIn("E2E: ran 0 tests, skipped 4 tests", result.stderr)
+        for name in ("test_fail", "test_flaky", "test_pass", "test_skip_slow"):
+            with self.subTest(test=name):
+                self.assertEqual(
+                    result.stderr.splitlines().count(f"SKIP: {name} (release-skip)"),
+                    1,
+                    result.stderr,
+                )
+                self.assertIn(f"| {name} | - | :zap: (release-skip) |", summary)
+                self.assertEqual(summary.count(f"| {name} |"), 1)
 
     def test_invalid_attempt_limit(self):
         for attempts in ("0", "-1", "abc", "08"):

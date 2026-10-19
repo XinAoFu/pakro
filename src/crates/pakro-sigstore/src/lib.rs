@@ -40,9 +40,10 @@ pub use cosign::{verify_cosign_signature, verify_cosign_signature_with_key};
 pub use cosign_identity::CosignIdentity;
 pub use digest::calculate_file_digest;
 pub use github::{
-    GithubAttestationRequest, verify_github_attestation, verify_github_attestation_sources,
+    GithubAttestationDigestRequest, GithubAttestationRequest, verify_github_attestation,
+    verify_github_attestation_digest_with_tuf_url, verify_github_attestation_sources,
     verify_github_attestation_with_attestations, verify_github_attestation_with_base_url,
-    verify_github_attestation_with_base_url_and_digest,
+    verify_github_attestation_with_base_url_and_digest, verify_github_attestation_with_tuf_url,
 };
 pub use model::{
     ArtifactRef, AttestationError, AttestationSource, Result, SlsaArtifact, SlsaSignerIdentity,

@@ -243,13 +243,13 @@ mod tests {
         assert_eq!(Digest::from_base32(&text.to_uppercase()), None);
     }
 
-    /// A change here means every installed directory name changes. Bump
-    /// IDENTITY_FORMAT instead of editing this vector.
+    /// The Pakro domain established by the project rename. Future encoding
+    /// changes must bump IDENTITY_FORMAT instead of editing this vector.
     #[test]
     fn digest_encoding_is_stable() {
         assert_eq!(
             identity().digest().to_base32(),
-            "hlencrstldyjkqnpak2zyr453avqxfjf6so4vopt7au5nsxvzska",
+            "gl2zzpa7d7vl43eqedne2kf2kbremslblr2zr32jcbmw5stvkxha",
             "canonical encoding changed; bump IDENTITY_FORMAT instead"
         );
     }

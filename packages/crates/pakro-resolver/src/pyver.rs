@@ -6,6 +6,16 @@ use std::str::FromStr;
 use pep440_rs::{Operator, Version, VersionSpecifier, VersionSpecifiers};
 use pubgrub::Ranges;
 
+#[path = "pyver/contains.rs"]
+mod contains;
+pub use contains::specifiers_contain;
+#[path = "pyver/raw_specifiers.rs"]
+mod raw_specifiers;
+pub use raw_specifiers::{
+    RawVersionConstraint, RawVersionConstraintError, RawVersionConstraintLimit,
+    RawVersionConstraintLimits,
+};
+
 pub type PyRanges = Ranges<Version>;
 
 /// An empty constraint means "any version". Multi-specifier sets intersect.

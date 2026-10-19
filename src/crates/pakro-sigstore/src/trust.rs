@@ -51,14 +51,34 @@ pub(crate) async fn github_tuf_trusted_root() -> Result<TrustedRoot> {
 #[derive(Default)]
 pub(crate) struct TrustRoots {
     sigstore: Option<TrustedRoot>,
+    sigstore_tuf_route: SigstoreTufRoute,
     pub(crate) github_embedded: Option<TrustedRoot>,
     pub(crate) github_tuf: Option<TrustedRoot>,
 }
 
+#[derive(Default)]
+enum SigstoreTufRoute {
+    #[default]
+    LegacyGlobal,
+    Explicit(Option<String>),
+}
+
 impl TrustRoots {
+    pub(crate) fn with_tuf_url(url: Option<String>) -> Self {
+        Self {
+            sigstore_tuf_route: SigstoreTufRoute::Explicit(url),
+            ..Self::default()
+        }
+    }
+
     pub(crate) async fn sigstore_root(&mut self) -> Result<&TrustedRoot> {
         if self.sigstore.is_none() {
-            self.sigstore = Some(production_trusted_root().await?);
+            self.sigstore = Some(match &self.sigstore_tuf_route {
+                SigstoreTufRoute::LegacyGlobal => production_trusted_root().await?,
+                SigstoreTufRoute::Explicit(url) => {
+                    TrustedRoot::from_tuf(select_tuf_config(url.clone())).await?
+                }
+            });
         }
         Ok(self.sigstore.as_ref().unwrap())
     }

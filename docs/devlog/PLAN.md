@@ -1,706 +1,343 @@
-# PLAN — M0 地基（当前执行范围）+ 里程碑索引
-
-> 输入：SPEC.md（待确认）、ARCHITECTURE.md、ADR-0001..0004、详细设计《mise-包管理架构设计.md》。
-> 计划纪律：本文件只详列 **M0** 的可执行任务；M1 起每个里程碑在前一个验收通过后按同一标准细化并追加到本文件（记 log）。这是范围决策，不是留空。
-> 仓库纪律提醒：本仓库要求 `cargo clippy --workspace --all-features --all-targets -- -D warnings` 无豁免通过（AGENTS.md），禁止 `#[allow]`；commit 遵循约定式提交，且**仅在用户明确同意后执行 git 提交**。
-
-## M0 文件结构图
-
-```
-Cargo.toml                        [改] workspace members += 两行
-crates/
-  mise-store/
-    Cargo.toml                    依赖: serde/serde_json/thiserror/sha2/hex/flate2/tar（dev: tempfile）
-    src/lib.rs                    crate 入口: pub mod error/identity/path/store/refcount; 预留 gc 模块位
-    src/error.rs                  StoreError + Result 别名
-    src/identity.rs               Eco/Platform/RuntimeId/Digest/PackageIdentity + Display/FromStr
-    src/path.rs                   entry_dir(root, identity) -> PathBuf
-    src/store.rs                  Store::open/entry_path/contains/unpack（digest 校验+tar.gz 解包+幂等）
-    src/refcount.rs               refs 读写(add_ref/remove_ref/refs) + gc(&Store) -> GcReport
-  mise-resolver/
-    Cargo.toml                    依赖: petgraph/serde/thiserror（dev: 无）
-    src/lib.rs                    pub mod graph/error
-    src/error.rs                  ResolverError（Cycle/MissingNode）
-    src/graph.rs                  DependencyRequest/ResolvedNode/ResolvedGraph/sorted()/install_order()
-tests/（各 crate 内 tests/ 目录, 集成测试）
-```
-
-关键签名（全计划统一以此为准）：
-
-```rust
-// mise-store
-pub fn entry_dir(root: &std::path::Path, id: &PackageIdentity) -> std::path::PathBuf
-pub struct Store { pub root: std::path::PathBuf }
-impl Store {
-    pub fn open(root: impl Into<PathBuf>) -> Result<Self>;
-    pub fn entry_path(&self, id: &PackageIdentity) -> PathBuf;
-    pub fn contains(&self, id: &PackageIdentity) -> bool;
-    pub fn unpack(&self, id: &PackageIdentity, bytes: &[u8]) -> Result<PathBuf>;
-    pub fn add_ref(&self, id: &PackageIdentity, project_root: &str) -> Result<()>;
-    pub fn remove_ref(&self, id: &PackageIdentity, project_root: &str) -> Result<()>;
-    pub fn refs(&self, id: &PackageIdentity) -> Result<Refs>;
-}
-// mise-resolver
-impl ResolvedGraph {
-    pub fn sorted(&self) -> ResolvedGraph;
-    pub fn install_order(&self) -> std::result::Result<Vec<String>, ResolverError>;
-}
-```
-
-依赖版本对齐规则：新增依赖前先 `grep -A1 'name = "<crate>"' Cargo.lock`，与主 crate 已用版本保持同一主版本，避免编译两份。
-
----
-
-### Task 1: workspace 挂载与两 crate 骨架
-
-**Files:**
-
-- Modify: `Cargo.toml`（workspace members 列表，1-17 行区域）
-- Create: `crates/mise-store/Cargo.toml`、`crates/mise-store/src/lib.rs`
-- Create: `crates/mise-resolver/Cargo.toml`、`crates/mise-resolver/src/lib.rs`
-
-**Interfaces:**
-
-- Produces: 两个可编译的空 crate，后续任务在此之内填模块
-
-**验收标准：** `cargo check -p mise-store -p mise-resolver` 通过；`mise run lint`（hk，改动文件）通过。
-
-- [x] Step 1: 根 `Cargo.toml` members 增加 `"crates/mise-store"`、`"crates/mise-resolver"`（保持字母序插入合适位置）
-- [x] Step 2: `crates/mise-store/Cargo.toml`：
-
-```toml
-[package]
-name = "mise-store"
-version = "0.1.0"
-edition = "2024"
-description = "Content-addressed package store for mise"
-license = "MIT"
-publish = false
-
-[dependencies]
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror = "2"
-sha2 = "0.10"
-hex = "0.4"
-flate2 = "1"
-tar = "0.4"
-
-[dev-dependencies]
-tempfile = "3"
-```
-
-- [x] Step 3: `crates/mise-store/src/lib.rs`：
-
-```rust
-//! Content-addressed package store: identity -> disk layout, dedupe, refcounting.
-pub mod error;
-pub mod identity;
-pub mod path;
-pub mod refcount;
-pub mod store;
-
-pub use error::{Result, StoreError};
-pub use identity::{Arch, Digest, Eco, Libc, Os, PackageIdentity, Platform, RuntimeId};
-pub use refcount::gc;
-pub use store::Store;
-```
-
-同构创建 `crates/mise-resolver`（deps: `petgraph = "0.8"`、`serde = "1"`(derive)、`thiserror = "2"`；lib.rs 先只 `pub mod error; pub mod graph;`——此时文件尚不存在，先建空的 `error.rs`/`graph.rs` 只含模块级文档注释，Task 5 填充）。**例外**：为让 Step 4 的 check 通过，Task 1 里 lib.rs 直接注释掉 pub mod 行，Task 2/5 逐个放开——或者更简单：Task 1 的 lib.rs 只写文档注释无模块声明，后续任务加模块时同步加 `pub mod` 行。采用后者。
-
-- [x] Step 4: `cargo check -p mise-store -p mise-resolver` 通过；`grep` 核对 thiserror/petgraph 与 Cargo.lock 主版本一致（不一致则改用 lock 中版本）
-- [x] Step 5: 提交：`chore(packages): add mise-store and mise-resolver crate skeletons`
-
----
-
-### Task 2: 身份模型（Eco/Platform/RuntimeId/Digest/PackageIdentity）
-
-**Files:**
-
-- Create: `crates/mise-store/src/error.rs`、`crates/mise-store/src/identity.rs`
-- Modify: `crates/mise-store/src/lib.rs`（放开 pub mod）
-- Test: `crates/mise-store/tests/identity.rs`
-
-**Interfaces:**
-
-- Consumes: Task 1 的 crate 骨架
-- Produces: `PackageIdentity` 及全部部件的 `Display`/`FromStr`（后续所有任务的身份货币）；规范文本格式：`python:numpy@4.2.2+python@3.10.14/macos-aarch64/sha256-<64hex>`（node 无运行时段：`node:@types/node@5.8.2/linux-x86_64-gnu/sha256-…`）
-
-**验收标准：** `cargo test -p mise-store` 全绿；含 python/node(带作用域名)/非法输入三类 roundtrip 与 digest 校验用例。
-
-- [x] Step 1: 写失败测试 `crates/mise-store/tests/identity.rs`：
-
-```rust
-use mise_store::{Digest, PackageIdentity, Platform, RuntimeId, Eco};
-
-fn hex64(c: char) -> String { std::iter::repeat(c).take(64).collect() }
-
-#[test]
-fn identity_roundtrip_python() {
-    let s = format!("python:numpy@4.2.2+python@3.10.14/macos-aarch64/sha256-{}", hex64('a'));
-    let id: PackageIdentity = s.parse().unwrap();
-    assert_eq!(id.eco, Eco::Python);
-    assert_eq!(id.name, "numpy");
-    assert_eq!(id.version, "4.2.2");
-    let rt = id.runtime.unwrap();
-    assert_eq!(rt, RuntimeId { eco: Eco::Python, version: "3.10.14".into() });
-    assert_eq!(id.platform, "macos-aarch64".parse().unwrap());
-    assert_eq!(id.to_string(), s);
-}
-
-#[test]
-fn identity_roundtrip_node_scoped() {
-    // npm 作用域包名内含 '/'，解析必须从右侧切分平台与 digest
-    let s = format!("node:@types/node@5.8.2/linux-x86_64-gnu/sha256-{}", hex64('b'));
-    let id: PackageIdentity = s.parse().unwrap();
-    assert_eq!(id.name, "@types/node");
-    assert!(id.runtime.is_none());
-    assert_eq!(id.to_string(), s);
-}
-
-#[test]
-fn identity_rejects_garbage() {
-    assert!("python:numpy/macos-aarch64/sha256-aa".parse::<PackageIdentity>().is_err());
-    assert!("ruby:rails@1.0.0/macos-aarch64/sha256-aaaa".parse::<PackageIdentity>().is_err()); // 未知生态
-    assert!(format!("python:numpy@1.0.0/macos-aarch64/sha256-{}", hex64('c')).replace('a', "z").parse::<PackageIdentity>().is_err());
-}
-
-#[test]
-fn digest_hashing_and_parsing() {
-    let d = Digest::from_sha256_bytes(b"hello");
-    assert_ne!(d.to_string(), Digest::from_sha256_bytes(b"world").to_string());
-    assert_eq!(d, d.to_string().parse().unwrap());
-    assert!("sha256-short".parse::<Digest>().is_err());
-}
-
-#[test]
-fn platform_detect_matches_host_shape() {
-    let p = Platform::detect();
-    let s = p.to_string();
-    assert!(s.starts_with("macos-") || s.starts_with("linux-"));
-    if s.starts_with("linux-") { assert!(s.ends_with("-gnu") || s.ends_with("-musl")); }
-}
-```
-
-- [x] Step 2: `cargo test -p mise-store` 确认编译失败（模块不存在）
-- [x] Step 3: 实现 `error.rs`：
-
-```rust
-use thiserror::Error;
-
-#[derive(Debug, Error)]
-pub enum StoreError {
-    #[error("unknown ecosystem: {0}")]
-    UnknownEco(String),
-    #[error("invalid identity: {0}")]
-    InvalidIdentity(String),
-    #[error("invalid digest: {0}")]
-    InvalidDigest(String),
-    #[error("digest mismatch for {identity}: expected sha256-{expected}, got sha256-{actual}")]
-    DigestMismatch { identity: String, expected: String, actual: String },
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-    #[error(transparent)]
-    Json(#[from] serde_json::Error),
-}
-
-pub type Result<T> = std::result::Result<T, StoreError>;
-```
-
-实现 `identity.rs`（要点，非逐字模板）：
-
-- `Eco { Python, Node }`：`dir_name()`、`Display`（小写名）、`FromStr`（未知值 → `UnknownEco`）
-- `Platform { os, arch, libc }`：`detect()` 用 `cfg!(target_os/arch/env)` 编译期探测；`Display` 为 `os-arch`（非 Linux）/`os-arch-libc`（Linux）；`FromStr` 接受两形态，Linux 缺 libc 段默认 `Gnu`
-- `RuntimeId { eco, version }`：`Display` = `python@3.10.14`；`FromStr` 逆操作
-- `Digest([u8;32])`：`from_sha256_bytes(&[u8]) -> Self`（sha2）；`hex()`；`Display` = `sha256-<hex>`；`FromStr` 要求 64 位十六进制；serde 手动实现为该字符串形态（锁文件可读）
-- `PackageIdentity`：`Display` 按规范文本拼接；`FromStr` 解析顺序——先 `rsplitn(3, '/')` 取 digest/platform，再对剩余段：取首个 `':'` 前为 eco；含 `'+'` 则 `split_once('+')` 分出运行时段（两种生态的包名均不含 `'+'`，npm 作用域名含 `'/'` 与 `'@'`，版本用 `rsplit_once('@')` 切，保证 `@types/node@5.8.2` 解析正确）；另提供 `dir_name()` 返回 `name.replace('/', "+")`（npm 作用域名含 `/` 不能直接当目录名，`+` 在两种生态包名里都不合法，无碰撞）
-- 全类型 `#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]`
-
-- [x] Step 4: `cargo test -p mise-store` 全绿
-- [x] Step 5: 提交：`feat(packages): add package identity model to mise-store`
-
----
-
-### Task 3: 路径计算与 Store（contains/unpack）
-
-**Files:**
-
-- Create: `crates/mise-store/src/path.rs`、`crates/mise-store/src/store.rs`
-- Modify: `crates/mise-store/src/lib.rs`
-- Test: `crates/mise-store/tests/store.rs`
-
-**Interfaces:**
-
-- Consumes: Task 2 的 `PackageIdentity`
-- Produces: `Store::open/entry_path/contains/unpack`（Task 4 的 refcount 挂在 Store impl 上；M1 的下载-落盘流程直接消费 `unpack`）
-
-**验收标准：** `cargo test -p mise-store` 全绿，覆盖：路径形状、digest 不符拒收、成功解包出文件、幂等（二次 unpack 直接返回路径）、`.mise-complete` 标记语义。
-
-- [x] Step 1: 失败测试 `crates/mise-store/tests/store.rs`：
-
-```rust
-use mise_store::{Digest, PackageIdentity, Store};
-
-fn make_tgz() -> Vec<u8> {
-    let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-    {
-        let mut b = tar::Builder::new(&mut enc);
-        let mut h = tar::Header::new_gnu();
-        h.set_size(5);
-        h.set_mode(0o644);
-        h.set_cksum();
-        b.append_data(&mut h, "pkg/hello.txt", &b"hello"[..]).unwrap();
-        b.finish().unwrap();
-    }
-    enc.finish().unwrap()
-}
-
-fn identity(digest: Digest) -> PackageIdentity {
-    format!("python:numpy@4.2.2+python@3.10.14/macos-aarch64/{digest}").parse().unwrap()
-}
-
-#[test]
-fn entry_path_shape() {
-    let dir = tempfile::tempdir().unwrap();
-    let s = Store::open(&dir).unwrap();
-    let id = identity(Digest::from_sha256_bytes(b"x"));
-    let p = s.entry_path(&id);
-    assert!(p.ends_with(format!("python/numpy/4.2.2/{id-ref-digest}").trim_end_matches('/')));
-    assert!(p.starts_with(dir.path()));
-}
-
-#[test]
-fn unpack_verifies_and_extracts() {
-    let dir = tempfile::tempdir().unwrap();
-    let s = Store::open(&dir).unwrap();
-    let bytes = make_tgz();
-    let id = identity(Digest::from_sha256_bytes(&bytes));
-    assert!(!s.contains(&id));
-    let p = s.unpack(&id, &bytes).unwrap();
-    assert!(p.join("pkg/hello.txt").is_file());
-    assert!(s.contains(&id));
-    // 幂等
-    assert_eq!(s.unpack(&id, &bytes).unwrap(), p);
-}
-
-#[test]
-fn unpack_rejects_digest_mismatch() {
-    let dir = tempfile::tempdir().unwrap();
-    let s = Store::open(&dir).unwrap();
-    let bytes = make_tgz();
-    let id = identity(Digest::from_sha256_bytes(b"other"));
-    let err = s.unpack(&id, &bytes).unwrap_err();
-    assert!(err.to_string().contains("digest mismatch"));
-    assert!(!s.contains(&id));
-}
-```
-
-（`entry_path_shape` 中 digest 段直接用 `id.digest.to_string()` 拼接断言，执行时写成精确形式。）
-
-- [x] Step 2: 跑测试确认失败
-- [x] Step 3: 实现：
-  - `path.rs`：`pub fn entry_dir(root: &Path, id: &PackageIdentity) -> PathBuf` = `root/eco.dir_name()/id.dir_name()/id.version/id.digest.to_string()`
-  - `store.rs`：`Store { pub root: PathBuf }`；`open` 建根目录；`contains` 判 `entry/.mise-complete` 是否存在；`unpack`：先 `Digest::from_sha256_bytes(bytes)` 比对（不符返回 `DigestMismatch`）→ 已 contains 则直接返回 → 解到 `root/.tmp-<pid>-<digest前8>`（flate2 GzDecoder + tar::Archive::unpack，tar 内路径穿越由 tar crate 的 unpack 防护）→ 写 `.mise-complete` 与 `.mise-meta.json`（identity 序列化）→ `fs::rename` 到目标；rename 失败（并发已存在）则删除 tmp 返回现路径
-- [x] Step 4: `cargo test -p mise-store` 全绿
-- [x] Step 5: 提交：`feat(packages): add store layout, unpack and digest verification`
-
----
-
-### Task 4: 引用计数与 gc
-
-**Files:**
-
-- Create: `crates/mise-store/src/refcount.rs`
-- Modify: `crates/mise-store/src/lib.rs`、`src/store.rs`（refcount 方法并入 `impl Store`，放 refcount.rs 内的独立 `impl Store` 块）
-- Test: `crates/mise-store/tests/refcount.rs`
-
-**Interfaces:**
-
-- Consumes: Task 3 的 `Store`
-- Produces: `add_ref/remove_ref/refs`、`gc(&Store) -> Result<GcReport>`；`GcReport { removed: Vec<PathBuf>, freed_bytes: u64 }`
-
-**验收标准：** `cargo test -p mise-store` 全绿，覆盖：加引用→列举；移除至空→gc 删除目录并统计字节；仍有引用→gc 保留；陈旧 `.tmp-*` 目录被 gc 清掉；refs 文件缺失视为空。
-
-- [x] Step 1: 失败测试（要点）：`refs` 文件为 `entry/.mise-refs.json`，结构 `{"projects":["/a","/b"]}`（排序去重）；`remove_ref` 删至空列表；`gc` 对 `remove` 后的条目断言 `removed.len()==1 && freed_bytes>0` 且目录消失；对仍有引用的条目断言目录还在；手工建 `root/.tmp-1-abcdef` 断言被 gc 移除。
-- [x] Step 2: 跑测试确认失败
-- [x] Step 3: 实现：`Refs { projects: Vec<String> }`（serde，读写走 serde_json，文件不存在 → default）；`add_ref` 插入排序去重；`remove_ref` 移除；`gc`：遍历 root 下两层定位 eco/name/version/digest 条目（`read_dir` 递归 4 层，只进目录），有 `.mise-complete` 且 refs.projects 为空 → 统计目录大小后删除；顺带清除 `root` 下 `.tmp-*` 目录；`dir_size` 手写递归求和（file len）。
-- [x] Step 4: `cargo test -p mise-store` 全绿
-- [x] Step 5: 提交：`feat(packages): add store refcounting and garbage collection`
-
----
-
-### Task 5: resolver 图类型（拓扑排序/确定性/序列化）
-
-**Files:**
-
-- Create: `crates/mise-resolver/src/error.rs`、`crates/mise-resolver/src/graph.rs`
-- Modify: `crates/mise-resolver/src/lib.rs`
-- Test: `crates/mise-resolver/tests/graph.rs`
-
-**Interfaces:**
-
-- Produces: `DependencyRequest { eco: String, name: String, constraint: String }`、`ResolvedNode { eco, name, version, digest, deps: Vec<DependencyRequest> }`、`ResolvedGraph`；`sorted()`（规范序 (eco,name,version)）、`install_order()`（依赖在前，环→`ResolverError::Cycle`，悬空依赖→`MissingNode`）；serde JSON roundtrip（M1 锁文件 v2 的图段直接复用）
-- 说明：`eco` 用 String（"python"/"node"）是分层决策（ARCHITECTURE.md 依赖方向节），类型化 `Eco` 在 glue 层转换
-
-**验收标准：** `cargo test -p mise-resolver` 全绿，覆盖：菱形依赖顺序（C 在 B 前、B 在 A 前）、双向环报 `Cycle`、悬空依赖报 `MissingNode`、乱序输入经 `sorted()` 后逐字节相等（确定性）、serde roundtrip。
-
-- [x] Step 1: 失败测试（要点）：构造 A→B,C；B→C 的三节点图，断言 `install_order()` 中 `pos("python:C") < pos("python:B") < pos("python:A")`（key 形如 `{eco}:{name}`）；A↔B 断言 `matches!(err, ResolverError::Cycle)`；节点声明依赖 `python:ghost` 但无该节点断言 `MissingNode`；`nodes` 乱序两份 `sorted()` 相等；`serde_json::to_string → from_str` roundtrip 相等。
-- [x] Step 2: 跑测试确认失败
-- [x] Step 3: 实现 `graph.rs`：petgraph `DiGraph<String, ()>`，节点 key `format!("{eco}:{name}")` 入 `HashMap<String, NodeIndex>`；边方向 **依赖 → 依赖者**（toposort 保证每条边 a→b 中 a 先出现，即被依赖者先装）；`ResolverError { #[error("dependency cycle involving {0}")] Cycle(String), #[error("node {0} referenced but absent")] MissingNode(String) }`
-- [x] Step 4: `cargo test -p mise-resolver` 全绿
-- [x] Step 5: 提交：`feat(packages): add resolver graph types with deterministic topo order`
-
----
-
-### Task 6: M0 收口验证
-
-**Files:** 无新增（如失败则回改）
-
-**验收标准（全部当次运行并粘贴输出）：**
-
-- [x] `cargo test -p mise-store -p mise-resolver` 全绿
-- [x] `cargo clippy --workspace --all-features --all-targets -- -D warnings` 通过（AGENTS.md 铁律，无任何 allow；退出码 0，2026-10-06）
-- [x] `mise run lint`：本机环境受阻——mise 的 npm 后端在含中文的仓库路径（`~/文件/…`）上 panic，无法安装 prettier 等 lint 工具（与 M0 改动无关，已单独记录）。以等效替代验证：`cargo fmt --check`（两 crate）绿 + `npx prettier --check`（全部新增 md）绿 + 全 workspace clippy 绿；完整 lint 留待 CI
-- [x] 更新 PLAN 勾选、log 记录、HANDOFF 更新；向用户报告 M0 验收结果，请求 M1 细化许可
-
----
-
-## 里程碑索引（M0 验收后逐个细化成上述任务粒度并追加）
-
-| 里程碑 | 内容一句话    | 关键新增                                                                                                                                                                             |
-| ------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| M1     | python 端到端 | mise-index crate（PyPI 客户端+缓存）、pubgrub+pep440/pep508 求解、wheel 产物平台匹配（zip 解包）、`src/packages/` 粘合层、venv 物化、lock v2、install/use CLI 语法、差分测试 harness |
-| M2     | node 端到端   | npm registry 客户端、node-semver 适配、node_modules 物化、对照 npm 差分                                                                                                              |
-| M3     | 项目命令族    | project init/attach/ls/status、projects.json 索引、outdated/upgrade 扩展                                                                                                             |
-| M4     | 纵向生态      | go（MVS）、maven；store gc 接入 auto-prune                                                                                                                                           |
-| M5     | 择机扩展      | sdist 构建、非精确版本可选层、Windows 重评估（新 ADR）                                                                                                                               |
-
-## 执行方式确认
-
-计划落档后用户选定执行方式：本会话逐任务执行 / 每任务派子代理执行后主会话审查。PLAN 的 checkbox 是唯一进度真相。
-
----
-
-## M1 计划 — python 端到端（2026-10-06 追加，用户批准开工；沿用逐任务执行 + 逐任务提交）
-
-> 粒度说明（记入 log）：M1 任务给出 Files/Interfaces/验收标准与关键代码；涉及第三方 crate 具体 API（pubgrub/reqwest/pep508 的 trait 签名）时，任务内含"读 registry 源码核对签名"这一显式步骤——这是执行步骤而非留空。M0 已验证的纪律（clippy 独立跑、真实退出码落盘）全程沿用。
-
-## M1 文件结构图（新增部分）
-
-```
-Cargo.toml                          [改] members += crates/mise-index
-crates/mise-index/
-  src/lib.rs                        Index::open(cache_root)、re-export
-  src/error.rs                      IndexError
-  src/types.rs                      PackageMetadata/ArtifactDescriptor/DependencyConstraint/RuntimeInfo
-  src/wheel.rs                      parse_wheel_filename + WheelTags + wheel_matches(平台匹配, 纯逻辑)
-  src/pypi.rs                       PyPI JSON API 客户端 + 响应解析 + marker 过滤(pep508_rs)
-  src/cache.rs                      元数据磁盘缓存(TTL)
-  tests/wheel.rs, tests/pypi_parse.rs(离线 fixture)
-crates/mise-store/
-  src/store.rs                      [改] unpack 支持 zip(magic 检测分流)
-src/packages/                       主 crate 新模块
-  mod.rs                            模块声明 + PackageInstallRequest
-  python.rs                         元数据→身份 映射、wheel 选择
-  materialize.rs                    venv 物化(pyvenv.cfg/bin/site-packages 链接农场) + add_ref
-  lockfile.rs                       mise.lock [package] 表读写
-  install.rs                        编排: 请求→index→resolver→store→materialize→lock
-src/cli/install.rs                  [改] `+` 绑定语法与裸包参数解析
-src/config/                         [改] [packages."runtime"] 表解析
-e2e/packages/install_python.sh      真实网络端到端
-crates/mise-resolver/tests/differential/  差分测试 harness(uv 存在才跑)
-```
+# Pakro 首版逐文件实施计划
 
-## M1 任务清单
+日期：2026-10-18（Asia/Shanghai）。
 
-### Task 1 ✅(完成 2026-10-07): mise-index 骨架 + wheel 文件名解析（纯逻辑）
+**状态：R00–R06 已完成；首版计划现为F1–F4，用户明确将库内容/关联查询及指定删除纳入首版，并重申完整精确版本要求。2026-10-18用户下令开始F1：行为测试与可编译桩已写入并注册，编译与预期失败由用户手动确认；F2–F4与最小实现尚未开始。** 长期功能没有被永久取消；本次未运行编译/测试/fmt/check，未提交Git。后续编译、测试和检查仍由用户手动执行。
 
-- Files: Create crates/mise-index/{Cargo.toml,src/lib.rs,src/error.rs,src/wheel.rs}, tests/wheel.rs; Modify 根 Cargo.toml
-- Interfaces: `parse_wheel_filename(&str) -> Option<WheelFile>`；`WheelFile{name,version,tags}`；`WheelTags{python,abi,platform:Vec<String>}`（展开 cp310-cp310 这种重复段）
-- 验收: `cargo test -p mise-index` 绿；覆盖 numpy cp310 macosx、纯 py3-none-any、非法名（段数不足/无 .whl）三类
-- 步骤: ①失败测试（含 `pip-24.0-py3-none-any.whl`、`numpy-4.2.2-cp310-cp310-macosx_11_0_arm64.whl`、`a-1.0.0-cp310-cp310.whl`→None、`a.whl`→None）②实现 ③绿 ④clippy/fmt ⑤提交 `feat(packages): add mise-index with wheel filename parsing`
+架构仍以[主文件](../../Pakro主架构文件与Agent规则.md)为准。原R00–R45详案完整保存在[历史详案](archive/PLAN-R00-R45-2026-10-18.md)，用于追溯；它不再是必须逐项完成的前置队列，也不恢复历史测试授权。计划更新不代表获得开工许可。
 
-### Task 2 ✅(完成): wheel 平台匹配器（纯逻辑）
+**本次细化方式：** 恢复原详案的逐文件清单、接口交接、实施顺序、边界和验收合同，仍只有F1–F4四个交付阶段。下文行号为2026-10-18工作树的定位锚点，实施前按函数名重新定位；包含已有未提交/未跟踪实现，不以HEAD替代当前文件。
 
-- Files: crates/mise-index/src/wheel.rs [改], tests/wheel.rs [改]
-- Interfaces: `pub struct RuntimeInfo{pub major:u32,pub minor:u32}`（M1 只支持 CPython）；`pub fn wheel_matches(tags:&WheelTags, rt:&RuntimeInfo, platform:&mise_store::Platform)->bool`（依赖 mise-store 的 Platform，方向：index→store 合法，无环）
-- 匹配规则（写死在实现，测试覆盖）: python 段 `py3`/`py2.py3` 匹配 major=3；`cp{maj}{min}` 精确匹配运行时；abi 段 `none` 恒真、`abi3` 对 cp≥3 恒真、`cp{maj}{min}` 精确；platform 段 `any` 恒真、`macosx_*_{arch}` 匹配 mac+对应架构（arm64 轮子在 mac-aarch64 恒可）、`manylinux_*_{arch}` 匹配 linux+对应架构、`musllinux_*_{arch}` 匹配 linux+musl、`linux_{arch}` 匹配 linux-gnu
-- 验收: 测试矩阵 ≥10 断言（含 numpy CUDA 常见的 manylinux + cp310 组合、py3-none-any 全平台命中、musl 轮子不匹配 gnu）
-- 步骤同 Task 1；提交 `feat(packages): wheel platform tag matching`
+## 为什么缩减
 
-### Task 3 ✅(完成): PyPI 客户端与元数据类型
+旧计划的问题主要是交付顺序，而不是所有检查都无用：
 
-- Files: crates/mise-index/src/{types.rs,pypi.rs,cache.rs}, tests/pypi_parse.rs + tests/fixtures/numpy.json(节选真实响应)
-- Interfaces: `Index::open(cache_root)`；`async fn metadata(&self, name, version) -> Result<PackageMetadata>`（缓存命中/过期刷新）；`PackageMetadata{name,version,requires_python,deps:Vec<DependencyConstraint>,artifacts}`；`DependencyConstraint{name,constraint}`（pep440 字符串）；marker 过滤：用 pep508_rs 的 `Requirement`+`MarkerEnvironment` 按 RuntimeInfo 求 python_version 求值后丢弃不适用依赖
-- 依赖: reqwest(rustls,json)、pep440_rs、pep508_rs、serde/serde_json/thiserror；dev: tokio(rt,macros)
-- 步骤含: 读 ~/.cargo/registry 下 pep508_rs 的 MarkerEnvironment 字段定义（核对构造方式）
-- 验收: 离线 fixture 解析出 numpy 的依赖数组与 artifacts（含 sha256）；marker `; python_version < "3.11"` 在 rt=3.10 保留、3.11 丢弃；缓存写入/命中单测（tempdir）；网络请求仅集成测试手动跑
-- 提交 `feat(packages): pypi metadata client with marker filtering`
+- 普通install被R07/R10–R15的完整横向任务挡住；用户很晚才能用到已完成的共享内核。
+- 目录选择被放进完整查询接线，实际最先需要的只是配置匹配、已有Python路径和缺项提示。
+- 首次安装和选用，本不必等待完整升级、物理回收、多文件恢复以及所有源码来源。
+- 已有文件/制品/锁内核应直接复用，不在每个消费者重新建一套防护或重复跑未改变的全套测试。
 
-### Task 4 ✅(完成): resolver pubgrub 求解器
+新的实施单位是“用户能完成一件事”，而不是“又完成一个内部模块”。四个阶段分别交付选择、安装、包使用、查询与指定删除；不把原详案全部工作藏进几个标题，首版之后的能力仍明确后移。
 
-- Files: crates/mise-resolver/src/{solve.rs,pyver.rs} [lib.rs 改], tests/solve.rs
-- Interfaces: `solve(requests:&[DependencyRequest], locked:&ResolvedGraph, provider:&dyn MetadataProvider) -> Result<ResolvedGraph, ResolveFailure>`；`trait MetadataProvider{fn metadata(&self,name,version)->Option<PackageMetadataLite>}`（deps 是 pep440 约束串，由注入方给）；`PyVersion`（pep440 newtype，impl pubgrub Version 的 delegate 模式）
-- 步骤含: 读 pubgrub crate 源码核对 Delegate/Version trait 精确签名后再写适配（记 log）
-- 验收: 单测——单包精确锚定；A→B(范围)→C(范围) 传递求解取各自范围内确定版本；两包对 C 约束冲突时给出含双方约束来源的失败报告；locked 沿用旧选择（不无故升级）；确定性（乱序输入同输出）
-- 提交 `feat(packages): pubgrub-based python resolver`
+## 第一版边界
 
-### Task 5 ✅(完成): store 支持 zip 解包（wheel 落位）
+- 先验收用户当前的macOS arm64机器和官方PBS预编译CPython；Linux/PyPy完整矩阵放到后续验证，不声称首版已经覆盖。
+- 用户沿用已有项目配置，不自动编辑声明；项目成功选用的语言/包及依赖关联必须有可复核的持久记录，供F4查询与删除检查。纯查询不登记项目，内部关联维护不增加用户操作步骤。
+- 包阶段先一个公开Simple来源、已有兼容wheel的普通Python包，优先用纯Python包验证；真实传递依赖和兼容检查不能跳过。
+- 目录内已有就选用；缺项由用户决定安装；安装没网明确报错；没有独立离线模式。
+- 允许必要内部路径/启动适配，不要求用户创建、命名或逐项目激活环境；不委托pip/uv完成本应原生完成的安装。
+- F4开放明确指定的语言/包删除：有项目或依赖引用就列出并拒绝，确认无引用才可删除。自动批量prune、强制覆盖、原位修复及自定义postinstall仍后移；旧无许可删写旁路须在副作用前拒绝。
+- 原有其他功能不因此被删除；只说明这一条新共享路径的首版支持范围。Python→Java→Node的长期顺序和既定最终能力仍保留。
 
-- Files: crates/mise-store/src/store.rs [改], tests/store.rs [改]；Cargo.toml += zip
-- Interfaces: `unpack` 按 magic 分流：PK\x03\x04→zip 解包，1f 8b→tar.gz；其余报 InvalidIdentity 类错误（新增 InvalidArchive 变体）
-- 验收: zip 构造→unpack→contains；混合格式判别
-- 提交 `feat(packages): store unpack support for zip archives`
+## 贯穿F1–F4：完整精确版本与真实关联
 
-### Task 6 ✅(完成): 主 crate 集成 — [packages] 配置与 install 语法（CLI `+` 语法解析已备，`mise install` 参数路径接驳留 M2）
+- 用户下载请求及项目直接清单必须写完整精确发行版本。Python例如`3.11.14`；`3.11`、`3`、`3.11.xx`、通配、范围、`latest`/浮动别名均不得自动补全。`xx`只是用户举例的占位，实际填写时须是真实补丁号。
+- 安装命令可读取配置中已明确的完整版本，但参数和配置都没有完整版本就报错；拒绝发生在远端获取/下载及业务写入之前。包按其生态的真实完整发行号表达，不随意补零造版本；查询可列候选，但不会自动把候选变成下载目标。
+- 包作者metadata中的传递依赖范围仍要真实解析；每项实际下载前必须确定精确版本/制品并记录，不要求用户手填全部间接依赖。完整版本不替代平台、发行build、来源和摘要校验；同版本多实例有歧义时列出候选，不任取或选最新。
+- F1–F3逐步维护项目→精确语言/包、包→实际依赖及适配→语言的关联。退出目录只撤当前终端选择，不释放项目持久引用；新选择成功后才更新关联，失败、配置损坏或项目暂不可访问不把已有引用当作零。
+- 完整可移植锁与复杂事务矩阵可以后移；实际版本和最低关联记录、其真实写入保护不能后移，否则F4不得开放删除。关联更新与查询职责分开，不让只读查询隐式写库。
 
-- Files: src/packages/{mod.rs,python.rs} 新建；src/cli/install.rs 改；src/config/ 探索后定点改（读 config_file 的 to_tool_request_set 模式后照做 to_package_requests）
-- Interfaces: `PackageInstallRequest{runtime:RuntimeId, name, version}`；`[packages."python@3.10.14"]` 表→Vec<PackageInstallRequest>；`python@3.10.14+numpy@4.2.2` 语法→(工具请求, 包请求)；裸 `numpy@4.2.2` 在唯一 python 运行时下自动绑定、多运行时报错提示显式语法
-- 验收: 主 crate 单测（参数解析矩阵）；`cargo check -p mise` 过
-- 提交 `feat(install): parse package requests from cli and [packages] config`
+## 文件落位、读写权限与执行纪律
 
-### Task 7 ✅(完成): venv 物化器
+所有路径相对仓库根目录；`{a,b}.rs`表示明确列举的两个文件，不是任意目录授权。每阶段分别列现有修改、新增和默认只复用文件。未列文件若成为真实必要接缝，应先把具体路径、调用理由和影响补入本计划及日志；不借“相关文件”扩大范围，不以机械照旧详案为由创建所有模块。
 
-- Files: src/packages/materialize.rs + tests
-- Interfaces: `materialize_venv(config, runtime, graph, store) -> Result<PathBuf>`：生成 `<proj>/.mise/venvs/python-3.10.14/{pyvenv.cfg,bin/python→installs,lib/python3.X/site-packages/→store 条目顶层目录链接}`；store.add_ref(project_root)
-- 验收: tempdir 单测目录形状+链接指向+refs 更新；真实 import 验证放 e2e
-- 提交 `feat(packages): venv materialization over store`
+| 能力/文件落位 | 首次交付及后续消费者 | 能读写什么 |
+| --- | --- | --- |
+| `programs/shared/exact_version.rs`（完整路径见F1） | F1建立，F2/F3/F4复用 | 只解释已持有输入；不自行获取候选、修正声明或产生IO。 |
+| `programs/query/{snapshot,paths}.rs` | F1目录选择/环境输出，F4扩库清单与关联 | 只读真实配置/已发布对象；查询为空不初始化库，损坏不伪装空。 |
+| `programs/install/selection.rs`与`shared/commit.rs` | F1维护仅语言选择，F2/F3复用，F4读取/受控变更同一权威 | 仅受管内部catalog的登记/关联；不写项目配置/项目锁，不顺带下载。 |
+| `libraries/project/{repository,selections,read_views}.rs` | F1持久事实，F3加入精确包图，F4反查 | 同一CatalogModel/codec/CAS；`projects.json`、路径列表、refs计数均不能另作权威。 |
+| `libraries/language/`既有R06内核 | F1只读、F2获取/发布、F4指定删除 | 由实际租约/发布/删除持有者控制；不能凭目录或描述性JSON修改内容。 |
+| `libraries/package/`的F3文件 | F3制品/共享布局，F4列举及指定删除 | 正式包内容、真实manifest、必要轻量适配；不写共享语言全局site-packages。 |
+| `programs/uninstall/`及两库`removal.rs` | F4 | 仅指定无引用对象及其删除状态；无强制/递归/批量GC权限，不改项目声明。 |
 
-### Task 8 ✅(完成): 锁文件 v2（边车 mise.packages.lock，见 log 偏差说明）
+首版坚持一个权威catalog完成内部登记/选择提交。准备阶段可先发布未被项目选中的完整共享对象；失败时允许留下明确无项目关联的完整对象，不能谎报项目成功。对象就绪后才提交选择，旧选择保持到提交成功；已完成并可安全结束的临时/退休保护要收尾，不把历史记录变成永久引用。若确实要写项目配置、项目锁或第二个权威文件，则已超出本计划的简化写域，应收窄分支或补该项真实提交保护，不把完整R15默默塞回所有阶段。
 
-- Files: src/packages/lockfile.rs；读 src/lockfile.rs 后扩展
-- Interfaces: 图序列化为 mise.lock `[package]` array-of-tables（eco/name/version/runtime/digest/deps）；读锁→ResolvedGraph；配置未变时按锁直装
-- 提交 `feat(lockfile): record resolved package graph`
+- 每阶段按“行为测试并注册→用户执行确认失败→最小实现→用户复测→Spec/Standards两轴静态审查”推进；只有有实际结果才勾选，失败原因和未执行范围单列。
+- 新文件须在表内父mod注册。CLI在独立binary crate，公开最小程序入口/请求/报告；库IO/owner保持私有。删除默认是**无**，只有对应旧调用确已替代且用户验收后才局部退役。
+- 本轮只把计划写具体。后续每次只执行用户授权的阶段，不因文件清单完整而自动开工，不自行运行编译/测试/fmt/check，不自动提交或清理target/用户数据。
 
-### Task 9 ✅(完成): 安装编排串联（真实 e2e 通过）
+## F1：进目录就选中库里已有的 Python
 
-- Files: src/packages/install.rs；src/cli/install.rs 接线
-- 流程: 请求→index.metadata→resolver.solve→逐节点 wheel_matches 选产物→下载→store.unpack→materialize→写锁→进度条（复用 ui）；未配置的包提示 mise use
-- 提交 `feat(install): end-to-end python package installation`
+**状态：** ☑ 测试已写并注册（2026-10-18，含可编译桩）；☑ 用户确认预期失败（2026-10-19，单测 4 项均以 "f1 ... is not implemented" 形态失败；e2e 暂存通过后在 `command -v python` 选择断言处失败；格式通过；证据 `target/f1-manual-20261019-{104029,104202,104520,105020,105327,105541}.log`）；☑ 最小实现（2026-10-19，2026-10-19用户授权Agent自行执行测试≤10分钟/组；`target/f1-manual-20261019-121806.log` 单测4/4+e2e+格式全部通过；相邻回归 model37/catalog13/prefix-control90/selections11/journal14/language37 与 env/activate e2e 通过；`test_activate_export` 经 git stash 对照确认为改动前既有失败，不属F1）；☑ 用户验收（2026-10-19 通过：用户在真实终端按演示命令确认四项行为——A/B 同一 payload/bin/python、缺项仅提示不下载、退出撤回；暂存/重启语义由 `target/f1-manual-20261019-121806.log` 与用户复跑的暂存输出证明）；☑ 两轴静态审查（2026-10-19 通过：Spec 轴 7 PASS/1 PARTIAL、Standards 轴 5 PASS/2 PARTIAL/0 FAIL；唯一阻塞"提交锁序与规格相反"及两条高价值建议已修复并复验全绿 `target/f1-manual-20261019-200450.log`；非阻塞建议记 F2+ 跟进，见[2026-10-19日志](log/2026-10-19-1-F1-RED确认与夹具修复.md) 20:10 条目）。**F1 五步全部完成。**本次注册：下表四个行为测试与e2e、`tests/scripts/f1-test-cases.txt`与`tests/scripts/f-manual-check.sh`（新增`--list`模式）；`programs/install/selection/tests.rs`含`#[ignore]`环境驱动暂存助手`f1_e2e_stage_shared_language`（读`PAKRO_F1_STAGE_DATA_ROOT`/`PAKRO_F1_STAGE_VERSION`，仅供e2e脚本调用，不在`f1_`过滤运行中执行）。
 
-### Task 10 ✅(完成): 差分测试 harness
+**先完成：** R00–R06已有基础。先交付F1，不等待F2–F4。
 
-- Files: crates/mise-resolver/tests/differential/{mod.rs,fixtures/*}
-- 规则: uv 存在→`uv pip compile --python-version` 求参照，比对版本集合；缺失→skip（输出 SKIPPED）
-- 提交 `test(packages): differential harness against uv`
+**用户看到什么：** 在已启用的原终端接入下进入A/B项目，按配置选中库内已有Python；缺少时只提示，离开或切换目录恢复正确选择。
 
-### Task 11 ✅(完成): e2e（install_python_slow.sh）
+**修改现有文件：**
 
-- Files: e2e/packages/install_python.sh
-- 断言: `mise install python@3.10.14+numpy@X` 后 venv 内 `python -c "import numpy"` 成功；第二项目同请求秒完成且 store 只有一份；删配置后 gc 回收
-- 提交 `test(packages): e2e python+numpy install`
+| 文件与定位锚点 | 本阶段只改什么 |
+| --- | --- |
+| `src/core/programs/shared/context.rs:53`、`src/core/programs/install/context.rs:38` | shared/context只冻结显式输入与权限，不读配置、不反向依赖query/install；有效声明归并由install/context的共享纯投影及query/snapshot消费同次观测完成。分开只读与关联写入权限，不借旧Config加载登记、联网或执行配置脚本。 |
+| `src/core/libraries/project/snapshot.rs:131` | 复用`observe_project`、`declarations`、`effective_packages`、`recheck`，补只读语言选择需要的投影；不复制配置parser，不开放声明写入。 |
+| `src/core/libraries/language/repository.rs:94`、`manifest.rs:38`、`lease.rs:143` | 补已发布实例的本地列举、精确筛选和重新取得真实租约的桥。当前`acquire_existing`需要完整安装计划，不是按版本查询接口；须从真实manifest恢复/核验所需身份，不能联网重造计划。 |
+| `src/core/libraries/language/repository/tests.rs`（2026-10-18接缝） | 仅参数化既有夹具助手：新增`archive_triple`/`install_spec_for`/`archive_for`（目标/构建/变体），原`install_spec`/`archive`委托不变；服务F1歧义用例与e2e离线暂存，不新建第二套夹具。 |
+| `src/core/libraries/project/selections.rs:82`、`packages/src/python_environment/model.rs:146` | 同一模型支持显式仅语言选择、项目身份/位置/声明观测；保留原共享布局分支、revision/nonce语义。禁止伪造空graph/receipt或`g-*`布局填满旧结构。 |
+| `packages/src/python_environment/model/codec.rs`及`codec/{state,encode,decode,read}.rs` | 在原有界codec内表示新增事实，关联和引用同一快照；缺字段/未知格式明确诊断，不另造第二个序列化实现或自动迁移旧测试库。 |
+| `packages/src/python_environment/catalog.rs:12`、`prefix/control.rs:12` | 原读取核改为可消费R05只读control，写入仍复用同一CAS；不能为查询先open_writer。旧消费者委托同一核，不复制catalog。 |
+| `cli/src/commands/hook_env.rs:51` | 新共享Python分支调用只读选择，再调用受控关联应用，成功后输出路径；保留目录检测/旧路径撤回，避开daemon、任务和自定义enter hooks。快速返回不能跳过必要关联状态核对。 |
+| `cli/src/commands/env.rs:63` | 改用只读选择结果，保留shell/JSON/dotenv输出；退出该分支的`install_missing_versions`、lazy shim准备和隐式登记。 |
+| `runtimes/src/toolset/{builder,toolset_env,toolset_paths}.rs` | 只提取/改接已确定选择的环境组合接缝；不再经旧resolve补全版本，不以offline字段代替精确版本检查，不被旧uv/venv/exec_env覆盖。 |
+| `cli/src/commands/hook_not_found.rs:26`、`runtimes/src/shims/mod.rs:100` | 新共享Python路径的command-not-found、lazy/wrapper只提示缺项，不能触发安装；保留尚未迁移生态的独立代码。 |
+| `src/core/programs/{mod,shared/mod,install/mod}.rs`、`src/core/libraries/project/mod.rs` | 注册下列新增模块及测试，只向CLI公开应用请求/结果/入口，不公开库writer或租约构造器。 |
 
-### Task 12 ✅(完成): M1 收口
+**拟新增文件（当前不存在，不是已完成接口）：**
 
-- 全量验证同 M0 Task 6（真实退出码落盘）；PLAN/log/HANDOFF 更新；报告用户
+| 文件 | 单一职责 |
+| --- | --- |
+| `src/core/programs/shared/exact_version.rs` | 纯输入门：复用已有生态版本解析，拒绝不完整用户声明；Python完整版本语法复用`runtimes/src/plugins/core/python/native.rs:150`，必要时只提取该原函数的可见接缝。 |
+| `src/core/programs/query/{mod,snapshot,paths}.rs` | 同次只读上下文、本地候选匹配、可执行/bin路径及缺项/歧义报告；不登记、不创建库、不联网。 |
+| `src/core/programs/install/selection.rs` | 目录选择的受控应用动作；只登记已存在的精确对象，不调用下载/安装流水线。 |
+| `src/core/libraries/project/{identity,location,repository,read_views}.rs` | 稳定项目身份、本机位置绑定、同一catalog的持久IO和只读投影；F4继续扩这些文件，不另建登记库。 |
+| `src/core/programs/shared/commit.rs` | 项目登记与选择的单catalog提交；复用原锁/CAS/原子替换，首版不创建通用多文件WAL子系统。 |
 
-## M2 计划 — node 端到端（2026-10-07 追加，用户批准开工；沿用逐任务执行+逐任务提交）
+**复用而默认不改：** `src/core/environment/hook_env.rs:701`的环境撤回、`src/crates/pakro-util/src/env_diff.rs:76`的EnvDiff/patch算法；R05的`packages/crates/pakro-store/src/control/{read,write,lease,ownership}.rs`；R06发布/inventory核。不得复制一套PATH管理或文件锁实现。
 
-> ADR-0005（边车锁）与 ADR-0004 补充（node 组键统一 `name@version` 语法）随本计划落档。
+**接口交接（目标合同，不代表Rust函数已存在）：**
 
-### Task 1 ✅: ADR-0005 + 本计划落档
+- `open_query_context(context, scope) -> QueryContext`：消费冻结OperationContext和R03观测，持只读库句柄。
+- `select_existing(context) -> SelectionReport`：返回精确候选身份/路径，或Missing、Ambiguous、InvalidDeclaration、Corrupt；结果只是描述，不授予写入。
+- `apply_directory_selection(context, observed, selection) -> OperationReport`：消费同次观测与候选；按项目锁→对象SH→catalog顺序重取保护，复核声明/Ready，登记和选择一次CAS成功后才允许hook输出新路径。不能拿query的对象锁反向抢项目锁。
+- 仅语言记录含ProjectId、位置绑定、声明观测、group/target、LanguageKey、真实Ready发布事实及revision/transaction；明确没有包布局。F3在同一选择模型增加真实包组合，不能用伪布局凑合同。
 
-### Task 2 ✅(完成): 求解器生态泛化
+**实施动作（按以下顺序，完成后更新上方状态）：**
 
-- Files: crates/mise-resolver/src/{solve.rs,lib.rs}、tests/{solve.rs,differential.rs}、src/packages/install.rs
-- Interfaces: `solve(requests, locked, source, eco: &str)`；trait `PyMetadataSource` 改名 `MetadataSource`（保留旧名作 deprecated 别名不值得，直接改调用点）
-- 验收: 现有 21 个 resolver 测试全绿（传 eco="python"）；install.rs IndexSource 适配
-- 提交 `refactor(packages): parameterize the solver by ecosystem`
+- 在现有`programs`门面加入最小只读选择/路径接口；只做目录选择用到的能力，不先写齐十四个查询。
+- 补“完整精确声明→本地已发布语言实例”的匹配桥，复用R03配置观测与R06只读库/租约；不接受模糊版本，不先访问远端来补成最新，实例有歧义就明确报告。
+- 成功选用时维护最小项目身份/位置、声明观测及精确语言关联；这是独立的受控应用动作，不是只读查询的隐藏副作用。登记内部完成，不要求用户额外创建环境。
+- 改接`cli/src/commands/hook_env.rs`、`env.rs`和必要的原toolset/env_diff接缝；只复用目录检测、配置选择和环境差异，不把旧daemon/user task执行搬入新选择链。
+- 该用户路径中的自动建venv、补装、lazy/command-not-found隐式安装先切断；若仍可达旧postinstall或清理，也必须在F1断开，不能等F2。F1只接读取、选择及其必要关联提交，遵守D07/D08/D09。
 
-### Task 3 ✅(完成): mise-store Digest 支持 sha512
+**复用的原任务：** R18/R26的最小部分、R03/R06已有能力。没有包声明时，不需要先完成R08包库、R12/R13包适配、R14全量锁或R15联合事务。包声明在F3接通前明确报告尚未支持，不能假装已经加载。
 
-- Files: crates/mise-store/src/{identity.rs,store.rs}, tests/identity.rs
-- Interfaces: `enum Digest { Sha256([u8;32]), Sha512([u64;8]) }`；新增 `from_sha512_bytes`/`verify(&self, bytes)->bool`；Display/FromStr 同时接受 `sha256-<64hex>`/`sha512-<128hex>`；unpack 改用 `digest.verify(bytes)`（256/512 自动分流）
-- 验收: 身份/解包测试新增 sha512 用例；原 sha256 路径零回归
-- 提交 `feat(packages): support sha512 artifact digests`
+**交付验证：** A/B选同一精确Python时实际解释器和标准库来自同一payload；切换到不同声明/缺项项目不会静默用错版本或联网下载；退出项目撤回本次路径选择。由用户运行少量真实场景，不以打印预设JSON代替。
 
-### Task 4 ✅(完成): npm range 语义适配器
+**测试文件与必需断言（拟新增，实施时注册）：**
 
-- Files: crates/mise-resolver/src/npmver.rs [新], tests/npmver.rs [新]；Cargo += node-semver
-- Interfaces: `npmver::range_to_ranges(&str) -> Result<Ranges<NpmVersion>, String>`；`pub type NpmRanges = Ranges<node_semver::Version>`
-- 支持子集（逐条有测试）: 精确 `1.2.3`；`^`（含 0.x 特例 ^0.2.3→[0.2.3,0.3)、^0.0.3→=0.0.3）；`~`；`1.2.x/1.2.*/1.2`；`*`；比较符组合 `>=1.2 <2`；hyphen `1.2.3 - 2.3.4`；`||` 并集；`latest/dist-tags` 拒绝（严格版原则）
-- 预发布简化（记 log）: 预发布版本仅精确匹配可命中，范围一律不含（与 npm 默认一致）
-- 提交 `feat(packages): npm semver range adapter`
+| 测试文件 | 合同 |
+| --- | --- |
+| `src/core/programs/shared/exact_version/tests.rs` | `f1_incomplete_version_has_no_effects`：完整版本通过；3.11/xx/范围/latest拒绝，网络调用与业务写入为零。 |
+| `src/core/programs/query/paths/tests.rs` | `f1_local_selection_reports_missing_and_ambiguity`：一个精确候选可选；缺项/多个实例分别报告；坏manifest不能算未安装；查询不登记。 |
+| `src/core/programs/install/selection/tests.rs` | `f1_language_only_selection_survives_restart`、`f1_failed_selection_keeps_old_references`：真实重开catalog，语言引用存在且无假布局；配置变化/提交失败不丢旧引用。 |
+| `tests/e2e/cli/test_f1_directory_selection` | 真正启用原终端接入，进入A/B/缺项项目再退出；解释器/标准库来自同一payload，PATH撤回正确，缺项不下载，不生成完整venv。脚本先用`#[ignore]`暂存助手离线发布夹具语言（同版本主机目标归档，无网络、无安装命令），再走真实activate/hook链；真实PBS归档留给用户手动场景。 |
 
-### Task 5 ✅(完成): npm registry 客户端
+**阶段边界/退役条件：** 不下载、不处理包布局、不编辑配置/项目锁，不接所有查询或外部进程生命周期。`env`查询不写关联；只有目录选择应用动作写关联。仅退役已被新Python分支替代的旧调用；不整删activate/deactivate/hook_env/toolset。若本分支能触达旧清理/安装，须当场切断，不能借F2后置放行。
 
-- Files: crates/mise-index/src/npm.rs [新], tests/npm.rs [新]；Cargo += base64
-- Interfaces: `npm::parse_npm_version_metadata(&Value) -> Result<PackageMetadata>`（dependencies map→DependencyConstraint，dist.tarball/dist.integrity(sha512 base64→hex)→单 artifact）；`npm::parse_npm_versions(&Value) -> Vec<String>`（versions 键）；Index 增 `npm_metadata/npm_versions`（缓存键 eco="node"，TTL 同 PyPI）
-- 验收: 离线 fixture 单测（`typescript@5.x` 形状）+ integrity base64 解码 + dist 空依赖
-- 提交 `feat(packages): npm registry metadata client`
+## F2：用户决定安装缺少的 Python，装好就能选用
 
-### Task 6 ✅(完成): 主 crate node 路由
+**状态：** ☐ 测试已写并注册；☐ 用户确认预期失败；☐ 最小实现；☐ 用户验收；☐ 两轴静态审查。当前全部未实施。
 
-- Files: src/packages/{mod.rs,install.rs}；新增 node.rs（选择唯一 tarball artifact、无 requires_python）
-- Interfaces: install_packages 按 runtime_name 分流：python 走 PyPI 源+pyver；node 走 npm 源+npmver；IndexSource 拆 PythonSource/NodeSource 两个 MetadataSource 实现
-- 验收: 单测（select 逻辑矩阵在 node.rs）；cargo check
-- 提交 `feat(packages): route node package installs through npm registry`
+**先完成：** F1。新增安装复用R06，不重做语言库。
 
-### Task 7 ✅(完成): node_modules 物化器
+**用户看到什么：** 缺项提示后，用户显式执行已有安装命令；完成后同一目录选择路径可找到它，再次安装会复用。下载失败明确报错，已有内容不受损。
 
-- Files: src/packages/materialize_node.rs [新]；mise-store 增 `hardlink_tree(src,dst)`（跨卷回退拷贝）
-- 结构: `node_modules/.mise-store/<name>@<version>/node_modules/<name>/`=逐文件硬链接自 store 条目 package/；每个节点的依赖在其虚拟目录内 `node_modules/<dep>` 链接；顶层 `node_modules/<name>` 仅直连依赖；`node_modules/.bin/<bin>` 链 package.json bin 字段（读 dist 解出的 bin 表——M2 由 metadata 携带）
-- 验收: tempdir 单测（目录形状、依赖内链、.bin、store refs、幂等）；真实 require 放 e2e
-- 提交 `feat(packages): node_modules materialization over the store`
+**修改现有文件：**
 
-### Task 8 ✅(完成): CLI `+` 语法接驳
+| 文件与定位锚点 | 本阶段只改什么 |
+| --- | --- |
+| `cli/src/commands/install.rs:160` | 精确Python分支在旧`migrate_monorepo_lockfiles`、任务工具收集、远端resolve之前进入程序层；无参数只读配置完整版本，包安装留F3，保留原命令/输出。 |
+| `src/core/programs/install/{request,context,runtime}.rs` | 复用normalize_intent、同次观测与`prepare_language_with_revalidation`；使用F1精确门，冻结来源/凭证/deadline，关闭声明/锁写入。 |
+| `runtimes/src/plugins/core/python.rs:642/841`、`runtimes/src/plugins/core/python/native.rs:150`、`runtimes/src/plugins/core/python/native/pipeline.rs:419` | 提取接收既有OperationContext的native主体，继续使用原获取/证明/发布核。旧install_native_runtime会经native_operation_context重建deadline/取消/根，新程序入口不能调用该wrapper刷新上下文；旧wrapper仅留旧消费者。当前choose_release会取较大的distribution_version，新路径按完整pin唯一选定，多build/变体不自动挑最新。 |
+| `runtimes/src/backend/mod.rs:3551/3680/4149/4362` | 在最早hook、rename、删写之前识别新共享对象并拒绝旧force/repair/postinstall/uninstall/purge等旁路；只保护新共享对象及其兼容路径，不重写其他backend。 |
+| `runtimes/src/toolinstall/{install_rollback,system_install,tool_purgatory}.rs`、`runtimes/src/install_layout/resolver.rs:917` | 仍可达的回滚、提权发布、延迟清理和兼容路径统一消费同一拒绝门，不能在晚期才检查；不实现完整R07许可系统。 |
+| F1的`programs/install/selection.rs`、`programs/shared/commit.rs`、`libraries/project/repository.rs` | 项目安装成功后接同一关联动作；全局下载不造项目；获取失败保留原关联，不新增另一套提交。 |
+| `src/core/programs/{mod,install/mod}.rs`、`src/core/libraries/language/mod.rs` | 注册新增应用/拒绝门与测试，有限公开给CLI。 |
 
-- Files: src/cli/mod.rs（预处理抽取含 '+' 的参数→OnceLock）、src/cli/install.rs（消费：Bound→先装运行时再装包；Bare 判定按注册表）、src/packages/mod.rs
-- 验收: 手动矩阵 `mise install node@22.14.0+typescript@5.8.2`；`mise install python@3.10.14+numpy`（无版本→严格版错误）
-- 提交 `feat(install): accept runtime+package bound arguments`
+**拟新增文件：** `src/core/programs/install/apply.rs`负责显式安装编排；`src/core/libraries/language/mutation.rs`负责旧路径识别及保守拒绝，不能发放删除许可。其余来源/验证能力复用`src/core/artifact_snapshot.rs`、`native/provenance.rs`与R06，不新写下载器或签名算法。
 
-### Task 9 ✅(完成): pubgrub 日志过滤
+**接口交接：** `install(request) -> OperationReport`只接受R01归一化请求及F1精确门通过的输入；已有精确可用对象直接复用，缺项才调用R06获取闭包。项目场景调用F1的关联应用，全局场景只发布内容。`mutation`向旧调用者返回“非受管目标/明确拒绝”，不以布尔判断伪装物理删除权限。
 
-- Files: src/logger.rs（按 target 前缀 pubgrub 降级到 trace）
-- 验收: DEBUG 构建输出不再出现 unit_propagation 行
-- 提交 `fix(logger): silence pubgrub solver trace in debug output`
+**实施动作（按以下顺序，完成后更新上方状态）：**
 
-### Task 10 ✅(完成): 差分（npm）
+- 收拢普通install的Python窄路径，与F1使用同一配置和调用上下文；复用已经接到R06的`install_native_runtime`/`prepare_language_with_revalidation`，不重写下载和发布。
+- 接入本次真正需要的来源、凭证、缓存和期限校验，优先复用现核；不等多来源/复杂认证组合全部完成。
+- 从原R07抽取新共享对象的保守拒绝门，含兼容路径，在最早的hook、rename或删写前拒绝旧force/postinstall/uninstall/purge及延迟清理；F4完成前不开放新指定删除，完成后仅走F4受控入口。
+- 项目使用的安装/选择成功后接上同一精确关联记录；纯全局下载不捏造项目引用，后续查询可以显示“尚无项目关联”。
+- 首版不新增自动修改项目配置/锁的职责。旧入口若会隐式写这些状态，必须绕开该分支，或带入真实写域必需的既有原子/CAS保护；不能删掉计划上的R15前置却照样做未保护的多文件提交。
 
-- Files: crates/mise-resolver/tests/differential.rs 增 node fixture case（本地 npm 存在才跑 `npm install --dry-run --json` 对照）
-- 提交 `test(packages): differential coverage for npm ranges`
+**复用的原任务：** R16语言部分 + R10必要部分 + R07最小拒绝保护。R09/R14/R15按本步实际读写域取必要部分，不以“整个横向任务全部完成”为前置。
 
-### Task 11 ✅(完成): e2e
+**交付验证：** 新装后运行真实Python；第二项目复用同一payload；网络/校验失败不发布半成品；旧强制修改和删除路径触及新共享对象时在副作用前被拒绝。
 
-- Files: e2e/packages/install_node_slow.sh（node22+typescript5 精确钉、node -e require 断言、跨项目共享、.bin/tsc --version）
-- 提交 `test(packages): e2e node+typescript install`
+**测试文件与必需断言：**
 
-### Task 12 ✅(完成): 收口
+| 测试文件 | 合同 |
+| --- | --- |
+| 新增`src/core/programs/install/apply/tests.rs` | `f2_exact_install_reuses_and_records_only_real_projects`、`f2_failed_acquire_keeps_published_state`：获取次数、真实复用、项目/全局关联区别、失败后旧内容和选择不变。 |
+| 扩现有`runtimes/src/plugins/core/python/native/pipeline.rs:473`的内联tests模块 | `f2_multiple_builds_are_not_latest_selection`：精确Python版本下多个build必须报告歧义，完整pin选中唯一制品。 |
+| 新增`src/core/libraries/language/mutation/tests.rs` | `f2_legacy_mutation_is_rejected_before_effects`：实际旧入口的force、hook、回滚/延迟清理在副作用前拒绝；不能只单测判断函数。 |
+| 新增`tests/e2e/cli/test_f2_exact_python_install` | 通过真实install安装完整PBS发行，进入项目可运行；再次安装和第二项目复用；不完整请求零获取，失败不产生Ready。 |
 
-- 全量验证（真实退出码）+ 新 crate Cargo.toml 版本降特异性（"1.0.229"→"1" 等，AGENTS 依赖纪律）+ ARCHITECTURE 更新 + log/HANDOFF
+**阶段边界/退役条件：** 不支持的源码安装/包安装/配置编辑明确返回能力诊断，不回退python-build/pip/旧venv；不删除那些仍有其他消费者的整模块。F4前新共享对象所有物理删除拒绝，F4后只有其持有删除许可的入口放行；旧uninstall后补判断不能算完成。
 
-## M3 计划 — 项目命令族 + 体验补全（2026-10-07 追加，用户批准开工；沿用既定模式）
+## F3：配置里的一个真实 Python 包能导入
 
-> 范围：设计文档 M3 原定核心（project 命令族 + outdated 扩展）+ M2 遗留体验项（裸包名、use 写表、.bin、npm live 差分）。go/maven 留 M4。
+**状态：** ☐ 测试已写并注册；☐ 用户确认预期失败；☐ 最小实现；☐ 用户验收；☐ 两轴静态审查。当前全部未实施。
 
-### Task 1 ✅: 本计划落档
+**先完成：** F2。完成后形成第一条实际可用的Python项目闭环。
 
-### Task 2: 裸包名自动绑定 ✅(完成)
+**用户看到什么：** 在配置中声明支持范围内的包，选择安装后能真实import并运行其入口；A/B相同包内容复用，不同包选择不串用；没有额外建环境步骤。
 
-- 规则（SPEC FR-2 后半）：`mise install numpy@1.2.2`（无 '+'）且名字不是已知 backend → 包候选；绑定到配置中唯一受支持生态的运行时（python|node）；零个→提示先声明运行时；多个→报错要求 `+` 显式语法
-- Files: src/cli/install.rs（run 前分类 ToolArg：`ta.ba.backend().is_err()` → 包）、单测
-- 提交 `feat(install): bind bare package names to the sole package runtime`
+**修改现有文件：**
 
-### Task 3: mise use 写 [packages] ✅(完成)
+| 文件与定位锚点 | 本阶段只改什么 |
+| --- | --- |
+| `src/core/programs/install/{request,context,apply}.rs`、`src/core/programs/shared/exact_version.rs`（apply与exact_version由F1/F2建立） | 增加精确包根与完整配置来源；语言、直接包声明全部先验证再获取；apply消费真实闭包并发布，不能只记根包名。 |
+| `packages/src/python_project/resolve.rs`、`python_resolution/source/{registry_depot,registry_depot/closed}.rs`、`python_resolution/graph_check.rs` | 原位接prepare_project_registry、ResolveRegistryDepot、close_registry_plan；消费实际metadata及checked roots/edges，不复制求解/候选算法。只开放一个公开Simple来源及兼容wheel。 |
+| `packages/src/python_wheel{,_plan,_install}.rs`、`python_wheel_install/materialize.rs`、`python_wheel_scripts/launcher.rs` | 原wheel图、ZIP/RECORD/scheme/冲突/脚本校验改消费受管共享输入和最终位置；只提取有真实新消费者的接缝，不放宽现有校验。 |
+| `packages/src/python_environment/{build,runtime_target,resolved_build,runtime_bootstrap}.rs` | 新生产链以真实LanguageLease代替OwnedRuntimeSnapshot及完整runtime输入复制；原目标探测和构建核共用，旧消费者尚存时保留兼容薄层。 |
+| `packages/src/python_environment/{runtime_layout,runtime_startup,seal}.rs`、`runtime_startup/installed.rs`、`prefix/verify.rs` | 适配库内包的真实启动/导入/入口与最终核验；受管链接有专门receipt，不能全局放松nofollow/nlink。 |
+| `runtimes/src/toolinstall/python_site_adapter.py` | 仅在既有启动适配确需时接选定包路径；不修改共享Python全局site-packages，不执行用户额外激活步骤。 |
+| `src/core/libraries/project/{selections,repository,read_views}.rs`、`programs/shared/commit.rs`；`packages/src/python_environment/model.rs`及F1列明的codec文件 | 在同一权威保存精确根、节点、真实依赖边、来源制品pin及layout→language/tree关联；当前扁平typed refs+graph摘要不足以供F4反查，不再造另一refs表。 |
+| `cli/src/commands/install.rs`、`cli/src/commands/deps/install.rs`、`packages/src/install.rs` | 受支持Python请求进入同一原生程序；新分支退出DepsEngine/外部manager、旧sidecar和自动GC调用；保留其他生态尚存消费者。 |
+| F1的`src/core/programs/query/{snapshot,paths}.rs`、`src/core/programs/install/selection.rs`；`cli/src/commands/{hook_env,env}.rs`的选择结果接缝 | 退出“包声明尚不支持”分支，读取已发布精确组合，投影包入口/加载适配，目录应用提交完整包引用。安装成功必须接回真实进目录使用链，不能只改install而漏选用。 |
+| `src/core/programs/install/mod.rs`、`src/core/libraries/{package,project}/mod.rs`、`packages/src/python_environment/mod.rs` | 注册下列模块及测试，不新增第二个environment入口。 |
 
-- Files: src/config/config_file/mise_toml.rs（add_package 方法插入表）、src/cli/use.rs（消费 CLI_PACKAGE_ARGS 写入后触发安装）
-- 提交 `feat(use): persist package pins from bound arguments`
+**拟新增文件：**
 
-### Task 4: node_modules/.bin ✅(完成)
+| 文件 | 单一职责 |
+| --- | --- |
+| `src/core/programs/install/{plan,resolve,layout,verify}.rs` | 明确输入计划、委托真实闭包、组织内部适配、验证可发布结果；不复制协议核，不引入完整build系统。 |
+| `src/core/libraries/package/{blob,tree,manifest,lease,layouts}.rs` | 精确制品、已验证不可变wheel内容、持久事实、实际对象保护、无ProjectId的共享适配组合。先预留最终位置再生成位置相关入口。 |
+| `packages/src/python_environment/shared_runtime.rs` | 单一共享runtime桥，持LanguageLease贯穿准备/校验；只生成必要轻量适配，不复制解释器和标准库。 |
+| `src/core/libraries/project/package_graph.rs` | 将已核验闭包投影为有界精确根/节点/边数据；持久提交仍进入F1的catalog，没有单独可写引用权威。 |
 
-- Files: src/packages/materialize_node.rs（读物化后 package.json 的 bin 字段（字符串或映射），.bin/<名> 符号链接）
-- e2e 断言 `mise x -- node_modules/.bin/tsc --version`
-- 提交 `feat(packages): link package bin entries into node_modules/.bin`
+**复用而默认不改：** `src/core/artifact_snapshot.rs`及`artifact_snapshot/cache/publication.rs`的VerifiedArtifact；`packages/src/python_wheel_source.rs`的inspect_owned_wheel；`packages/crates/pakro-index/src/{python_source,python_tags,python_metadata,python_requirements,python_markers}.rs`及`simple/client.rs`；`pakro-resolver`原纯核；R05 IO。旧`pakro-store/src/store.rs::unpack`的`.pakro-complete`和rename失败不能当新wheel Ready/并发胜出证明；旧Store/Refs留给现有其他消费者。
 
-### Task 5: 项目命令族 ✅(完成)
+**接口交接：** `resolve`返回原有ClosedRegistryGraph及真实metadata持有者；`layout`消费闭包、VerifiedArtifact/包租约和LanguageLease，返回已核验的PreparedLayout；`apply`只提交这份真实结果到F1同一catalog。真实language/package/tree/layout保护须覆盖catalog CAS；跨阶段若需重取，按F1项目→对象→catalog顺序取得并复核，不能校验后释放再按旧描述加引用，也不能持对象锁反向等项目锁。完整版本/来源/摘要和依赖边可由F4读取，图摘要不是边列表。F1查询随后按已发布包组合选择；已有内容选择不重新求解、不联网。
 
-- Files: src/cli/project.rs（新命令：init [PATH] --python --node --package；attach；ls；status）、projects.json 索引（dirs::STATE，init/attach 登记，损坏即重建扫盘）、cli/mod.rs Commands 枚举
-- 项目=目录树+mise.toml（运行时向上查找既有逻辑，不动）
-- 提交 `feat(project): init, attach, ls and status commands`
+**实施动作（按以下顺序，完成后更新上方状态）：**
 
-### Task 6: outdated 扩展 ✅(完成)
+- R08只先接这条路径需要的原始制品/展开内容存取；源码构建产物管理不作为前置。
+- R10/R11接一个公开Simple来源、真实metadata与完整依赖选择，复用原解析/求解核，不重新写算法，也不忽略样本声明的传递依赖。
+- R12复用wheel路径、RECORD、安装与脚本核；R13用LanguageLease替代这条生产链的完整runtime复制，做必要包路径/启动适配。
+- 改接实际install/deps install消费者，使用户命令可达；保存精确根、真实依赖闭包及对象关联，不能只记根包名。R09/R14/R15纳入本步真实写域的必要保护；未实现的完整锁/恢复能力明确不支持，不伪造结果。
+- 若实现需要同时改变配置、锁和权威引用，必须补相应提交保护，或继续收窄写入范围；不能把多个未保护写操作称为“以后修bug”。
 
-- Files: src/cli/outdated.rs（列出包组：配置钉版本 vs registry 最新稳定版，仅提示不自动改——严格版原则）
-- 提交 `feat(outdated): show newer versions for pinned packages`
+**复用的原任务：** R08/R10/R11/R12/R13/R16/R23的必要部分，合成一条用户命令到真实import的路径；不是把这些模块的全部扩展要求一次做完。
 
-### Task 7: npm live 差分 ✅(完成)
+**交付验证：** 一个真实wheel及其必要依赖可导入；A/B共用同一包内容和Python标准库；不同包选择互不污染；不兼容包、损坏文件和安装失败不冒充成功。其余平台/源码/原生扩展组合不算已验证。
 
-- Files: crates/mise-index/tests/npm_live.rs（#[ignore] 网络测试：`npm view <pkg>@<ver> dependencies --json` 稳定输出 vs 我们的 npm_metadata 依赖集）
-- 提交 `test(packages): live differential against npm view`
+**测试文件与必需断言：**
 
-### Task 8: e2e ✅(完成)
+| 测试文件 | 合同 |
+| --- | --- |
+| 新增`src/core/programs/install/resolve/tests.rs` | `f3_exact_roots_preserve_real_dependency_edges`：直接根必须精确，metadata传递范围真实解析，记录闭包的节点/边/pin。 |
+| 新增`src/core/libraries/package/{blob,layouts}/tests.rs` | `f3_verified_content_is_shared`、`f3_failed_layout_is_not_ready`：同内容复用、实际赢家重验；损坏/不兼容/中断不发布假Ready。 |
+| 新增`packages/src/python_environment/shared_runtime/tests.rs`，扩F2的`src/core/programs/install/apply/tests.rs` | `f3_shared_runtime_has_no_full_copy`、`f3_failed_apply_keeps_old_selection`：真实语言租约与标准库来源、关联失败保留旧选择、项目声明未改。 |
+| 新增`tests/e2e/packages/test_native_install_shared_wheel`、`test_native_deps_install_preserves_declarations`、`test_native_deps_no_manager` | 真实CLI安装固定完整版本、带传递依赖和console script的公开wheel；真实import/版本/路径/入口，A/B复用且选择隔离，不调用pip/uv或自动prune。 |
 
-- e2e/packages/bare_and_bin_slow.sh（裸名装包、.bin/tsc）；e2e/packages/project_commands.sh（init/attach/ls/status，非 slow）
-- 提交 `test(packages): e2e bare names, bin links and project commands`
+**阶段边界/退役条件：** 不创建`package/builds.rs`或源码构建协调器；sdist/URL/Git/local/editable/Conda、deps add声明编辑、升级、完整可移植锁/冷恢复、多文档事务和完整平台矩阵后移。现有完整pin必须遵守，不支持的锁模式拒绝，不能降级重求解。只有这条真实新链接通并由用户验收后，才删除其重复旧正文；`runtime_snapshot.rs`和旧store尚有消费者时不整删。
 
-### Task 9: 收口 ✅(完成) ✅(完成)
+## F4：查看库内容及关联，删除明确指定的语言和包
 
-- `mise run render`（usage/completions/docs 快照）+ 全量验证（四 crate 测试/clippy/lint 真实退出码）+ ARCHITECTURE 更新 + log/HANDOFF
+**状态：** ☐ 测试已写并注册；☐ 用户确认预期失败；☐ 最小实现；☐ 用户验收；☐ 两轴静态审查。当前全部未实施。
 
-## M4 计划 — go/maven 纵向生态 + store gc 自动化（2026-10-07 追加，用户批准开工）
+**先完成：** F1–F3的真实内容及持久关联。用户已明确纳入首版，不以旧R21整项完成作为前置。
 
-> 设计文档定位：go/maven 采用"存储层吸收"而非"解析层替换"——go.mod/pom.xml 继续作为包声明与锁（它们本身设计良好），mise 接管全局存储位置（GOMODCACHE / maven local repo）并编排安装。这使跨项目共享承诺对 go/maven 同样成立，且改造成本最低。
+**用户看到什么：** 查看Pakro已关联的项目、库内语言和包的完整版本，以及谁使用谁；明确指定对象删除，有项目或依赖在用就列出并拒绝，没有引用才允许删除。
 
-### Task 1: Go GOMODCACHE 集成 ✅(完成)
+**修改现有文件：**
 
-- Files: src/packages/go.rs [新]，src/packages/install.rs（路由），src/packages/mod.rs
-- 内容：`install_go_modules`：检测项目 go.mod → 设 `GOMODCACHE=<store>/go/mod` → 运行 `go mod download all`（经 mise 安装的 go）→ store refs 登记
-- 验收：go 项目 `mise install` 后 GOMODCACHE 内有模块；第二项目同依赖零下载
-- 提交 `feat(packages): route go module downloads through the mise store`
+| 文件与定位锚点 | 本阶段只改什么 |
+| --- | --- |
+| `cli/src/commands/current.rs:43`、`ls.rs:152` | 改接只读选择/已发布实例与包事实，保留声明未安装状态和原输出职责；不隐式注册/联网，不顺带接远端比较或prunable。 |
+| `cli/src/commands/project.rs:71/195` | project ls/status改接持久登记及真实关联，替换读索引失败返回空集、仅检查旧lock/venv的逻辑；不顺手删除init/attach等混合文件其他职责。 |
+| `cli/src/commands/installs/ls.rs:44` | 展示实际库实例、完整版本/build/目标及使用者；同版本不同实例不折叠。 |
+| `cli/src/commands/installs/mod.rs:32`、`cli/src/commands/installs/select.rs:34` | 父入口的新共享库ls不再被旧experimental/identity布局开关挡住；旧migrate职责保持。首版select对新共享目标明确拒绝旧全局版本链接切换，不冒称已接同catalog；完整辅助选择接线后移，F4删除的精确实例由uninstall请求明确承载。 |
+| `cli/src/commands/uninstall.rs:61/162/175/220` | 新共享对象在旧backend前分流；退出版本前缀匹配、直接uninstall_version、删除后才改选择的旧路径；`--all`不能扩大本次目标。包目标必须接到真实删除入口与usage测试，不能只做内部API。 |
+| F1的`src/core/libraries/project/{repository,read_views,selections}.rs`、F3的`package_graph.rs`；`packages/src/python_environment/model.rs` | 同一权威上增加有界反向引用/引用链投影；protecting_references的扁平集合不是“谁在用”的完整输出，不另建引用计数权威。 |
+| F1的`src/core/programs/query/{mod,snapshot,paths}.rs`、`programs/shared/commit.rs` | 扩只读视图及删除结果所需单catalog更新，不另起快照/登记/通用恢复系统。 |
+| `src/core/libraries/language/{repository,manifest,lease}.rs`、F3的`package/{blob,tree,manifest,lease,layouts}.rs` | 复用实际列举/manifest/租约，支持目标身份复核和删除状态；不直接以目录名当安装事实。 |
+| `packages/src/python_environment/prefix/observer/cleanup.rs:325` | 只在确需时提取共用的逐项删除/目录绑定内核；原函数的权限属于未提交暂存，不能直接套给已发布对象，原暂存检查须保留。 |
+| `src/core/programs/mod.rs`、`src/core/libraries/{language,package}/mod.rs` | 注册下列模块与测试；CLI只取得请求/报告，不能得到任意路径删除权限。 |
 
-### Task 2: Go env 集成 ✅(完成)
+**拟新增文件：**
 
-- Files: src/plugins/core/go.rs（env_var 新增 GOMODCACHE → store 路径）
-- 验收：`mise x go -- go env GOMODCACHE` 指向 store；`go build` 正常使用缓存
-- 提交 `feat(go): set GOMODCACHE to the mise store when go is active`
+| 文件 | 单一职责 |
+| --- | --- |
+| `src/core/programs/query/{inventory,projects}.rs` | 组织语言/包实例和项目关联查询，明确完整性/缺失/损坏；包行与语言行区分，使用同一事实来源。 |
+| `src/core/programs/uninstall/{mod,select,reachability,reclaim}.rs` | 选本次精确目标、列阻止引用、请求真实删除许可、执行并报告；没有全库扫描候选/prune或项目声明改写。 |
+| `src/core/libraries/language/removal.rs`、`src/core/libraries/package/removal.rs` | 私有RemovalPermit持实际稳定EX、目录/manifest身份和状态；取得后再次查最新引用，删除仅覆盖本次受管目标，不能删除稳定锁文件。 |
 
-### Task 3: Maven 本地仓库集成 ✅(完成)
+**接口交接：** query消费F1/F3已提交事实，返回项目/语言/包记录及使用者链；`select_targets`只产生唯一精确目标描述；`plan_removal`返回该目标的阻止原因；`acquire_removal_permit`在与新增引用共用的保护下重读引用/对象；`capture_and_remove`消费不可伪造许可并报告实际结果。计划、路径、hash都不能单独授予删除权。
 
-- Files: src/packages/maven.rs [新]，install.rs 路由
-- 内容：检测 pom.xml → 设 `-Dmaven.repo.local=<store>/maven`（MAVEN_ARGS）→ `mvn dependency:go-offline` → refs
-- 验收：mvn 项目 `mise install` 后依赖在 store；编译通过
-- 提交 `feat(packages): route maven dependencies through the mise store`
+**命令边界：** 保留`ls/current/project ls/project status/installs ls/uninstall`各自职责，不新增统一find或另一套install/uninstall命名。包参数复用现有包请求解析与完整运行时/包身份，不以`ToolArg`前缀猜测包，不因为绑定某语言就连带删除语言。具体参数转换和usage测试属于本步CLI文件的必交付内容；多实例需明确定位，不能建议用`--all`绕过歧义。
 
-### Task 4: store gc 接入 auto-prune ✅(完成)
+**实施动作（按以下顺序，完成后更新上方状态）：**
 
-- Files: src/packages/mod.rs（gc 周期调用）、src/cache.rs
-- 内容：`mise install` 尾部触发 `store gc`（频率：每日一次，STATE 记 last-run）
-- 提交 `feat(packages): auto-prune store entries on install`
+- 复用R04关联模型、R05受控IO/锁及R06语言保护，接通最低持久登记与完整直接/间接引用视图。查询项目位置/状态及其语言/包，查询语言/包的精确版本、实例和使用者；不扫描整台电脑猜项目，也不只看当前目录。
+- 从原R18/R26提取上述本地查询，从R09/R21/R25提取指定对象删除必需部分。沿用既有查询和uninstall职责，包级参数接线时明确，不在计划中虚构新CLI拼写。
+- 删除按完整版本和实际实例定位；同名同版本多发行/变体有歧义时让用户明确目标。有项目、保留的包或其他依赖引用时，列出项目/依赖及引用链并拒绝，不偷偷改项目配置以消除引用。
+- 在与新增引用共用的对象保护下，取得排他保护后重新核对最新引用和实际对象，只删除本次明确目标；Pakro正在使用，或登记损坏/项目暂不可访问导致无法确认目标引用时，报告受影响范围与阻止/未知原因，不把未知当无引用。
+- 不连带删除其他包、语言、项目源码或配置，不自动递归删依赖/运行prune。删除失败明确报告实际状态，不把半删对象当可用；保留完成本次受控删除必需的状态处理，不先建完整批量GC/故障矩阵。
 
-### Task 5: e2e + 收口 ✅(完成)
+**交付验证：** 重启后仍能查询已知项目/语言/包及关联；项目引用或包依赖时列明并拒删；无引用目标真实删除且其他对象不变；未知关联不能当空，删除与新增引用竞争不误删。外部进程完整生命周期仍属后置范围，不在此夸大为已覆盖。
 
-- e2e/packages/install_go_slow.sh（go.mod 两项目共享 GOMODCACHE）；maven 若本机有 mvn 则 e2e 否则跳过说明
-- 全量验证 + ARCHITECTURE + log/HANDOFF
+**测试文件与必需断言：**
 
-## M5 计划 — 补齐边角 + 交付准备（2026-10-07 追加；用户批准：删除 Windows，其余全做）
+| 测试文件 | 合同 |
+| --- | --- |
+| 新增`src/core/programs/query/{inventory,projects}/tests.rs` | `f4_library_relations_survive_restart`、`f4_query_is_readonly_and_corruption_is_not_empty`：重开真实库查询双向关联，空/缺失/损坏区分；无写入、联网、登记或修复。 |
+| 新增`src/core/programs/uninstall/reclaim/tests.rs` | `f4_references_report_chain_and_block`、`f4_exact_unreferenced_target_only_is_removed`：项目、传递依赖、保留包的引用链完整；无引用目标实际删除且其他对象不变。 |
+| 新增`src/core/libraries/{language,package}/removal/tests.rs` | `f4_new_reference_and_live_lease_block_removal`、`f4_unknown_or_partial_delete_is_not_success`：真实锁竞争、活租约、未知关联和部分失败不会误删/报Ready；稳定锁仍在。 |
+| 新增`tests/e2e/cli/test_f4_library_query_and_uninstall` | 实际CLI分别查询项目/语言/包、查看关联、尝试被引用目标及无引用目标删除；同版本两build时模糊请求拒绝，参数明确一个实例后只删除该实例。包入口与实例参数确实可达，不以打印预设结果代替。 |
 
-### Task 1 ✅: 本计划落档
+**阶段边界/退役条件：** 不创建uninstall/project_edit.rs、全库prune、强制删除、自动递归依赖回收、项目源码/配置清理或完整恢复矩阵；失败对象必须停止作为Ready暴露，但不扩为全库修复。已完成的历史安装记录不永久保活；仍有实际项目/包依赖或在途恢复保护才阻止。旧CLI删除正文只在对应消费者真正替换且验收通过后退出，不批量删其他生态实现。
 
-### Task 2: PEP 517 源码构建 ✅(完成)
+## 第一版之后再按使用反馈推进
 
-- 当无兼容 wheel 时回退 sdist：`pip wheel --no-deps --wheel-dir <tmp>` 用 mise 安装的 python → 产物 wheel 进 store
-- 安全默认：仅在无预编译替代时触发 + 显示警告"building from source"
-- Files: src/packages/install.rs（select_artifact 回退 + build_from_source fn）
-- 提交 `feat(packages): build python sdists when no wheel matches`
+以下是后移，不是永久删除；恢复相应功能时，同时补它真正需要的保护和测试。
 
-### Task 3: node-gyp 原生模块 ✅(完成)
+| 后移内容 | 原任务 | 为什么不挡首版 |
+| --- | --- | --- |
+| 自动编辑声明、完整可移植锁/恢复、通用多文件事务及崩溃恢复矩阵 | R09/R14/R15、R17/R22–R24的扩展部分 | 最低精确版本/项目依赖关联和实际写入保护已纳入F1–F4，后移的是其余完整变更能力。 |
+| 批量prune、复杂回收、强制变更及完整中断恢复矩阵 | R21/R25及完整R07的其余部分 | F4已包含受引用保护的指定删除；首版不自动GC、不连带清其他对象。 |
+| 其余查询输出、远端比较、诊断与所有辅助命令接线 | R18/R19/R26/R43的其余部分 | 库内项目/语言/包及关联查询已纳入F4，其他扩展按使用补接，不合并原职责。 |
+| URL/Git/本地源码、源码构建、editable、Conda、语言源码安装 | R27–R34 | 第一版仅承诺指定来源的兼容wheel和预编译Python；不支持的输入明确诊断，不偷偷调用外部管理器。 |
+| 多私有源/认证组合与完整跨平台矩阵 | R10及各生态矩阵的扩展部分 | 单一已支持来源仍保留凭证与来源检查，未覆盖组合不伪称支持。 |
+| 全仓旧链退役、工程入口拆分、生成资源与依赖大清理 | R39–R44 | 不为清理而先重构半个仓库；当前消费者确已替换时才做局部退役。旧数据清理另需用户授权范围。 |
+| Java、Node、IDE/外部进程全生命周期 | 原M-PY/M-JAVA、R38/R35、R20 | 先完成可用Python，再按既定生态顺序扩展；首版不是整个Python阶段或产品最终验收。 |
 
-- npm 包含 binding.gyp 时：物化后执行 `node-gyp rebuild`（用 mise 安装的 node）
-- Files: src/packages/materialize_node.rs（post-materialize hook）
-- 提交 `feat(packages): build node native modules after materialization`
+## 缩减测试与防护工作的方法
 
-### Task 4: 范围约束可选层 ✅(完成) + mise upgrade
+- 已实现的摘要/来源校验、受控解包、锁/租约和发布内核直接复用，不拆掉后再等事故重写。
+- 当前确实会执行的写入不能覆盖用户文件、修改其他项目共享内容，半成品不能报成功；不支持的修改/删除入口直接拒绝，不先实现全套恢复能力。
+- 每个阶段交一条真实使用链及关键失败例；只验证本次改动和受影响的旧调用，不重复跑未变化的全套，不提前扩展跨平台/极端故障矩阵。
+- 使用中发现问题：先定位，补最小复现，再修对应路径。不要顺手把未来所有边界都加成当前阶段的前置。
+- 编译、测试和格式检查由用户手动运行，Agent在实际接口存在后给准确命令并读取日志；0 tests、全ignored或仅编译成功不算用户功能交付。
+- 保持同一构建配置，继续采用已有关闭增量缓存/调试信息的手动方案，不无故生成多套产物；不自动清理用户数据或提交Git。
 
-- 组键非精确（`[packages."python@3.10"]` 无 patch）→ 允许；解析时锁定具体版本写锁
-- `mise upgrade`：丢弃锁偏好 → 重新求解 → 更新锁
-- Files: packages/mod.rs（组键宽松解析）、cli/upgrade.rs、install.rs（upgrade flag）
-- 提交 `feat(packages): optional range constraints and mise upgrade`
+## 各阶段的手动验收交付
 
-### Task 5: 锁文件统一 ✅(完成)
+本节是未来实施时必须交付的测试入口合同。**F1的`tests/scripts/f-manual-check.sh`与`tests/scripts/f1-test-cases.txt`已于2026-10-18随测试注册创建；当前桩阶段预期全部`f1_`用例失败（RED），通过不算交付。F2–F4脚本仍不存在，当前不要执行对应命令。**原R06脚本及通过证据保留，不把它改成新阶段运行器，不无故重跑R06全组。
 
-- 边车 mise.packages.lock 内容迁入 mise.lock 的 [package] 表；读双源（先主后边车）；写主
-- ADR-0006 记录
-- Files: lockfile.rs、packages/lockfile.rs
-- 提交 `feat(lockfile): unify package graph into mise.lock`
+F1实施时新增`tests/scripts/f-manual-check.sh`及`tests/scripts/f1-test-cases.txt`；F2/F3/F4分别增对应`f2-test-cases.txt`、`f3-test-cases.txt`、`f4-test-cases.txt`并扩同一脚本。每份清单登记本阶段真实包、lib/bin、完整测试名和明确E2E脚本；复用已有cargo/`tests/e2e/run_test`，不新建测试框架。脚本只允许用户手动调用。
 
-### Task 6: mise store ls ✅(完成)
+- 用例存在并注册后，先`--list`逐个核对完整名称再执行；0 tests、全ignored、只编译、仅子进程helper都不能记为通过。真实测试依赖缺失明确停下，不跳过后仍打印成功。
+- 固定`CARGO_TARGET_DIR=target`、`CARGO_INCREMENTAL=0`、`CARGO_PROFILE_DEV_DEBUG=0`、`CARGO_PROFILE_TEST_DEBUG=0`和`--all-features`，同阶段保持包集合与构建配置；不自动补跑release或换target目录堆出第二套产物。
+- 只跑本阶段表列合同、实际受影响的既有回归、必要非测试编译与本次文件格式检查；不把所有历史B0/B1/R00–R06或整个未来矩阵加入每次验收。
+- 保存完整输出、阶段/模式、实际用例数、退出结果到`target/fN-manual-时间.log`；支持`--format-only`只处理本阶段实际变更文件，不能格式失败后强迫重编所有测试。
+- 真实归档沿用用户已指定的PBS 3.13.16路径及摘要（见HANDOFF），使用隔离库和项目；wheel真实输入由用户指定完整版本/来源或授权下载后才纳入，不能猜路径/偷偷下载。模拟夹具仅验边界，不能冒充完整真实发行/包导入通过。
 
-- 生态分组 + 大小 + 引用项目
-- Files: cli/store.rs [新] 或 project.rs 扩展
-- 提交 `feat(store): human-readable store listing`
+| 阶段 | 交给用户时必须说明“现在要测什么” | 实施并注册后的预定入口 |
+| --- | --- | --- |
+| F1 | 进A/B目录是否选同一份Python，缺项是否只提示，退出路径是否恢复，重启后关联是否还在。 | `bash tests/scripts/f-manual-check.sh f1` |
+| F2 | 显式安装是否真实成功、重复是否复用，失败是否保住旧内容，模糊版本和旧强制路径是否提前拒绝。 | `bash tests/scripts/f-manual-check.sh f2` |
+| F3 | 包和依赖是否能真实导入/执行，A/B是否共享且不串包，源码/锁不被改，失败不冒充成功。 | `bash tests/scripts/f-manual-check.sh f3` |
+| F4 | 库内容和关联能否查清；有人/依赖在用是否列明拒删，无引用是否只删除指定对象。 | `bash tests/scripts/f-manual-check.sh f4` |
 
-### Task 7: crate publish 兼容 ✅(完成)
+实际交付时提供带`cd '/Users/fuxinao/文件/project/pakro'`、真实输入前提的完整可复制命令，并依据当时已实现接口核实清单；这里的规划入口不等于代码已经存在。
 
-- 三个新 crate 去 publish=false；主 crate path 依赖 version 兼容
-- 提交 `chore: make new crates publishable`
+## 已完成基础与证据
 
-### Task 8: 文档 + aube issue + 性能
+| 已完成 | 可复用成果 |
+| --- | --- |
+| R00–R03 | 基线、程序请求/上下文、真实配置观测与项目快照。 |
+| R04–R05 | 内容身份与项目选择分离、受控IO、稳定锁和统一内核。 |
+| R06 | 唯一共享Python、实际租约、发布/复用、来源证明与真实共享验收。 |
 
-- docs/dev-tools/packages.md 使用指南
-- aube 上游 issue 草稿（env::vars panic）
-- hook-env 包图校验开销测量
-- 提交 `docs(packages): usage guide`
+R06合并150项不同测试通过；三包非测试编译、37文件格式与diff检查通过，详见[交接记录](HANDOFF.md)和[完成日志](log/2026-10-18-4-R06共享语言库.md)。原详案的完成状态与文件/测试合同原样存档，不把后移任务写成已完成。
 
-### Task 9: 收口 ✅(完成)
-
-- 全量验证（四 crate + e2e 全家 + lint + clippy）+ ARCHITECTURE/SPEC 终稿 + log/HANDOFF
+**下一步不是开工。** F4和精确版本要求已按用户指令写入；仍需用户明确指定开始实现，不能借计划重排自行启动R07或F1–F4。

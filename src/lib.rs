@@ -11,6 +11,9 @@
 #![allow(unknown_lints)]
 #![deny(unreachable_pub)]
 
+#[path = "core/artifact_snapshot.rs"]
+pub(crate) mod artifact_snapshot;
+
 use crate::config::SettingsExt;
 
 #[cfg(test)]
@@ -90,6 +93,8 @@ pub mod watch_files;
 pub mod install_before;
 #[path = "../runtimes/src/toolinstall/install_context.rs"]
 pub mod install_context;
+#[path = "../runtimes/src/toolinstall/install_rollback.rs"]
+pub(crate) mod install_rollback;
 #[path = "../runtimes/src/toolinstall/python_runtime.rs"]
 pub mod python_runtime;
 #[path = "../runtimes/src/toolinstall/runtime_symlinks.rs"]
@@ -191,6 +196,8 @@ pub mod deps;
 pub mod frontend;
 #[path = "../runtimes/src/install_layout/mod.rs"]
 pub mod install_layout;
+#[path = "core/libraries/mod.rs"]
+pub(crate) mod libraries;
 #[path = "core/lockfile/mod.rs"]
 pub mod lockfile;
 #[path = "../runtimes/src/oci/mod.rs"]
@@ -201,6 +208,8 @@ pub mod otel;
 pub mod packages;
 #[path = "../runtimes/src/plugins/mod.rs"]
 pub mod plugins;
+#[path = "core/programs/mod.rs"]
+pub mod programs;
 #[path = "../cli/src/shell/mod.rs"]
 pub mod shell;
 #[path = "core/system/mod.rs"]

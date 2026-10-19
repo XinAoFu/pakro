@@ -96,7 +96,15 @@ impl ToolVersions {
     }
 
     fn parse_plugins(input: &str) -> IndexMap<BackendArg, ToolVersionPlugin> {
-        let mut plugins: IndexMap<BackendArg, ToolVersionPlugin> = IndexMap::new();
+        Self::parse_plugin_lines(input, |name| BackendArg::from(name))
+    }
+
+    /// Share the line parser without constructing backends or a live toolset.
+    fn parse_plugin_lines<K: std::hash::Hash + Eq>(
+        input: &str,
+        key: impl Fn(&str) -> K,
+    ) -> IndexMap<K, ToolVersionPlugin> {
+        let mut plugins: IndexMap<K, ToolVersionPlugin> = IndexMap::new();
         for line in input.lines() {
             if line.trim_start().starts_with('#') {
                 if let Some(prev) = &mut plugins.values_mut().last() {
@@ -112,7 +120,6 @@ impl ToolVersions {
                 // note that this method will cause the colons to be removed
                 // permanently if saving the file again, but I think that's fine
                 let orig_plugin = plugin.trim_end_matches(':');
-                let ba = orig_plugin.into();
 
                 let tvp = ToolVersionPlugin {
                     orig_name: orig_plugin.to_string(),
@@ -122,10 +129,36 @@ impl ToolVersions {
                         _ => [" #", post, "\n"].join(""),
                     },
                 };
-                plugins.insert(ba, tvp);
+                plugins.insert(key(orig_plugin), tvp);
             }
         }
         plugins
+    }
+
+    pub(super) fn static_declarations(
+        body: &str,
+    ) -> Result<Vec<super::StaticToolDeclaration>, super::StaticConfigError> {
+        if contains_template_syntax(body) {
+            return Err(super::StaticConfigError::MissingStaticInput(
+                super::StaticInputKind::ToolTemplate,
+            ));
+        }
+        Ok(
+            Self::parse_plugin_lines(file::strip_utf8_bom(body), str::to_owned)
+                .into_values()
+                .flat_map(|plugin| {
+                    plugin
+                        .versions
+                        .into_iter()
+                        .map(move |version| super::StaticToolDeclaration {
+                            name: plugin.orig_name.clone(),
+                            selector: "version".to_owned(),
+                            version,
+                            options: toml::Table::new(),
+                        })
+                })
+                .collect(),
+        )
     }
 
     fn add_version(

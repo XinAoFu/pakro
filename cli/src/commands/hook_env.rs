@@ -117,6 +117,18 @@ impl HookEnv {
         // Use env_with_path_and_split which handles caching internally
         let (mut pakro_env, env_remove, user_paths, tool_paths, env_watch_files) =
             ts.env_with_path_and_split(&config).await?;
+        // Shared library python: entering the directory selects the exact
+        // published instance (D07); the controlled registration happens inside
+        // the programs layer and the payload bin directory takes precedence
+        // over any legacy install path. Missing items only warn (D08).
+        #[cfg(unix)]
+        let mut tool_paths = tool_paths;
+        #[cfg(unix)]
+        if let Some(shared) = crate::programs::directory::select_directory_python(true)? {
+            if !tool_paths.iter().any(|path| *path == shared.bin_dir) {
+                tool_paths.insert(0, shared.bin_dir);
+            }
+        }
         let daemon_commands = match crate::daemons::hook_env::emit(
             &config,
             &ts,

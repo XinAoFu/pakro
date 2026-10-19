@@ -94,6 +94,8 @@ impl Link {
         }
         {
             let _state_lock = install_state::lock_tool_version(&self.tool.ba, &version_pathname)?;
+            let _publication_lock =
+                crate::runtime_symlinks::lock_runtime_links(self.tool.ba.installs_path())?;
             if !file::is_symlink_to(&target, &path) {
                 if target.exists() {
                     if self.force {

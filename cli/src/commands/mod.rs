@@ -87,7 +87,6 @@ mod project;
 pub(crate) mod prune;
 mod publish_system_install;
 mod registry;
-#[cfg(debug_assertions)]
 mod reshim;
 pub(crate) mod run;
 mod search;

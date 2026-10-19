@@ -76,6 +76,15 @@ fn install_dirs_for(backend: &Arc<dyn Backend>) -> Vec<PathBuf> {
     dirs
 }
 
+/// Cooperate with installation publication and per-entry rollback, even when
+/// callers have different cache directories or tool state keys.
+pub fn lock_runtime_links(installs_dir: &Path) -> Result<fslock::LockFile> {
+    let root = installs_dir
+        .parent()
+        .ok_or_else(|| eyre::eyre!("runtime links directory has no installs root"))?;
+    crate::lock_file::LockFile::at(&root.join(".pakro/alloc.lock")).lock()
+}
+
 fn rebuild_symlinks_in_dir(
     config: &Config,
     ts: &Toolset,
@@ -135,6 +144,7 @@ fn rebuild_symlinks_in_dir(
             replace,
         );
     }
+    let mut publication_lock = None;
     for (from, to) in &symlinks {
         let from_name = from.clone();
         let from = installs_dir.join(from);
@@ -158,10 +168,16 @@ fn rebuild_symlinks_in_dir(
                 // Real (non-symlink) directory at a runtime-symlink slot —
                 // legacy stale state from the 2026.4 regression. Replace it.
                 trace!("Replacing stale runtime dir: {}", from.display());
+                if publication_lock.is_none() {
+                    publication_lock = Some(lock_runtime_links(installs_dir)?);
+                }
                 file::remove_all(&from)?;
             } else {
                 continue;
             }
+        }
+        if publication_lock.is_none() {
+            publication_lock = Some(lock_runtime_links(installs_dir)?);
         }
         if let Err(err) = file::make_dir_link(to, &from) {
             if cfg!(windows) {
@@ -177,6 +193,7 @@ fn rebuild_symlinks_in_dir(
             }
         }
     }
+    drop(publication_lock);
     prune_stale_generated_symlinks(backend, installs_dir, &symlinks, &alias_names)?;
     remove_missing_symlinks_in_dir(installs_dir)?;
     Ok(())
@@ -397,6 +414,10 @@ fn prune_stale_generated_symlinks(
     desired: &IndexMap<String, PathBuf>,
     alias_names: &HashSet<String>,
 ) -> Result<()> {
+    if stale_generated_symlinks(backend, installs_dir, desired, alias_names)?.is_empty() {
+        return Ok(());
+    }
+    let _publication_lock = lock_runtime_links(installs_dir)?;
     for path in stale_generated_symlinks(backend, installs_dir, desired, alias_names)? {
         trace!("Removing stale runtime symlink: {}", path.display());
         file::remove_dir_link(&path)?;
@@ -459,6 +480,13 @@ pub(crate) fn remove_missing_symlinks_in_dir(installs_dir: &Path) -> Result<()> 
     if !installs_dir.exists() {
         return Ok(());
     }
+    // Do not create a lock in a read-only shared root when no link needs a
+    // mutation. Recheck the candidates after acquiring the publication lock.
+    let _publication_lock = if missing_symlinks_in_dir(installs_dir)?.is_empty() {
+        None
+    } else {
+        Some(lock_runtime_links(installs_dir)?)
+    };
     for path in missing_symlinks_in_dir(installs_dir)? {
         trace!("Removing missing symlink: {}", path.display());
         file::remove_dir_link(&path)?;
@@ -526,8 +554,36 @@ mod tests {
     use crate::file::make_symlink_or_file;
     use std::fs;
 
-    fn npm_test_backend() -> Arc<dyn Backend> {
-        Arc::new(crate::backend::cargo::test_backend("happy", None))
+    fn prerelease_test_backend() -> Arc<dyn Backend> {
+        #[derive(Debug)]
+        struct PrereleaseBackend(Arc<crate::args::BackendArg>);
+        #[async_trait::async_trait]
+        impl Backend for PrereleaseBackend {
+            fn ba(&self) -> &Arc<crate::args::BackendArg> {
+                &self.0
+            }
+            fn is_backend_prerelease(&self, version: &str) -> bool {
+                ::semver::Version::parse(version).is_ok_and(|version| !version.pre.is_empty())
+            }
+            async fn _list_remote_versions(
+                &self,
+                _config: &Arc<Config>,
+            ) -> Result<Vec<crate::backend::VersionInfo>> {
+                unreachable!("runtime symlink fixtures never fetch remote versions")
+            }
+            async fn install_version_(
+                &self,
+                _ctx: &crate::install_context::InstallContext,
+                _tv: crate::toolset::ToolVersion,
+            ) -> Result<crate::toolset::ToolVersion> {
+                unreachable!("runtime symlink fixtures never install a tool")
+            }
+        }
+        Arc::new(PrereleaseBackend(
+            crate::backend::cargo::test_backend("happy", None)
+                .ba()
+                .clone(),
+        ))
     }
 
     /// A backend whose name no other test shares. The incomplete marker lives
@@ -609,7 +665,7 @@ mod tests {
         let installs_dir = temp_dir.path().join("installs").join("npm-happy");
         fs::create_dir_all(installs_dir.join("1.2.4"))?;
         fs::create_dir_all(installs_dir.join("1.3.1-3"))?;
-        let backend = npm_test_backend();
+        let backend = prerelease_test_backend();
 
         assert_eq!(
             installed_versions_in_dir(&backend, &installs_dir),
@@ -697,7 +753,7 @@ mod tests {
         make_symlink_or_file(Path::new("./1.3.1-3"), &installs_dir.join("next"))?;
 
         prune_stale_generated_symlinks(
-            &npm_test_backend(),
+            &prerelease_test_backend(),
             &installs_dir,
             &IndexMap::new(),
             &HashSet::new(),
@@ -720,7 +776,7 @@ mod tests {
         make_symlink_or_file(Path::new("./2.1.0"), &installs_dir.join("latest"))?;
 
         prune_stale_generated_symlinks(
-            &npm_test_backend(),
+            &prerelease_test_backend(),
             &installs_dir,
             &IndexMap::new(),
             &HashSet::new(),
@@ -935,5 +991,40 @@ mod tests {
         assert!(fs::symlink_metadata(installs_dir.join("latest")).is_err());
         assert!(installs_dir.join("1.3.1-3").is_dir());
         Ok(())
+    }
+
+    #[test]
+    fn cleanup_waits_for_publication_before_removing_a_dangling_runtime_link() {
+        let root = tempfile::tempdir().unwrap();
+        let installs = root.path().join("installs/python");
+        std::fs::create_dir_all(&installs).unwrap();
+        file::make_dir_link(Path::new("./1.2.3"), &installs.join("latest")).unwrap();
+        let lock = crate::lock_file::LockFile::at(&root.path().join("installs/.pakro/alloc.lock"))
+            .lock()
+            .unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            done_tx
+                .send(remove_missing_symlinks_in_dir(&installs))
+                .unwrap();
+        });
+        started_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        let early = done_rx.recv_timeout(std::time::Duration::from_millis(150));
+        drop(lock);
+        if early.is_err() {
+            done_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap()
+                .unwrap();
+        }
+        worker.join().unwrap();
+        assert!(
+            matches!(early, Err(std::sync::mpsc::RecvTimeoutError::Timeout)),
+            "cleanup bypassed the publication lock"
+        );
     }
 }

@@ -50,6 +50,28 @@ use super::min_version::MinVersionSpec;
 const LEGACY_ENV_KEYS_DEPRECATED_WARN_AT: &str = "2026.4.17";
 const LEGACY_ENV_KEYS_DEPRECATED_REMOVE_AT: &str = "2027.4.0";
 
+const REMOTE_FRAGMENT_ALLOWED: &[&str] = &[
+    "_",
+    "min_version",
+    "tools",
+    "tool_alias",
+    "alias",
+    "shell_alias",
+    "plugins",
+    "wrappers",
+    "hooks",
+    "env",
+    "env_path",
+    "vars",
+];
+
+fn unsupported_fragment_key(table: &toml::Table) -> Option<&str> {
+    table
+        .keys()
+        .map(String::as_str)
+        .find(|key| !REMOTE_FRAGMENT_ALLOWED.contains(key))
+}
+
 /// Convert a `toml::Value` to a `toml_edit::Value` for serialization.
 fn toml_value_to_edit(v: toml::Value) -> Value {
     match v {
@@ -626,28 +648,12 @@ impl PakroToml {
             // monorepo keys are read before any include exists, tasks are
             // discovered from files, and the system sections (dotfiles,
             // daemons, ...) are loaded per file.
-            const ALLOWED: &[&str] = &[
-                "_",
-                "min_version",
-                "tools",
-                "tool_alias",
-                "alias",
-                "shell_alias",
-                "plugins",
-                "wrappers",
-                "hooks",
-                "env",
-                "env_path",
-                "vars",
-            ];
-            for key in table.keys() {
-                if !ALLOWED.contains(&key.as_str()) {
-                    eyre::bail!(
-                        "`{key}` is not supported in a config include (supported: {}; share \
-                         tasks with `task_config.includes`)",
-                        ALLOWED[1..].join(", ")
-                    );
-                }
+            if let Some(key) = unsupported_fragment_key(&table) {
+                eyre::bail!(
+                    "`{key}` is not supported in a config include (supported: {}; share \
+                     tasks with `task_config.includes`)",
+                    REMOTE_FRAGMENT_ALLOWED[1..].join(", ")
+                );
             }
         }
         let fragment = Self::parse_body(body, including, false)?;
@@ -655,6 +661,168 @@ impl PakroToml {
             crate::config::Config::enforce_min_version_spec(spec)?;
         }
         Ok(fragment)
+    }
+
+    pub(super) fn validate_static_include(body: &str) -> Result<(), super::StaticConfigError> {
+        let table: toml::Table =
+            toml::from_str(body).map_err(|_| super::StaticConfigError::InvalidDocument)?;
+        if unsupported_fragment_key(&table).is_some() {
+            return Err(super::StaticConfigError::UnsupportedInclude);
+        }
+        Ok(())
+    }
+
+    /// Reuse the native declaration decoders while keeping backend names raw.
+    /// Nothing here constructs Config, BackendArg, Tera, trust or task contexts.
+    pub(super) fn static_declarations(
+        body: &str,
+    ) -> Result<super::StaticConfigDeclarations, super::StaticConfigError> {
+        use super::{
+            StaticConfigDeclarations, StaticConfigError as Error, StaticInputKind as Input,
+            StaticToolDeclaration,
+        };
+        let table: toml::Table = toml::from_str(body).map_err(|_| Error::InvalidDocument)?;
+        let minimum_version = table
+            .get("min_version")
+            .map(|value| deserialize_min_version(value.clone()).map_err(|_| Error::InvalidDocument))
+            .transpose()?
+            .flatten();
+        if minimum_version
+            .as_ref()
+            .is_some_and(|spec| spec.hard_violation(&crate::version::V).is_some())
+        {
+            return Err(Error::MinimumVersionNotMet);
+        }
+        let minimum_version_recommended = minimum_version
+            .as_ref()
+            .is_some_and(|spec| spec.soft_violation(&crate::version::V).is_some());
+        let mut tools = vec![];
+        if let Some(value) = table.get("tools") {
+            if toml_value_has_template(value) {
+                return Err(Error::MissingStaticInput(Input::ToolTemplate));
+            }
+            let entries = value.as_table().ok_or(Error::InvalidDocument)?;
+            for (name, value) in entries {
+                // This is the existing native tool grammar and option decoder.
+                PakroTomlToolList::deserialize(value.clone())
+                    .map_err(|_| Error::InvalidDocument)?;
+                let entries = match value {
+                    toml::Value::Array(values) => values.as_slice(),
+                    value => std::slice::from_ref(value),
+                };
+                for entry in entries {
+                    let (selector, version, options) = match entry {
+                        toml::Value::String(version) => {
+                            ("version", version.clone(), toml::Table::new())
+                        }
+                        toml::Value::Table(options) => {
+                            let selector = ["version", "path", "prefix", "ref"]
+                                .into_iter()
+                                .find(|selector| options.contains_key(*selector))
+                                .ok_or(Error::InvalidDocument)?;
+                            let version = options[selector]
+                                .as_str()
+                                .ok_or(Error::InvalidDocument)?
+                                .to_owned();
+                            let mut options = options.clone();
+                            options.remove(selector);
+                            (selector, version, options)
+                        }
+                        _ => return Err(Error::InvalidDocument),
+                    };
+                    tools.push(StaticToolDeclaration {
+                        name: name.clone(),
+                        selector: selector.to_owned(),
+                        version,
+                        options,
+                    });
+                }
+            }
+        }
+        let packages = table
+            .get("packages")
+            .map(|value| {
+                let packages =
+                    IndexMap::<String, IndexMap<String, String>>::deserialize(value.clone())
+                        .map_err(|_| Error::InvalidPackages)?;
+                crate::packages::requests_from_config(&packages).map_err(|_| Error::InvalidPackages)
+            })
+            .transpose()?
+            .unwrap_or_default();
+        let includes: Vec<String> = table
+            .get("include")
+            .map(|value| {
+                if toml_value_has_template(value) {
+                    return Err(Error::MissingStaticInput(Input::IncludeTemplate));
+                }
+                deserialize_arr(value.clone()).map_err(|_| Error::InvalidDocument)
+            })
+            .transpose()?
+            .unwrap_or_default();
+        let read_env = |key: &str, kind| -> Result<Vec<EnvDirective>, Error> {
+            let Some(value) = table.get(key) else {
+                return Ok(vec![]);
+            };
+            if toml_value_has_template(value) {
+                return Err(Error::MissingStaticInput(kind));
+            }
+            let list = if key == "vars" {
+                deserialize_vars(value.clone())
+            } else {
+                deserialize_root_env(value.clone())
+            }
+            .map_err(|_| Error::InvalidDocument)?;
+            for directive in &list.0 {
+                if directive.options().expand
+                    || !matches!(
+                        directive,
+                        EnvDirective::Val(..)
+                            | EnvDirective::Default(..)
+                            | EnvDirective::Rm(..)
+                            | EnvDirective::Path(..)
+                    )
+                {
+                    return Err(Error::MissingStaticInput(kind));
+                }
+            }
+            Ok(list.0)
+        };
+        if ["env_file", "dotenv"]
+            .iter()
+            .any(|key| table.contains_key(*key))
+        {
+            return Err(Error::MissingStaticInput(Input::Environment));
+        }
+        let mut environment = read_env("env", Input::Environment)?;
+        if let Some(value) = table.get("env_path") {
+            if toml_value_has_template(value) {
+                return Err(Error::MissingStaticInput(Input::Environment));
+            }
+            let paths: Vec<String> =
+                deserialize_arr(value.clone()).map_err(|_| Error::InvalidDocument)?;
+            environment.splice(
+                0..0,
+                paths
+                    .into_iter()
+                    .map(|path| EnvDirective::Path(path, Default::default())),
+            );
+        }
+        let variables = read_env("vars", Input::Variables)?;
+        let fields = table.keys().cloned().collect();
+        let mut unprojected_fields = table;
+        for projected in ["tools", "packages", "include", "env", "vars", "env_path"] {
+            unprojected_fields.remove(projected);
+        }
+        Ok(StaticConfigDeclarations {
+            tools,
+            packages,
+            includes,
+            fields,
+            environment,
+            variables,
+            unprojected_fields,
+            minimum_version_recommended,
+        })
     }
 
     /// Add the entries of `fragment` below this file's own.
@@ -729,6 +897,19 @@ impl PakroToml {
 
     pub fn from_str(body: &str, path: &Path) -> eyre::Result<Self> {
         Self::parse_body(body, path, true)
+    }
+
+    /// Read only the held declarations, preserving invalid-package errors.
+    /// Unlike the legacy ConfigFile projection, this never treats errors as
+    /// an empty dependency set and never rereads or edits the document.
+    pub(super) fn checked_package_requests(
+        &self,
+    ) -> Result<Vec<crate::packages::PackageInstallRequest>, String> {
+        let packages = self
+            .packages
+            .lock()
+            .map_err(|_| "package declarations are unavailable".to_owned())?;
+        crate::packages::requests_from_config(&packages)
     }
 
     fn parse_body(body: &str, path: &Path, check_trust: bool) -> eyre::Result<Self> {
@@ -2133,7 +2314,7 @@ fn get_value_decor(table: &toml_edit::Table, key: &str) -> Option<toml_edit::Dec
 ///
 /// Inline tables have no `insert_formatted`, so they fall back to a plain insert — which is what
 /// every caller here did unconditionally before, so nothing regresses for them.
-fn insert_preserving_decor(target: &mut Item, key: &str, mut item: Item) {
+pub(crate) fn insert_preserving_decor(target: &mut Item, key: &str, mut item: Item) {
     if let Some(tbl) = target.as_table_mut() {
         let k = get_key_with_decor(tbl, key);
         let value_decor = get_value_decor(tbl, key);

@@ -2,7 +2,7 @@ use super::*;
 
 pub(crate) async fn verify_attestation_bundles(
     attestations: &[Attestation],
-    artifact: &[u8],
+    artifact: Artifact<'_>,
     signer_workflow: Option<&str>,
     trust_roots: &mut TrustRoots,
 ) -> Result<bool> {
@@ -19,7 +19,7 @@ pub(crate) async fn verify_attestation_bundles(
             }
         };
         match verify_bundle_with_trust_roots(
-            Artifact::from(artifact),
+            artifact.clone(),
             &bundle,
             signer_workflow,
             trust_roots,

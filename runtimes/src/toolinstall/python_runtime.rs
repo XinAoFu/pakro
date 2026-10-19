@@ -5,15 +5,18 @@
 //! Runtime-provided standard libraries can consult platform helpers; this module
 //! does not provide an operating-system process sandbox.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 
 use eyre::{Context, ContextCompat, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
+use tokio::time::Instant;
 
 use crate::toolset::ToolVersion;
 
@@ -27,6 +30,13 @@ const STDERR_LIMIT: u64 = 64 * 1024;
 pub struct PythonRuntimeHandle {
     install_root: Option<PathBuf>,
     executable: PathBuf,
+    protection: Option<Arc<dyn RuntimeProtection>>,
+}
+
+/// A live owner retains the actual stable lease and verifies its pinned tree.
+/// Data-only descriptors cannot be promoted into this capability.
+pub(crate) trait RuntimeProtection: std::fmt::Debug + Send + Sync {
+    fn check_binding(&self) -> Result<()>;
 }
 
 impl PythonRuntimeHandle {
@@ -61,7 +71,33 @@ impl PythonRuntimeHandle {
         Ok(Self {
             install_root: None,
             executable,
+            protection: None,
         })
+    }
+
+    pub(crate) fn from_protected_executable(
+        path: &Path,
+        protection: Arc<dyn RuntimeProtection>,
+    ) -> Result<Self> {
+        protection.check_binding()?;
+        let mut handle = Self::from_existing_executable(path)?;
+        protection.check_binding()?;
+        handle.protection = Some(protection);
+        Ok(handle)
+    }
+
+    fn check_protection(&self) -> Result<()> {
+        if let Some(protection) = &self.protection {
+            protection.check_binding()?;
+        }
+        Ok(())
+    }
+
+    fn check_protection_at_deadline(&self, deadline: Instant) -> Result<()> {
+        ensure!(Instant::now() < deadline, "Python runtime probe timed out");
+        self.check_protection()?;
+        ensure!(Instant::now() < deadline, "Python runtime probe timed out");
+        Ok(())
     }
 
     /// The canonical interpreter path used to launch the probe.
@@ -74,6 +110,10 @@ impl PythonRuntimeHandle {
         self.install_root.as_deref()
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "python_runtime_protection_tests.rs"]
+mod protection_tests;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -143,6 +183,88 @@ pub struct PythonMarkerValues {
     pub sys_platform: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PythonOsVersion {
+    pub major: u32,
+    pub minor: u32,
+    pub micro: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PythonLibcVersion {
+    pub major: u32,
+    pub minor: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PythonElfObservation {
+    pub class: u8,
+    pub little_endian: bool,
+    pub machine: u16,
+    pub flags: u32,
+    pub interpreter: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "family", rename_all = "snake_case", deny_unknown_fields)]
+pub enum PythonLibcObservation {
+    Unknown,
+    Glibc {
+        major: u32,
+        minor: u32,
+    },
+    Musl {
+        version: Option<PythonLibcVersion>,
+        loader: PathBuf,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PythonManylinuxOverride {
+    pub arch: String,
+    pub major: u32,
+    pub minor: u32,
+    pub compatible: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
+pub enum PythonManylinuxObservation {
+    Default,
+    Unknown,
+    Overrides {
+        values: Vec<PythonManylinuxOverride>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "os", rename_all = "snake_case", deny_unknown_fields)]
+pub enum PythonPlatformObservation {
+    Macos {
+        cpu_type: Option<i32>,
+        product_version: Option<PythonOsVersion>,
+    },
+    Linux {
+        elf: Option<PythonElfObservation>,
+        libc: PythonLibcObservation,
+        manylinux: PythonManylinuxObservation,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PythonCompatibilityObservation {
+    pub pointer_bits: u8,
+    pub debug: Option<bool>,
+    pub pymalloc: Option<bool>,
+    pub unicode_size: Option<u8>,
+    pub platform: PythonPlatformObservation,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Local observations validated by [`probe`] before it returns.
@@ -165,7 +287,238 @@ pub struct PythonRuntimeDescriptor {
     pub abiflags: Option<String>,
     pub extension_suffixes: Vec<String>,
     pub gil_disabled: Option<bool>,
+    #[serde(default)]
+    pub compatibility: Option<PythonCompatibilityObservation>,
     pub sysconfig_paths: BTreeMap<String, String>,
+}
+
+impl PythonRuntimeDescriptor {
+    /// Validate compatibility observations before deriving any native target.
+    /// Missing observations are retained as unknown capability, never defaults.
+    pub fn validate_compatibility(&self) -> Result<()> {
+        let language = &self.language_version;
+        ensure!(self.schema == 1, "unsupported Python runtime probe schema");
+        ensure!(
+            self.observation_mode == "base_runtime_site_disabled"
+                && self.probe_flags.iter().map(String::as_str).eq(FLAGS),
+            "unexpected Python runtime probe observation mode"
+        );
+        ensure!(language.major == 3, "only Python 3.x is in scope");
+        ensure!(
+            language.release_level != ReleaseLevel::Final || language.serial == 0,
+            "invalid final language version"
+        );
+        ensure!(
+            self.implementation_version.release_level != ReleaseLevel::Final
+                || self.implementation_version.serial == 0,
+            "invalid final implementation version"
+        );
+        ensure!(
+            self.markers.os_name == "posix" && !self.markers.platform_machine.is_empty(),
+            "invalid POSIX runtime platform observation"
+        );
+        ensure!(
+            (self.markers.sys_platform == "darwin" && self.markers.platform_system == "Darwin")
+                || (self.markers.sys_platform.starts_with("linux")
+                    && self.markers.platform_system == "Linux"),
+            "only macOS/Linux runtime descriptors are in scope"
+        );
+        ensure!(
+            self.markers.python_full_version == language.full_version()
+                && self.markers.python_version == format!("{}.{}", language.major, language.minor),
+            "runtime versions and marker values disagree"
+        );
+        match self.implementation {
+            PythonImplementation::CPython => ensure!(
+                self.implementation_version == *language
+                    && self.markers.implementation_name == "cpython"
+                    && self.markers.platform_python_implementation == "CPython"
+                    && self.implementation_version_source
+                        != ImplementationVersionSource::PypyVersionInfo,
+                "invalid CPython compatibility identity"
+            ),
+            PythonImplementation::PyPy => ensure!(
+                self.markers.implementation_name == "pypy"
+                    && self.markers.platform_python_implementation == "PyPy"
+                    && self.implementation_version_source
+                        == ImplementationVersionSource::PypyVersionInfo,
+                "invalid PyPy compatibility identity"
+            ),
+        }
+        ensure!(
+            self.markers.implementation_version == self.implementation_version.full_version(),
+            "implementation version and marker disagree"
+        );
+        if self.implementation == PythonImplementation::CPython {
+            ensure!(
+                self.gil_disabled != Some(true) || language.minor >= 13,
+                "free-threaded CPython requires Python 3.13 or later"
+            );
+            if let (Some(flags), Some(gil_disabled)) = (&self.abiflags, self.gil_disabled) {
+                ensure!(
+                    flags.contains('t') == gil_disabled,
+                    "CPython free-threaded observations disagree"
+                );
+            }
+        }
+        let Some(observation) = &self.compatibility else {
+            return Ok(());
+        };
+        ensure!(
+            matches!(observation.pointer_bits, 32 | 64),
+            "invalid Python pointer width"
+        );
+        ensure!(
+            observation
+                .unicode_size
+                .is_none_or(|size| matches!(size, 2 | 4)),
+            "invalid Python Unicode ABI width"
+        );
+        if self.implementation == PythonImplementation::CPython
+            && let Some(flags) = &self.abiflags
+        {
+            if let Some(debug) = observation.debug {
+                ensure!(
+                    flags.contains('d') == debug,
+                    "CPython debug observations disagree"
+                );
+            }
+            if language.minor < 8
+                && let Some(pymalloc) = observation.pymalloc
+            {
+                ensure!(
+                    flags.contains('m') == pymalloc,
+                    "CPython pymalloc observations disagree"
+                );
+            }
+            if language.minor < 3
+                && let Some(width) = observation.unicode_size
+            {
+                ensure!(
+                    flags.contains('u') == (width == 4),
+                    "CPython UCS observations disagree"
+                );
+            }
+        }
+        match &observation.platform {
+            PythonPlatformObservation::Macos {
+                cpu_type,
+                product_version,
+            } => {
+                ensure!(
+                    self.markers.os_name == "posix"
+                        && self.markers.sys_platform == "darwin"
+                        && self.markers.platform_system == "Darwin",
+                    "macOS compatibility observation disagrees with markers"
+                );
+                if let Some(cpu) = cpu_type {
+                    ensure!(*cpu > 0, "invalid Mach-O CPU type");
+                    let bits = if cpu & 0x0100_0000 == 0 { 32 } else { 64 };
+                    ensure!(
+                        bits == observation.pointer_bits,
+                        "Mach-O and Python pointer widths disagree"
+                    );
+                }
+                if let Some(version) = product_version {
+                    ensure!(version.major >= 10, "invalid macOS product version");
+                    ensure!(
+                        version.minor <= 1024 && version.micro <= 1024,
+                        "macOS product version exceeds observation bounds"
+                    );
+                }
+            }
+            PythonPlatformObservation::Linux {
+                elf,
+                libc,
+                manylinux,
+            } => {
+                ensure!(
+                    self.markers.os_name == "posix"
+                        && self.markers.sys_platform.starts_with("linux")
+                        && self.markers.platform_system == "Linux",
+                    "Linux compatibility observation disagrees with markers"
+                );
+                if let Some(elf) = elf {
+                    let bits = match elf.class {
+                        1 => 32,
+                        2 => 64,
+                        _ => bail!("invalid ELF class"),
+                    };
+                    ensure!(
+                        bits == observation.pointer_bits,
+                        "ELF and Python pointer widths disagree"
+                    );
+                    if let Some(interpreter) = &elf.interpreter {
+                        ensure!(
+                            interpreter.is_absolute(),
+                            "ELF interpreter must be absolute"
+                        );
+                        ensure!(
+                            interpreter.as_os_str().len() <= 4096,
+                            "ELF interpreter path exceeds bounds"
+                        );
+                    }
+                }
+                match libc {
+                    PythonLibcObservation::Unknown => {}
+                    PythonLibcObservation::Glibc { major, minor } => {
+                        ensure!(
+                            *major > 0 && *major <= 1024 && *minor <= 1024,
+                            "invalid glibc version observation"
+                        );
+                    }
+                    PythonLibcObservation::Musl { version, loader } => {
+                        ensure!(loader.is_absolute(), "musl loader must be absolute");
+                        ensure!(
+                            elf.as_ref().and_then(|value| value.interpreter.as_ref())
+                                == Some(loader),
+                            "musl loader differs from observed ELF interpreter"
+                        );
+                        if let Some(version) = version {
+                            ensure!(
+                                version.major > 0 && version.major <= 1024 && version.minor <= 1024,
+                                "invalid musl version observation"
+                            );
+                        }
+                    }
+                }
+                if let PythonManylinuxObservation::Overrides { values } = manylinux {
+                    let PythonLibcObservation::Glibc { major, minor } = libc else {
+                        bail!("manylinux overrides require observed glibc");
+                    };
+                    ensure!(values.len() <= 2048, "too many manylinux overrides");
+                    let mut identities = BTreeSet::new();
+                    for value in values {
+                        ensure!(
+                            matches!(
+                                value.arch.as_str(),
+                                "x86_64"
+                                    | "i686"
+                                    | "aarch64"
+                                    | "armv8l"
+                                    | "armv7l"
+                                    | "ppc64"
+                                    | "ppc64le"
+                                    | "s390x"
+                                    | "loongarch64"
+                                    | "riscv64"
+                            ),
+                            "invalid manylinux override architecture"
+                        );
+                        ensure!(
+                            value.major == *major && value.minor <= *minor,
+                            "manylinux override exceeds observed libc"
+                        );
+                        ensure!(
+                            identities.insert((value.arch.as_str(), value.major, value.minor)),
+                            "duplicate manylinux override identity"
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 fn decode(handle: &PythonRuntimeHandle, bytes: &[u8]) -> Result<PythonRuntimeDescriptor> {
@@ -240,12 +593,252 @@ fn decode(handle: &PythonRuntimeHandle, bytes: &[u8]) -> Result<PythonRuntimeDes
             || (markers.sys_platform.starts_with("linux") && markers.platform_system == "Linux"),
         "only macOS/Linux runtime descriptors are in scope"
     );
+    descriptor.validate_compatibility()?;
     Ok(descriptor)
 }
 
+const MAX_HEADER_BYTES: u64 = 1024 * 1024;
+const MAX_INTERPRETER_BYTES: usize = 4096;
+
+fn elf_integer(bytes: &[u8], offset: usize, width: usize, little: bool) -> Result<u64> {
+    let end = offset.checked_add(width).context("ELF offset overflow")?;
+    let field = bytes.get(offset..end).context("truncated ELF field")?;
+    let mut value = 0_u64;
+    if little {
+        for (index, byte) in field.iter().enumerate() {
+            value |= u64::from(*byte) << (index * 8);
+        }
+    } else {
+        for byte in field {
+            value = (value << 8) | u64::from(*byte);
+        }
+    }
+    Ok(value)
+}
+
+fn parse_elf_observation(bytes: &[u8]) -> Result<PythonElfObservation> {
+    ensure!(
+        bytes.len() <= MAX_HEADER_BYTES as usize,
+        "ELF header region exceeds bounds"
+    );
+    ensure!(
+        bytes.len() >= 52 && bytes.starts_with(b"\x7fELF"),
+        "invalid ELF header"
+    );
+    ensure!(bytes[6] == 1, "unsupported ELF version");
+    let class = bytes[4];
+    ensure!(matches!(class, 1 | 2), "unsupported ELF class");
+    ensure!(matches!(bytes[5], 1 | 2), "unsupported ELF endianness");
+    let little = bytes[5] == 1;
+    let (offset, size, count, flags, expected_size) = if class == 1 {
+        (
+            elf_integer(bytes, 28, 4, little)?,
+            elf_integer(bytes, 42, 2, little)?,
+            elf_integer(bytes, 44, 2, little)?,
+            elf_integer(bytes, 36, 4, little)?,
+            32,
+        )
+    } else {
+        ensure!(bytes.len() >= 64, "truncated ELF64 header");
+        (
+            elf_integer(bytes, 32, 8, little)?,
+            elf_integer(bytes, 54, 2, little)?,
+            elf_integer(bytes, 56, 2, little)?,
+            elf_integer(bytes, 48, 4, little)?,
+            56,
+        )
+    };
+    ensure!(count <= 256, "too many ELF program headers");
+    ensure!(
+        count == 0 || size == expected_size,
+        "invalid ELF program header size"
+    );
+    let end = offset
+        .checked_add(size.checked_mul(count).context("ELF table overflow")?)
+        .context("ELF table offset overflow")?;
+    ensure!(
+        end <= bytes.len() as u64,
+        "ELF program headers outside bounded region"
+    );
+    let mut interpreter = None;
+    for index in 0..count {
+        let entry = usize::try_from(offset + index * size).context("ELF entry offset")?;
+        if elf_integer(bytes, entry, 4, little)? != 3 {
+            continue;
+        }
+        ensure!(interpreter.is_none(), "duplicate ELF interpreter");
+        let (location, length) = if class == 1 {
+            (
+                elf_integer(bytes, entry + 4, 4, little)?,
+                elf_integer(bytes, entry + 16, 4, little)?,
+            )
+        } else {
+            (
+                elf_integer(bytes, entry + 8, 8, little)?,
+                elf_integer(bytes, entry + 32, 8, little)?,
+            )
+        };
+        ensure!(
+            (2..=MAX_INTERPRETER_BYTES as u64).contains(&length),
+            "invalid ELF interpreter length"
+        );
+        let end = location
+            .checked_add(length)
+            .context("ELF interpreter offset overflow")?;
+        ensure!(
+            end <= bytes.len() as u64,
+            "ELF interpreter outside bounded region"
+        );
+        let raw = &bytes[usize::try_from(location)?..usize::try_from(end)?];
+        ensure!(
+            raw.last() == Some(&0) && !raw[..raw.len() - 1].contains(&0),
+            "invalid ELF interpreter terminator"
+        );
+        let path = PathBuf::from(
+            std::str::from_utf8(&raw[..raw.len() - 1]).context("ELF interpreter UTF-8")?,
+        );
+        ensure!(path.is_absolute(), "ELF interpreter must be absolute");
+        interpreter = Some(path);
+    }
+    Ok(PythonElfObservation {
+        class,
+        little_endian: little,
+        machine: u16::try_from(elf_integer(bytes, 18, 2, little)?)?,
+        flags: u32::try_from(flags)?,
+        interpreter,
+    })
+}
+
+fn read_bound_elf(handle: &PythonRuntimeHandle) -> Result<PythonElfObservation> {
+    let mut bytes = Vec::new();
+    std::fs::File::open(handle.executable())?
+        .take(MAX_HEADER_BYTES)
+        .read_to_end(&mut bytes)?;
+    parse_elf_observation(&bytes)
+}
+
+fn musl_version(stderr: &[u8]) -> Option<PythonLibcVersion> {
+    let text = std::str::from_utf8(stderr).ok()?;
+    let mut lines = text.lines();
+    if !lines.next()?.trim().starts_with("musl libc (") {
+        return None;
+    }
+    let text = lines.next()?.trim().strip_prefix("Version ")?;
+    let parts: Vec<_> = text.split('.').collect();
+    if parts.len() != 3
+        || parts
+            .iter()
+            .any(|part| part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()))
+    {
+        return None;
+    }
+    let major: u32 = parts[0].parse().ok()?;
+    let minor: u32 = parts[1].parse().ok()?;
+    let patch: u32 = parts[2].parse().ok()?;
+    if major == 0 || major > 1024 || minor > 1024 || patch > 1024 {
+        return None;
+    }
+    Some(PythonLibcVersion { major, minor })
+}
+
+fn musl_loader_command(loader: &Path, cwd: &Path) -> Command {
+    let mut command = Command::new(loader);
+    command
+        .env_clear()
+        .env("LC_ALL", "C")
+        .current_dir(cwd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    command
+}
+
+async fn observe_musl_loader(
+    loader: &Path,
+    cwd: &Path,
+    deadline: Instant,
+    stdout_limit: u64,
+    stderr_limit: u64,
+) -> Result<Option<PythonLibcVersion>> {
+    ensure!(loader.is_absolute(), "musl loader must be absolute");
+    ensure!(
+        stdout_limit != 0 && stderr_limit != 0,
+        "musl loader output limits must be positive"
+    );
+    ensure!(
+        Instant::now() < deadline,
+        "Python runtime probe timed out before musl observation"
+    );
+    let mut child = musl_loader_command(loader, cwd)
+        .spawn()
+        .context("launching observed musl loader")?;
+    let stdout = child.stdout.take().context("musl loader stdout missing")?;
+    let stderr = child.stderr.take().context("musl loader stderr missing")?;
+    let result = tokio::time::timeout_at(deadline, async {
+        tokio::try_join!(
+            child.wait(),
+            read_bounded(stdout, stdout_limit.min(STDOUT_LIMIT)),
+            read_bounded(stderr, stderr_limit.min(STDERR_LIMIT))
+        )
+    })
+    .await;
+    let (_, _, stderr) = match result {
+        Ok(Ok(output)) => output,
+        Ok(Err(error)) => {
+            kill_and_reap(&mut child).await?;
+            return Err(error).context("reading musl loader output");
+        }
+        Err(_) => {
+            kill_and_reap(&mut child).await?;
+            bail!("Python runtime probe timed out during musl observation");
+        }
+    };
+    // A musl loader without a program normally exits nonzero after identifying
+    // itself. Status is not used as the version parser; its stderr must match.
+    Ok(musl_version(&stderr))
+}
+
+async fn complete_musl_observation(
+    handle: &PythonRuntimeHandle,
+    descriptor: &mut PythonRuntimeDescriptor,
+    cwd: &Path,
+    deadline: Instant,
+    stdout_limit: u64,
+    stderr_limit: u64,
+) -> Result<()> {
+    let Some(observation) = &mut descriptor.compatibility else {
+        return Ok(());
+    };
+    let PythonPlatformObservation::Linux { elf, libc, .. } = &mut observation.platform else {
+        return Ok(());
+    };
+    let PythonLibcObservation::Musl { version, loader } = libc else {
+        return Ok(());
+    };
+    let bound =
+        read_bound_elf(handle).context("verifying selected Python ELF before loader execution")?;
+    ensure!(
+        elf.as_ref() == Some(&bound),
+        "bound Python ELF differs from process observation"
+    );
+    ensure!(
+        bound.interpreter.as_ref() == Some(&*loader),
+        "musl loader differs from bound ELF interpreter"
+    );
+    let loader = loader.canonicalize().context("observed musl loader")?;
+    ensure!(loader.is_file(), "observed musl loader is not a file");
+    *version = observe_musl_loader(&loader, cwd, deadline, stdout_limit, stderr_limit).await?;
+    Ok(())
+}
+
 fn probe_command(handle: &PythonRuntimeHandle, cwd: &Path) -> Command {
+    fixed_probe_command(handle, cwd, SCRIPT)
+}
+
+fn fixed_probe_command(handle: &PythonRuntimeHandle, cwd: &Path, script: &str) -> Command {
     let mut command = Command::new(handle.executable());
-    command.args(FLAGS).arg(SCRIPT);
+    command.args(FLAGS).arg(script);
     command
         .env_clear()
         .env("LC_ALL", "C")
@@ -275,6 +868,210 @@ async fn kill_and_reap(child: &mut tokio::process::Child) -> Result<()> {
     Ok(())
 }
 
+async fn run_fixed_probe(
+    handle: &PythonRuntimeHandle,
+    mut command: Command,
+    deadline: Instant,
+    stdout_limit: u64,
+    stderr_limit: u64,
+) -> Result<Vec<u8>> {
+    ensure!(Instant::now() < deadline, "Python runtime probe timed out");
+    handle.check_protection_at_deadline(deadline)?;
+    let mut child = command
+        .spawn()
+        .context("launching selected Python runtime")?;
+    let stdout = child
+        .stdout
+        .take()
+        .context("Python probe stdout pipe missing")?;
+    let stderr = child
+        .stderr
+        .take()
+        .context("Python probe stderr pipe missing")?;
+    let result = tokio::time::timeout_at(deadline, async {
+        tokio::try_join!(
+            child.wait(),
+            read_bounded(stdout, stdout_limit),
+            read_bounded(stderr, stderr_limit)
+        )
+    })
+    .await;
+    let (status, stdout, stderr) = match result {
+        Ok(Ok(output)) => output,
+        Ok(Err(error)) => {
+            kill_and_reap(&mut child).await?;
+            return Err(error).context("reading Python runtime probe output");
+        }
+        Err(_) => {
+            kill_and_reap(&mut child).await?;
+            bail!("Python runtime probe timed out");
+        }
+    };
+    handle.check_protection_at_deadline(deadline)?;
+    if !status.success() {
+        let stderr: String = String::from_utf8_lossy(&stderr)
+            .chars()
+            .take(1024)
+            .collect();
+        bail!("Python runtime probe failed with {}: {}", status, stderr);
+    }
+    Ok(stdout)
+}
+
+/// Execute the one fixed, site-disabled layout observer under the caller's
+/// existing deadline. No arbitrary script or environment is accepted.
+pub(crate) async fn probe_layout(
+    handle: &PythonRuntimeHandle,
+    final_prefix: &Path,
+    stdout_limit: u64,
+    stderr_limit: u64,
+    deadline: Instant,
+) -> Result<Vec<u8>> {
+    ensure!(
+        cfg!(any(target_os = "macos", target_os = "linux")),
+        "Python runtime layout probe currently supports macOS/Linux"
+    );
+    ensure!(
+        stdout_limit != 0 && stderr_limit != 0,
+        "Python layout output limits must be nonzero"
+    );
+    let cwd = tempfile::tempdir().context("creating empty Python layout probe cwd")?;
+    let mut command = fixed_probe_command(
+        handle,
+        cwd.path(),
+        include_str!("python_runtime_layout_probe.py"),
+    );
+    command.arg(final_prefix);
+    run_fixed_probe(
+        handle,
+        command,
+        deadline,
+        stdout_limit.min(STDOUT_LIMIT),
+        stderr_limit.min(STDERR_LIMIT),
+    )
+    .await
+}
+
+/// Execute only the fixed pre-site code/cfg observer with bounded owned input.
+/// This wrong baseline awaits independent supervised-stdin behavior RED.
+pub(crate) async fn probe_startup_intercept(
+    handle: &PythonRuntimeHandle,
+    request: Vec<u8>,
+    stdout_limit: u64,
+    stderr_limit: u64,
+    deadline: Instant,
+) -> Result<Vec<u8>> {
+    run_startup_probe(handle, request, stdout_limit, stderr_limit, deadline, false).await
+}
+
+/// A separate fixed normal-empty observer; caller admission remains in D3.
+pub(crate) async fn probe_empty_environment(
+    handle: &PythonRuntimeHandle,
+    request: Vec<u8>,
+    stdout_limit: u64,
+    stderr_limit: u64,
+    deadline: Instant,
+) -> Result<Vec<u8>> {
+    run_startup_probe(handle, request, stdout_limit, stderr_limit, deadline, true).await
+}
+
+async fn run_startup_probe(
+    handle: &PythonRuntimeHandle,
+    request: Vec<u8>,
+    stdout_limit: u64,
+    stderr_limit: u64,
+    deadline: Instant,
+    normal: bool,
+) -> Result<Vec<u8>> {
+    ensure!(
+        request.len() <= 32 * 1024 * 1024,
+        "startup input limit exceeded"
+    );
+    ensure!(
+        stdout_limit != 0 && stderr_limit != 0,
+        "startup output limit must be nonzero"
+    );
+    ensure!(
+        Instant::now() < deadline,
+        "Python runtime startup probe timed out"
+    );
+    let cwd = tempfile::tempdir().context("creating empty Python startup probe cwd")?;
+    let marker = if normal {
+        "# PAKRO_RUNTIME_EMPTY_V1\n"
+    } else {
+        "# PAKRO_RUNTIME_STARTUP_V1\n"
+    };
+    let script = format!(
+        "{marker}{}\n{}",
+        include_str!("python_site_adapter.py"),
+        include_str!("python_runtime_startup_probe.py")
+    );
+    let mut command = Command::new(handle.executable());
+    if normal {
+        command.args(["-E", "-s", "-B", "-c"]);
+    } else {
+        command.args(FLAGS);
+    }
+    command
+        .arg(script)
+        .env_clear()
+        .env("LC_ALL", "C")
+        .current_dir(cwd.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    handle.check_protection_at_deadline(deadline)?;
+    let mut child = command
+        .spawn()
+        .context("launching selected Python startup runtime")?;
+    let mut stdin = child.stdin.take().context("Python startup stdin missing")?;
+    let stdout = child
+        .stdout
+        .take()
+        .context("Python startup stdout missing")?;
+    let stderr = child
+        .stderr
+        .take()
+        .context("Python startup stderr missing")?;
+    let result = tokio::time::timeout_at(deadline, async {
+        tokio::try_join!(
+            child.wait(),
+            read_bounded(stdout, stdout_limit.min(STDOUT_LIMIT)),
+            read_bounded(stderr, stderr_limit.min(STDERR_LIMIT)),
+            async move {
+                stdin.write_all(&request).await?;
+                stdin.shutdown().await
+            }
+        )
+    })
+    .await;
+    let (status, stdout, stderr, ()) = match result {
+        Ok(Ok(output)) => output,
+        Ok(Err(error)) => {
+            kill_and_reap(&mut child).await?;
+            return Err(error).context("reading output or writing Python startup input");
+        }
+        Err(_) => {
+            kill_and_reap(&mut child).await?;
+            bail!("Python runtime startup probe timed out");
+        }
+    };
+    handle.check_protection_at_deadline(deadline)?;
+    if !status.success() {
+        let stderr: String = String::from_utf8_lossy(&stderr)
+            .chars()
+            .take(1024)
+            .collect();
+        bail!("Python runtime startup probe failed with {status}: {stderr}");
+    }
+    Ok(stdout)
+}
+
+#[cfg(all(test, unix))]
+#[path = "python_runtime_startup_tests.rs"]
+mod startup_tests;
+
 /// Observe a base Python runtime with a fixed standard-library script.
 ///
 /// Accepts at most 1 MiB of stdout and 64 KiB of stderr, reading one extra byte
@@ -301,45 +1098,49 @@ pub async fn probe(
         !timeout.is_zero(),
         "Python runtime probe timeout must be positive"
     );
+    let deadline = Instant::now()
+        .checked_add(timeout)
+        .context("Python runtime probe timeout overflow")?;
+    probe_at_deadline(handle, deadline, STDOUT_LIMIT, STDERR_LIMIT).await
+}
+
+pub(crate) async fn probe_at_deadline(
+    handle: &PythonRuntimeHandle,
+    deadline: Instant,
+    stdout_limit: u64,
+    stderr_limit: u64,
+) -> Result<PythonRuntimeDescriptor> {
+    ensure!(
+        cfg!(any(target_os = "macos", target_os = "linux")),
+        "Python runtime probe currently supports macOS/Linux"
+    );
+    ensure!(
+        stdout_limit != 0 && stderr_limit != 0 && Instant::now() < deadline,
+        "Python runtime probe limits or deadline are invalid"
+    );
     let cwd = tempfile::tempdir().context("creating empty Python probe cwd")?;
-    let mut child = probe_command(handle, cwd.path())
-        .spawn()
-        .context("launching selected Python runtime")?;
-    let stdout = child
-        .stdout
-        .take()
-        .context("Python probe stdout pipe missing")?;
-    let stderr = child
-        .stderr
-        .take()
-        .context("Python probe stderr pipe missing")?;
-    let result = tokio::time::timeout(timeout, async {
-        tokio::try_join!(
-            child.wait(),
-            read_bounded(stdout, STDOUT_LIMIT),
-            read_bounded(stderr, STDERR_LIMIT)
-        )
-    })
-    .await;
-    let (status, stdout, stderr) = match result {
-        Ok(Ok(output)) => output,
-        Ok(Err(error)) => {
-            kill_and_reap(&mut child).await?;
-            return Err(error).context("reading Python runtime probe output");
-        }
-        Err(_) => {
-            kill_and_reap(&mut child).await?;
-            bail!("Python runtime probe timed out");
-        }
-    };
-    if !status.success() {
-        let stderr: String = String::from_utf8_lossy(&stderr)
-            .chars()
-            .take(1024)
-            .collect();
-        bail!("Python runtime probe failed with {}: {}", status, stderr);
-    }
-    decode(handle, &stdout)
+    let stdout = run_fixed_probe(
+        handle,
+        probe_command(handle, cwd.path()),
+        deadline,
+        stdout_limit.min(STDOUT_LIMIT),
+        stderr_limit.min(STDERR_LIMIT),
+    )
+    .await?;
+    let mut descriptor = decode(handle, &stdout)?;
+    handle.check_protection_at_deadline(deadline)?;
+    complete_musl_observation(
+        handle,
+        &mut descriptor,
+        cwd.path(),
+        deadline,
+        stdout_limit,
+        stderr_limit,
+    )
+    .await?;
+    descriptor.validate_compatibility()?;
+    handle.check_protection_at_deadline(deadline)?;
+    Ok(descriptor)
 }
 
 #[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
@@ -612,7 +1413,8 @@ mod tests {
                 "if [ -n \"${{HOME+x}}\" ]; then printf 'inherited HOME' >&2; exit 8; fi\nprintf '%s\\n' '{quoted}'"
             ),
         );
-        assert!(probe(&handle, Duration::from_secs(2)).await.is_ok());
+        let result = probe(&handle, Duration::from_secs(2)).await;
+        assert!(result.is_ok(), "HOME isolation probe failed: {result:?}");
     }
 
     #[tokio::test]
@@ -667,6 +1469,756 @@ mod tests {
         assert!(format!("{error:#}").contains("exceeds 65536 bytes"));
     }
 
+    fn compatibility_fixture() -> Value {
+        json!({
+            "pointer_bits":64,"debug":false,"pymalloc":true,"unicode_size":null,
+            "platform":{
+                "os":"linux",
+                "elf":{"class":2,"little_endian":true,"machine":183,"flags":0,
+                       "interpreter":"/lib/ld-linux-aarch64.so.1"},
+                "libc":{"family":"glibc","major":2,"minor":31},
+                "manylinux":{"state":"default"}
+            }
+        })
+    }
+
+    #[test]
+    fn compatibility_legacy_fixture_stays_unknown() {
+        let (_root, handle) = selected();
+        let descriptor = parsed(&handle, &fixture(&handle, false)).unwrap();
+        assert_eq!(descriptor.compatibility, None);
+        descriptor.validate_compatibility().unwrap();
+    }
+
+    #[test]
+    fn compatibility_legacy_free_threaded_identity_is_rejected() {
+        let (_root, handle) = selected();
+        let mut value = fixture(&handle, false);
+        value["gil_disabled"] = json!(true);
+        assert!(parsed(&handle, &value).is_err());
+        let mut descriptor = parsed(&handle, &fixture(&handle, false)).unwrap();
+        descriptor.gil_disabled = Some(true);
+        assert!(descriptor.validate_compatibility().is_err());
+    }
+
+    #[test]
+    fn compatibility_legacy_free_threaded_flag_disagreement_is_rejected() {
+        let (_root, handle) = selected();
+        let mut value = fixture(&handle, false);
+        value["abiflags"] = json!("t");
+        value["gil_disabled"] = json!(false);
+        assert!(parsed(&handle, &value).is_err());
+    }
+
+    #[test]
+    fn compatibility_preserves_real_bits_and_elf() {
+        let (_root, handle) = selected();
+        let mut value = fixture(&handle, false);
+        value["compatibility"] = compatibility_fixture();
+        value["compatibility"]["pointer_bits"] = json!(32);
+        value["compatibility"]["platform"]["elf"]["class"] = json!(1);
+        value["compatibility"]["platform"]["elf"]["machine"] = json!(3);
+        value["markers"]["platform_machine"] = json!("x86_64");
+        let descriptor = parsed(&handle, &value).unwrap();
+        assert_eq!(descriptor.compatibility.unwrap().pointer_bits, 32);
+        // Host uname is not rewritten to the inferred process architecture.
+        assert_eq!(descriptor.markers.platform_machine, "x86_64");
+    }
+
+    #[test]
+    fn compatibility_rejects_bad_bits_and_elf_disagreement() {
+        let (_root, handle) = selected();
+        for (bits, class) in [(16, 2), (32, 2), (64, 1), (64, 0)] {
+            let mut value = fixture(&handle, false);
+            value["compatibility"] = compatibility_fixture();
+            value["compatibility"]["pointer_bits"] = json!(bits);
+            value["compatibility"]["platform"]["elf"]["class"] = json!(class);
+            assert!(
+                parsed(&handle, &value).is_err(),
+                "bits={bits} class={class}"
+            );
+        }
+    }
+
+    #[test]
+    fn compatibility_rejects_os_or_macho_width_conflict() {
+        let (_root, handle) = selected();
+        let mut value = fixture(&handle, false);
+        value["compatibility"] = compatibility_fixture();
+        value["compatibility"]["platform"] = json!({
+            "os":"macos","cpu_type":16777228,
+            "product_version":{"major":14,"minor":5,"micro":0}
+        });
+        assert!(parsed(&handle, &value).is_err());
+        value["markers"]["platform_system"] = json!("Darwin");
+        value["markers"]["sys_platform"] = json!("darwin");
+        assert!(parsed(&handle, &value).is_ok());
+        value["compatibility"]["pointer_bits"] = json!(32);
+        assert!(parsed(&handle, &value).is_err());
+    }
+
+    #[test]
+    fn compatibility_rejects_invalid_unicode_and_abi_flags() {
+        let (_root, handle) = selected();
+        let mut value = fixture(&handle, false);
+        value["compatibility"] = compatibility_fixture();
+        value["compatibility"]["unicode_size"] = json!(3);
+        assert!(parsed(&handle, &value).is_err());
+        value["compatibility"]["unicode_size"] = Value::Null;
+        value["abiflags"] = json!("d");
+        assert!(parsed(&handle, &value).is_err());
+        value["compatibility"]["debug"] = json!(true);
+        assert!(parsed(&handle, &value).is_ok());
+        value["abiflags"] = json!("t");
+        value["compatibility"]["debug"] = json!(false);
+        value["gil_disabled"] = json!(false);
+        assert!(parsed(&handle, &value).is_err());
+    }
+
+    #[test]
+    fn compatibility_musl_loader_must_match_absolute_elf_interp() {
+        let (_root, handle) = selected();
+        for loader in ["ld-musl-aarch64.so.1", "/other/ld-musl-aarch64.so.1"] {
+            let mut value = fixture(&handle, false);
+            value["compatibility"] = compatibility_fixture();
+            value["compatibility"]["platform"]["libc"] = json!({
+                "family":"musl","version":{"major":1,"minor":2},"loader":loader
+            });
+            value["compatibility"]["platform"]["elf"]["interpreter"] =
+                json!("/lib/ld-musl-aarch64.so.1");
+            assert!(parsed(&handle, &value).is_err());
+        }
+    }
+
+    #[test]
+    fn compatibility_policy_is_bounded_unique_and_glibc_specific() {
+        let (_root, handle) = selected();
+        let row = json!({"arch":"aarch64","major":2,"minor":17,"compatible":false});
+        let mut value = fixture(&handle, false);
+        value["compatibility"] = compatibility_fixture();
+        value["compatibility"]["platform"]["manylinux"] =
+            json!({"state":"overrides","values":[row.clone()]});
+        assert!(parsed(&handle, &value).is_ok());
+        value["compatibility"]["platform"]["manylinux"]["values"] =
+            json!([row.clone(), row.clone()]);
+        assert!(parsed(&handle, &value).is_err());
+        value["compatibility"]["platform"]["manylinux"]["values"] = json!(vec![row.clone(); 2049]);
+        assert!(parsed(&handle, &value).is_err());
+        value["compatibility"]["platform"]["manylinux"]["values"] = json!([row]);
+        value["compatibility"]["platform"]["libc"] = json!({"family":"unknown"});
+        assert!(parsed(&handle, &value).is_err());
+    }
+
+    #[test]
+    fn compatibility_unknown_is_not_fabricated() {
+        let (_root, handle) = selected();
+        let mut value = fixture(&handle, false);
+        value["compatibility"] = compatibility_fixture();
+        value["compatibility"]["debug"] = Value::Null;
+        value["compatibility"]["pymalloc"] = Value::Null;
+        value["compatibility"]["platform"]["elf"] = Value::Null;
+        value["compatibility"]["platform"]["libc"] = json!({"family":"unknown"});
+        value["compatibility"]["platform"]["manylinux"] = json!({"state":"unknown"});
+        let descriptor = parsed(&handle, &value).unwrap();
+        let observation = descriptor.compatibility.unwrap();
+        assert_eq!(observation.debug, None);
+        assert_eq!(observation.pymalloc, None);
+        assert!(matches!(
+            observation.platform,
+            PythonPlatformObservation::Linux {
+                elf: None,
+                libc: PythonLibcObservation::Unknown,
+                manylinux: PythonManylinuxObservation::Unknown
+            }
+        ));
+    }
+
+    #[test]
+    fn compatibility_public_mutation_is_revalidated() {
+        let (_root, handle) = selected();
+        let mut value = fixture(&handle, false);
+        value["compatibility"] = compatibility_fixture();
+        let mut descriptor = parsed(&handle, &value).unwrap();
+        descriptor.compatibility.as_mut().unwrap().pointer_bits = 32;
+        assert!(descriptor.validate_compatibility().is_err());
+        descriptor.compatibility.as_mut().unwrap().pointer_bits = 64;
+        descriptor.markers.platform_system = "Darwin".into();
+        assert!(descriptor.validate_compatibility().is_err());
+    }
+
+    fn elf_fixture(class: u8, little: bool, machine: u16, loader: &str) -> Vec<u8> {
+        fn field(bytes: &mut [u8], offset: usize, width: usize, value: u64, little: bool) {
+            for index in 0..width {
+                let shift = (if little { index } else { width - index - 1 }) * 8;
+                bytes[offset + index] = ((value >> shift) & 255) as u8;
+            }
+        }
+        let mut bytes = vec![0_u8; 512];
+        bytes[..4].copy_from_slice(b"\x7fELF");
+        bytes[4] = class;
+        bytes[5] = if little { 1 } else { 2 };
+        bytes[6] = 1;
+        field(&mut bytes, 18, 2, u64::from(machine), little);
+        let program = 64;
+        let (
+            offset_field,
+            offset_width,
+            size_field,
+            count_field,
+            size,
+            interpreter_offset_field,
+            interpreter_length_field,
+        ) = if class == 1 {
+            (28, 4, 42, 44, 32, 4, 16)
+        } else {
+            (32, 8, 54, 56, 56, 8, 32)
+        };
+        field(
+            &mut bytes,
+            offset_field,
+            offset_width,
+            program as u64,
+            little,
+        );
+        field(&mut bytes, size_field, 2, size, little);
+        field(&mut bytes, count_field, 2, 1, little);
+        field(&mut bytes, program, 4, 3, little);
+        field(
+            &mut bytes,
+            program + interpreter_offset_field,
+            offset_width,
+            256,
+            little,
+        );
+        field(
+            &mut bytes,
+            program + interpreter_length_field,
+            offset_width,
+            (loader.len() + 1) as u64,
+            little,
+        );
+        bytes[256..256 + loader.len()].copy_from_slice(loader.as_bytes());
+        bytes
+    }
+
+    #[test]
+    fn target_elf_reads_actual_width_endianness_and_interp() {
+        for (class, little, machine) in [(1, true, 3), (2, true, 183), (2, false, 21)] {
+            let bytes = elf_fixture(class, little, machine, "/lib/ld-musl-fixture.so.1");
+            let observed = parse_elf_observation(&bytes).unwrap();
+            assert_eq!(observed.class, class);
+            assert_eq!(observed.little_endian, little);
+            assert_eq!(observed.machine, machine);
+            assert_eq!(
+                observed.interpreter,
+                Some(PathBuf::from("/lib/ld-musl-fixture.so.1"))
+            );
+        }
+    }
+
+    #[test]
+    fn target_elf_rejects_unbounded_or_malformed_headers() {
+        let base = elf_fixture(2, true, 183, "/lib/ld-musl-fixture.so.1");
+        assert!(parse_elf_observation(&base[..51]).is_err());
+        let mut bytes = base.clone();
+        bytes[5] = 0;
+        assert!(parse_elf_observation(&bytes).is_err());
+        let mut bytes = base.clone();
+        bytes[56..58].copy_from_slice(&257_u16.to_le_bytes());
+        assert!(parse_elf_observation(&bytes).is_err());
+        let mut bytes = base.clone();
+        bytes[32..40].copy_from_slice(&u64::MAX.to_le_bytes());
+        assert!(parse_elf_observation(&bytes).is_err());
+        let mut bytes = base.clone();
+        bytes[96..104].copy_from_slice(&4097_u64.to_le_bytes());
+        assert!(parse_elf_observation(&bytes).is_err());
+        let mut bytes = base;
+        bytes[256] = b'x';
+        assert!(parse_elf_observation(&bytes).is_err());
+    }
+
+    #[test]
+    fn target_musl_version_needs_real_header_and_strict_numbers() {
+        assert_eq!(
+            musl_version(b"musl libc (aarch64)\nVersion 1.2.5\nDynamic Program Loader\n"),
+            Some(PythonLibcVersion { major: 1, minor: 2 })
+        );
+        for text in [
+            b"glibc\nVersion 1.2.5\n".as_slice(),
+            b"musl libc (x86_64)\nVersion 1.2\n",
+            b"musl libc (x86_64)\nVersion 1.-2.5\n",
+            b"musl libc (x86_64)\nVersion 999999999999999.2.5\n",
+        ] {
+            assert_eq!(musl_version(text), None);
+        }
+    }
+
+    #[test]
+    fn target_loader_has_absolute_program_no_args_and_cleared_env() {
+        let (_root, handle) = selected();
+        let cwd = tempfile::tempdir().unwrap();
+        let command = musl_loader_command(handle.executable(), cwd.path());
+        let command = command.as_std();
+        assert_eq!(command.get_program(), handle.executable().as_os_str());
+        assert_eq!(command.get_args().count(), 0);
+        assert_eq!(command.get_current_dir(), Some(cwd.path()));
+        let env: Vec<_> = command.get_envs().collect();
+        assert_eq!(env.len(), 1);
+        assert_eq!(env[0].0, "LC_ALL");
+        assert_eq!(env[0].1.unwrap(), "C");
+    }
+
+    #[tokio::test]
+    async fn target_loader_accepts_musl_nonzero_banner_without_manager() {
+        let (_root, handle) = selected();
+        let cwd = tempfile::tempdir().unwrap();
+        rewrite(
+            &handle,
+            "printf 'musl libc (x86_64)\\nVersion 1.2.5\\nDynamic Program Loader\\n' >&2; exit 1",
+        );
+        assert_eq!(
+            observe_musl_loader(
+                handle.executable(),
+                cwd.path(),
+                Instant::now() + Duration::from_secs(2),
+                STDOUT_LIMIT,
+                STDERR_LIMIT,
+            )
+            .await
+            .unwrap(),
+            Some(PythonLibcVersion { major: 1, minor: 2 })
+        );
+        rewrite(&handle, "printf 'unrecognized libc' >&2; exit 1");
+        assert_eq!(
+            observe_musl_loader(
+                handle.executable(),
+                cwd.path(),
+                Instant::now() + Duration::from_secs(2),
+                STDOUT_LIMIT,
+                STDERR_LIMIT,
+            )
+            .await
+            .unwrap(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn target_loader_obeys_shared_deadline_and_reaps_direct_child() {
+        let (root, handle) = selected();
+        let cwd = tempfile::tempdir().unwrap();
+        let pid_file = root.path().join("loader.pid");
+        let quoted = pid_file.to_str().unwrap().replace('\'', "'\"'\"'");
+        rewrite(
+            &handle,
+            &format!("printf '%s\\n' \"$$\" > '{quoted}'\nexec /bin/sleep 10"),
+        );
+        // A newly written executable can take over 100 ms to start on macOS.
+        // Prime this fixture so its PID handshake is ready
+        // within the short deadline whose termination behavior is under test.
+        let mut warmup = musl_loader_command(handle.executable(), cwd.path())
+            .spawn()
+            .unwrap();
+        let ready = tokio::time::timeout(Duration::from_secs(5), async {
+            while !pid_file.exists() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await;
+        kill_and_reap(&mut warmup).await.unwrap();
+        ready.expect("loader fixture did not finish its cold launch");
+        std::fs::remove_file(&pid_file).unwrap();
+        let error = observe_musl_loader(
+            handle.executable(),
+            cwd.path(),
+            Instant::now() + Duration::from_millis(100),
+            STDOUT_LIMIT,
+            STDERR_LIMIT,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("timed out"));
+        let pid: i32 = std::fs::read_to_string(pid_file)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        assert_eq!(
+            nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None),
+            Err(nix::errno::Errno::ESRCH)
+        );
+        assert!(
+            observe_musl_loader(
+                handle.executable(),
+                cwd.path(),
+                Instant::now() - Duration::from_millis(1),
+                STDOUT_LIMIT,
+                STDERR_LIMIT,
+            )
+            .await
+            .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn target_loader_output_is_bounded_and_relative_program_rejected() {
+        let (_root, handle) = selected();
+        let cwd = tempfile::tempdir().unwrap();
+        rewrite(&handle, "exec /usr/bin/head -c 65537 /dev/zero >&2");
+        let error = observe_musl_loader(
+            handle.executable(),
+            cwd.path(),
+            Instant::now() + Duration::from_secs(2),
+            STDOUT_LIMIT,
+            STDERR_LIMIT,
+        )
+        .await
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("exceeds 65536 bytes"));
+        assert!(
+            observe_musl_loader(
+                Path::new("ld-musl.so"),
+                cwd.path(),
+                Instant::now() + Duration::from_secs(2),
+                STDOUT_LIMIT,
+                STDERR_LIMIT,
+            )
+            .await
+            .is_err()
+        );
+    }
+
+    // Paste inside python_runtime::tests. These exercise the public deadline helper
+    // plus its real nested process on either host without a production test hook.
+    // The selected temporary shell deliberately replaces only its own temporary
+    // pathname with existing synthetic ELF bytes after launch. This is a protocol
+    // budget fixture, not evidence that this host executed the supplied ELF image.
+
+    async fn assert_nested_musl_caller_cap(stdout_case: bool) {
+        fn quote(path: &Path) -> String {
+            format!("'{}'", path.to_str().unwrap().replace('\'', "'\"'\"'"))
+        }
+        let (root, handle) = selected();
+        let loader = root.path().join("ld-musl-fixture");
+        let sequence = root.path().join("sequence");
+        let data = root.path().join("valid-frame.json");
+        let image = root.path().join("bound-elf.bin");
+        let mut frame = fixture(&handle, false);
+        frame["compatibility"] = compatibility_fixture();
+        frame["compatibility"]["platform"]["elf"]["interpreter"] = json!(loader);
+        frame["compatibility"]["platform"]["libc"] =
+            json!({"family":"musl","version":null,"loader":loader});
+        frame["compatibility"]["platform"]["manylinux"] = json!({"state":"unknown"});
+        let encoded = serde_json::to_vec(&frame).unwrap();
+        std::fs::write(&data, &encoded).unwrap();
+        std::fs::write(&image, elf_fixture(2, true, 183, loader.to_str().unwrap())).unwrap();
+        // The stdout case leaves enough space for the complete first descriptor,
+        // but deliberately overflows that same caller cap in the nested loader.
+        let stdout_limit = if stdout_case {
+            encoded.len() as u64
+        } else {
+            STDOUT_LIMIT
+        };
+        let stderr_limit = if stdout_case { STDERR_LIMIT } else { 1 };
+        assert!(encoded.len() as u64 <= stdout_limit);
+        let overflow_stdout = if stdout_case {
+            format!("/usr/bin/head -c {} /dev/zero\n", stdout_limit + 1)
+        } else {
+            String::new()
+        };
+        std::fs::write(&loader, format!(
+            "#!/bin/sh\nprintf 'loader\\n' >> {}\n{}printf 'musl libc (aarch64)\\nVersion 1.2.5\\nDynamic Program Loader\\n' >&2\nexit 1\n",
+            quote(&sequence), overflow_stdout,
+        )).unwrap();
+        std::fs::set_permissions(&loader, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let cwd = tempfile::tempdir().unwrap();
+        // Existing default-contract helper must accept the exact same loader.
+        assert_eq!(
+            observe_musl_loader(
+                &loader,
+                cwd.path(),
+                Instant::now() + Duration::from_secs(5),
+                STDOUT_LIMIT,
+                STDERR_LIMIT
+            )
+            .await
+            .unwrap(),
+            Some(PythonLibcVersion { major: 1, minor: 2 })
+        );
+        assert_eq!(
+            std::fs::read_to_string(&sequence)
+                .unwrap()
+                .lines()
+                .collect::<Vec<_>>(),
+            vec!["loader"]
+        );
+        std::fs::remove_file(&sequence).unwrap();
+        rewrite(
+            &handle,
+            &format!(
+                // Parse the entire compound statement before replacing the selected
+                // script's path; no assumption about shell input buffer size is needed.
+                "{{ printf 'probe\\n' >> {}; /bin/cp {} \"$0\"; exec /bin/cat {}; }}",
+                quote(&sequence),
+                quote(&image),
+                quote(&data),
+            ),
+        );
+        let result = probe_at_deadline(
+            &handle,
+            Instant::now() + Duration::from_secs(5),
+            stdout_limit,
+            stderr_limit,
+        )
+        .await;
+        assert_eq!(
+            std::fs::read_to_string(&sequence)
+                .unwrap()
+                .lines()
+                .collect::<Vec<_>>(),
+            vec!["probe", "loader"],
+            "budget fixture failed before the real nested loader process"
+        );
+        let error = result.unwrap_err();
+        let limit = if stdout_case {
+            stdout_limit
+        } else {
+            stderr_limit
+        };
+        assert!(
+            format!("{error:#}").contains(&format!("exceeds {limit} bytes")),
+            "unexpected bounded-loader diagnostic: {error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn caller_stderr_cap_also_bounds_the_nested_musl_loader() {
+        assert_nested_musl_caller_cap(false).await;
+    }
+
+    #[tokio::test]
+    async fn caller_stdout_cap_also_bounds_the_nested_musl_loader() {
+        assert_nested_musl_caller_cap(true).await;
+    }
+
+    #[tokio::test]
+    async fn target_musl_enrichment_rejects_script_executable_before_loader() {
+        let (_root, handle) = selected();
+        let cwd = tempfile::tempdir().unwrap();
+        let mut value = fixture(&handle, false);
+        value["compatibility"] = compatibility_fixture();
+        value["compatibility"]["platform"]["elf"]["interpreter"] =
+            json!("/lib/ld-musl-aarch64.so.1");
+        value["compatibility"]["platform"]["libc"] =
+            json!({"family":"musl","version":null,"loader":"/lib/ld-musl-aarch64.so.1"});
+        value["compatibility"]["platform"]["manylinux"] = json!({"state":"unknown"});
+        let mut descriptor = parsed(&handle, &value).unwrap();
+        let error = complete_musl_observation(
+            &handle,
+            &mut descriptor,
+            cwd.path(),
+            Instant::now() + Duration::from_secs(2),
+            STDOUT_LIMIT,
+            STDERR_LIMIT,
+        )
+        .await
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("invalid ELF header"));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires PAKRO_TEST_PYTHON pointing to an existing modern Python"]
+    async fn target_script_executes_observation_fixtures() {
+        let handle = real_handle();
+        let (helpers, _) = SCRIPT
+            .split_once("display = platform.python_implementation()")
+            .unwrap();
+        let cases = r#"
+import io
+import types
+import builtins
+result = {}
+config = {"Py_DEBUG":0,"WITH_PYMALLOC":1,"Py_UNICODE_SIZE":4}
+sysconfig.get_config_var = lambda key: config.get(key)
+result["bools"] = [bool_config("Py_DEBUG"),bool_config("WITH_PYMALLOC"),bool_config("missing")]
+config["Py_DEBUG"] = "unexpected"
+result["badbool"] = bool_config("Py_DEBUG")
+original_version = sys.version_info
+sys.version_info = (3,2,6,"final",0)
+result["ucs"] = unicode_width()
+sys.version_info = original_version
+result["modern_ucs"] = unicode_width()
+result["versions"] = [numeric_version("14.5.0"),numeric_version("26.0"),numeric_version("14.x"),numeric_version("999999999.2")]
+
+def make_elf(bits,little,machine,loader):
+    data = bytearray(512)
+    data[:4] = b"\x7fELF"
+    data[4],data[5],data[6] = (1 if bits == 32 else 2),(1 if little else 2),1
+    endian = "<" if little else ">"
+    struct.pack_into(endian+"H",data,18,machine)
+    if bits == 32:
+        struct.pack_into(endian+"I",data,28,64)
+        struct.pack_into(endian+"HH",data,42,32,1)
+        struct.pack_into(endian+"I",data,64,3)
+        struct.pack_into(endian+"I",data,68,256)
+        struct.pack_into(endian+"I",data,80,len(loader)+1)
+    else:
+        struct.pack_into(endian+"Q",data,32,64)
+        struct.pack_into(endian+"HH",data,54,56,1)
+        struct.pack_into(endian+"I",data,64,3)
+        struct.pack_into(endian+"Q",data,72,256)
+        struct.pack_into(endian+"Q",data,96,len(loader)+1)
+    data[256:256+len(loader)] = loader.encode("ascii")
+    return bytes(data)
+result["elf32"] = read_elf(io.BytesIO(make_elf(32,True,3,"/lib/ld-linux.so.2")))
+result["elfbe"] = read_elf(io.BytesIO(make_elf(64,False,21,"/lib/ld64.so.1")))
+result["badelf"] = read_elf(io.BytesIO(b"not ELF"))
+result["arches32"] = linux_arches(result["elf32"],"x86_64")
+arm = {"class":1,"little_endian":True,"machine":40,"flags":0x05000400,"interpreter":None}
+result["armhf"] = linux_arches(arm,"aarch64")
+arm["flags"] = 0x05000200
+result["armsoft"] = linux_arches(arm,"aarch64")
+
+fake = types.ModuleType("_manylinux")
+fake.manylinux_compatible = lambda major,minor,arch: False if (minor,arch) == (17,"aarch64") else None
+sys.modules["_manylinux"] = fake
+result["policy"] = manylinux_observation({"family":"glibc","major":2,"minor":18},["aarch64"])
+def broken(major,minor,arch):
+    raise RuntimeError("fixture callback broken")
+fake.manylinux_compatible = broken
+result["brokenpolicy"] = manylinux_observation({"family":"glibc","major":2,"minor":18},["aarch64"])
+del fake.manylinux_compatible
+fake.manylinux2014_compatible = False
+result["legacypolicy"] = manylinux_observation({"family":"glibc","major":2,"minor":18},["aarch64"])
+fake.manylinux2014_compatible = "false"
+result["invalidpolicy"] = manylinux_observation({"family":"glibc","major":2,"minor":18},["aarch64"])
+original_import = builtins.__import__
+import importlib.util
+original_find_spec = importlib.util.find_spec
+del sys.modules["_manylinux"]
+importlib.util.find_spec = lambda name: None
+result["absentpolicy"] = manylinux_observation({"family":"glibc","major":2,"minor":18},["aarch64"])
+importlib.util.find_spec = lambda name: object()
+def broken_import(name,globals=None,locals=None,fromlist=(),level=0):
+    if name == "_manylinux":
+        raise ImportError("fixture missing dependency")
+    return original_import(name,globals,locals,fromlist,level)
+builtins.__import__ = broken_import
+result["brokenimport"] = manylinux_observation({"family":"glibc","major":2,"minor":18},["aarch64"])
+builtins.__import__ = original_import
+importlib.util.find_spec = original_find_spec
+
+import plistlib
+original_open = builtins.open
+def product_open(path,mode="r"):
+    if path == "/System/Library/CoreServices/SystemVersion.plist":
+        return io.BytesIO(b'<?xml version="1.0"?><plist version="1.0"><dict><key>ProductVersion</key><string>26.0</string></dict></plist>')
+    return original_open(path,mode)
+builtins.open = product_open
+result["macproduct"] = mac_product_version()
+def huge_product(path,mode="r"):
+    return io.BytesIO(b"x"*(MAX_HEADER_BYTES+1))
+builtins.open = huge_product
+result["hugemacproduct"] = mac_product_version()
+builtins.open = original_open
+
+import ctypes
+original_cdll = ctypes.CDLL
+original_string_at = ctypes.string_at
+class Function(object):
+    def __init__(self,value): self.value = value
+    def __call__(self,*args): return self.value
+library = types.SimpleNamespace(_dyld_get_image_header=Function(1),gnu_get_libc_version=Function(b"2.31"))
+ctypes.CDLL = lambda value: library
+ctypes.string_at = lambda pointer,size: b"\xcf\xfa\xed\xfe"+struct.pack("<i",16777223)
+result["macho_x64"] = macho_cpu_type()
+ctypes.string_at = lambda pointer,size: b"\xcf\xfa\xed\xfe"+struct.pack("<i",16777228)
+result["macho_arm64"] = macho_cpu_type()
+result["glibc"] = libc_observation(None)
+del library.gnu_get_libc_version
+result["musl"] = libc_observation({"interpreter":"/lib/ld-musl-aarch64.so.1"})
+result["unknownlibc"] = libc_observation({"interpreter":"/lib/unrecognized.so"})
+ctypes.CDLL = original_cdll
+ctypes.string_at = original_string_at
+print(json.dumps(result,sort_keys=True))
+"#;
+        let output = fixture_output(&handle, &format!("{helpers}\n{cases}")).await;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(actual["bools"], json!([false, true, null]));
+        assert_eq!(actual["badbool"], Value::Null);
+        assert_eq!(actual["ucs"], json!(4));
+        assert_eq!(actual["modern_ucs"], Value::Null);
+        assert_eq!(actual["versions"], json!([[14, 5, 0], [26, 0], null, null]));
+        assert_eq!(actual["elf32"]["class"], json!(1));
+        assert_eq!(actual["elf32"]["machine"], json!(3));
+        assert_eq!(actual["elfbe"]["little_endian"], json!(false));
+        assert_eq!(actual["elfbe"]["machine"], json!(21));
+        assert_eq!(actual["badelf"], Value::Null);
+        assert_eq!(actual["arches32"], json!(["i686"]));
+        assert_eq!(actual["armhf"], json!(["armv8l", "armv7l"]));
+        assert_eq!(actual["armsoft"], json!([]));
+        assert_eq!(
+            actual["policy"],
+            json!({"state":"overrides","values":[
+            {"arch":"aarch64","major":2,"minor":18,"compatible":true},
+            {"arch":"aarch64","major":2,"minor":17,"compatible":false}]})
+        );
+        assert_eq!(actual["legacypolicy"], actual["policy"]);
+        for key in ["brokenpolicy", "invalidpolicy", "brokenimport"] {
+            assert_eq!(actual[key], json!({"state":"unknown"}));
+        }
+        assert_eq!(actual["absentpolicy"], json!({"state":"default"}));
+        assert_eq!(
+            actual["macproduct"],
+            json!({"major":26,"minor":0,"micro":0})
+        );
+        assert_eq!(actual["hugemacproduct"], Value::Null);
+        assert_eq!(actual["macho_x64"], json!(16777223));
+        assert_eq!(actual["macho_arm64"], json!(16777228));
+        assert_eq!(
+            actual["glibc"],
+            json!({"family":"glibc","major":2,"minor":31})
+        );
+        assert_eq!(
+            actual["musl"],
+            json!({"family":"musl","version":null,"loader":"/lib/ld-musl-aarch64.so.1"})
+        );
+        assert_eq!(actual["unknownlibc"], json!({"family":"unknown"}));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires PAKRO_TEST_PYTHON pointing to an existing installed runtime"]
+    async fn target_bound_runtime_emits_compatibility_without_external_packages() {
+        let descriptor = probe(&real_handle(), Duration::from_secs(10))
+            .await
+            .unwrap();
+        descriptor.validate_compatibility().unwrap();
+        let observation = descriptor
+            .compatibility
+            .as_ref()
+            .expect("fixed script must emit observations");
+        assert!(matches!(observation.pointer_bits, 32 | 64));
+        match &observation.platform {
+            PythonPlatformObservation::Macos {
+                product_version, ..
+            } => {
+                assert_eq!(descriptor.markers.platform_system, "Darwin");
+                assert!(
+                    product_version.is_some(),
+                    "real macOS ProductVersion plist unavailable"
+                );
+            }
+            PythonPlatformObservation::Linux { .. } => {
+                assert_eq!(descriptor.markers.platform_system, "Linux")
+            }
+        }
+    }
+
     fn real_handle() -> PythonRuntimeHandle {
         let executable = std::env::var_os("PAKRO_TEST_PYTHON")
             .expect("set PAKRO_TEST_PYTHON to an already existing absolute interpreter");
@@ -697,6 +2249,8 @@ import os
 import types
 import builtins
 import importlib.machinery
+import struct
+sys.abiflags = None
 
 modern_config = types.ModuleType("sysconfig")
 modern_config.get_config_var = lambda key: None

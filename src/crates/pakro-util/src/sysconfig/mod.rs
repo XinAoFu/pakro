@@ -139,7 +139,16 @@ pub fn update_sysconfig(
 ) -> Result<(), Error> {
     // Find the `_sysconfigdata_` file in the Python installation.
     let real_prefix = std::path::absolute(install_root)?;
-    let sysconfigdata = find_sysconfigdata(&real_prefix, major, minor, suffix)?;
+    let canonical_root = real_prefix.canonicalize()?;
+    let sysconfigdata = find_sysconfigdata(&real_prefix, major, minor, suffix)?.canonicalize()?;
+    let metadata = std::fs::symlink_metadata(&sysconfigdata)?;
+    if !sysconfigdata.starts_with(&canonical_root) || !metadata.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "sysconfigdata must be a regular file contained in the Python install root",
+        )
+        .into());
+    }
     trace!(
         "Discovered `sysconfig` data at: {}",
         sysconfigdata.display()
@@ -147,20 +156,31 @@ pub fn update_sysconfig(
 
     // Update the `_sysconfigdata_` file in-memory.
     let contents = std::fs::read_to_string(&sysconfigdata)?;
-    let data = SysconfigData::from_str(&contents)?;
-    let data = patch_sysconfigdata(data, &real_prefix);
-    let contents = data.to_string_pretty()?;
+    let contents = patch_sysconfig_contents(&contents, &real_prefix)?;
 
-    // Write the updated `_sysconfigdata_` file.
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .truncate(true)
-        .create(true)
-        .open(&sysconfigdata)?;
+    // Replace the selected name instead of truncating its inode: the original
+    // may also be linked from an immutable store or another installation.
+    let parent = sysconfigdata.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "sysconfigdata parent is missing",
+        )
+    })?;
+    let mut file = tempfile::NamedTempFile::new_in(parent)?;
     file.write_all(contents.as_bytes())?;
-    file.sync_data()?;
+    file.flush()?;
+    file.as_file().set_permissions(metadata.permissions())?;
+    file.as_file().sync_all()?;
+    file.persist(&sysconfigdata).map_err(|error| error.error)?;
 
     Ok(())
+}
+
+/// Transform already owned sysconfig bytes without opening or writing a path.
+pub fn patch_sysconfig_contents(contents: &str, real_prefix: &Path) -> Result<String, Error> {
+    let data = SysconfigData::from_str(contents)?;
+    let data = patch_sysconfigdata(data, real_prefix);
+    Ok(data.to_string_pretty()?)
 }
 
 /// Find the `_sysconfigdata_` file in a Python installation.
@@ -204,11 +224,10 @@ fn find_sysconfigdata(
         }
 
         let metadata = entry.metadata()?;
-        if metadata.is_symlink() {
-            continue;
-        };
-
-        if metadata.is_file() {
+        // Resolve and validate the selected path centrally before reading or
+        // writing it. An outside symlink must fail, rather than be skipped in
+        // favor of a different candidate, while a contained alias is safe.
+        if metadata.is_file() || metadata.is_symlink() {
             return Ok(entry.path());
         }
     }
@@ -301,6 +320,125 @@ pub enum Error {
 #[cfg(unix)]
 mod tests {
     use super::*;
+
+    const CONFIG: &str = concat!(
+        "# system configuration generated and used by the sysconfig module\n",
+        "build_time_vars = {\"BINDIR\": \"/install/bin\"}\n",
+    );
+
+    #[test]
+    fn update_sysconfig_accepts_regular_and_contained_alias_files() {
+        for alias in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let lib = root.path().join("lib/python3.15");
+            std::fs::create_dir_all(&lib).unwrap();
+            let selected = lib.join("_sysconfigdata_fixture.py");
+            let config = if alias {
+                let target = root.path().join("contained-config.py");
+                std::fs::write(&target, CONFIG).unwrap();
+                std::os::unix::fs::symlink(&target, &selected).unwrap();
+                target
+            } else {
+                std::fs::write(&selected, CONFIG).unwrap();
+                selected.clone()
+            };
+            update_sysconfig(root.path(), 3, 15, "").unwrap();
+            let patched = std::fs::read_to_string(config).unwrap();
+            assert!(patched.contains("PYTHON_BUILD_STANDALONE"));
+            assert!(!patched.contains("/install/bin"));
+            if alias {
+                assert!(std::fs::symlink_metadata(selected).unwrap().is_symlink());
+            }
+        }
+    }
+
+    #[test]
+    fn update_sysconfig_rejects_escaping_lib_and_stdlib_directories_before_writing() {
+        for whole_lib in [true, false] {
+            let root = tempfile::tempdir().unwrap();
+            let outside = tempfile::tempdir().unwrap();
+            let external = if whole_lib {
+                outside.path().join("python3.15/_sysconfigdata_fixture.py")
+            } else {
+                outside.path().join("_sysconfigdata_fixture.py")
+            };
+            std::fs::create_dir_all(external.parent().unwrap()).unwrap();
+            std::fs::write(&external, CONFIG).unwrap();
+            let alias = if whole_lib {
+                root.path().join("lib")
+            } else {
+                std::fs::create_dir(root.path().join("lib")).unwrap();
+                root.path().join("lib/python3.15")
+            };
+            std::os::unix::fs::symlink(outside.path(), alias).unwrap();
+            let error = update_sysconfig(root.path(), 3, 15, "").unwrap_err();
+            assert!(error.to_string().contains("contained"), "{error}");
+            assert_eq!(std::fs::read_to_string(external).unwrap(), CONFIG);
+        }
+    }
+
+    #[test]
+    fn update_sysconfig_rejects_an_escaping_config_file_alias_before_writing() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let external = outside.path().join("external-config.py");
+        std::fs::write(&external, CONFIG).unwrap();
+        let lib = root.path().join("lib/python3.15");
+        std::fs::create_dir_all(&lib).unwrap();
+        let alias = lib.join("_sysconfigdata_fixture.py");
+        std::os::unix::fs::symlink(&external, &alias).unwrap();
+        let error = update_sysconfig(root.path(), 3, 15, "").unwrap_err();
+        assert!(error.to_string().contains("contained"), "{error}");
+        assert_eq!(std::fs::read_to_string(external).unwrap(), CONFIG);
+        assert!(std::fs::symlink_metadata(alias).unwrap().is_symlink());
+    }
+
+    #[test]
+    fn update_sysconfig_requires_a_regular_file_after_resolving_an_alias() {
+        let root = tempfile::tempdir().unwrap();
+        let lib = root.path().join("lib/python3.15");
+        std::fs::create_dir_all(&lib).unwrap();
+        let directory = root.path().join("not-config");
+        std::fs::create_dir(&directory).unwrap();
+        std::os::unix::fs::symlink(&directory, lib.join("_sysconfigdata_fixture.py")).unwrap();
+        let error = update_sysconfig(root.path(), 3, 15, "").unwrap_err();
+        assert!(error.to_string().contains("regular file"), "{error}");
+        assert_eq!(std::fs::read_dir(directory).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn update_sysconfig_breaks_external_hardlinks_and_preserves_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let external = outside.path().join("shared-config.py");
+        std::fs::write(&external, CONFIG).unwrap();
+        std::fs::set_permissions(&external, std::fs::Permissions::from_mode(0o640)).unwrap();
+        let lib = root.path().join("lib/python3.15");
+        std::fs::create_dir_all(&lib).unwrap();
+        let selected = lib.join("_sysconfigdata_fixture.py");
+        std::fs::hard_link(&external, &selected).unwrap();
+
+        update_sysconfig(root.path(), 3, 15, "").unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(&external).unwrap(),
+            CONFIG,
+            "patching an install must not mutate an outside hardlinked inode"
+        );
+        let patched = std::fs::read_to_string(&selected).unwrap();
+        assert!(patched.contains("PYTHON_BUILD_STANDALONE"));
+        assert!(!patched.contains("/install/bin"));
+        assert_eq!(
+            std::fs::metadata(&selected).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
+        assert_eq!(
+            std::fs::metadata(&external).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
+    }
 
     #[test]
     fn update_real_prefix() -> Result<(), Error> {

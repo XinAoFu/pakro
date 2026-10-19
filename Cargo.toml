@@ -43,7 +43,7 @@ include = [
   "/runtimes/src/**/*.rs",
   "/runtimes/environment/*.rs",
   "/runtimes/assets/**",
-  "/runtimes/src/toolinstall/python_runtime_probe.py",
+  "/runtimes/src/toolinstall/*.py",
   "/runtimes/src/plugins/core/assets/**",
   "/runtimes/registry/*.toml",
   "/runtimes/registry/daemon-presets/*.toml",
@@ -51,6 +51,7 @@ include = [
   "/runtimes/vendor/aqua-registry/metadata.json",
   "/runtimes/vendor/aqua-registry/registry.yml",
   "/packages/src/**/*.rs",
+  "/packages/src/python_resolution/source/fresh/wheel/fixtures/*",
   "/packages/deps/**/*.rs",
   "/packages/system/**/*.rs",
   "/packages/system/**/*.rb",
@@ -141,6 +142,7 @@ eyre = "0.6"
 file-id = "0.2"
 filetime = "0.2"
 flate2 = "1"
+bzip2 = "0.6"
 futures-util = "0.3"
 pakro-cache-core = { path = "src/crates/pakro-cache-core", version = "0.1", default-features = false }
 pakro-settings = { path = "src/crates/pakro-settings", version = "2026" }
@@ -148,6 +150,7 @@ pakro-util = { path = "src/crates/pakro-util", version = "2026", default-feature
 pakro-store = { path = "packages/crates/pakro-store", version = "0.1" }
 pakro-index = { path = "packages/crates/pakro-index", version = "0.1" }
 pakro-resolver = { path = "packages/crates/pakro-resolver", version = "0.1" }
+pep440_rs = "0.7"
 pakro-brew-metadata = { path = "packages/crates/pakro-brew-metadata", version = "0.1" }
 pakro-bootstrap = { path = "src/crates/pakro-bootstrap", version = "0.1" }
 fslock = "0.2"
@@ -240,6 +243,8 @@ serde_json = "1"
 serde_yaml = "0.9"
 semver = "1"
 sha2 = "0.11"
+sha3 = "0.10.9"
+blake2 = "0.11.0"
 blake3 = "1"
 chacha20poly1305 = "0.11"
 shell-escape = "0.1"

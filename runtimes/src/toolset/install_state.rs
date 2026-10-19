@@ -151,8 +151,55 @@ fn read_tool_manifest_from(path: &Path) -> Option<ManifestTool> {
 
 fn write_tool_manifest_to(path: &Path, tool: &ManifestTool) -> Result<()> {
     let body = toml::to_string_pretty(tool)?;
-    file::write_atomic(path, body.trim())?;
+    let _lock = LockFile::at(&tool_manifest_lock_path(path)?).lock()?;
+    write_tool_manifest_bytes(path, body.trim().as_bytes())?;
     Ok(())
+}
+
+fn tool_manifest_lock_path(path: &Path) -> Result<PathBuf> {
+    let tool_dir = path
+        .parent()
+        .ok_or_else(|| eyre::eyre!("tool metadata has no parent"))?;
+    let root = tool_dir
+        .parent()
+        .ok_or_else(|| eyre::eyre!("tool metadata has no installs root"))?;
+    let mut name = tool_dir
+        .file_name()
+        .ok_or_else(|| eyre::eyre!("tool metadata has no tool name"))?
+        .to_os_string();
+    name.push(".lock");
+    Ok(root.join(".pakro/backend-locks").join(name))
+}
+
+/// Replace this directory entry without following a previous metadata symlink
+/// or truncating an inode another installation may share through a hardlink.
+fn write_tool_manifest_bytes(path: &Path, body: &[u8]) -> Result<std::fs::Permissions> {
+    use std::io::Write;
+    let parent = path
+        .parent()
+        .ok_or_else(|| eyre::eyre!("tool metadata has no parent"))?;
+    let mut builder = tempfile::Builder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(std::fs::Permissions::from_mode(0o666));
+    }
+    let mut temporary = builder.tempfile_in(parent)?;
+    match std::fs::symlink_metadata(path) {
+        std::result::Result::Ok(metadata) if metadata.is_file() => {
+            temporary
+                .as_file()
+                .set_permissions(metadata.permissions())?;
+        }
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
+        _ => {}
+    }
+    temporary.write_all(body)?;
+    temporary.flush()?;
+    temporary.as_file().sync_all()?;
+    let permissions = temporary.as_file().metadata()?.permissions();
+    temporary.persist(path).map_err(|error| error.error)?;
+    Ok(permissions)
 }
 
 /// Read a legacy `.pakro.backend` file for migration purposes.
@@ -1005,6 +1052,42 @@ pub(crate) fn write_backend_meta(ba: &BackendArg) -> Result<()> {
     write_backend_meta_to(ba, &manifest_path())
 }
 
+/// Publish the authoritative single-tool entry so ordinary-error recovery can
+/// withdraw only this installation's metadata, without replacing a shared map.
+pub(crate) fn write_backend_meta_tracked(
+    ba: &BackendArg,
+    installs_dir: &Path,
+    undo: &mut crate::install_layout::publication::PublicationUndo,
+) -> Result<()> {
+    use crate::install_layout::publication::{MAX_ENTRY_BYTES, PublicationValue};
+    let tool = ManifestTool {
+        short: ba.short.clone(),
+        full: Some(ba.full_without_opts()),
+        explicit_backend: ba.has_explicit_backend(),
+        opts: persistent_opts(ba),
+    };
+    let body = toml::to_string_pretty(&tool)?;
+    let body = body.trim().as_bytes();
+    eyre::ensure!(
+        body.len() <= MAX_ENTRY_BYTES,
+        "tool metadata exceeds the publication size limit"
+    );
+    let path = tool_manifest_path(installs_dir, &ba.short);
+    let lock_path = tool_manifest_lock_path(&path)?;
+    let _lock = LockFile::at(&lock_path).lock()?;
+    let before = PublicationValue::capture(&path)?;
+    let permissions = write_tool_manifest_bytes(&path, body)?;
+    undo.track_change(
+        &lock_path,
+        &path,
+        before,
+        PublicationValue::Regular {
+            bytes: body.to_vec(),
+            permissions,
+        },
+    )
+}
+
 /// Writes backend metadata to a manifest at a specific install path.
 pub(crate) fn write_backend_meta_to(ba: &BackendArg, path: &Path) -> Result<()> {
     let full = ba.full_without_opts();
@@ -1224,6 +1307,142 @@ mod tests {
         std::fs::write(&path, "").unwrap();
 
         assert!(read_tool_manifest_from(&path).is_none());
+    }
+
+    fn tracked_backend(short: &str, full: &str) -> BackendArg {
+        BackendArg::new_raw(
+            short.to_string(),
+            Some(full.to_string()),
+            full.to_string(),
+            None,
+            crate::args::BackendResolution::new(true),
+        )
+    }
+
+    #[test]
+    fn tracked_metadata_restores_only_the_tool_sidecar() {
+        use crate::install_layout::publication::PublicationUndo;
+        let root = tempfile::tempdir().unwrap();
+        let tool = root.path().join("python");
+        std::fs::create_dir_all(&tool).unwrap();
+        let sidecar = tool.join(".pakro.backend.toml");
+        let shared = root.path().join(".pakro-installs.toml");
+        let old = "short = 'python'\nfull = 'asdf:python'\n";
+        std::fs::write(&sidecar, old).unwrap();
+        std::fs::write(&shared, "[unrelated]\nshort='other'\n").unwrap();
+        let backend = tracked_backend("python", "core:python");
+        let mut undo = PublicationUndo::new();
+        super::write_backend_meta_tracked(&backend, root.path(), &mut undo).unwrap();
+        assert_eq!(
+            read_tool_manifest_from(&sidecar).unwrap().full.as_deref(),
+            Some("core:python")
+        );
+        // A different tool may publish while this installation is in flight.
+        std::fs::write(&shared, "[unrelated]\nshort='new-other'\n").unwrap();
+        undo.rollback().unwrap();
+        assert_eq!(std::fs::read_to_string(&sidecar).unwrap(), old);
+        assert!(
+            std::fs::read_to_string(&shared)
+                .unwrap()
+                .contains("new-other")
+        );
+    }
+
+    #[test]
+    fn tracked_metadata_withdraws_a_fresh_sidecar() {
+        use crate::install_layout::publication::PublicationUndo;
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("python")).unwrap();
+        let backend = tracked_backend("python", "core:python");
+        let sidecar = root.path().join("python/.pakro.backend.toml");
+        let mut undo = PublicationUndo::new();
+        super::write_backend_meta_tracked(&backend, root.path(), &mut undo).unwrap();
+        assert!(sidecar.is_file());
+        undo.rollback().unwrap();
+        assert!(!sidecar.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tracked_metadata_replaces_a_raw_symlink_without_writing_its_target() {
+        use crate::install_layout::publication::PublicationUndo;
+        let root = tempfile::tempdir().unwrap();
+        let tool = root.path().join("python");
+        std::fs::create_dir(&tool).unwrap();
+        let external = root.path().join("external-metadata");
+        let sidecar = tool.join(".pakro.backend.toml");
+        std::fs::write(&external, "external unchanged").unwrap();
+        std::os::unix::fs::symlink("../external-metadata", &sidecar).unwrap();
+        let backend = tracked_backend("python", "core:python");
+        let mut undo = PublicationUndo::new();
+        super::write_backend_meta_tracked(&backend, root.path(), &mut undo).unwrap();
+        assert!(!sidecar.is_symlink());
+        assert_eq!(
+            read_tool_manifest_from(&sidecar).unwrap().full.as_deref(),
+            Some("core:python")
+        );
+        assert_eq!(
+            std::fs::read_to_string(&external).unwrap(),
+            "external unchanged"
+        );
+        undo.rollback().unwrap();
+        assert_eq!(
+            std::fs::read_link(&sidecar).unwrap(),
+            std::path::Path::new("../external-metadata")
+        );
+        assert_eq!(
+            std::fs::read_to_string(&external).unwrap(),
+            "external unchanged"
+        );
+    }
+
+    #[test]
+    fn tracked_metadata_preserves_a_later_writer_to_the_same_tool() {
+        use crate::install_layout::publication::PublicationUndo;
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("python")).unwrap();
+        let mut undo = PublicationUndo::new();
+        let backend = tracked_backend("python", "core:python");
+        super::write_backend_meta_tracked(&backend, root.path(), &mut undo).unwrap();
+        let other = tracked_backend("python", "asdf:python");
+        super::write_backend_meta_to(&other, &root.path().join(".pakro-installs.toml")).unwrap();
+        assert!(undo.rollback().is_err());
+        let sidecar = root.path().join("python/.pakro.backend.toml");
+        assert_eq!(
+            read_tool_manifest_from(&sidecar).unwrap().full.as_deref(),
+            Some("asdf:python")
+        );
+    }
+
+    #[test]
+    fn tracked_metadata_ordinary_writers_respect_the_sidecar_lock() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("python")).unwrap();
+        let lock_path = root.path().join(".pakro/backend-locks/python.lock");
+        let lock = crate::lock_file::LockFile::at(&lock_path).lock().unwrap();
+        let manifest = root.path().join(".pakro-installs.toml");
+        let (started_tx, started_rx) = mpsc::channel();
+        let (finished_tx, finished_rx) = mpsc::channel();
+        let writer = std::thread::spawn(move || {
+            let backend = tracked_backend("python", "core:python");
+            started_tx.send(()).unwrap();
+            let result = super::write_backend_meta_to(&backend, &manifest);
+            finished_tx.send(result).unwrap();
+        });
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let early = finished_rx.recv_timeout(Duration::from_millis(150));
+        drop(lock);
+        if early.is_err() {
+            finished_rx
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap()
+                .unwrap();
+        }
+        writer.join().unwrap();
+        assert!(
+            matches!(early, Err(mpsc::RecvTimeoutError::Timeout)),
+            "writer bypassed the publication lock"
+        );
     }
 
     #[test]

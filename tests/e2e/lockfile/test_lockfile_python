@@ -35,8 +35,8 @@ cat pakro.lock
 
 echo "=== Testing that install obeys the lockfile URL (not recomputed) ==="
 # Replace the URL in the lockfile with a deliberately wrong URL.
-# If install obeys the lockfile URL, it will try to download from
-# this fake URL and fail. If it recomputes the URL, it would succeed.
+# Strict replay must reject this unsupported locked archive before downloading.
+# Recomputing an official URL would incorrectly allow installation to succeed.
 awk '
     /^url = "https:\/\/github.com\/astral-sh\/python-build-standalone/ {
         print "url = \"https://github.com/astral-sh/python-build-standalone/releases/download/fake-tag/fake-python.tar.gz\""
@@ -48,7 +48,7 @@ awk '
 assert_contains "cat pakro.lock" "fake-tag/fake-python.tar.gz"
 
 rm -rf "$PAKRO_DATA_DIR/installs/python"
-assert_fail_contains "pakro install python -f" "fake-tag/fake-python.tar.gz"
+assert_fail_contains "pakro install python -f" "locked Python artifact is not a supported PBS install archive"
 
 # Regenerate a fresh lockfile for subsequent tests
 rm -f pakro.lock
@@ -66,7 +66,7 @@ assert_contains "cat pakro.lock" "sha256:000000000000000000000000000000000000000
 
 # Install with corrupted checksum should fail with a checksum mismatch error
 rm -rf "$PAKRO_DATA_DIR/installs/python"
-assert_fail "pakro install python -f" "Checksum mismatch"
+assert_fail_contains "pakro install python -f" "artifact digest mismatch"
 
 rm -f pakro.lock pakro.toml
 

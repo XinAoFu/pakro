@@ -7,6 +7,12 @@ pub mod cache;
 pub mod npm;
 pub mod pypi;
 pub mod python_context;
+pub mod python_markers;
+pub mod python_metadata;
+pub mod python_requirements;
+pub mod python_source;
+pub mod python_tags;
+pub mod simple;
 pub mod types;
 pub mod wheel;
 pub mod wheel_selection;
@@ -23,6 +29,11 @@ pub use pypi::{
     python_requires_matches_for_context, rewrite_files_host,
 };
 pub use python_context::{PythonMarkerContext, PythonMarkerContextBuilder};
+pub use python_tags::{
+    PythonLinuxArch, PythonMacArch, PythonManylinuxOverride, PythonManylinuxPolicy,
+    PythonTagInterpreter, PythonTagLibc, PythonTagPlatform, PythonTagTarget,
+    pure_python_supported_tags, python_platform_tags, python_supported_tags,
+};
 pub use types::{
     ArtifactDescriptor, ArtifactKind, DependencyConstraint, PackageMetadata, normalize_py_name,
 };
@@ -303,6 +314,8 @@ pub enum IndexError {
     InvalidPythonContext(String),
     #[error("invalid Requires-Python {specifier:?}: {reason}")]
     InvalidPythonSpecifier { specifier: String, reason: String },
+    #[error("invalid Python tag target: {0}")]
+    InvalidPythonTagTarget(String),
     #[error("invalid wheel tags: {0}")]
     InvalidWheelTags(String),
     #[error("invalid wheel artifact {filename:?}: {reason}")]

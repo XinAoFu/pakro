@@ -16,5 +16,11 @@ flate2 = "1"
 tar = "0.4"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 
+eyre = "0.6"
+uuid = { version = "1", features = ["v7"] }
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31", features = ["dir", "fs", "user"] }
+
 [dev-dependencies]
 tempfile = "3"

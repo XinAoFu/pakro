@@ -74,6 +74,10 @@ impl fmt::Debug for SourceArtifact {
 pub enum ArtifactError {
     #[error("invalid artifact source: {0}")]
     InvalidSource(&'static str),
+    #[error("artifact byte limit must be positive")]
+    InvalidLimit,
+    #[error("artifact exceeds byte limit {limit}")]
+    TooLarge { limit: u64 },
     #[error("artifact download requires network access but it is disabled")]
     Offline,
     #[error("artifact HTTP request failed")]
@@ -184,6 +188,22 @@ pub async fn download_verified(
     policy: NetworkPolicy,
     temp_root: &Path,
 ) -> Result<VerifiedDownload, ArtifactError> {
+    download_verified_bounded(transport, source, policy, temp_root, u64::MAX).await
+}
+
+/// Download exact raw bytes with an explicit limit. Overflow is rejected before
+/// another artifact byte is written, even without a Content-Length header.
+/// Reaching the limit is not EOF: a later body chunk still causes an error.
+pub async fn download_verified_bounded(
+    transport: &ArtifactTransport,
+    source: &SourceArtifact,
+    policy: NetworkPolicy,
+    temp_root: &Path,
+    max_archive_bytes: u64,
+) -> Result<VerifiedDownload, ArtifactError> {
+    if max_archive_bytes == 0 {
+        return Err(ArtifactError::InvalidLimit);
+    }
     if policy == NetworkPolicy::Offline {
         return Err(ArtifactError::Offline);
     }
@@ -199,13 +219,33 @@ pub async fn download_verified(
     if !response.status().is_success() {
         return Err(ArtifactError::HttpStatus(response.status()));
     }
+    if response
+        .content_length()
+        .is_some_and(|length| length > max_archive_bytes)
+    {
+        return Err(ArtifactError::TooLarge {
+            limit: max_archive_bytes,
+        });
+    }
     let mut file = NamedTempFile::new_in(temp_root)?;
     let mut hasher = Hasher::new(source.digest);
     let mut size = 0_u64;
     while let Some(chunk) = response.chunk().await.map_err(http_error)? {
+        let count = u64::try_from(chunk.len()).map_err(|_| ArtifactError::TooLarge {
+            limit: max_archive_bytes,
+        })?;
+        let next = size
+            .checked_add(count)
+            .filter(|size| *size <= max_archive_bytes)
+            .ok_or(ArtifactError::TooLarge {
+                limit: max_archive_bytes,
+            })?;
+        // A transport frame can already have been prefetched by HTTP. Only
+        // bounded artifact bytes reach the file/hash; overflow stops polling
+        // immediately instead of collecting the rest of the response body.
         file.write_all(&chunk)?;
         hasher.update(&chunk);
-        size += chunk.len() as u64;
+        size = next;
     }
     let actual = hasher.finish();
     if actual != source.digest {

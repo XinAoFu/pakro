@@ -5,6 +5,9 @@
 //! the store lays entries out under that identity so two projects requesting the
 //! same artifact share one directory.
 
+#[cfg(unix)]
+pub mod control;
+
 mod identity;
 mod store;
 

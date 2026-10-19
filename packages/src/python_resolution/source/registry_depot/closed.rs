@@ -1,0 +1,368 @@
+//! Semantic/source closure for this explicit request and observed target.
+//!
+//! Configuration freshness, a real runtime binding and environment publication
+//! are separate capabilities. This owner cannot publish or extract archives.
+
+use super::*;
+use crate::packages::python_resolution::graph_check::{
+    CheckedGraphData, GraphCheckError, GraphCheckLimits, GraphNodeObservation, check_graph_scoped,
+};
+use crate::packages::python_resolution::lock_model::RegistryArtifactKind;
+use pakro_resolver::solve::{Pep440, VersionAdapter};
+use std::collections::BTreeSet;
+
+pub(crate) struct ClosedRegistryGraph<'root> {
+    prepared: RegistryPreparedPlan<'root>,
+    checked: CheckedGraphData,
+}
+impl ClosedRegistryGraph<'_> {
+    pub(crate) fn plan(&self) -> &NativePlan {
+        self.prepared.plan()
+    }
+    pub(crate) fn checked(&self) -> &CheckedGraphData {
+        &self.checked
+    }
+    pub(crate) fn owner(&self, key: CandidateKey) -> Option<&RegistryMetadataOwner<'_>> {
+        self.prepared.owner(key)
+    }
+    pub(crate) fn recheck_for(&self, root: &BoundPythonLock) -> Result<(), RegistryClosureError> {
+        self.prepared
+            .recheck_for(root)
+            .map_err(|_| RegistryClosureError::Revoked)
+    }
+}
+impl fmt::Debug for ClosedRegistryGraph<'_> {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        out.debug_struct("ClosedRegistryGraph")
+            .field("selected", &self.plan().selected.len())
+            .field("effective_roots", &self.checked.roots.len())
+            .field("effective_edges", &self.checked.edges.len())
+            .finish_non_exhaustive()
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub(crate) enum RegistryClosureError {
+    #[error("registry graph closure deadline expired")]
+    Deadline,
+    #[error("the actual project lock or metadata owner was revoked")]
+    Revoked,
+    #[error("selected graph and actual metadata owners differ")]
+    IdentityMismatch,
+    #[error("actual wheel is incompatible with the frozen target tags")]
+    TargetMismatch,
+    #[error("original dependency graph validation failed: {0}")]
+    Graph(GraphCheckError),
+}
+
+/// Consumes the entire prepared attempt; no caller supplies replacement roots,
+/// target values, metadata facts, source pins or selected owners here.
+pub(crate) fn close_registry_plan<'root>(
+    prepared: RegistryPreparedPlan<'root>,
+    limits: GraphCheckLimits,
+) -> Result<ClosedRegistryGraph<'root>, RegistryClosureError> {
+    close_with_finish(prepared, limits, || {})
+}
+
+fn current_deadline(prepared: &RegistryPreparedPlan<'_>) -> Result<(), RegistryClosureError> {
+    if Instant::now() >= prepared.deadline() {
+        return Err(RegistryClosureError::Deadline);
+    }
+    Ok(())
+}
+fn same_version(left: &str, right: &str) -> bool {
+    matches!((Pep440::parse_version(left), Pep440::parse_version(right)),
+        (Some(left), Some(right)) if left == right)
+}
+
+pub(super) fn close_with_finish<'root>(
+    prepared: RegistryPreparedPlan<'root>,
+    limits: GraphCheckLimits,
+    finish: impl FnOnce(),
+) -> Result<ClosedRegistryGraph<'root>, RegistryClosureError> {
+    current_deadline(&prepared)?;
+    limits.validate().map_err(RegistryClosureError::Graph)?;
+    if prepared.roots.len() > limits.max_roots || prepared.plan.selected.len() > limits.max_nodes {
+        return Err(RegistryClosureError::Graph(GraphCheckError::Limit));
+    }
+    prepared
+        .root
+        .recheck()
+        .map_err(|_| RegistryClosureError::Revoked)?;
+    if prepared.owners.len() != prepared.plan.selected.len() {
+        return Err(RegistryClosureError::IdentityMismatch);
+    }
+    let mut keys = BTreeSet::new();
+    let mut observations = Vec::new();
+    observations
+        .try_reserve_exact(prepared.plan.selected.len())
+        .map_err(|_| RegistryClosureError::Graph(GraphCheckError::Limit))?;
+    for selected in &prepared.plan.selected {
+        current_deadline(&prepared)?;
+        if !keys.insert(selected.key) {
+            return Err(RegistryClosureError::IdentityMismatch);
+        }
+        let owner = prepared
+            .owner(selected.key)
+            .ok_or(RegistryClosureError::IdentityMismatch)?;
+        owner
+            .recheck_for(prepared.root)
+            .map_err(|_| RegistryClosureError::Revoked)?;
+        let file = owner.pin().file();
+        if file.kind() != RegistryArtifactKind::Wheel
+            || file.project() != selected.name
+            || !same_version(file.version(), &selected.version)
+            || owner.facts().name().as_str() != selected.name
+            || !same_version(owner.facts().version(), &selected.version)
+            || owner.manifest().name() != selected.name
+            || !same_version(owner.manifest().version(), &selected.version)
+        {
+            return Err(RegistryClosureError::IdentityMismatch);
+        }
+        if !owner
+            .manifest()
+            .tags()
+            .iter()
+            .any(|tag| prepared.supported().ordered().contains(tag))
+        {
+            return Err(RegistryClosureError::TargetMismatch);
+        }
+        current_deadline(&prepared)?;
+        observations.push(GraphNodeObservation {
+            selected,
+            facts: owner.facts(),
+        });
+    }
+    let checked = prepared
+        .with_root_scopes(|scopes| {
+            check_graph_scoped(
+                prepared.roots(),
+                &observations,
+                prepared.environment(),
+                scopes,
+                prepared.semantics(),
+                prepared.marker_limits(),
+                limits,
+            )
+        })
+        .map_err(RegistryClosureError::Graph)?;
+    finish();
+    current_deadline(&prepared)?;
+    prepared
+        .root
+        .recheck()
+        .map_err(|_| RegistryClosureError::Revoked)?;
+    current_deadline(&prepared)?;
+    Ok(ClosedRegistryGraph { prepared, checked })
+}
+
+// Source-owned retention. Every field comes from the consumed real closed
+// attempt; no DTO constructor or archive extraction is exposed.
+use crate::packages::python_environment::resolved_build::{
+    PreparedResolvedEnvironment, ResolvedBuildError, ResolvedBuildPermit,
+};
+use crate::packages::python_resolution::candidate_policy::PolicyNotice;
+use crate::packages::python_resolution::source::fresh::wheel::sidecar::RetainedFreshWheel;
+use crate::packages::python_resolution::source::locked_graph::FrozenRegistryTarget;
+use crate::packages::python_resolution::source::replay::metadata::RetainedLockedWheel;
+use crate::packages::python_wheel_install::PreparedWheelSource;
+
+pub(crate) struct RetainedGraphEvidence<'root> {
+    root: &'root BoundPythonLock,
+    roots: Vec<PythonRequirementSyntax>,
+    root_scopes: Option<Vec<RegistryRootScope>>,
+    environment: RegistryEnvironment,
+    root_scope: RegistryRootScope,
+    semantics: MarkerSemantics,
+    supported: SupportedWheelTags,
+    deadline: Instant,
+    marker_limits: PythonMarkerLimits,
+    policy_notices: BTreeMap<CandidateKey, Vec<PolicyNotice>>,
+    plan: NativePlan,
+    checked: CheckedGraphData,
+    owners: BTreeMap<CandidateKey, RetainedRegistryOwner<'root>>,
+}
+enum RetainedRegistryOwner<'root> {
+    Fresh(RetainedFreshWheel<'root>),
+    Locked(RetainedLockedWheel<'root>),
+}
+impl RetainedRegistryOwner<'_> {
+    fn pin(&self) -> &ContentPin {
+        match self {
+            Self::Fresh(owner) => owner.pin(),
+            Self::Locked(owner) => owner.pin(),
+        }
+    }
+    fn recheck_for(&self, root: &BoundPythonLock) -> Result<(), ResolvedBuildError> {
+        match self {
+            Self::Fresh(owner) => owner
+                .recheck_for(root)
+                .map_err(|_| ResolvedBuildError::Revoked),
+            Self::Locked(owner) => owner
+                .recheck_for(root)
+                .map_err(|_| ResolvedBuildError::Revoked),
+        }
+    }
+}
+impl RetainedGraphEvidence<'_> {
+    pub(crate) fn plan(&self) -> &NativePlan {
+        &self.plan
+    }
+    pub(crate) fn checked(&self) -> &CheckedGraphData {
+        &self.checked
+    }
+    pub(crate) fn policy_notices(&self, key: CandidateKey) -> &[PolicyNotice] {
+        self.policy_notices
+            .get(&key)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+    pub(crate) fn deadline(&self) -> Instant {
+        self.deadline
+    }
+    pub(crate) fn pin(&self, key: CandidateKey) -> Option<&ContentPin> {
+        self.owners.get(&key).map(RetainedRegistryOwner::pin)
+    }
+    pub(crate) fn recheck(
+        &self,
+        caller_deadline: tokio::time::Instant,
+    ) -> Result<(), ResolvedBuildError> {
+        let check = || {
+            if Instant::now() >= self.deadline || tokio::time::Instant::now() >= caller_deadline {
+                Err(ResolvedBuildError::Deadline)
+            } else {
+                Ok(())
+            }
+        };
+        check()?;
+        self.root
+            .recheck()
+            .map_err(|_| ResolvedBuildError::Revoked)?;
+        for owner in self.owners.values() {
+            check()?;
+            owner.recheck_for(self.root)?;
+        }
+        check()?;
+        self.root
+            .recheck()
+            .map_err(|_| ResolvedBuildError::Revoked)?;
+        check()
+    }
+    pub(crate) fn check_sources(
+        &self,
+        sources: &[PreparedWheelSource],
+        deadline: tokio::time::Instant,
+    ) -> Result<(), ResolvedBuildError> {
+        if sources.len() != self.owners.len() || self.owners.len() != self.plan.selected.len() {
+            return Err(ResolvedBuildError::SourceReceipt);
+        }
+        let mut seen = BTreeSet::new();
+        for selected in &self.plan.selected {
+            if tokio::time::Instant::now() >= deadline {
+                return Err(ResolvedBuildError::Deadline);
+            }
+            let pin = self
+                .pin(selected.key)
+                .ok_or(ResolvedBuildError::SourceReceipt)?;
+            let found = sources.iter().enumerate().find(|(_, source)| {
+                source.owner().name() == pin.file().project()
+                    && same_version(source.owner().version(), pin.file().version())
+            });
+            let Some((index, source)) = found else {
+                return Err(ResolvedBuildError::SourceReceipt);
+            };
+            if !seen.insert(index)
+                || source.filename() != pin.file().filename()
+                || source.digest() != pin.digest()
+                || source.size() != pin.size()
+            {
+                return Err(ResolvedBuildError::SourceReceipt);
+            }
+        }
+        Ok(())
+    }
+}
+impl<'root> ClosedRegistryGraph<'root> {
+    pub(crate) async fn build_with(
+        self,
+        permit: ResolvedBuildPermit,
+    ) -> Result<PreparedResolvedEnvironment<'root>, ResolvedBuildError> {
+        // Reuse the original closure engine for this caller's limits; no
+        // alternate graph checker or metadata/ZIP inspection is introduced.
+        let mut prepared = self.prepared;
+        // Narrow the existing source budget before its actual-owner loop.
+        prepared.deadline = prepared.deadline.min(permit.source_deadline());
+        let closed =
+            close_registry_plan(prepared, permit.graph_limits()).map_err(|error| match error {
+                RegistryClosureError::Deadline => ResolvedBuildError::Deadline,
+                RegistryClosureError::Revoked => ResolvedBuildError::Revoked,
+                _ => ResolvedBuildError::SourceReceipt,
+            })?;
+        let target = closed
+            .prepared
+            .root_scope
+            .with_scope(|scope| {
+                FrozenRegistryTarget::new(
+                    closed.prepared.environment(),
+                    closed.prepared.supported(),
+                    scope,
+                    closed.prepared.semantics(),
+                    permit.target_limits(),
+                )
+            })
+            .map_err(|_| ResolvedBuildError::TargetMismatch)?;
+        let ClosedRegistryGraph { prepared, checked } = closed;
+        let RegistryPreparedPlan {
+            root,
+            roots,
+            root_scopes,
+            environment,
+            root_scope,
+            semantics,
+            supported,
+            deadline,
+            marker_limits,
+            policy_notices,
+            plan,
+            owners,
+        } = prepared;
+        let mut archives = Vec::new();
+        archives
+            .try_reserve_exact(owners.len())
+            .map_err(|_| ResolvedBuildError::SourceReceipt)?;
+        let mut retained = BTreeMap::new();
+        for (key, owner) in owners {
+            let (archive, evidence) = match owner {
+                RegistryMetadataOwner::Fresh(owner) => {
+                    let (archive, retained) = owner.into_build_evidence();
+                    (archive, RetainedRegistryOwner::Fresh(retained))
+                }
+                RegistryMetadataOwner::Locked(owner) => {
+                    let (archive, retained) = owner.into_build_evidence();
+                    (archive, RetainedRegistryOwner::Locked(retained))
+                }
+            };
+            archives.push(archive);
+            retained.insert(key, evidence);
+        }
+        let evidence = RetainedGraphEvidence {
+            root,
+            roots,
+            root_scopes,
+            environment,
+            root_scope,
+            semantics,
+            supported,
+            deadline,
+            marker_limits,
+            policy_notices,
+            plan,
+            checked,
+            owners: retained,
+        };
+        permit.build_with_sources(archives, evidence, target).await
+    }
+}
+
+#[path = "closed/projection.rs"]
+mod projection;
+pub(crate) use projection::RetainedProjectionError;

@@ -3,6 +3,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use crate::args::ToolArg;
 use crate::config::Config;
+use crate::env::{PATH_KEY, join_paths, split_paths};
 use crate::env_diff::EnvMap;
 use crate::shell::{ShellType, get_shell};
 use crate::toolset::{InstallOptions, Toolset, ToolsetBuilder};
@@ -66,6 +67,27 @@ impl Env {
             .with_args(&self.tool)
             .build(&config)
             .await?;
+        // Shared library python (D07/D08): the declared exact version comes
+        // from the shared library when published; this command is read-only
+        // and python never auto-installs through the legacy pipeline here.
+        #[cfg(unix)]
+        let shared_python = crate::programs::directory::select_directory_python(false)?;
+        #[cfg(unix)]
+        if shared_python.is_some() {
+            ts.versions.retain(|backend, _| backend.short != "python");
+        }
+        let shared_bin: Option<&std::path::Path> = {
+            #[cfg(unix)]
+            {
+                shared_python
+                    .as_ref()
+                    .map(|shared| shared.bin_dir.as_path())
+            }
+            #[cfg(not(unix))]
+            {
+                None
+            }
+        };
         let (_, missing) = ts
             .install_missing_versions(&mut config, &InstallOptions::default())
             .await?;
@@ -84,7 +106,9 @@ impl Env {
         // avoid calling it twice. final_env includes the tools-only pass
         // whose redactions are not in config.env_results().
         let final_env = if self.redacted || self.dotenv {
-            Some(ts.final_env(&config).await?)
+            let (mut env, results) = ts.final_env(&config).await?;
+            Self::prepend_shared_path(&mut env, shared_bin)?;
+            Some((env, results))
         } else {
             None
         };
@@ -103,15 +127,19 @@ impl Env {
         };
 
         if self.json {
-            self.output_json(&config, ts, &redacted_keys).await
+            self.output_json(&config, ts, &redacted_keys, shared_bin)
+                .await
         } else if self.json_extended {
-            self.output_extended_json(&config, ts, &redacted_keys).await
+            self.output_extended_json(&config, ts, &redacted_keys, shared_bin)
+                .await
         } else if self.dotenv {
-            self.output_dotenv(final_env.unwrap().0, &redacted_keys)
+            self.output_dotenv(final_env.unwrap().0, &redacted_keys, shared_bin)
         } else if self.values {
-            self.output_values(&config, ts, &redacted_keys).await
+            self.output_values(&config, ts, &redacted_keys, shared_bin)
+                .await
         } else {
-            self.output_shell(&config, ts, &redacted_keys).await
+            self.output_shell(&config, ts, &redacted_keys, shared_bin)
+                .await
         }
     }
 
@@ -120,8 +148,10 @@ impl Env {
         config: &Arc<Config>,
         ts: Toolset,
         redacted_keys: &Option<IndexSet<String>>,
+        shared_bin: Option<&std::path::Path>,
     ) -> Result<()> {
         let mut env = ts.env_with_path(config).await?;
+        Self::prepend_shared_path(&mut env, shared_bin)?;
 
         if let Some(keys) = redacted_keys {
             env.retain(|k, _| self.should_include_key(k, keys));
@@ -136,10 +166,13 @@ impl Env {
         config: &Arc<Config>,
         ts: Toolset,
         redacted_keys: &Option<IndexSet<String>>,
+        shared_bin: Option<&std::path::Path>,
     ) -> Result<()> {
         let mut res = BTreeMap::new();
 
-        ts.env_with_path(config).await?.iter().for_each(|(k, v)| {
+        let mut env = ts.env_with_path(config).await?;
+        Self::prepend_shared_path(&mut env, shared_bin)?;
+        env.iter().for_each(|(k, v)| {
             res.insert(k.to_string(), BTreeMap::from([("value", v.to_string())]));
         });
 
@@ -202,10 +235,12 @@ impl Env {
         config: &Arc<Config>,
         ts: Toolset,
         redacted_keys: &Option<IndexSet<String>>,
+        shared_bin: Option<&std::path::Path>,
     ) -> Result<()> {
         let default_shell = get_shell(Some(fallback_shell())).unwrap();
         let shell = get_shell(self.shell).unwrap_or(default_shell);
         let (mut env, mut env_remove) = ts.env_with_path_and_removals(config).await?;
+        Self::prepend_shared_path(&mut env, shared_bin)?;
 
         if let Some(keys) = redacted_keys {
             env.retain(|k, _| self.should_include_key(k, keys));
@@ -227,7 +262,9 @@ impl Env {
         &self,
         mut env: EnvMap,
         redacted_keys: &Option<IndexSet<String>>,
+        shared_bin: Option<&std::path::Path>,
     ) -> Result<()> {
+        Self::prepend_shared_path(&mut env, shared_bin)?;
         if let Some(keys) = redacted_keys {
             env.retain(|k, _| self.should_include_key(k, keys));
         }
@@ -245,8 +282,10 @@ impl Env {
         config: &Arc<Config>,
         ts: Toolset,
         redacted_keys: &Option<IndexSet<String>>,
+        shared_bin: Option<&std::path::Path>,
     ) -> Result<()> {
         let mut env = ts.env_with_path(config).await?;
+        Self::prepend_shared_path(&mut env, shared_bin)?;
 
         if let Some(keys) = redacted_keys {
             env.retain(|k, _| self.should_include_key(k, keys));
@@ -262,6 +301,29 @@ impl Env {
         redacted_keys
             .iter()
             .any(|pattern| wildcard_match(key, pattern))
+    }
+
+    /// Puts the shared library's python bin directory in front of PATH so the
+    /// selected shared interpreter takes precedence over any legacy install.
+    fn prepend_shared_path(
+        env: &mut EnvMap,
+        shared_bin: Option<&std::path::Path>,
+    ) -> Result<()> {
+        let Some(bin) = shared_bin else { return Ok(()) };
+        match env.get_mut(&*PATH_KEY) {
+            Some(current) => {
+                let mut parts: Vec<std::path::PathBuf> = split_paths(current).collect();
+                if parts.first().is_some_and(|first| first == bin) {
+                    return Ok(());
+                }
+                parts.insert(0, bin.to_path_buf());
+                *current = join_paths(&parts)?.to_string_lossy().into_owned();
+            }
+            None => {
+                env.insert((*PATH_KEY).clone(), bin.to_string_lossy().into_owned());
+            }
+        }
+        Ok(())
     }
 }
 

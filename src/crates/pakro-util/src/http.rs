@@ -2176,6 +2176,11 @@ fn github_relay_socket(url: &Url) -> Option<std::ffi::OsString> {
 
 pub fn apply_url_replacements(url: &mut Url) {
     let settings = Settings::get();
+    apply_url_replacements_using(url, &settings);
+}
+
+/// Apply the same ordered URL routing rules using one caller-owned snapshot.
+pub fn apply_url_replacements_using(url: &mut Url, settings: &Settings) {
     if let Some(replacements) = &settings.url_replacements {
         let url_string = url.to_string();
 

@@ -10,6 +10,7 @@ source "$SCRIPT_DIR/style.sh"
 # including slow ones; `pakro run test:e2e` passes them when E2E_JOBS is set.
 # Without arguments, every test is discovered.
 EXPLICIT_FILES=0
+RELEASE_SKIP=0
 if (($# > 0)); then
   EXPLICIT_FILES=1
   FILES=("$@")
@@ -20,7 +21,7 @@ else
   if [[ -f $RELEASE_SKIP_FILE ]]; then
     if grep -Fxq "$VERSION" "$RELEASE_SKIP_FILE"; then
       echo "[e2e] Skipping all e2e tests: .release-skip-e2e contains $VERSION" >&2
-      exit 0
+      RELEASE_SKIP=1
     fi
   fi
 
@@ -40,7 +41,8 @@ else
     FAST_FILES+=("$line")
   done < <(list_test_files "test_*" | grep -v "_slow$")
   popd >/dev/null
-  FILES=("${FAST_FILES[@]}" "${SLOW_FILES[@]}")
+  # Bash 3.2 treats an empty array expansion as unset with nounset enabled.
+  FILES=(${FAST_FILES[@]+"${FAST_FILES[@]}"} ${SLOW_FILES[@]+"${SLOW_FILES[@]}"})
 fi
 test_count=0
 skipped_count=0
@@ -48,33 +50,65 @@ status=0
 RUN_FILES=()
 SUMMARY_ENTRY_TYPES=()
 SUMMARY_ENTRY_VALUES=()
+SUMMARY_FILES=()
+ORIGINAL_GITHUB_STEP_SUMMARY="${GITHUB_STEP_SUMMARY:-}"
+
+report_results() {
+  local entry_index entry_type entry_value
+  if ((${#SUMMARY_ENTRY_TYPES[@]} > 0)); then
+    for entry_index in "${!SUMMARY_ENTRY_TYPES[@]}"; do
+      entry_type="${SUMMARY_ENTRY_TYPES[$entry_index]}"
+      entry_value="${SUMMARY_ENTRY_VALUES[$entry_index]}"
+      if [[ $entry_type == run ]]; then
+        if [[ -n $ORIGINAL_GITHUB_STEP_SUMMARY && -f ${SUMMARY_FILES[$entry_value]} ]]; then
+          cat "${SUMMARY_FILES[$entry_value]}" >>"$ORIGINAL_GITHUB_STEP_SUMMARY"
+        fi
+      else
+        echo "SKIP: $entry_value ($entry_type)" >&2
+        summary "$entry_value" "-" ":zap: ($entry_type)"
+      fi
+    done
+  fi
+  echo "E2E: ran $test_count tests, skipped $skipped_count tests" >&2
+}
 
 summary "Test" "Duration" "Result"
 summary "---" "---" "---"
 
-for index in "${!FILES[@]}"; do
-  TEST_NAME="${FILES[$index]}"
+if ((${#FILES[@]} > 0)); then
+  for index in "${!FILES[@]}"; do
+    TEST_NAME="${FILES[$index]}"
+    skip_reason=""
+    if [[ $RELEASE_SKIP == 1 ]]; then
+      skip_reason="release-skip"
+    elif [[ -n ${TEST_TRANCHE_COUNT:-} ]] && [[ $((index % TEST_TRANCHE_COUNT)) -ne $TEST_TRANCHE ]]; then
+      skip_reason="tranche"
+    elif [[ $EXPLICIT_FILES == 0 && ${TEST_ALL:-0} != 1 && $TEST_NAME == *_slow ]]; then
+      skip_reason="slow"
+    fi
 
-  # split tests into tranches to reduce test time
-  if [[ -n ${TEST_TRANCHE_COUNT:-} ]]; then
-    if [[ $((index % TEST_TRANCHE_COUNT)) -ne $TEST_TRANCHE ]]; then
+    if [[ -n $skip_reason ]]; then
+      skipped_count=$((skipped_count + 1))
+      SUMMARY_ENTRY_TYPES+=("$skip_reason")
+      SUMMARY_ENTRY_VALUES+=("$TEST_NAME")
       continue
     fi
-  fi
 
-  # Skip discovered slow tests unless TEST_ALL == 1
-  if [[ $EXPLICIT_FILES == 0 && ${TEST_ALL:-0} != 1 && $TEST_NAME == *_slow ]]; then
-    #    title="E2E test $TEST_NAME skipped" file="tests/e2e/$TEST_NAME" warn "slow tests are disabled"
-    skipped_count=$((skipped_count + 1))
-    SUMMARY_ENTRY_TYPES+=("skip")
-    SUMMARY_ENTRY_VALUES+=("$TEST_NAME")
-    continue
-  fi
+    SUMMARY_ENTRY_TYPES+=("run")
+    SUMMARY_ENTRY_VALUES+=("${#RUN_FILES[@]}")
+    RUN_FILES+=("$TEST_NAME")
+  done
+fi
 
-  SUMMARY_ENTRY_TYPES+=("run")
-  SUMMARY_ENTRY_VALUES+=("${#RUN_FILES[@]}")
-  RUN_FILES+=("$TEST_NAME")
-done
+total=${#RUN_FILES[@]}
+if ((total == 0)); then
+  report_results
+  if [[ $RELEASE_SKIP == 1 ]]; then
+    exit 0
+  fi
+  err "No e2e tests selected to run"
+  exit 1
+fi
 
 cpu_count() {
   if command -v getconf >/dev/null 2>&1; then
@@ -113,11 +147,9 @@ fi
 
 PIDS=()
 LOG_FILES=()
-SUMMARY_FILES=()
 STATUS_FILES=()
 FINISHED=()
 FAILED_TESTS=()
-ORIGINAL_GITHUB_STEP_SUMMARY="${GITHUB_STEP_SUMMARY:-}"
 
 SHOW_PASSING_LOGS="${E2E_SHOW_PASSING_LOGS:-}"
 if [[ -z $SHOW_PASSING_LOGS ]]; then
@@ -139,7 +171,6 @@ cleanup() {
 trap 'cleanup' EXIT
 trap 'cleanup; exit 130' INT TERM
 
-total=${#RUN_FILES[@]}
 next=0
 active=0
 completed=0
@@ -243,20 +274,7 @@ if ((${#PIDS[@]} > 0)); then
   done
 fi
 
-if ((${#SUMMARY_ENTRY_TYPES[@]} > 0)); then
-  for index in "${!SUMMARY_ENTRY_TYPES[@]}"; do
-    if [[ ${SUMMARY_ENTRY_TYPES[$index]} == skip ]]; then
-      summary "${SUMMARY_ENTRY_VALUES[$index]}" "-" ":zap:"
-    else
-      run_index="${SUMMARY_ENTRY_VALUES[$index]}"
-      if [[ -n $ORIGINAL_GITHUB_STEP_SUMMARY && -f ${SUMMARY_FILES[$run_index]} ]]; then
-        cat "${SUMMARY_FILES[$run_index]}" >>"$ORIGINAL_GITHUB_STEP_SUMMARY"
-      fi
-    fi
-  done
-fi
-
-echo "E2E: ran $test_count tests, skipped $skipped_count tests" >&2
+report_results
 
 if ((${#FAILED_TESTS[@]} > 0)); then
   echo >&2
