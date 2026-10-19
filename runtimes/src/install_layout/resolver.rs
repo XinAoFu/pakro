@@ -982,6 +982,11 @@ pub(crate) fn purge_installs(ba: &crate::args::BackendArg) -> Result<()> {
     }
     for (_, dir) in installs_of(ba) {
         if is_primary_install(&dir) {
+            crate::libraries::language::mutation::reject_legacy_mutation(
+                *crate::dirs::DATA,
+                crate::libraries::language::mutation::LegacyMutation::Purge,
+                &dir,
+            )?;
             file::remove_all(&dir)?;
         }
     }

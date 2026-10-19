@@ -2887,6 +2887,11 @@ pub trait Backend: Debug + Send + Sync {
     /// request without reinstalling it. Returns `false` when the backend cannot
     /// repair in place, in which case pakro reinstalls the version.
     async fn repair_install(&self, _ctx: &InstallContext, _tv: &ToolVersion) -> Result<bool> {
+        crate::libraries::language::mutation::reject_legacy_mutation(
+            *crate::dirs::DATA,
+            crate::libraries::language::mutation::LegacyMutation::Repair,
+            &_tv.install_path(),
+        )?;
         Ok(false)
     }
 
@@ -3549,6 +3554,12 @@ pub trait Backend: Debug + Send + Sync {
     }
 
     fn purge(&self, pr: &dyn SingleReport) -> eyre::Result<()> {
+        // F2: shared library payloads are never removed by legacy paths.
+        crate::libraries::language::mutation::reject_legacy_mutation(
+            *crate::dirs::DATA,
+            crate::libraries::language::mutation::LegacyMutation::Purge,
+            &self.ba().installs_path(),
+        )?;
         crate::install_layout::resolver::purge_installs(self.ba())?;
         remove_all_with_progress(self.ba().installs_path(), pr)?;
         remove_all_with_progress(self.ba().cache_path(), pr)?;
@@ -4429,6 +4440,11 @@ pub trait Backend: Debug + Send + Sync {
         _pr: &dyn SingleReport,
         _tv: &ToolVersion,
     ) -> Result<()> {
+        crate::libraries::language::mutation::reject_legacy_mutation(
+            *crate::dirs::DATA,
+            crate::libraries::language::mutation::LegacyMutation::Uninstall,
+            &_tv.install_path(),
+        )?;
         Ok(())
     }
     /// Return the candidate bin directories for this tool version.

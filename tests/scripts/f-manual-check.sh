@@ -7,8 +7,8 @@ cd "$repo_root"
 
 mode="${1:-f1}"
 case "$mode" in
-    f1|--list|--format-only) ;;
-    *) printf 'Usage: bash tests/scripts/f-manual-check.sh [f1|--list|--format-only]\n' >&2; exit 2 ;;
+    f1|f2|--list|--format-only) ;;
+    *) printf 'Usage: bash tests/scripts/f-manual-check.sh [f1|f2|--list|--format-only]\n' >&2; exit 2 ;;
 esac
 
 # Keep one feature selection for every Cargo invocation. Disable the large
@@ -34,6 +34,11 @@ f1_format_files=(
     src/core/programs/mod.rs
     src/core/programs/directory.rs
     src/core/programs/install/mod.rs
+    src/core/programs/install/apply.rs
+    src/core/programs/install/apply/tests.rs
+    src/core/libraries/language/mutation.rs
+    src/core/libraries/language/mutation/tests.rs
+    runtimes/src/plugins/core/python/native/pipeline.rs
     src/core/programs/install/selection.rs
     src/core/programs/install/selection/tests.rs
     src/core/programs/query/mod.rs
@@ -78,7 +83,17 @@ fi
 if [[ "$mode" == --list ]]; then
     # Confirm every registered full test name exists before counting results.
     cargo test -p pakro --lib --all-features f1_ -- --list
-    printf 'Registered inventory: tests/scripts/f1-test-cases.txt\n'
+    cargo test -p pakro --lib --all-features f2_ -- --list
+    printf 'Registered inventory: tests/scripts/f{1,2}-test-cases.txt\n'
+    exit 0
+fi
+
+if [[ "$mode" == f2 ]]; then
+    # F2 offline unit batch. The e2e downloads a real PBS release (network)
+    # and stays in the user lane: tests/e2e/cli/test_f2_exact_python_install.
+    cargo test -p pakro --lib --all-features f2_ -- --nocapture
+    check_formatting
+    printf 'F2 offline batch completed. Review results above. Network e2e (user lane): tests/e2e/cli/test_f2_exact_python_install\n'
     exit 0
 fi
 

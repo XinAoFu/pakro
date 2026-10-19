@@ -205,9 +205,12 @@ impl LanguageRepository {
             RootLimits::default(),
             self.context.policy().deadline,
         )
-        .map_err(LanguageEnumerateError::Unreadable)?
-        .context("language library state is unreadable")
         .map_err(LanguageEnumerateError::Unreadable)?;
+        // A store that does not exist yet simply has nothing published; that
+        // is distinct from unreadable or damaged state.
+        let Some(read) = read else {
+            return Ok(Vec::new());
+        };
         let control = read
             .control(ControlLimits::default())
             .map_err(LanguageEnumerateError::Unreadable)?;

@@ -5,6 +5,7 @@ pub(crate) mod identity;
 pub(crate) mod lease;
 #[cfg(unix)]
 pub(crate) mod manifest;
+pub(crate) mod mutation;
 #[cfg(unix)]
 pub(crate) mod publication;
 #[cfg(unix)]

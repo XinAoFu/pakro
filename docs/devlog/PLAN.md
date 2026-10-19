@@ -126,7 +126,7 @@
 
 ## F2：用户决定安装缺少的 Python，装好就能选用
 
-**状态：** ☐ 测试已写并注册；☐ 用户确认预期失败；☐ 最小实现；☐ 用户验收；☐ 两轴静态审查。当前全部未实施。
+**状态：** ☑ 测试已写并注册（2026-10-19，含可编译桩；RED 已由 Agent 自测确认——4 项 f2_ 单测均失败于 "f2 ... is not implemented" 桩，`cargo test f2_` 0 passed/4 failed；格式通过）；☑ 最小实现（2026-10-19：CLI 双写法分流+D10 副作用前拒绝、install_native_body 提取+唯一 build 选定、拒绝门 5 处接线；f2 批 4/4、f1 套件、格式全绿 `target/f1-manual-20261019-213620.log`；rollback/system_install 门为记录的后续加固点）；☐ 用户验收（含网络 e2e `tests/e2e/cli/test_f2_exact_python_install`，用户道）；☐ 两轴静态审查。
 
 **先完成：** F1。新增安装复用R06，不重做语言库。
 

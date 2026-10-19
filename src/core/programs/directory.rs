@@ -34,6 +34,13 @@ pub struct DirectoryPython {
     pub version: String,
 }
 
+/// Whether a raw version string is a complete exact Python declaration
+/// (D10). Exposed for the CLI's install fast path, which must reject
+/// incomplete requests before any remote resolution or write.
+pub fn is_exact_python_version(raw: &str) -> bool {
+    crate::programs::shared::exact_version::exact_python_request(raw).is_ok()
+}
+
 /// Selects the current directory's declared Python from the shared library.
 /// `commit` records the project registration and selection through the
 /// controlled apply entry; without it this call never writes anything.

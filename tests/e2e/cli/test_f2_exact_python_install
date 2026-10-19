@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+
+# F2 e2e: a real explicit install of one complete PBS release (NETWORK:
+# downloads from github.com; run manually, not part of the offline f2 unit
+# batch). 安装后进入项目可运行；再次安装与第二项目复用同一 payload；
+# 不完整请求零获取；失败不产生 Ready。
+
+VERSION="3.13.16"
+lang_root="$PAKRO_DATA_DIR/languages"
+
+# The runner expects target/debug/pakro to exist; build it so this test is
+# self-sufficient after artifact cleanup (offline compile, no download).
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
+export CARGO_INCREMENTAL=0
+export CARGO_PROFILE_DEV_DEBUG=0
+(cd "$ROOT" && cargo build -p pakro --all-features)
+
+# Incomplete requests are refused before any acquisition (D10).
+out="$(pakro install python 3.13 2>&1 || true)"
+assert_contains "echo \"$out\"" "complete exact version"
+assert "find \"$lang_root\" -mindepth 1 -maxdepth 1 -type d ! -name '.*' 2>/dev/null | wc -l | tr -d ' '" "0"
+
+# One real install publishes exactly one Ready instance.
+assert_succeed "pakro install python $VERSION"
+assert "find \"$lang_root\" -mindepth 1 -maxdepth 1 -type d ! -name '.*' | wc -l | tr -d ' '" "1"
+
+# A project declaring the exact version runs the shared interpreter, and a
+# second install reuses it without a second payload.
+mkdir -p a b
+printf '[tools]\npython = "%s"\n' "$VERSION" >a/pakro.toml
+printf '[tools]\npython = "%s"\n' "$VERSION" >b/pakro.toml
+eval "$(pakro activate bash)"
+cd a && eval "$(pakro hook-env -s bash)"
+shared_python="$(command -v python)"
+assert_contains "echo "$shared_python"" "/payload/bin/python"
+assert "test -x "$shared_python" && echo executable" "executable"
+assert "$shared_python --version" "Python $VERSION"
+cd ../b && eval "$(pakro hook-env -s bash)"
+assert "command -v python" "$shared_python"
+
+# Reinstall reuses: still one instance, still runnable.
+assert_succeed "pakro install python $VERSION"
+assert "find "$lang_root" -mindepth 1 -maxdepth 1 -type d ! -name '.*' | wc -l | tr -d ' '" "1"
+assert "$shared_python --version" "Python $VERSION"

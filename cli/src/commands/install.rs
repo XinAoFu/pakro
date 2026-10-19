@@ -159,6 +159,30 @@ impl Install {
     #[async_backtrace::framed]
     pub async fn run(mut self) -> Result<()> {
         let config = Config::get().await?;
+        // F2 exact-Python fast path (D10): one explicit python request with a
+        // complete version enters before the legacy migration, task-tool
+        // collection or any remote resolution; incomplete versions are
+        // rejected here before anything is fetched or written. Both the
+        // `python@3.13.16` and the `python 3.13.16` spellings qualify.
+        let exact_python_version: Option<String> = match self.tool.as_deref().unwrap_or(&[]) {
+            [single] if single.short == "python" => single.version.clone(),
+            [first, second]
+                if first.short == "python"
+                    && first.version.is_none()
+                    && second.version.is_none() =>
+            {
+                Some(second.short.clone())
+            }
+            _ => None,
+        };
+        if let Some(version) = exact_python_version {
+            eyre::ensure!(
+                crate::programs::directory::is_exact_python_version(&version),
+                "python {version:?} is not a complete exact version; \
+                 write the full version, e.g. pakro install python 3.13.16"
+            );
+            return self.run_exact_python_install(config.clone()).await;
+        }
         // bare package names (`pakro install numpy@1.26.4`) bind to the sole
         // package-capable runtime declared in config
         let bare_pins = self.split_bare_packages(&config).await?;
@@ -182,6 +206,33 @@ impl Install {
         self.install_config_packages(&config, bare_pins, &runtime_bindings)
             .await?;
         self.hint_missing_system_packages().await;
+        Ok(())
+    }
+
+    /// F2 exact-Python install: the gated request drives the real native
+    /// fetch, provenance verification and R06 publication through the
+    /// single-tool install machinery (unique-build selection included), then
+    /// links the surrounding project through the same F1 selection chain.
+    #[async_backtrace::framed]
+    async fn run_exact_python_install(&self, config: Arc<Config>) -> Result<()> {
+        // Normalize the two-arg spelling into one clean python@version arg so
+        // the single-tool machinery sees exactly one runtime.
+        let runtime: Vec<ToolArg> = match self.tool.as_deref().unwrap_or(&[]) {
+            [single] => vec![single.clone()],
+            [first, second] if first.version.is_none() && second.version.is_none() => {
+                vec![ToolArg::from_str(&format!("python@{}", second.short))?]
+            }
+            _ => unreachable!("the fast path validated one python request"),
+        };
+        let original_tool_args = env::TOOL_ARGS.read().unwrap().clone();
+        env::TOOL_ARGS.write().unwrap().clone_from(&runtime);
+        self.install_runtimes(config, &runtime, original_tool_args, Vec::new())
+            .await?;
+        // D09: a project directory declaring this exact python is registered
+        // and selected through the controlled F1 chain; a global install in a
+        // non-project directory records nothing.
+        #[cfg(unix)]
+        crate::programs::directory::select_directory_python(true)?;
         Ok(())
     }
 

@@ -129,6 +129,11 @@ pub fn scheduled_removals() -> Result<BTreeMap<PathBuf, u64>> {
 }
 
 pub fn schedule(tv: &ToolVersion, after: Duration) -> Result<()> {
+    crate::libraries::language::mutation::reject_legacy_mutation(
+        *crate::dirs::DATA,
+        crate::libraries::language::mutation::LegacyMutation::DelayedCleanup,
+        &tv.install_path(),
+    )?;
     let _lock = crate::lock_file::get(state_path(), false)?;
     let mut state = load_state()?;
     let install_path = tv.install_path();

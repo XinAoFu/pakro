@@ -469,6 +469,40 @@ pub(in crate::plugins::core::python) fn choose_release<'a>(
     super::select_exact_release(releases, selected.key())
 }
 
+/// F2 exact-pin selection for the shared library install path: several
+/// distribution builds of one complete request are an ambiguity to report to
+/// the user, never a silent "latest build" pick. A single build resolves to
+/// its unique release.
+pub(in crate::plugins::core::python) fn choose_unique_release<'a>(
+    releases: &'a [RuntimeRelease],
+    request: &str,
+) -> Result<&'a RuntimeRelease> {
+    let matching: Vec<_> = releases
+        .iter()
+        .filter(|release| release.request_version() == request)
+        .collect();
+    let selected = *matching
+        .first()
+        .context("exact Python runtime request has no release")?;
+    for release in &matching {
+        ensure!(
+            release.key().distribution == selected.key().distribution
+                && release.key().target == selected.key().target
+                && release.key().python_version == selected.key().python_version
+                && release.key().implementation_version == selected.key().implementation_version
+                && free_threaded(release.key().flavor) == free_threaded(selected.key().flavor),
+            "exact runtime request has conflicting distribution, target or implementation metadata"
+        );
+    }
+    ensure!(
+        matching.len() == 1,
+        "exact Python runtime request {request:?} matches {} distribution builds; \
+         pin one build explicitly instead of an automatic pick",
+        matching.len()
+    );
+    super::select_exact_release(releases, selected.key())
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{RuntimePlatform, parse_pbs_releases, parse_pypy_releases};
@@ -807,6 +841,31 @@ mod tests {
             }
         }
         parse_pbs_releases(&raw, &target(), flavor, &BTreeMap::new()).unwrap()
+    }
+
+    #[test]
+    fn f2_multiple_builds_are_not_latest_selection() {
+        let mut releases = with_pbs_date("20261012", RuntimeFlavor::InstallOnlyStripped);
+        releases.extend(with_pbs_date("20261013", RuntimeFlavor::InstallOnly));
+        // The legacy chooser auto-picks the newer build; the F2 exact-pin
+        // path must report the ambiguity instead.
+        assert_eq!(
+            choose_release(&releases, "3.15.0")
+                .unwrap()
+                .key()
+                .distribution_version,
+            "20261013"
+        );
+        assert!(
+            choose_unique_release(&releases, "3.15.0").is_err(),
+            "multiple builds of one exact request must be reported, not auto-picked"
+        );
+        let pinned = with_pbs_date("20261014", RuntimeFlavor::InstallOnly);
+        let selected = choose_unique_release(&pinned, "3.15.0").unwrap();
+        assert_eq!(selected.key().distribution_version, "20261014");
+        for request in ["latest", "3.15", "3.14.0", ""] {
+            assert!(choose_unique_release(&pinned, request).is_err());
+        }
     }
 
     #[test]

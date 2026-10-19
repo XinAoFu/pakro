@@ -708,7 +708,17 @@ impl PythonPlugin {
                 policy,
             )
             .await?;
-        let release = native::pipeline::choose_release(&releases, &tv.version)?;
+        let release = if crate::programs::shared::exact_version::exact_python_request(
+            &tv.version,
+        )
+        .is_ok()
+        {
+            // F2 exact installs pin one build: several distribution builds of
+            // one complete request are reported, never auto-picked as latest.
+            native::pipeline::choose_unique_release(&releases, &tv.version)?
+        } else {
+            native::pipeline::choose_release(&releases, &tv.version)?
+        };
         Ok(native::pipeline::RuntimeInstallPlan::from_release(release))
     }
 
@@ -845,6 +855,18 @@ impl PythonPlugin {
         settings: &Settings,
     ) -> Result<()> {
         let operation = Self::native_operation_context(settings, ctx.locked)?;
+        self.install_native_body(&operation, ctx, tv).await
+    }
+
+    /// The native install body for one already-frozen operation context. The
+    /// F2 exact-Python path captures its context once and calls this body
+    /// directly; the legacy wrapper above stays for its old consumers.
+    async fn install_native_body(
+        &self,
+        operation: &crate::programs::OperationContext,
+        ctx: &InstallContext,
+        tv: &mut ToolVersion,
+    ) -> Result<()> {
         let deadline = operation.policy().deadline;
         let plan = tokio::time::timeout_at(
             tokio::time::Instant::from_std(deadline),

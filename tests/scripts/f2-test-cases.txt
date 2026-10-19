@@ -1,0 +1,8 @@
+# F2 registered test inventory, checked by: bash tests/scripts/f-manual-check.sh f2
+# Real inputs: unit tests use the offline fixture archive; the e2e downloads a
+# real PBS release (network) and is run manually by the user.
+programs::install::apply::tests::f2_exact_install_reuses_and_records_only_real_projects
+programs::install::apply::tests::f2_failed_acquire_keeps_published_state
+plugins::core::python::native::pipeline::tests::f2_multiple_builds_are_not_latest_selection
+libraries::language::mutation::tests::f2_legacy_mutation_is_rejected_before_effects
+tests/e2e/cli/test_f2_exact_python_install [network: user lane]
