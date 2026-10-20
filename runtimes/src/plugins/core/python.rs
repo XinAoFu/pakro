@@ -708,14 +708,24 @@ impl PythonPlugin {
                 policy,
             )
             .await?;
-        let release = if crate::programs::shared::exact_version::exact_python_request(
-            &tv.version,
-        )
-        .is_ok()
+        // F2 exact installs pin one build: several distribution builds of one
+        // complete request are reported, never auto-picked as latest. Resolve
+        // against the ORIGINAL request spelling: toolset resolution normalizes
+        // tv.version through the backend version list, which strips a
+        // `+YYYYMMDD` build pin (a PEP 440 local segment).
+        let requested = tv.request.version();
+        let requested = if requested.starts_with(&tv.version)
+            && requested.len() > tv.version.len()
+            && crate::programs::shared::exact_version::exact_python_request(&requested).is_ok()
         {
-            // F2 exact installs pin one build: several distribution builds of
-            // one complete request are reported, never auto-picked as latest.
-            native::pipeline::choose_unique_release(&releases, &tv.version)?
+            requested
+        } else {
+            tv.version.clone()
+        };
+        let release = if crate::programs::shared::exact_version::exact_python_request(&requested)
+            .is_ok()
+        {
+            native::pipeline::choose_unique_release(&releases, &requested)?
         } else {
             native::pipeline::choose_release(&releases, &tv.version)?
         };
