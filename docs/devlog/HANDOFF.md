@@ -19,7 +19,7 @@ R00–R06已完成并勾选。**2026-10-18用户明确下令开始F1**；F1第�
 **2026-10-19 23:55 用户指令：F3+F4 连续实施、全部测试推迟到 F4 后统一执行（期间仅编译检查）。**F3 第一批已落：包库骨架 blob/tree/manifest/layouts（+2 测试）、shared_runtime 桥（+1 测试）、package_graph 投影合同、programs/install/resolve（+1 测试）——已注册、编译通过、未执行。F3 剩余清单见日志 23:55 条目（真实闭包接线、R05/wheel 核接线、layouts 前缀+启动适配、图持久化、目录选择包投影、CLI install/deps 分流、plan/layout/verify）。
 **【标准用户道流程（2026-10-20 起）】**待用户执行的命令一律先写入本节，输出 tee 到 target/*.log，跑完用户只需说"跑完了"，Agent 读最新日志判断。
 
-### 当前待用户执行（F2 网络 e2e 第三跑，含 +build 钉住）
+### 当前待用户执行（F2 网络 e2e 第四跑：钉住拼写已修复穿透解析层）
 
 ```bash
 cd '/Users/fuxinao/文件/project/pakro'
