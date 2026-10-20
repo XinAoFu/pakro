@@ -17,6 +17,17 @@ R00–R06已完成并勾选。**2026-10-18用户明确下令开始F1**；F1第�
 **2026-10-19 20:10 F1 全部完成（五步：测试注册→RED→最小实现→用户验收→两轴审查）。**用户以真实终端演示确认四项验收行为；双轴审查的唯一阻塞（提交锁序与规格相反：语言SH原在prepare先于项目EX）已修复为 项目EX→语言SH→CAS，另修 env.rs 生产 unwrap 与 directory.rs 静默吞错；处置后 `target/f1-manual-20261019-200450.log` 全绿+model/language 回归通过。非阻塞建议记 F2+（AlreadyApplied 并发收敛、具名常量、EEXIST 回退等，见日志 20:10）。既有失败 `cli/test_activate_export` 仍待用户裁决（先于F1存在）。**2026-10-19 21:30 F2 已开始（用户下令+已提交 c5f4457f9）。**F2 第一步完成：四处测试+可编译桩已注册并自测 RED（`cargo test f2_` 4/4 失败于桩，格式通过）；`f-manual-check.sh` 增 f2 模式（离线批），e2e `test_f2_exact_python_install` 需网络属用户道。**2026-10-19 22:30 F2 最小实现第一块完成：离线核全绿**（`f2_` 4/4、F1 套件复跑通过 `target/f1-manual-20261019-205546.log`、language 38/38）。已实现 choose_unique_release（多 build 报歧义）、reject_legacy_mutation（共享库 canonicalize 包含判定）、install_exact_python（枚举复用零获取/acquire→spec_from_artifact→prepare_language/项目接 F1 关联）；修 enumerate 缺库=空集。
 **2026-10-19 22:15 F2 ①②③接线完成，离线全绿**（f2 批 4/4、f1 套件 `target/f1-manual-20261019-213620.log`、格式；离线 D10 冒烟两种写法均副作用前拒绝）。CLI 双写法快速路径+单工具 install_runtimes 复用+成功后 F1 关联；install_native_body 提取、精确请求走 choose_unique_release；拒绝门 5 处（backend purge/repair/uninstall_impl、resolver purge_installs、purgatory schedule），门签名改 data_root；无参数安装留旧管线、rollback/system_install 门为记录的后续加固点（详见日志 22:15）。
 **2026-10-19 23:55 用户指令：F3+F4 连续实施、全部测试推迟到 F4 后统一执行（期间仅编译检查）。**F3 第一批已落：包库骨架 blob/tree/manifest/layouts（+2 测试）、shared_runtime 桥（+1 测试）、package_graph 投影合同、programs/install/resolve（+1 测试）——已注册、编译通过、未执行。F3 剩余清单见日志 23:55 条目（真实闭包接线、R05/wheel 核接线、layouts 前缀+启动适配、图持久化、目录选择包投影、CLI install/deps 分流、plan/layout/verify）。
+**【标准用户道流程（2026-10-20 起）】**待用户执行的命令一律先写入本节，输出 tee 到 target/*.log，跑完用户只需说"跑完了"，Agent 读最新日志判断。
+
+### 当前待用户执行（F2 网络 e2e 第三跑，含 +build 钉住）
+
+```bash
+cd '/Users/fuxinao/文件/project/pakro'
+tests/e2e/run_test tests/e2e/cli/test_f2_exact_python_install 2>&1 | tee target/f2-e2e-$(date +%Y%m%d-%H%M%S).log
+```
+
+预期：拒绝 3.13 → 裸 3.13.16 报歧义并列出候选（零获取）→ 安装 3.13.16+20261013 成功且仅一个实例 → a/b 内 python --version 输出 Python 3.13.16 → 重装复用。通过后 Agent 做 F2 两轴审查，继续 F3。
+
 **F2 剩余：用户道网络 e2e** `cd '/Users/fuxinao/文件/project/pakro' && tests/e2e/run_test tests/e2e/cli/test_f2_exact_python_install`（真实下载 PBS 3.13.16 约 25MB）；通过后用户真实场景验收+两轴审查。
 
 ```bash
