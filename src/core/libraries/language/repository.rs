@@ -104,6 +104,18 @@ impl PublishedLanguage {
     pub(crate) fn version(&self) -> String {
         self.manifest.descriptor.language_version.full_version()
     }
+    /// The distribution build date parsed from the stored archive filename,
+    /// e.g. `20261013` for `cpython-3.13.16+20261013-...`.
+    pub(crate) fn build(&self) -> Option<&str> {
+        self.manifest
+            .filename
+            .rsplit_once(".tar.gz")
+            .map(|(stem, _)| stem)
+            .and_then(|stem| stem.split_once('+'))
+            .map(|(_, build)| build)
+            .and_then(|build| build.split_once('-'))
+            .map(|(build, _)| build)
+    }
     pub(crate) fn platform_system(&self) -> &str {
         &self.manifest.descriptor.markers.platform_system
     }

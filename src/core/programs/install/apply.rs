@@ -63,7 +63,11 @@ where
     let matching: Vec<_> = published
         .iter()
         .filter(|language| {
-            language.version() == request.as_str() && language.matches_host_platform()
+            language.version() == request.version_only()
+                && language.matches_host_platform()
+                && request
+                    .build_pin()
+                    .is_none_or(|pin| language.build() == Some(pin))
         })
         .collect();
     if matching.len() > 1 {
@@ -149,10 +153,16 @@ fn spec_from_artifact(
         eyre::bail!("acquired runtime {filename:?} is not an official PBS archive");
     };
     ensure!(
-        version == request.as_str(),
+        version == request.version_only(),
         "acquired archive {filename:?} does not match the exact requested version {}",
-        request.as_str()
+        request.version_only()
     );
+    if let Some(pin) = request.build_pin() {
+        ensure!(
+            build == pin,
+            "acquired archive {filename:?} is build {build}, not the pinned {pin}"
+        );
+    }
     let platform = crate::lockfile::PlatformInfo {
         url: Some(format!(
             "https://github.com/astral-sh/python-build-standalone/releases/download/{build}/{filename}"

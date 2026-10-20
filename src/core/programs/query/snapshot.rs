@@ -140,7 +140,11 @@ pub(crate) fn select_existing(query: &QueryContext<'_>) -> Result<SelectionRepor
     let mut matching: Vec<_> = published
         .into_iter()
         .filter(|language| {
-            language.version() == requested.as_str() && language.matches_host_platform()
+            language.version() == requested.version_only()
+                && language.matches_host_platform()
+                && requested
+                    .build_pin()
+                    .is_none_or(|pin| language.build() == Some(pin))
         })
         .collect();
     matching.sort_by_key(|language| language.key().fingerprint());

@@ -6,6 +6,7 @@
 # 不完整请求零获取；失败不产生 Ready。
 
 VERSION="3.13.16"
+BUILD="20261013"
 lang_root="$PAKRO_DATA_DIR/languages"
 
 # The runner expects target/debug/pakro to exist; build it so this test is
@@ -20,8 +21,15 @@ out="$(pakro install python 3.13 2>&1 || true)"
 assert_contains "echo \"$out\"" "complete exact version"
 assert "find \"$lang_root\" -mindepth 1 -maxdepth 1 -type d ! -name '.*' 2>/dev/null | wc -l | tr -d ' '" "0"
 
-# One real install publishes exactly one Ready instance.
-assert_succeed "pakro install python $VERSION"
+# A bare complete version with several published builds reports the
+# ambiguity with every candidate and teaches the +build pin spelling (D10);
+# nothing is fetched for the refused request.
+out="$(pakro install python $VERSION 2>&1 || true)"
+assert_contains "echo \"$out\"" "pin one explicitly"
+assert "find \"$lang_root\" -mindepth 1 -maxdepth 1 -type d ! -name '.*' 2>/dev/null | wc -l | tr -d ' '" "0"
+
+# One real pinned install publishes exactly one Ready instance.
+assert_succeed "pakro install python $VERSION+$BUILD"
 assert "find \"$lang_root\" -mindepth 1 -maxdepth 1 -type d ! -name '.*' | wc -l | tr -d ' '" "1"
 
 # A project declaring the exact version runs the shared interpreter, and a
@@ -39,6 +47,6 @@ cd ../b && eval "$(pakro hook-env -s bash)"
 assert "command -v python" "$shared_python"
 
 # Reinstall reuses: still one instance, still runnable.
-assert_succeed "pakro install python $VERSION"
+assert_succeed "pakro install python $VERSION+$BUILD"
 assert "find "$lang_root" -mindepth 1 -maxdepth 1 -type d ! -name '.*' | wc -l | tr -d ' '" "1"
 assert "$shared_python --version" "Python $VERSION"

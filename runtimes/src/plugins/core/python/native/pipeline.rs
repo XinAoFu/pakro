@@ -470,17 +470,31 @@ pub(in crate::plugins::core::python) fn choose_release<'a>(
 }
 
 /// F2 exact-pin selection for the shared library install path: several
-/// distribution builds of one complete request are an ambiguity to report to
-/// the user, never a silent "latest build" pick. A single build resolves to
-/// its unique release.
+/// distribution builds of one complete request are an ambiguity reported
+/// with every candidate, never a silent "latest build" pick. An explicit
+/// `+YYYYMMDD` build pin filters to that build; within one build the
+/// established archive priority resolves the flavor deterministically and
+/// equal-priority conflicts stay errors.
 pub(in crate::plugins::core::python) fn choose_unique_release<'a>(
     releases: &'a [RuntimeRelease],
     request: &str,
 ) -> Result<&'a RuntimeRelease> {
-    let matching: Vec<_> = releases
+    let (version, build_pin) = match request.split_once('+') {
+        Some((version, build)) => (version, Some(build)),
+        None => (request, None),
+    };
+    let mut matching: Vec<&RuntimeRelease> = releases
         .iter()
-        .filter(|release| release.request_version() == request)
+        .filter(|release| release.request_version() == version)
         .collect();
+    if let Some(pin) = build_pin {
+        matching.retain(|release| release.key().distribution_version == pin);
+        ensure!(
+            !matching.is_empty(),
+            "exact Python runtime request {request:?} pins build {pin:?}, \
+             which has no release for this target"
+        );
+    }
     let selected = *matching
         .first()
         .context("exact Python runtime request has no release")?;
@@ -494,13 +508,55 @@ pub(in crate::plugins::core::python) fn choose_unique_release<'a>(
             "exact runtime request has conflicting distribution, target or implementation metadata"
         );
     }
+    let builds: std::collections::BTreeSet<&str> = matching
+        .iter()
+        .map(|release| release.key().distribution_version.as_str())
+        .collect();
+    if builds.len() > 1 {
+        let candidates: Vec<String> = matching
+            .iter()
+            .map(|release| {
+                format!(
+                    "{} ({} {}/{})",
+                    release.key().distribution_version,
+                    release.release_date().unwrap_or("unknown date"),
+                    release.key().python_version,
+                    release.source().filename()
+                )
+            })
+            .collect();
+        eyre::bail!(
+            "exact Python runtime request {version:?} matches {} distribution builds; \
+             pin one explicitly, e.g. {version:?}+{}:\n  {}",
+            builds.len(),
+            builds.iter().last().unwrap_or(&""),
+            candidates.join("\n  ")
+        );
+    }
+    // One build remains: flavors resolve deterministically by the established
+    // archive priority, and equally preferred conflicts stay errors.
+    let ranked: Vec<_> = matching
+        .iter()
+        .map(|release| Ok((archive_priority(release)?, *release)))
+        .collect::<Result<_>>()?;
+    let priority = ranked
+        .iter()
+        .map(|(priority, _)| *priority)
+        .min()
+        .context("exact runtime request has no archive")?;
+    let winning: Vec<_> = ranked
+        .iter()
+        .filter(|(rank, _)| *rank == priority)
+        .map(|(_, release)| *release)
+        .collect();
+    let winner = *winning
+        .first()
+        .context("exact runtime request has no archive")?;
     ensure!(
-        matching.len() == 1,
-        "exact Python runtime request {request:?} matches {} distribution builds; \
-         pin one build explicitly instead of an automatic pick",
-        matching.len()
+        winning.iter().all(|release| release.key() == winner.key()),
+        "exact runtime request has ambiguous equally preferred artifacts"
     );
-    super::select_exact_release(releases, selected.key())
+    super::select_exact_release(releases, winner.key())
 }
 
 #[cfg(test)]
@@ -848,7 +904,7 @@ mod tests {
         let mut releases = with_pbs_date("20261012", RuntimeFlavor::InstallOnlyStripped);
         releases.extend(with_pbs_date("20261013", RuntimeFlavor::InstallOnly));
         // The legacy chooser auto-picks the newer build; the F2 exact-pin
-        // path must report the ambiguity instead.
+        // path must report the ambiguity with every candidate listed.
         assert_eq!(
             choose_release(&releases, "3.15.0")
                 .unwrap()
@@ -856,15 +912,32 @@ mod tests {
                 .distribution_version,
             "20261013"
         );
+        let ambiguity = choose_unique_release(&releases, "3.15.0")
+            .unwrap_err()
+            .to_string();
         assert!(
-            choose_unique_release(&releases, "3.15.0").is_err(),
-            "multiple builds of one exact request must be reported, not auto-picked"
+            ambiguity.contains("pin one explicitly"),
+            "the ambiguity must teach the pin spelling: {ambiguity}"
         );
-        let pinned = with_pbs_date("20261014", RuntimeFlavor::InstallOnly);
-        let selected = choose_unique_release(&pinned, "3.15.0").unwrap();
+        for build in ["20261012", "20261013"] {
+            assert!(
+                ambiguity.contains(build),
+                "every candidate build is listed: {ambiguity}"
+            );
+        }
+        // An explicit pin selects that build uniquely.
+        let pinned = choose_unique_release(&releases, "3.15.0+20261012").unwrap();
+        assert_eq!(pinned.key().distribution_version, "20261012");
+        // A pin without a matching build is an explicit error.
+        assert!(
+            choose_unique_release(&releases, "3.15.0+20261099").is_err(),
+            "a pin with no release is refused, not silently widened"
+        );
+        let single = with_pbs_date("20261014", RuntimeFlavor::InstallOnly);
+        let selected = choose_unique_release(&single, "3.15.0").unwrap();
         assert_eq!(selected.key().distribution_version, "20261014");
         for request in ["latest", "3.15", "3.14.0", ""] {
-            assert!(choose_unique_release(&pinned, request).is_err());
+            assert!(choose_unique_release(&single, request).is_err());
         }
     }
 
