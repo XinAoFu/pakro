@@ -117,27 +117,36 @@ impl BoundPythonLock {
         }
     }
     fn expected_pin(&self, file: &RegistryFileRef) -> Result<Option<&ContentPin>> {
-        let mut expected: Option<&ContentPin> = None;
-        if let Some(model) = &self.model {
-            for pin in model
-                .pins()
-                .iter()
-                .filter(|pin| same_file(pin.file(), file))
-            {
-                if let Some(previous) = expected {
-                    if previous.digest() != pin.digest() || previous.size() != pin.size() {
-                        bail!("Python lock has conflicting pins for the selected file");
-                    }
-                } else {
-                    expected = Some(pin);
-                }
-            }
-        }
-        Ok(expected)
+        expected_pin(self.model.as_ref(), file)
     }
 }
 
-fn same_file(left: &RegistryFileRef, right: &RegistryFileRef) -> bool {
+/// The same semantic-file conflict kernel serves bound source sessions and
+/// pure readonly project observations. It does not grant source authority.
+pub(crate) fn expected_pin<'a>(
+    model: Option<&'a PythonLockModel>,
+    file: &RegistryFileRef,
+) -> Result<Option<&'a ContentPin>> {
+    let mut expected: Option<&ContentPin> = None;
+    if let Some(model) = model {
+        for pin in model
+            .pins()
+            .iter()
+            .filter(|pin| same_file(pin.file(), file))
+        {
+            if let Some(previous) = expected {
+                if previous.digest() != pin.digest() || previous.size() != pin.size() {
+                    bail!("Python lock has conflicting pins for the selected file");
+                }
+            } else {
+                expected = Some(pin);
+            }
+        }
+    }
+    Ok(expected)
+}
+
+pub(crate) fn same_file(left: &RegistryFileRef, right: &RegistryFileRef) -> bool {
     left.registry_id() == right.registry_id()
         && left.canonical_base_fingerprint() == right.canonical_base_fingerprint()
         && left.project() == right.project()
@@ -202,7 +211,17 @@ impl<'de> DeserializeSeed<'de> for RootSeed {
         deserializer.deserialize_map(RootVisitor(self.0))
     }
 }
-fn decode_root(bytes: &[u8], limits: LockModelLimits) -> Result<Option<PythonLockModel>> {
+/// Pure bounded decode for an already observed readonly lock document.
+/// This does not create a lock session or authorize source acquisition.
+pub(crate) fn decode_root(
+    bytes: &[u8],
+    limits: LockModelLimits,
+) -> Result<Option<PythonLockModel>> {
+    limits.validate()?;
+    eyre::ensure!(
+        bytes.len() <= limits.max_document_bytes,
+        "Python lock document byte limit exceeded"
+    );
     let raw = std::str::from_utf8(bytes).map_err(|_| eyre!("invalid unified lock encoding"))?;
     let deserializer =
         toml::de::Deserializer::parse(raw).map_err(|_| eyre!("invalid unified lock document"))?;

@@ -9,4 +9,6 @@ pub(crate) mod mutation;
 #[cfg(unix)]
 pub(crate) mod publication;
 #[cfg(unix)]
+pub(crate) mod removal;
+#[cfg(unix)]
 pub(crate) mod repository;

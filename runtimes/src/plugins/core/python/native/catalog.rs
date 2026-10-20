@@ -151,6 +151,24 @@ impl RuntimeCatalog {
             return Ok(releases);
         }
         let mut consumed = 0;
+        let releases = self
+            .fetch_pbs_pages(target, flavor, None, &mut consumed)
+            .await?;
+        let raw = self
+            .complete_pbs_metadata(releases, target, flavor, &mut consumed)
+            .await?;
+        let releases = raw.parse(target, flavor)?;
+        self.publish_cache(distribution, target, flavor, raw)?;
+        Ok(releases)
+    }
+
+    async fn fetch_pbs_pages(
+        &self,
+        target: &RuntimeArchiveTarget,
+        flavor: RuntimeFlavor,
+        scope: Option<&ExactPbsScope>,
+        consumed: &mut usize,
+    ) -> Result<Value> {
         let base = catalog_url(&self.endpoints.pbs_releases)?;
         let mut url = base.clone();
         url.query_pairs_mut()
@@ -158,19 +176,35 @@ impl RuntimeCatalog {
             .append_pair("page", "1");
         let mut page_number = 1_usize;
         let mut seen = BTreeSet::new();
+        let mut builds = BTreeSet::new();
         let mut releases = Vec::new();
         loop {
             ensure!(
                 seen.insert(url.to_string()),
                 "Python runtime catalog pagination repeats a page"
             );
-            let (bytes, headers) = self.fetch_bytes(&url, &mut consumed).await?;
+            let (bytes, headers) = self.fetch_bytes(&url, consumed).await?;
             let raw: Value = serde_json::from_slice(&bytes)
                 .map_err(|_| eyre::eyre!("invalid Python runtime catalog JSON"))?;
             let page = raw.as_array().ok_or_else(|| {
                 eyre::eyre!("Python runtime catalog release page is not an array")
             })?;
-            releases.extend(page.iter().cloned());
+            if let Some(scope) = scope {
+                let selected = scope.select_metadata(&raw, target, flavor)?;
+                for candidate in super::pbs_candidates(&selected, target, flavor)? {
+                    builds.insert(candidate.build);
+                }
+                scope.ensure_unique_build(&builds)?;
+                releases.extend(
+                    selected
+                        .as_array()
+                        .expect("selected release array")
+                        .iter()
+                        .cloned(),
+                );
+            } else {
+                releases.extend(page.iter().cloned());
+            }
             let Some(next) = next_page(&headers, &base, page_number)? else {
                 break;
             };
@@ -183,7 +217,16 @@ impl RuntimeCatalog {
                 .ok_or_else(|| eyre::eyre!("Python runtime catalog page limit exceeded"))?;
             url = next;
         }
-        let releases = Value::Array(releases);
+        Ok(Value::Array(releases))
+    }
+
+    async fn complete_pbs_metadata(
+        &self,
+        releases: Value,
+        target: &RuntimeArchiveTarget,
+        flavor: RuntimeFlavor,
+        consumed: &mut usize,
+    ) -> Result<RawCatalog> {
         let mut release_checksums = BTreeMap::new();
         for tag in required_pbs_checksums(&releases, target, flavor)? {
             // The pure candidate parser validates both the date and its binding
@@ -195,17 +238,70 @@ impl RuntimeCatalog {
             let url = catalog_url(&self.endpoints.pbs_downloads_base)?
                 .join(&format!("{tag}/SHA256SUMS"))
                 .map_err(|_| eyre::eyre!("invalid Python runtime catalog checksum endpoint"))?;
-            let (bytes, _) = self.fetch_bytes(&url, &mut consumed).await?;
+            let (bytes, _) = self.fetch_bytes(&url, consumed).await?;
             let text = String::from_utf8(bytes)
                 .map_err(|_| eyre::eyre!("invalid Python runtime catalog checksum encoding"))?;
             release_checksums.insert(tag, text);
         }
-        let raw = RawCatalog::Pbs {
+        Ok(RawCatalog::Pbs {
             releases,
             release_checksums,
+        })
+    }
+
+    /// Explicit exact installation scope; full version-list callers keep the
+    /// original complete catalog protocol above.
+    pub(in super::super) async fn pbs_releases_for_exact(
+        &self,
+        target: &RuntimeArchiveTarget,
+        flavor: RuntimeFlavor,
+        request: &crate::programs::shared::exact_version::ExactPythonRequest,
+    ) -> Result<Vec<RuntimeRelease>> {
+        let scope = ExactPbsScope::new(request)?;
+        let mut identity = self.identity(RuntimeDistribution::Pbs, target, flavor)?;
+        identity.exact_pbs_request = Some(scope.clone());
+        if let Some(releases) = self.cached_releases_for_identity(&identity, target, flavor)? {
+            ensure!(
+                releases.iter().all(|release| scope.matches(release)),
+                "Python runtime catalog exact cache contains a different request"
+            );
+            return scope.select_releases(releases);
+        }
+        // A complete snapshot is also sufficient evidence. A scoped snapshot
+        // is never read by complete-list callers or by another exact request.
+        let full_identity = self.identity(RuntimeDistribution::Pbs, target, flavor)?;
+        if let Some(releases) = self.cached_releases_for_identity(&full_identity, target, flavor)? {
+            return scope.select_releases(releases);
+        }
+        ensure!(
+            self.policy != NetworkPolicy::Offline,
+            "Python runtime catalog exact cache item is missing"
+        );
+        let mut consumed = 0;
+        let releases = if let Some(build) = &scope.build {
+            let mut url = catalog_url(&self.endpoints.pbs_releases)?;
+            url.path_segments_mut()
+                .map_err(|_| eyre::eyre!("invalid Python runtime catalog tag endpoint"))?
+                .pop_if_empty()
+                .push("tags")
+                .push(build);
+            let (bytes, _) = self.fetch_bytes(&url, &mut consumed).await?;
+            let release: Value = serde_json::from_slice(&bytes)
+                .map_err(|_| eyre::eyre!("invalid Python runtime catalog JSON"))?;
+            ensure!(
+                release.get("tag_name").and_then(Value::as_str) == Some(build.as_str()),
+                "Python runtime catalog tag response has a different build"
+            );
+            scope.select_metadata(&Value::Array(vec![release]), target, flavor)?
+        } else {
+            self.fetch_pbs_pages(target, flavor, Some(&scope), &mut consumed)
+                .await?
         };
-        let releases = raw.parse(target, flavor)?;
-        self.publish_cache(distribution, target, flavor, raw)?;
+        let raw = self
+            .complete_pbs_metadata(releases, target, flavor, &mut consumed)
+            .await?;
+        let releases = scope.select_releases(raw.parse(target, flavor)?)?;
+        self.publish_cache_for_identity(identity, raw)?;
         Ok(releases)
     }
 
@@ -298,6 +394,7 @@ impl RuntimeCatalog {
             transport_mapping_sha256: super::transport::mapping_fingerprint(
                 self.url_replacements.as_ref(),
             )?,
+            exact_pbs_request: None,
         })
     }
 
@@ -307,10 +404,13 @@ impl RuntimeCatalog {
         target: &RuntimeArchiveTarget,
         flavor: RuntimeFlavor,
     ) -> Result<PathBuf> {
-        let bytes =
-            serde_json::to_vec(&self.identity(distribution, target, flavor)?).map_err(|_| {
-                eyre::eyre!("Python runtime catalog cache identity could not be encoded")
-            })?;
+        self.cache_path_for_identity(&self.identity(distribution, target, flavor)?)
+    }
+
+    fn cache_path_for_identity(&self, identity: &CacheIdentity) -> Result<PathBuf> {
+        let bytes = serde_json::to_vec(identity).map_err(|_| {
+            eyre::eyre!("Python runtime catalog cache identity could not be encoded")
+        })?;
         let key = Digest::from_sha256_bytes(&bytes).hex();
         Ok(self.cache_root.join(format!("{key}.json")))
     }
@@ -357,8 +457,8 @@ impl RuntimeCatalog {
         flavor: RuntimeFlavor,
     ) -> Result<Option<Vec<RuntimeRelease>>> {
         let identity = self.identity(distribution, target, flavor)?;
-        let path = self.cache_path(distribution, target, flavor)?;
-        let Some(cache) = self.read_cache(&path, &identity)? else {
+        let releases = self.cached_releases_for_identity(&identity, target, flavor)?;
+        if releases.is_none() {
             ensure!(
                 self.policy != NetworkPolicy::Offline,
                 "Python runtime catalog cache item is missing for {} {} {} {}",
@@ -367,6 +467,18 @@ impl RuntimeCatalog {
                 identity.platform,
                 identity.flavor
             );
+        }
+        Ok(releases)
+    }
+
+    fn cached_releases_for_identity(
+        &self,
+        identity: &CacheIdentity,
+        target: &RuntimeArchiveTarget,
+        flavor: RuntimeFlavor,
+    ) -> Result<Option<Vec<RuntimeRelease>>> {
+        let path = self.cache_path_for_identity(identity)?;
+        let Some(cache) = self.read_cache(&path, identity)? else {
             return Ok(None);
         };
         let fresh = !self.fresh_for.is_zero()
@@ -389,7 +501,11 @@ impl RuntimeCatalog {
         raw: RawCatalog,
     ) -> Result<()> {
         let identity = self.identity(distribution, target, flavor)?;
-        let path = self.cache_path(distribution, target, flavor)?;
+        self.publish_cache_for_identity(identity, raw)
+    }
+
+    fn publish_cache_for_identity(&self, identity: CacheIdentity, raw: RawCatalog) -> Result<()> {
+        let path = self.cache_path_for_identity(&identity)?;
         let cache = CachedCatalog {
             identity,
             fetched_at_unix: unix_now()?,
@@ -652,6 +768,111 @@ struct CacheIdentity {
     platform: String,
     flavor: String,
     transport_mapping_sha256: String,
+    // Omitting None preserves the complete catalog's existing cache keys.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    exact_pbs_request: Option<ExactPbsScope>,
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct ExactPbsScope {
+    version: String,
+    build: Option<String>,
+}
+
+impl ExactPbsScope {
+    fn new(request: &crate::programs::shared::exact_version::ExactPythonRequest) -> Result<Self> {
+        ensure!(
+            !request.version_only().starts_with("pypy"),
+            "an exact PBS request must identify CPython"
+        );
+        if let Some(build) = request.build_pin() {
+            super::pbs_build_date(build)?;
+        }
+        Ok(Self {
+            version: request.version_only().into(),
+            build: request.build_pin().map(str::to_owned),
+        })
+    }
+
+    fn matches(&self, release: &RuntimeRelease) -> bool {
+        release.key().python_version == self.version
+            && self
+                .build
+                .as_ref()
+                .is_none_or(|build| *build == release.key().distribution_version)
+    }
+
+    fn ensure_unique_build(&self, builds: &BTreeSet<String>) -> Result<()> {
+        ensure!(
+            builds.len() < 2,
+            "multiple official PBS builds match {}; pin one explicitly: {}",
+            self.version,
+            builds
+                .iter()
+                .map(|build| format!("{}+{build}", self.version))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        Ok(())
+    }
+
+    fn select_releases(&self, releases: Vec<RuntimeRelease>) -> Result<Vec<RuntimeRelease>> {
+        let selected: Vec<_> = releases
+            .into_iter()
+            .filter(|release| self.matches(release))
+            .collect();
+        self.ensure_unique_build(
+            &selected
+                .iter()
+                .map(|release| release.key().distribution_version.clone())
+                .collect(),
+        )?;
+        Ok(selected)
+    }
+
+    /// Validate official filename/tag/locator/digest facts with the original
+    /// candidate parser, then retain those same JSON assets. No RuntimeRelease
+    /// or digest is manufactured while proving request uniqueness.
+    fn select_metadata(
+        &self,
+        raw: &Value,
+        target: &RuntimeArchiveTarget,
+        flavor: RuntimeFlavor,
+    ) -> Result<Value> {
+        let names: BTreeSet<_> = super::pbs_candidates(raw, target, flavor)?
+            .into_iter()
+            .filter(|candidate| {
+                candidate.python_version == self.version
+                    && self
+                        .build
+                        .as_ref()
+                        .is_none_or(|build| *build == candidate.build)
+            })
+            .map(|candidate| candidate.filename)
+            .collect();
+        let mut selected = Vec::new();
+        for release in raw
+            .as_array()
+            .ok_or_else(|| eyre::eyre!("Python runtime catalog release page is not an array"))?
+        {
+            let mut release = release.clone();
+            let assets = release
+                .get_mut("assets")
+                .and_then(Value::as_array_mut)
+                .ok_or_else(|| eyre::eyre!("invalid official PBS release metadata"))?;
+            assets.retain(|asset| {
+                asset
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .is_some_and(|name| names.contains(name))
+            });
+            if !assets.is_empty() {
+                selected.push(release);
+            }
+        }
+        Ok(Value::Array(selected))
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -1827,6 +2048,212 @@ mod tests {
                 .is_err()
         );
         for mock in [no_canonical, listing] {
+            mock.assert_async().await;
+        }
+    }
+    #[tokio::test]
+    async fn f2_exact_catalog_pin_fetches_only_its_official_tag_and_checksum() {
+        let root = tempfile::tempdir().unwrap();
+        let mut server = mockito::Server::new_async().await;
+        let mut release = old_pbs()[0].clone();
+        release["assets"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("digest");
+        let tag = server
+            .mock("GET", "/pbs/releases/tags/20240909")
+            .with_body(release.to_string())
+            .expect(1)
+            .create_async()
+            .await;
+        let all = server
+            .mock("GET", "/pbs/releases")
+            .expect(0)
+            .create_async()
+            .await;
+        let checksum = server
+            .mock("GET", "/pbs/downloads/20240909/SHA256SUMS")
+            .with_body(format!(
+                "{}  cpython-3.10.14+20240909-aarch64-apple-darwin-install_only.tar.gz\n",
+                "a".repeat(64)
+            ))
+            .expect(1)
+            .create_async()
+            .await;
+        let unrelated = server
+            .mock("GET", "/pbs/downloads/20240908/SHA256SUMS")
+            .expect(0)
+            .create_async()
+            .await;
+        let request =
+            crate::programs::shared::exact_version::exact_python_request("3.10.14+20240909")
+                .unwrap();
+        let releases = online(root.path(), &server.url())
+            .pbs_releases_for_exact(&target(), RuntimeFlavor::InstallOnly, &request)
+            .await
+            .unwrap();
+        assert_eq!(releases.len(), 1);
+        assert_eq!(releases[0].key().distribution_version, "20240909");
+        assert_eq!(releases[0].digest().hex(), "a".repeat(64));
+        let offline = catalog(
+            root.path(),
+            &server.url(),
+            NetworkPolicy::Offline,
+            Duration::ZERO,
+            CatalogLimits::default(),
+        );
+        assert_eq!(
+            offline
+                .pbs_releases_for_exact(&target(), RuntimeFlavor::InstallOnly, &request)
+                .await
+                .unwrap()[0]
+                .digest(),
+            releases[0].digest()
+        );
+        // The partial snapshot cannot answer a full-list or bare request.
+        assert!(
+            offline
+                .pbs_releases(&target(), RuntimeFlavor::InstallOnly)
+                .await
+                .is_err()
+        );
+        let bare = crate::programs::shared::exact_version::exact_python_request("3.10.14").unwrap();
+        assert!(
+            offline
+                .pbs_releases_for_exact(&target(), RuntimeFlavor::InstallOnly, &bare)
+                .await
+                .is_err()
+        );
+        let full_identity = offline
+            .identity(
+                RuntimeDistribution::Pbs,
+                &target(),
+                RuntimeFlavor::InstallOnly,
+            )
+            .unwrap();
+        assert!(
+            serde_json::to_value(full_identity)
+                .unwrap()
+                .get("exact_pbs_request")
+                .is_none(),
+            "the original complete cache identity bytes must remain unchanged"
+        );
+        for mock in [tag, all, checksum, unrelated] {
+            mock.assert_async().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn f2_exact_catalog_bare_request_refuses_two_real_builds_before_checksums() {
+        let root = tempfile::tempdir().unwrap();
+        let mut server = mockito::Server::new_async().await;
+        let mut first = old_pbs();
+        first[0]["assets"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("digest");
+        let mut second = first.clone();
+        second[0]["tag_name"] = json!("20240910");
+        second[0]["published_at"] = json!("2024-09-10T00:00:00Z");
+        second[0]["assets"][0]["name"] =
+            json!("cpython-3.10.14+20240910-aarch64-apple-darwin-install_only.tar.gz");
+        second[0]["assets"][0]["browser_download_url"] = json!(
+            "https://github.com/astral-sh/python-build-standalone/releases/download/20240910/cpython-3.10.14%2B20240910-aarch64-apple-darwin-install_only.tar.gz"
+        );
+        let next = format!(
+            "<{}/pbs/releases?per_page=10&page=2>; rel=\"next\"",
+            server.url()
+        );
+        let more = format!(
+            "<{}/pbs/releases?per_page=10&page=3>; rel=\"next\"",
+            server.url()
+        );
+        let one = page(&mut server, 1, first.to_string(), Some(&next)).await;
+        let two = page(&mut server, 2, second.to_string(), Some(&more)).await;
+        let third = server
+            .mock("GET", "/pbs/releases")
+            .match_query(mockito::Matcher::UrlEncoded("page".into(), "3".into()))
+            .expect(0)
+            .create_async()
+            .await;
+        let manifests = server
+            .mock(
+                "GET",
+                mockito::Matcher::Regex("^/pbs/downloads/.*/SHA256SUMS$".into()),
+            )
+            .expect(0)
+            .create_async()
+            .await;
+        let request =
+            crate::programs::shared::exact_version::exact_python_request("3.10.14").unwrap();
+        let error = online(root.path(), &server.url())
+            .pbs_releases_for_exact(&target(), RuntimeFlavor::InstallOnly, &request)
+            .await
+            .unwrap_err();
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("pin one explicitly")
+                && message.contains("20240909")
+                && message.contains("20240910"),
+            "{message}"
+        );
+        assert_eq!(
+            std::fs::read_dir(root.path()).unwrap().count(),
+            0,
+            "an ambiguous partial catalog must not become a complete cache"
+        );
+        for mock in [one, two, third, manifests] {
+            mock.assert_async().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn f2_exact_catalog_single_build_proves_final_page_and_skips_unrelated_checksum() {
+        let root = tempfile::tempdir().unwrap();
+        let mut server = mockito::Server::new_async().await;
+        let mut raw = old_pbs();
+        raw[0]["assets"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("digest");
+        let mut unrelated = raw[0].clone();
+        unrelated["tag_name"] = json!("20240910");
+        unrelated["published_at"] = json!("2024-09-10T00:00:00Z");
+        unrelated["assets"][0]["name"] =
+            json!("cpython-3.11.0+20240910-aarch64-apple-darwin-install_only.tar.gz");
+        unrelated["assets"][0]["browser_download_url"] = json!(
+            "https://github.com/astral-sh/python-build-standalone/releases/download/20240910/cpython-3.11.0%2B20240910-aarch64-apple-darwin-install_only.tar.gz"
+        );
+        raw.as_array_mut().unwrap().push(unrelated);
+        let next = format!(
+            "<{}/pbs/releases?per_page=10&page=2>; rel=\"next\"",
+            server.url()
+        );
+        let first = page(&mut server, 1, raw.to_string(), Some(&next)).await;
+        let final_page = page(&mut server, 2, "[]".into(), None).await;
+        let checksum = server
+            .mock("GET", "/pbs/downloads/20240909/SHA256SUMS")
+            .with_body(format!(
+                "{}  cpython-3.10.14+20240909-aarch64-apple-darwin-install_only.tar.gz\n",
+                "a".repeat(64)
+            ))
+            .expect(1)
+            .create_async()
+            .await;
+        let other_checksum = server
+            .mock("GET", "/pbs/downloads/20240910/SHA256SUMS")
+            .expect(0)
+            .create_async()
+            .await;
+        let request =
+            crate::programs::shared::exact_version::exact_python_request("3.10.14").unwrap();
+        let releases = online(root.path(), &server.url())
+            .pbs_releases_for_exact(&target(), RuntimeFlavor::InstallOnly, &request)
+            .await
+            .unwrap();
+        assert_eq!(releases.len(), 1);
+        assert_eq!(releases[0].key().distribution_version, "20240909");
+        for mock in [first, final_page, checksum, other_checksum] {
             mock.assert_async().await;
         }
     }

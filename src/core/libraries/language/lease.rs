@@ -57,6 +57,14 @@ impl LeaseInner {
     pub(super) fn check_shallow(&self) -> Result<()> {
         self.context.checkpoint()?;
         self.read.check_binding()?;
+        self.check_held_tree()
+    }
+
+    // The complete namespace is checked around the one anchored inventory
+    // walk. Inside it, every IO keeps these original fds and the real lease;
+    // no member lookup reopens a payload through a mutable absolute path.
+    fn check_held_tree(&self) -> Result<()> {
+        self.context.checkpoint()?;
         self.held.check_binding()?;
         ensure!(
             self.held.mode() == LeaseMode::Shared && self.held.identity() == self.lock.identity(),
@@ -108,15 +116,43 @@ impl LeaseInner {
         self.check_shallow()
     }
     pub(super) fn check_full(&self) -> Result<()> {
+        self.check_full_with_after_walk(|| Ok(()))
+    }
+
+    fn check_full_with_after_walk(&self, after_walk: impl FnOnce() -> Result<()>) -> Result<()> {
         self.check_manifest()?;
         ensure!(
-            observe_tree_inventory(self, PrefixInventoryLimits::default())?
+            observe_tree_inventory(&HeldTreeRoot(self), PrefixInventoryLimits::default())?
                 == self.manifest.inventory,
             "published language inventory changed"
         );
+        after_walk()?;
         self.check_manifest()
     }
 }
+
+/// A private view of this already pinned tree, valid only between the full
+/// store/manifest checks in check_full. The existing observer still performs
+/// every member's no-follow open, inode/owner/mode checks and complete hash.
+struct HeldTreeRoot<'a>(&'a LeaseInner);
+impl InventoryRoot for HeldTreeRoot<'_> {
+    fn root_file(&self) -> &File {
+        &self.0.root
+    }
+    fn root_path(&self) -> &Path {
+        &self.0.path
+    }
+    fn allocation_id(&self) -> &str {
+        &self.0.key_name
+    }
+    fn expected_uid(&self) -> u32 {
+        uid()
+    }
+    fn check_binding(&self) -> Result<()> {
+        self.0.check_held_tree()
+    }
+}
+
 impl InventoryRoot for LeaseInner {
     fn root_file(&self) -> &File {
         &self.root
@@ -140,6 +176,12 @@ impl RuntimeProtection for LeaseInner {
     }
 }
 impl LanguageLease {
+    pub(crate) fn key(&self) -> super::identity::LanguageKey {
+        self.inner.spec.key()
+    }
+    pub(crate) fn shared_target_identity(&self) -> Result<super::identity::TargetIdentity> {
+        self.inner.spec.plan().shared_target_identity()
+    }
     pub(crate) fn root(&self) -> &Path {
         &self.inner.path
     }
@@ -170,5 +212,51 @@ impl LanguageLease {
     }
     pub(crate) fn check_binding(&self) -> Result<()> {
         self.inner.check_full()
+    }
+}
+
+#[cfg(test)]
+mod held_tree_tests {
+    use super::*;
+    use crate::libraries::language::repository::tests::{
+        archive, install_spec, operation_context, prepare,
+    };
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn f1_held_inventory_rechecks_store_namespace_after_the_complete_hash_walk() {
+        let owner = tempfile::tempdir().unwrap();
+        let path = owner.path().canonicalize().unwrap();
+        let context = operation_context(&path, true, Duration::from_secs(120));
+        let bytes = archive("3.15.0");
+        let spec = install_spec(&bytes);
+        let lease = prepare(&spec, &context, &bytes).await.unwrap();
+        let catalog = context
+            .requested_data_root()
+            .join("languages/.control/catalog");
+        let displaced = catalog.with_file_name("catalog-displaced");
+        let result = lease.inner.check_full_with_after_walk(|| {
+            std::fs::rename(&catalog, &displaced)?;
+            std::fs::create_dir(&catalog)?;
+            std::fs::set_permissions(&catalog, std::fs::Permissions::from_mode(0o700))?;
+            Ok(())
+        });
+        assert!(
+            result.is_err(),
+            "a full tree hash cannot authenticate a replaced control namespace"
+        );
+        std::fs::remove_dir(&catalog).unwrap();
+        std::fs::rename(&displaced, &catalog).unwrap();
+        lease.check_binding().unwrap();
+        std::fs::write(
+            lease.root().join("lib/python3.15/stdlib-marker"),
+            b"changed",
+        )
+        .unwrap();
+        assert!(
+            lease.check_binding().is_err(),
+            "the held-fd scope must retain complete content hashing"
+        );
     }
 }

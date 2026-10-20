@@ -8,3 +8,16 @@ programs::install::selection::tests::f1_failed_selection_keeps_old_references
 # Env-driven staging helper; never run standalone (excluded from the f1 filter).
 programs::install::selection::tests::f1_e2e_stage_shared_language [ignored: e2e]
 tests/e2e/cli/test_f1_directory_selection
+
+programs::directory::tests::f1_nearest_local_declaration_wins
+programs::directory::tests::f1_requires_python_blocks_language_only_selection
+programs::shared::commit::tests::f1_default_target_switch_retires_previous_reference
+
+programs::query::paths::tests::f1_python_selector_and_options_are_not_silently_ignored
+programs::query::paths::tests::f1_observed_runtime_pin_selects_only_the_committed_artifact
+shims::shared_python_tests::f1_missing_python_wrapper_never_enters_legacy_install
+tests/e2e/cli/test_f1_command_lookup_no_install
+
+shims::shared_python_tests::f1_shared_command_gate_preserves_configured_non_python_provider
+
+libraries::language::lease::held_tree_tests::f1_held_inventory_rechecks_store_namespace_after_the_complete_hash_walk

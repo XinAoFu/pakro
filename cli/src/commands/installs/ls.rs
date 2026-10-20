@@ -6,13 +6,10 @@ use crate::file::display_path;
 use crate::install_layout::resolver::{self, Installation};
 use crate::ui::table::PakroTable;
 
-/// List the installations of the identity install layout
+/// List published language and package library instances and their users
 ///
-/// Every installation is listed separately, so variants of one version (made
-/// with different options, or pinned to different artifacts by lockfiles) can
-/// be told apart. The status column says which installation requests without
-/// a lockfile use (`selected`), which a lockfile adopted (`pinned`), and which
-/// live in a read-only shared installs directory (`shared`).
+/// Every exact build and package variant is shown separately. This local
+/// query does not download content, register projects or repair damaged data.
 #[derive(Debug, Default, usage_rs::Args)]
 #[usage(
     visible_alias = "list",
@@ -42,6 +39,86 @@ pub(super) struct InstallsLs {
 
 impl InstallsLs {
     pub(super) async fn run(self) -> Result<()> {
+        // Explicit legacy tools retain their existing query even when a
+        // shared Python library also exists (or is currently damaged).
+        if !self.tool.is_empty()
+            && self
+                .tool
+                .iter()
+                .all(|tool| crate::programs::library::is_known_legacy_tool(tool))
+        {
+            return self.legacy().await;
+        }
+        let mut entries = crate::programs::library::inventory()?;
+        let shared_names: std::collections::BTreeSet<_> =
+            entries.iter().map(|entry| entry.name.clone()).collect();
+        if !self.tool.is_empty()
+            && self
+                .tool
+                .iter()
+                .all(|tool| !shared_names.contains(&tool.short))
+        {
+            return self.legacy().await;
+        }
+        let mut legacy = resolver::installations();
+        legacy.retain(|installation| {
+            installation.backend != "python"
+                && (self.tool.is_empty()
+                    || self
+                        .tool
+                        .iter()
+                        .any(|tool| resolver::installation_belongs_to(tool, installation)))
+        });
+        if !self.tool.is_empty() {
+            entries.retain(|entry| self.tool.iter().any(|tool| tool.short == entry.name));
+        }
+        if self.json {
+            let mut rows: Vec<_> = entries
+                .iter()
+                .map(serde_json::to_value)
+                .collect::<std::result::Result<_, _>>()?;
+            rows.extend(
+                legacy
+                    .iter()
+                    .map(serde_json::to_value)
+                    .collect::<std::result::Result<Vec<_>, _>>()?,
+            );
+            pakroprintln!("{}", serde_json::to_string_pretty(&rows)?);
+            return Ok(());
+        }
+        let mut table = PakroTable::new(
+            self.no_header,
+            &[
+                "Instance", "Kind", "Name", "Version", "Build", "Platform", "Users",
+            ],
+        );
+        for entry in entries {
+            table.add_row(vec![
+                Cell::new(entry.instance),
+                Cell::new(entry.kind),
+                Cell::new(entry.name),
+                Cell::new(entry.version),
+                Cell::new(entry.build.unwrap_or_default()),
+                Cell::new(entry.platform),
+                Cell::new(entry.users.join("\n")),
+            ]);
+        }
+        for installation in &legacy {
+            table.add_row(vec![
+                Cell::new(&installation.name),
+                Cell::new("legacy tool"),
+                Cell::new(tool_label(installation)),
+                Cell::new(&installation.version),
+                Cell::new(""),
+                Cell::new(&installation.platform),
+                Cell::new(status(installation)),
+            ]);
+        }
+        table.print()?;
+        Ok(())
+    }
+
+    async fn legacy(self) -> Result<()> {
         let mut installations = resolver::installations();
         if !self.tool.is_empty() {
             installations.retain(|i| {

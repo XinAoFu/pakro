@@ -282,35 +282,23 @@ impl RetainedGraphEvidence<'_> {
     }
 }
 impl<'root> ClosedRegistryGraph<'root> {
-    pub(crate) async fn build_with(
+    /// Transfers inspected wheel owners to the shared package publisher while
+    /// retaining every lock/source binding for checks through catalog commit.
+    /// This is the same source-consumption kernel used by resolved builds; it
+    /// grants neither runtime-copy nor publication authority.
+    pub(crate) fn into_shared_sources(
         self,
-        permit: ResolvedBuildPermit,
-    ) -> Result<PreparedResolvedEnvironment<'root>, ResolvedBuildError> {
-        // Reuse the original closure engine for this caller's limits; no
-        // alternate graph checker or metadata/ZIP inspection is introduced.
-        let mut prepared = self.prepared;
-        // Narrow the existing source budget before its actual-owner loop.
-        prepared.deadline = prepared.deadline.min(permit.source_deadline());
-        let closed =
-            close_registry_plan(prepared, permit.graph_limits()).map_err(|error| match error {
-                RegistryClosureError::Deadline => ResolvedBuildError::Deadline,
-                RegistryClosureError::Revoked => ResolvedBuildError::Revoked,
-                _ => ResolvedBuildError::SourceReceipt,
-            })?;
-        let target = closed
-            .prepared
-            .root_scope
-            .with_scope(|scope| {
-                FrozenRegistryTarget::new(
-                    closed.prepared.environment(),
-                    closed.prepared.supported(),
-                    scope,
-                    closed.prepared.semantics(),
-                    permit.target_limits(),
-                )
-            })
-            .map_err(|_| ResolvedBuildError::TargetMismatch)?;
-        let ClosedRegistryGraph { prepared, checked } = closed;
+    ) -> Result<
+        (
+            Vec<crate::packages::python_wheel_source::InspectedWheelArchive>,
+            RetainedGraphEvidence<'root>,
+        ),
+        ResolvedBuildError,
+    > {
+        current_deadline(&self.prepared).map_err(|_| ResolvedBuildError::Deadline)?;
+        self.recheck_for(self.prepared.root)
+            .map_err(|_| ResolvedBuildError::Revoked)?;
+        let ClosedRegistryGraph { prepared, checked } = self;
         let RegistryPreparedPlan {
             root,
             roots,
@@ -331,6 +319,9 @@ impl<'root> ClosedRegistryGraph<'root> {
             .map_err(|_| ResolvedBuildError::SourceReceipt)?;
         let mut retained = BTreeMap::new();
         for (key, owner) in owners {
+            owner
+                .recheck_for(root)
+                .map_err(|_| ResolvedBuildError::Revoked)?;
             let (archive, evidence) = match owner {
                 RegistryMetadataOwner::Fresh(owner) => {
                     let (archive, retained) = owner.into_build_evidence();
@@ -359,6 +350,38 @@ impl<'root> ClosedRegistryGraph<'root> {
             checked,
             owners: retained,
         };
+        evidence.recheck(tokio::time::Instant::from_std(deadline))?;
+        Ok((archives, evidence))
+    }
+    pub(crate) async fn build_with(
+        self,
+        permit: ResolvedBuildPermit,
+    ) -> Result<PreparedResolvedEnvironment<'root>, ResolvedBuildError> {
+        // Reuse the original closure engine for this caller's limits; no
+        // alternate graph checker or metadata/ZIP inspection is introduced.
+        let mut prepared = self.prepared;
+        // Narrow the existing source budget before its actual-owner loop.
+        prepared.deadline = prepared.deadline.min(permit.source_deadline());
+        let closed =
+            close_registry_plan(prepared, permit.graph_limits()).map_err(|error| match error {
+                RegistryClosureError::Deadline => ResolvedBuildError::Deadline,
+                RegistryClosureError::Revoked => ResolvedBuildError::Revoked,
+                _ => ResolvedBuildError::SourceReceipt,
+            })?;
+        let target = closed
+            .prepared
+            .root_scope
+            .with_scope(|scope| {
+                FrozenRegistryTarget::new(
+                    closed.prepared.environment(),
+                    closed.prepared.supported(),
+                    scope,
+                    closed.prepared.semantics(),
+                    permit.target_limits(),
+                )
+            })
+            .map_err(|_| ResolvedBuildError::TargetMismatch)?;
+        let (archives, evidence) = closed.into_shared_sources()?;
         permit.build_with_sources(archives, evidence, target).await
     }
 }

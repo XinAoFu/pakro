@@ -9,7 +9,7 @@ pub(crate) mod extract;
 pub(crate) mod pipeline;
 #[cfg(unix)]
 pub(super) mod provenance;
-pub(super) mod transport;
+pub(crate) mod transport;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 

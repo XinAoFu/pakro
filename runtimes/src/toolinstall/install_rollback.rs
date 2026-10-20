@@ -39,6 +39,19 @@ impl std::fmt::Debug for InstallRollback {
 
 impl InstallRollback {
     pub(crate) fn begin(install_path: &Path, marker_path: &Path) -> Result<Self> {
+        Self::begin_for_data_root(install_path, marker_path, &crate::dirs::DATA)
+    }
+
+    fn begin_for_data_root(
+        install_path: &Path,
+        marker_path: &Path,
+        data_root: &Path,
+    ) -> Result<Self> {
+        crate::libraries::language::mutation::reject_legacy_mutation(
+            data_root,
+            crate::libraries::language::mutation::LegacyMutation::Rollback,
+            install_path,
+        )?;
         ensure!(
             install_path.is_absolute() && marker_path.is_absolute(),
             "install rollback requires explicit absolute install and marker paths"
@@ -301,6 +314,19 @@ mod tests {
     const OLD_PYTHON: &[u8] = b"#!/bin/sh\nprintf 'old working runtime\\n'\n";
     const OLD_RECEIPT: &[u8] = b"digest = \"old-runtime-identity\"\n";
     const OLD_MARKER: &[u8] = b"previous state marker\n";
+
+    #[test]
+    fn f2_rollback_rejects_shared_payload_before_moving_it() {
+        let owner = tempfile::tempdir().unwrap();
+        let root = owner.path().canonicalize().unwrap();
+        let payload = root.join("languages/one/payload");
+        fs::create_dir_all(&payload).unwrap();
+        fs::write(payload.join("keep"), b"published").unwrap();
+        let marker = root.join("incomplete");
+        assert!(InstallRollback::begin_for_data_root(&payload, &marker, &root).is_err());
+        assert_eq!(fs::read(payload.join("keep")).unwrap(), b"published");
+        assert!(!marker.exists());
+    }
 
     struct Fixture {
         _owner: tempfile::TempDir,

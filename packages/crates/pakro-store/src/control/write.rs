@@ -4,6 +4,7 @@ use super::*;
 pub struct StoreWriter {
     anchor: Anchor,
     deadline: Instant,
+    initialized_here: bool,
 }
 impl StoreWriter {
     /// Initialize only an empty authorized root. Existing state is never repaired
@@ -16,14 +17,29 @@ impl StoreWriter {
     ) -> Result<Self> {
         let path = authorized_root(root, uid, limits, deadline)?;
         let directory = open_trusted_store_with_deadline(&path, uid, true, deadline)?;
+        let mut initialized_here = false;
         let anchor = match open_existing_readonly_regular(&directory, LOCK_NAME, uid) {
             Ok(_) => existing_anchor(path, directory, uid, deadline)?,
             Err(error) if is_missing(&error) && directory_empty(&directory)? => {
-                initialize_anchor(path, directory, uid, deadline)?
+                initialize_anchor_with_hook(path, directory, uid, deadline, || {
+                    initialized_here = true;
+                    Ok(())
+                })?
             }
             Err(error) => return Err(error),
         };
-        Ok(Self { anchor, deadline })
+        Ok(Self {
+            anchor,
+            deadline,
+            initialized_here,
+        })
+    }
+    /// Ephemeral creation fact from winning the original stable inode
+    /// `create_new`. Reopening or losing initialization never grants it.
+    /// Domain writers may use it to publish their first real catalog; it
+    /// is neither a persistent authority nor permission to repair a store.
+    pub fn initialized_here(&self) -> bool {
+        self.initialized_here
     }
     pub fn control(&self, limits: ControlLimits) -> Result<WriterControl<'_>> {
         Ok(WriterControl {

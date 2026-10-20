@@ -150,10 +150,13 @@ pub(crate) struct Ls {
 
 impl Ls {
     pub(crate) async fn run(mut self) -> Result<()> {
-        let config = Config::get().await?;
         self.installed_tool = self
             .installed_tool
-            .or_else(|| self.tool_flag.clone().map(|p| vec![p]));
+            .or_else(|| self.tool_flag.clone().map(|tool| vec![tool]));
+        if self.shared_library_query().await? {
+            return Ok(());
+        }
+        let config = Config::get().await?;
         self.verify_plugin()?;
 
         let (mut runtimes, sources_map) = if self.prunable {
@@ -162,7 +165,7 @@ impl Ls {
             let (runtimes, sources_map) = self.get_all_sources_runtime_list(&config).await?;
             (runtimes, Some(sources_map))
         } else {
-            (self.get_runtime_list(&config).await?, None)
+            (self.get_runtime_list(&config, false).await?, None)
         };
         if self.current || self.global || self.local {
             // TODO: global is a little weird: it will show global versions as the active ones even if
@@ -207,6 +210,137 @@ impl Ls {
             self.display_user(&config, runtimes, sources_map.as_ref(), &scheduled_removals)
                 .await
         }
+    }
+
+    async fn shared_library_query(&self) -> Result<bool> {
+        let requested = self.installed_tool.as_ref();
+        let python_only = requested.is_some_and(|tools| {
+            !tools.is_empty() && tools.iter().all(|tool| tool.short == "python")
+        });
+        if requested.is_some_and(|tools| {
+            !tools.is_empty()
+                && tools
+                    .iter()
+                    .all(|tool| crate::programs::library::is_known_legacy_tool(tool))
+        }) {
+            return Ok(false);
+        }
+        let special = !self.backend.is_empty()
+            || self.grouped
+            || self.global
+            || self.local
+            || self.prunable
+            || self.outdated
+            || self.all_sources
+            || self.monorepo;
+        if special && !python_only {
+            return Ok(false);
+        }
+        ensure!(
+            !special,
+            "this shared-library query does not support legacy grouping, global/local, remote comparison or prune filters"
+        );
+        let mut entries = crate::programs::library::inventory()?;
+        let report = crate::programs::library::local_project()?;
+        let needs_legacy =
+            !python_only && (report.has_legacy_tools || report.legacy_installs_present);
+        let current = report.current;
+        if let Some(tools) = requested {
+            entries.retain(|entry| tools.iter().any(|tool| tool.short == entry.name));
+            if entries.is_empty() && !tools.iter().any(|tool| tool.short == "python") {
+                return Ok(false);
+            }
+        }
+        if self.current {
+            entries.retain(|entry| {
+                current
+                    .as_ref()
+                    .and_then(|selected| selected.instance.as_ref())
+                    == Some(&entry.instance)
+            });
+        }
+        if self.missing {
+            entries.clear();
+        }
+        if let Some(prefix) = &self.prefix {
+            entries.retain(|entry| entry.version.starts_with(prefix));
+        }
+        let missing = current
+            .as_ref()
+            .filter(|selected| selected.status != "ready" && !self.installed);
+        let config = if needs_legacy {
+            Some(Config::get().await?)
+        } else {
+            None
+        };
+        let mut legacy = Vec::new();
+        let mut scheduled = BTreeMap::new();
+        if let Some(config) = &config {
+            legacy = self.get_runtime_list(config, true).await?;
+            legacy.retain(|(_, backend, version, source)| {
+                backend.ba().short != "python"
+                    && (!self.current || !source.is_unknown())
+                    && (!self.installed || backend.is_version_installed(config, version, true))
+                    && (!self.missing || !backend.is_version_installed(config, version, true))
+                    && self
+                        .prefix
+                        .as_ref()
+                        .is_none_or(|prefix| version.version.starts_with(prefix))
+            });
+            scheduled = crate::tool_purgatory::scheduled_removals().unwrap_or_else(|error| {
+                warn!("failed to read tool purgatory state: {error:#}");
+                BTreeMap::new()
+            });
+        }
+        if self.json {
+            let mut output = serde_json::Map::new();
+            output.insert("instances".into(), serde_json::to_value(&entries)?);
+            output.insert("declaration".into(), serde_json::to_value(missing)?);
+            let mut other = JSONOutput::new();
+            if let Some(config) = &config {
+                for row in legacy {
+                    let name = row.1.id().to_owned();
+                    let value = json_tool_version_from(config, row, None, false, &scheduled).await;
+                    other.entry(name).or_default().push(value);
+                }
+            }
+            for (name, rows) in other {
+                output.insert(name, serde_json::to_value(rows)?);
+            }
+            pakroprintln!("{}", serde_json::to_string_pretty(&output)?);
+        } else {
+            let mut table = PakroTable::new(
+                self.no_header,
+                &["Kind", "Name", "Version", "Instance", "Status", "Users"],
+            );
+            for entry in entries {
+                table.add_row(vec![
+                    Cell::new(entry.kind),
+                    Cell::new(entry.name),
+                    Cell::new(entry.version),
+                    Cell::new(entry.instance),
+                    Cell::new("ready"),
+                    Cell::new(entry.users.join("\n")),
+                ]);
+            }
+            if let Some(missing) = missing {
+                table.add_row(vec![
+                    Cell::new("language"),
+                    Cell::new("python"),
+                    Cell::new(&missing.requested),
+                    Cell::new(""),
+                    Cell::new(&missing.status),
+                    Cell::new(missing.detail.as_deref().unwrap_or("")),
+                ]);
+            }
+            table.print()?;
+            if let Some(config) = &config
+                && !legacy.is_empty()
+            {
+                self.display_user(config, legacy, None, &scheduled).await?;
+            }
+        }
+        Ok(true)
     }
 
     fn verify_plugin(&self) -> Result<()> {
@@ -392,7 +526,11 @@ impl Ls {
                 .collect(),
         )
     }
-    async fn get_runtime_list(&self, config: &Arc<Config>) -> Result<Vec<RuntimeRow<'_>>> {
+    async fn get_runtime_list(
+        &self,
+        config: &Arc<Config>,
+        exclude_python: bool,
+    ) -> Result<Vec<RuntimeRow<'_>>> {
         let mut trs = if self.monorepo {
             config.monorepo_union_tool_request_set().await?
         } else {
@@ -426,12 +564,25 @@ impl Ls {
         }
 
         let mut ts = Toolset::from(trs);
-        ts.resolve(config).await?;
+        if exclude_python {
+            ts.versions.retain(|backend, _| backend.short != "python");
+            ts.resolve_with_opts(
+                config,
+                &crate::toolset::ResolveOptions {
+                    offline: true,
+                    ..Default::default()
+                },
+            )
+            .await?;
+        } else {
+            ts.resolve(config).await?;
+        }
 
         let rvs: Vec<RuntimeRow<'_>> = ts
             .list_all_versions(config)
             .await?
             .into_iter()
+            .filter(|(backend, _)| !exclude_python || backend.ba().short != "python")
             .map(|(b, tv)| ((b, tv.version.clone()), tv))
             .filter(|((b, _), _)| match &self.installed_tool {
                 Some(p) => matches_requested_tool(p, b.ba()),

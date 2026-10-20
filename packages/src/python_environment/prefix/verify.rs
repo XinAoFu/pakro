@@ -577,6 +577,7 @@ pub(crate) struct PrefixInventoryReceipt {
     file_count: usize,
     directory_count: usize,
     total_bytes: u64,
+    tree_inventory: TreeInventory,
 }
 
 impl PrefixInventoryReceipt {
@@ -597,6 +598,11 @@ impl PrefixInventoryReceipt {
     }
     pub(crate) fn total_bytes(&self) -> u64 {
         self.total_bytes
+    }
+    /// The very same observation checked against the caller's expected
+    /// bytes, modes and owned inodes; never a fresh unauthenticated snapshot.
+    pub(crate) fn into_tree_inventory(self) -> TreeInventory {
+        self.tree_inventory
     }
 }
 
@@ -810,6 +816,7 @@ fn verify_unix(
         file_count: files.len(),
         directory_count: directories.len(),
         total_bytes,
+        tree_inventory: observed,
     })
 }
 

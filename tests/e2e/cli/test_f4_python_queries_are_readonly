@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Complete but missing Python: query intent never grants registration or fetch.
+mkdir readonly-python
+cd readonly-python
+printf '[tools]\npython = "3.13.99"\n' >pakro.toml
+before="$(cksum pakro.toml)"
+export PAKRO_URL_REPLACEMENTS='{"https://pypi.org":"http://127.0.0.1:9","https://api.github.com":"http://127.0.0.1:9","https://github.com":"http://127.0.0.1:9","https://mise-versions.jdx.dev":"http://127.0.0.1:9","https://downloads.python.org":"http://127.0.0.1:9","https://pypy.org":"http://127.0.0.1:9"}'
+assert_succeed 'pakro current'
+assert_succeed 'pakro current python'
+assert_succeed 'pakro ls python'
+assert_succeed 'pakro ls'
+assert_succeed 'pakro project status'
+[[ $(cksum pakro.toml) == "$before" ]] || fail 'query changed project declarations'
+for library in languages packages projects; do
+  [[ ! -e "$PAKRO_DATA_DIR/$library" ]] || fail "query initialized $library library"
+done
+for tracking in tracked-configs tracked-stubs; do
+  [[ ! -e "$PAKRO_STATE_DIR/$tracking" ]] || fail "query wrote legacy $tracking"
+done
+[[ $(find . -mindepth 1 -print | wc -l | tr -d ' ') == 1 ]] || fail 'query wrote project metadata'

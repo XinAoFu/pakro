@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Existing interpreters and console scripts use the actual shared library;
+# a command-not-found/lazy/wrapper event never authorizes Python acquisition.
+source "$TEST_ROOT/packages/f3_shared_wheel_helpers.sh"
+# The common fixture paths are relative to its package scripts, while this
+# test is intentionally part of the F1 terminal consumer lane.
+F3_HELPER_ORIGINAL_TEST_DIR="$TEST_DIR"
+TEST_DIR="$TEST_ROOT/packages"
+f3_setup
+TEST_DIR="$F3_HELPER_ORIGINAL_TEST_DIR"
+export PAKRO_NOT_FOUND_AUTO_INSTALL=1 PAKRO_NOT_FOUND_AUTO_INSTALL_REGISTRY=1
+f3_declare ready z-root
+(cd ready && pakro install)
+requests_before="$(f3_request_count)"
+f3_binary="$(command -v pakro)"
+f3_shims="$TMPDIR/shared-command-shims"
+mkdir -p "$f3_shims"
+for command in z-root-cli python3.13 python3.99 f3-wrapper; do
+  ln -s "$f3_binary" "$f3_shims/$command"
+done
+cd ready
+catalog_before="$(cksum "$PAKRO_DATA_DIR/projects/.control/catalog/projects")"
+assert "\"$f3_shims/z-root-cli\"" 'shared-dependency:pth-visible'
+assert "\"$f3_shims/python3.13\" -c 'import z_root,a_dep; print(a_dep.VALUE)'" 'shared-dependency'
+assert_succeed "pakro hook-not-found -s bash z-root-cli"
+[[ $(f3_request_count) == "$requests_before" ]] || fail "an existing shared command fetched remote metadata"
+[[ $(cksum "$PAKRO_DATA_DIR/projects/.control/catalog/projects") == "$catalog_before" ]] || fail "readonly command lookup registered a project"
+cd ..
+mkdir -p missing
+cat >missing/pakro.toml <<'TOML'
+[tools]
+python = "3.13.17"
+[wrappers.f3-wrapper]
+command = "python3.99"
+TOML
+cd missing
+# Any accidental old source lookup stays local and is recorded as a failure;
+# the expected path performs no HTTP request at all.
+export PAKRO_URL_REPLACEMENTS="{\"https://pypi.org\":\"http://127.0.0.1:$HTTP_PORT\",\"https://api.github.com\":\"http://127.0.0.1:$HTTP_PORT/unexpected-runtime\",\"https://github.com\":\"http://127.0.0.1:$HTTP_PORT/unexpected-runtime\",\"https://mise-versions.jdx.dev\":\"http://127.0.0.1:$HTTP_PORT/unexpected-runtime\",\"https://downloads.python.org\":\"http://127.0.0.1:$HTTP_PORT/unexpected-runtime\",\"https://pypy.org\":\"http://127.0.0.1:$HTTP_PORT/unexpected-runtime\"}"
+assert_fail_contains "pakro hook-not-found -s bash python3.99 2>&1" 'explicit'
+assert_fail_contains "\"$f3_shims/python3.99\" 2>&1" 'explicit'
+assert_fail_contains "\"$f3_shims/f3-wrapper\" 2>&1" 'explicit'
+[[ $(f3_request_count) == "$requests_before" ]] || fail "missing Python command triggered an acquisition request"
+[[ ! -e pakro.lock && ! -e pakro.packages.lock && ! -d .venv && ! -d .pakro/venvs ]] || fail "missing command created install content"
+[[ $(f3_package_count) == 2 ]] || fail "missing command changed the package library"
+f3_assert_no_manager

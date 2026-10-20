@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+source "$TEST_DIR/f3_shared_wheel_helpers.sh"
+f3_setup
+mkdir -p project
+printf '[tools]\npython = "3.13.16"\n' >project/pakro.toml
+cd project
+before="$(cksum pakro.toml)"
+# Bare package pins use the configured exact Python through the real CLI.
+pakro install z-root@1.0
+[[ $(cksum pakro.toml) == "$before" ]] || fail "bare installation edited a declaration"
+f3_assert_no_manager
+# Declare that same exact selection for directory lookup and deps install.
+printf '[packages."python@3.13.16"]\nz-root = "1.0"\n' >>pakro.toml
+before="$(cksum pakro.toml)"
+pakro deps install python
+eval "$(pakro activate bash)"
+eval "$(pakro hook-env -s bash --force)"
+assert "python -c 'import z_root,a_dep,pth_marker; print(a_dep.VALUE)'" 'shared-dependency'
+assert_fail_contains "pakro deps install --force 2>&1" 'force'
+assert_fail_contains "pakro deps install uv 2>&1" 'provider'
+[[ $(cksum pakro.toml) == "$before" ]] || fail "dependency flow rewrote project configuration"
+[[ ! -e pakro.lock && ! -e pakro.packages.lock && ! -d .venv && ! -d .pakro/venvs ]] || fail "legacy manager environment appeared"
+f3_assert_no_manager

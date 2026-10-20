@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+source "$TEST_DIR/f3_shared_wheel_helpers.sh"
+f3_setup
+mkdir -p project
+cat >project/pakro.toml <<'TOML'
+[tools]
+python = "3.13.16"
+TOML
+cat >project/pyproject.toml <<'TOML'
+[project]
+name = "cli-fixture"
+version = "1.0"
+requires-python = ">=3.13"
+dependencies = ["z-root==1.0"]
+TOML
+cat >project/pakro.lock <<'TOML'
+lockfile_version = 3
+# User lock bytes and comments must remain exactly intact.
+[tools]
+TOML
+cd project
+before="$(cksum pakro.toml pyproject.toml pakro.lock)"
+pakro deps install
+[[ $(cksum pakro.toml pyproject.toml pakro.lock) == "$before" ]] || fail "deps install edited declaration or lock bytes"
+requests_before="$(f3_request_count)"
+pakro deps install
+[[ $(f3_request_count) == "$requests_before" ]] || fail "repeated deps install fetched a complete existing closure"
+eval "$(pakro activate bash)"
+eval "$(pakro hook-env -s bash --force)"
+assert "python -m z_root" 'shared-dependency:pth-visible'
+assert "z-root-cli" 'shared-dependency:pth-visible'
+[[ $(cksum pakro.toml pyproject.toml pakro.lock) == "$before" ]] || fail "directory selection edited declarations"
+[[ ! -d .venv && ! -d .pakro/venvs ]] || fail "deps install created a project runtime copy"
+f3_assert_no_manager

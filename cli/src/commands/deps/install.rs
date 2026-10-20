@@ -50,6 +50,38 @@ pub(crate) struct DepsInstall {
 impl DepsInstall {
     pub(super) async fn run(self) -> Result<()> {
         let config = Config::get().await?;
+        #[cfg(unix)]
+        if !self.list && !self.explain && !self.monorepo {
+            if let Some(project) = crate::programs::python::prepare_current_project(&[])? {
+                eyre::ensure!(
+                    project.only_python_tools(),
+                    "the shared dependency path currently supports Python-only project declarations"
+                );
+                eyre::ensure!(
+                    self.provider
+                        .as_deref()
+                        .is_none_or(|provider| provider == "python")
+                        && self
+                            .only
+                            .as_ref()
+                            .is_none_or(|only| only.iter().all(|provider| provider == "python"))
+                        && self.skip.as_ref().is_none_or(|skip| skip.is_empty()),
+                    "the shared Python dependency path supports the declared Python packages; provider selectors require a supported native provider"
+                );
+                eyre::ensure!(
+                    !self.force,
+                    "shared Python dependencies do not support force replacement"
+                );
+                if self.dry_run {
+                    pakroprintln!(
+                        "Would install the declared Python {} and its exact project packages",
+                        project.version()
+                    );
+                    return Ok(());
+                }
+                return project.install(config).await;
+            }
+        }
         let monorepo_union = if self.monorepo {
             Some(config.monorepo_union().await?)
         } else {

@@ -26,7 +26,8 @@ use crate::programs::shared::context::OperationContext;
 /// The selection group of a plain directory selection.
 pub(crate) const DEFAULT_GROUP: &str = "default";
 
-pub(crate) struct PreparedSelectionCommit {
+pub(crate) struct PreparedSelectionCommit<'a> {
+    observed: &'a ObservedProjectInputs,
     context: OperationContext,
     repository: ProjectRepository,
     identity: ProjectIdentity,
@@ -34,6 +35,10 @@ pub(crate) struct PreparedSelectionCommit {
     declaration: String,
     key: SelectionKey,
     expected: crate::packages::python_environment::model::SelectionStamp,
+    expected_project: std::collections::BTreeMap<
+        SelectionKey,
+        crate::packages::python_environment::model::SelectionStamp,
+    >,
     language: String,
     language_key: LanguageKey,
 }
@@ -52,11 +57,11 @@ impl SelectionCommitReceipt {
 /// language-only selection for the single catalog. Protections are taken by
 /// the commit in project → object SH → catalog order; this stage only
 /// validates inputs and expected facts.
-pub(crate) fn prepare_selection_commit(
+pub(crate) fn prepare_selection_commit<'a>(
     context: &OperationContext,
-    observed: &ObservedProjectInputs,
+    observed: &'a ObservedProjectInputs,
     candidate: &LanguageCandidate,
-) -> Result<PreparedSelectionCommit> {
+) -> Result<PreparedSelectionCommit<'a>> {
     context.checkpoint()?;
     observed.recheck()?;
     ensure!(
@@ -77,7 +82,9 @@ pub(crate) fn prepare_selection_commit(
         repository.model().limits(),
     )?;
     let expected = repository.model().snapshot(&key);
+    let expected_project = default_selection_states(repository.model(), identity.as_uuid());
     Ok(PreparedSelectionCommit {
+        observed,
         context: context.clone(),
         repository,
         identity,
@@ -85,6 +92,7 @@ pub(crate) fn prepare_selection_commit(
         declaration,
         key,
         expected,
+        expected_project,
         language: language_digest(candidate.key().fingerprint()),
         language_key: *candidate.key(),
     })
@@ -95,9 +103,10 @@ pub(crate) fn prepare_selection_commit(
 /// language SH (re-verifying Ready; the query report alone is not
 /// publication evidence), then the catalog CAS.
 pub(crate) fn commit_selection(
-    prepared: PreparedSelectionCommit,
+    prepared: PreparedSelectionCommit<'_>,
 ) -> Result<SelectionCommitReceipt> {
     let PreparedSelectionCommit {
+        observed,
         context,
         mut repository,
         identity,
@@ -105,6 +114,7 @@ pub(crate) fn commit_selection(
         declaration,
         key,
         expected,
+        expected_project,
         language,
         language_key,
     } = prepared;
@@ -126,15 +136,21 @@ pub(crate) fn commit_selection(
     context.checkpoint()?;
     lease.check_binding()?;
     repository.reload()?;
+    ensure!(
+        default_selection_states(repository.model(), identity.as_uuid()) == expected_project,
+        "project selection changed while the commit was being prepared"
+    );
     let fresh = repository.model().snapshot(&key);
     ensure!(
         fresh == expected,
         "the project selection changed while the commit was being prepared"
     );
+    observed.recheck()?;
     let transaction = Uuid::now_v7();
     repository
         .model_mut()
         .register_project(identity.as_uuid(), &root, &declaration)?;
+    clear_other_default_targets(repository.model_mut(), &key)?;
     repository
         .model_mut()
         .apply_language_selection(&key, &expected, &language, transaction)?;
@@ -172,7 +188,7 @@ fn open_project_lock(
 
 /// SHA256 over every observed declaration document (path and bytes), giving
 /// the minimal persisted declaration observation of one selection.
-fn declaration_digest(observed: &ObservedProjectInputs) -> String {
+pub(crate) fn declaration_digest(observed: &ObservedProjectInputs) -> String {
     use sha2::Digest as _;
     let mut hash = sha2::Sha256::new();
     for path in observed.paths() {
@@ -186,3 +202,242 @@ fn declaration_digest(observed: &ObservedProjectInputs) -> String {
     let digest: [u8; 32] = hash.finalize().into();
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
+
+fn default_selection_states(
+    model: &crate::packages::python_environment::model::CatalogModel,
+    project: Uuid,
+) -> std::collections::BTreeMap<
+    SelectionKey,
+    crate::packages::python_environment::model::SelectionStamp,
+> {
+    model
+        .selection_slots()
+        .filter(|(key, _)| key.project() == project && key.group() == DEFAULT_GROUP)
+        .map(|(key, stamp)| (key.clone(), stamp.clone()))
+        .collect()
+}
+fn clear_other_default_targets(
+    model: &mut crate::packages::python_environment::model::CatalogModel,
+    current: &SelectionKey,
+) -> Result<()> {
+    let retired: Vec<_> = model
+        .selection_slots()
+        .filter(|(key, stamp)| {
+            key.project() == current.project()
+                && key.group() == DEFAULT_GROUP
+                && *key != current
+                && (stamp.language().is_some() || stamp.generation().is_some())
+        })
+        .map(|(key, stamp)| (key.clone(), stamp.clone()))
+        .collect();
+    for (key, stamp) in retired {
+        model.apply_selection(&key, &stamp, None, Uuid::now_v7())?;
+    }
+    Ok(())
+}
+
+/// A graph description is never publication evidence. Commit reacquires the
+/// actual Ready layout after taking the project lock and compares every fact.
+pub(crate) struct PreparedPackageSelectionCommit<'a> {
+    context: OperationContext,
+    observed: &'a ObservedProjectInputs,
+    repository: ProjectRepository,
+    identity: ProjectIdentity,
+    root: String,
+    declaration: String,
+    key: SelectionKey,
+    expected: crate::packages::python_environment::model::SelectionStamp,
+    expected_project: std::collections::BTreeMap<
+        SelectionKey,
+        crate::packages::python_environment::model::SelectionStamp,
+    >,
+    language_key: LanguageKey,
+    layout_key: [u8; 32],
+    graph: crate::packages::python_environment::model::PackageGraphRecord,
+}
+pub(crate) fn prepare_package_selection_commit<'a>(
+    context: &OperationContext,
+    observed: &'a ObservedProjectInputs,
+    language_key: LanguageKey,
+    layout_key: [u8; 32],
+    graph: crate::packages::python_environment::model::PackageGraphRecord,
+) -> Result<PreparedPackageSelectionCommit<'a>> {
+    context.checkpoint()?;
+    observed.recheck()?;
+    ensure!(
+        context.policy().writes.project_selection,
+        "operation policy forbids project selection writes"
+    );
+    let identity = ProjectIdentity::from_observation(observed)?;
+    let root = crate::libraries::project::location::ProjectLocation::bind(observed)?
+        .root()
+        .to_string_lossy()
+        .into_owned();
+    let declaration = declaration_digest(observed);
+    let repository = ProjectRepository::open_writer(context)?;
+    let key = SelectionKey::new(
+        identity.as_uuid(),
+        DEFAULT_GROUP,
+        language_key.target(),
+        repository.model().limits(),
+    )?;
+    let expected = repository.model().snapshot(&key);
+    let expected_project = default_selection_states(repository.model(), identity.as_uuid());
+    Ok(PreparedPackageSelectionCommit {
+        context: context.clone(),
+        observed,
+        repository,
+        identity,
+        root,
+        declaration,
+        key,
+        expected,
+        expected_project,
+        language_key,
+        layout_key,
+        graph,
+    })
+}
+
+pub(crate) fn commit_package_selection(
+    prepared: PreparedPackageSelectionCommit<'_>,
+) -> Result<SelectionCommitReceipt> {
+    use crate::packages::python_environment::model::{GenerationRecord, InputKind, InputReference};
+    use pakro_store::Digest;
+    let PreparedPackageSelectionCommit {
+        context,
+        observed,
+        mut repository,
+        identity,
+        root,
+        declaration,
+        key,
+        expected,
+        expected_project,
+        language_key,
+        layout_key,
+        graph,
+    } = prepared;
+    context.checkpoint()?;
+    let writer = repository.writer()?;
+    let lock = open_project_lock(&writer, &identity)?;
+    let _project_guard = {
+        let control = writer.control(ControlLimits::default())?;
+        control.acquire_project(&lock)?
+    };
+    observed.recheck()?;
+    let layout = crate::libraries::package::lease::acquire_layout(&context, layout_key)?
+        .context("selected package layout is not Ready")?;
+    ensure!(
+        layout.language() == language_key.fingerprint()
+            && layout.language_lease().key() == language_key,
+        "selected layout language changed"
+    );
+    ensure!(
+        graph.fingerprint()? == layout.graph(),
+        "selected graph facts differ from the Ready layout graph identity"
+    );
+    layout.check_binding()?;
+    let manifest: crate::libraries::package::manifest::LayoutManifest =
+        crate::libraries::package::manifest::read_json(
+            &context,
+            &crate::libraries::package::manifest::layout_name(&layout_key),
+        )?
+        .context("selected layout manifest disappeared")?;
+    ensure!(
+        manifest.storage.key == layout_key
+            && manifest.language == layout.language()
+            && manifest.graph == layout.graph(),
+        "layout manifest differs from its real lease"
+    );
+    let mut packages = std::collections::BTreeMap::new();
+    for package in layout.packages() {
+        packages.insert(package.manifest().facts.key, &package.manifest().facts);
+    }
+    ensure!(
+        packages.len() == graph.nodes.len(),
+        "selected graph package count differs from Ready layout"
+    );
+    for (index, node) in graph.nodes.iter().enumerate() {
+        let facts = packages
+            .get(&node.instance)
+            .context("graph package is absent from Ready layout")?;
+        ensure!(
+            facts.name == node.name
+                && facts.version == node.version
+                && facts.artifact == node.artifact
+                && facts.source == node.source_pin,
+            "graph node differs from its verified package manifest"
+        );
+        let mut dependencies: Vec<_> = graph
+            .edges
+            .iter()
+            .filter(|edge| edge.from == index)
+            .map(|edge| {
+                graph
+                    .nodes
+                    .get(edge.to)
+                    .map(|node| node.instance)
+                    .context("graph dependency target is missing")
+            })
+            .collect::<Result<_>>()?;
+        dependencies.sort_unstable();
+        dependencies.dedup();
+        ensure!(
+            dependencies == facts.dependencies,
+            "graph edges differ from verified package dependencies"
+        );
+    }
+    repository.reload()?;
+    ensure!(
+        default_selection_states(repository.model(), identity.as_uuid()) == expected_project,
+        "project selection changed while the commit was being prepared"
+    );
+    ensure!(
+        repository.model().snapshot(&key) == expected,
+        "project selection changed while preparing package commit"
+    );
+    observed.recheck()?;
+    let limits = repository.model().limits();
+    let mut inputs = vec![InputReference::new(
+        InputKind::Language,
+        Digest::Sha256(language_key.fingerprint()),
+    )];
+    for node in &graph.nodes {
+        inputs.push(InputReference::new(
+            InputKind::Package,
+            Digest::Sha256(node.instance),
+        ));
+        inputs.push(InputReference::new(
+            InputKind::Artifact,
+            node.artifact.parse()?,
+        ));
+    }
+    let record = GenerationRecord::new_shared(
+        &manifest.storage.allocation,
+        language_key.target(),
+        layout.graph(),
+        *manifest.storage.inventory.inventory_sha256(),
+        layout_key,
+        inputs,
+        limits,
+    )?
+    .with_package_graph(graph, limits)?;
+    let allocation = repository.model_mut().register_shared_generation(record)?;
+    repository
+        .model_mut()
+        .register_project(identity.as_uuid(), &root, &declaration)?;
+    clear_other_default_targets(repository.model_mut(), &key)?;
+    repository
+        .model_mut()
+        .apply_selection(&key, &expected, Some(&allocation), Uuid::now_v7())?;
+    layout.check_binding()?;
+    repository.commit_model()?;
+    Ok(SelectionCommitReceipt {
+        revision: repository.model().snapshot(&key).revision(),
+    })
+}
+
+#[cfg(test)]
+#[path = "commit/tests.rs"]
+mod tests;

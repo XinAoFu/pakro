@@ -3,10 +3,9 @@ use std::path::{Path, PathBuf};
 
 use path_absolutize::Absolutize;
 
-use eyre::{Context, ContextCompat, Result, bail};
+use eyre::{Context, Result, bail};
 use usage_rs::Args;
 
-use crate::config::Config;
 use crate::{dirs, file};
 
 /// Manage pakro projects
@@ -193,8 +192,19 @@ impl ProjectAttach {
 
 impl ProjectLs {
     fn run(self) -> Result<()> {
-        for project in ProjectsIndex::open().load() {
-            pakroprintln!("{}", project.display());
+        for project in crate::programs::library::projects()? {
+            pakroprintln!(
+                "{}  {}  python={}  packages={}  {}",
+                project.identity,
+                project.path.display(),
+                project.language.as_deref().unwrap_or("(none)"),
+                project.packages.join(","),
+                if project.accessible {
+                    "registered"
+                } else {
+                    "unavailable (references retained)"
+                }
+            );
         }
         Ok(())
     }
@@ -202,19 +212,13 @@ impl ProjectLs {
 
 impl ProjectStatus {
     async fn run(self) -> Result<()> {
-        let config = Config::get().await?;
-        let root = config
-            .project_root
-            .clone()
-            .or_else(|| std::env::current_dir().ok())
-            .context("no project root")?;
-        pakroprintln!("root: {}", root.display());
-        let requests = config.package_requests();
-        if requests.is_empty() {
+        let report = crate::programs::library::local_project()?;
+        pakroprintln!("root: {}", report.root.display());
+        if report.packages.is_empty() {
             pakroprintln!("packages: (none)");
         } else {
             pakroprintln!("packages:");
-            for request in requests {
+            for request in report.packages {
                 pakroprintln!(
                     "  {}@{} {} {}",
                     request.runtime_name,
@@ -224,21 +228,26 @@ impl ProjectStatus {
                 );
             }
         }
-        let lock = root.join("pakro.packages.lock");
-        pakroprintln!(
-            "lockfile: {}",
-            if lock.exists() {
-                lock.display().to_string()
-            } else {
-                "(none)".to_string()
+        match report.registered {
+            Some(project) => {
+                pakroprintln!(
+                    "registered: {} (revision {})",
+                    project.identity,
+                    project.revision
+                );
+                pakroprintln!(
+                    "language: {}",
+                    project.language.as_deref().unwrap_or("(none)")
+                );
+                pakroprintln!("selected packages: {}", project.packages.join(", "));
             }
-        );
-        let venv = root.join(".pakro/venvs");
-        if venv.exists() {
-            pakroprintln!("venvs: {}", venv.display());
+            None => pakroprintln!("registered: (no committed selection)"),
         }
-        if root.join("node_modules").exists() {
-            pakroprintln!("node_modules: present");
+        if let Some(current) = report.current {
+            pakroprintln!("python: {} ({})", current.requested, current.status);
+            if let Some(detail) = current.detail {
+                pakroprintln!("detail: {detail}");
+            }
         }
         Ok(())
     }

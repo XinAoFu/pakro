@@ -142,6 +142,157 @@ impl InputReference {
     }
 }
 
+/// Portable source facts are descriptions, not authorization to fetch bytes.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PackageSourcePin {
+    pub registry: String,
+    pub base: [u8; 32],
+    pub filename: String,
+    pub size: u64,
+    pub advertised: bool,
+}
+/// Exact source-backed dependency facts, stored with their shared layout.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PackageGraphNode {
+    pub name: String,
+    pub version: String,
+    pub instance: [u8; 32],
+    pub source_pin: String,
+    pub artifact: String,
+    pub pin: PackageSourcePin,
+}
+impl PackageGraphNode {
+    pub(crate) fn content_pin(
+        &self,
+    ) -> Result<crate::packages::python_resolution::lock_model::ContentPin> {
+        use crate::packages::python_resolution::lock_model::{
+            ContentPin, LockModelLimits, PinEvidence, RegistryArtifactKind, RegistryFileRef,
+            RegistryFileRefInput,
+        };
+        let file = RegistryFileRef::new(
+            RegistryFileRefInput {
+                registry_id: &self.pin.registry,
+                canonical_base_fingerprint: self.pin.base,
+                project: &self.name,
+                version: &self.version,
+                filename: &self.pin.filename,
+                kind: RegistryArtifactKind::Wheel,
+            },
+            LockModelLimits::default(),
+        )?;
+        let pin = ContentPin::new(
+            &file,
+            self.artifact.parse()?,
+            self.pin.size,
+            if self.pin.advertised {
+                PinEvidence::Advertised
+            } else {
+                PinEvidence::ObservedDuringFreshResolution
+            },
+            LockModelLimits::default(),
+        )?;
+        ensure!(
+            hex::encode(pin.id().as_bytes()) == self.source_pin,
+            "package source facts disagree with their pin identity"
+        );
+        Ok(pin)
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PackageGraphEdge {
+    pub from: usize,
+    pub to: usize,
+    pub declaration: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PackageGraphRecord {
+    pub roots: Vec<usize>,
+    pub nodes: Vec<PackageGraphNode>,
+    pub edges: Vec<PackageGraphEdge>,
+}
+impl PackageGraphRecord {
+    /// One identity for the closed source graph, independent of instance
+    /// placement and whether its identical bytes had an advertised digest.
+    pub(crate) fn fingerprint(&self) -> Result<[u8; 32]> {
+        use sha2::{Digest as _, Sha256};
+        let mut projection = self.clone();
+        for node in &mut projection.nodes {
+            node.instance = [0; 32];
+            node.pin.advertised = false;
+        }
+        let mut hash = Sha256::new();
+        hash.update(b"pakro.closed-shared-package-graph/v1\0");
+        hash.update(serde_json::to_vec(&projection)?);
+        Ok(hash.finalize().into())
+    }
+
+    fn validate(&self, limits: ModelLimits) -> Result<()> {
+        ensure!(
+            self.roots.len() <= limits.max_refs_per_generation
+                && self.nodes.len() <= limits.max_refs_per_generation
+                && self.edges.len() <= limits.max_total_references,
+            "package graph collection limit exceeded"
+        );
+        let mut names = BTreeSet::new();
+        let mut instances = BTreeSet::new();
+        for node in &self.nodes {
+            ensure!(
+                !node.name.is_empty()
+                    && node.name.len() <= 1024
+                    && node.version.len() <= 1024
+                    && !node.version.is_empty()
+                    && pakro_index::python_source::NormalizedPythonName::new(&node.name).is_ok_and(|name|name.as_str()==node.name)
+                    && <pakro_resolver::solve::Pep440 as pakro_resolver::solve::VersionAdapter>::parse_version(&node.version).is_some()
+                    && names.insert(&node.name)
+                    && instances.insert(node.instance),
+                "invalid package graph node"
+            );
+            ensure!(
+                node.source_pin.len() == 64
+                    && node.source_pin.bytes().all(|b| b.is_ascii_hexdigit()),
+                "invalid package source pin"
+            );
+            node.content_pin()?;
+            let digest: Digest = node.artifact.parse()?;
+            ensure!(
+                digest.to_string() == node.artifact,
+                "noncanonical package artifact digest"
+            );
+        }
+        ensure!(
+            self.roots.iter().all(|index| *index < self.nodes.len()),
+            "package graph root is missing"
+        );
+        let mut reached = BTreeSet::new();
+        let mut pending = self.roots.clone();
+        let mut adjacent = vec![Vec::new(); self.nodes.len()];
+        for edge in &self.edges {
+            ensure!(
+                edge.from < self.nodes.len()
+                    && edge.to < self.nodes.len()
+                    && !edge.declaration.is_empty()
+                    && edge.declaration.len() <= 16 * 1024,
+                "invalid package graph edge"
+            );
+            adjacent[edge.from].push(edge.to);
+        }
+        while let Some(index) = pending.pop() {
+            if reached.insert(index) {
+                pending.extend(adjacent[index].iter().copied());
+            }
+        }
+        ensure!(
+            reached.len() == self.nodes.len(),
+            "package graph has unreachable nodes"
+        );
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct GenerationRecord {
     allocation: String,
@@ -150,6 +301,7 @@ pub(crate) struct GenerationRecord {
     graph: [u8; 32],
     receipt: [u8; 32],
     inputs: Vec<InputReference>,
+    package_graph: Option<PackageGraphRecord>,
 }
 impl GenerationRecord {
     pub(crate) fn new(
@@ -176,6 +328,7 @@ impl GenerationRecord {
             graph,
             receipt,
             inputs,
+            package_graph: None,
         };
         value.validate(limits)?;
         Ok(value)
@@ -189,6 +342,32 @@ impl GenerationRecord {
         );
         for input in &self.inputs {
             input.validate()?;
+        }
+        if let Some(graph) = &self.package_graph {
+            ensure!(
+                self.shared_layout.is_some(),
+                "package graph requires a shared layout"
+            );
+            graph.validate(limits)?;
+            ensure!(
+                graph.fingerprint()? == self.graph,
+                "package graph facts differ from their committed graph identity"
+            );
+            let actual: BTreeSet<_> = self
+                .inputs
+                .iter()
+                .filter(|input| input.kind == InputKind::Package)
+                .map(|input| input.digest.as_str())
+                .collect();
+            let expected: BTreeSet<_> = graph
+                .nodes
+                .iter()
+                .map(|node| Digest::Sha256(node.instance).to_string())
+                .collect();
+            ensure!(
+                actual == expected.iter().map(String::as_str).collect(),
+                "package graph nodes and typed package references differ"
+            );
         }
         if self.shared_layout.is_some() {
             ensure!(
@@ -242,6 +421,19 @@ impl GenerationRecord {
         record.shared_layout = Some(shared_layout);
         record.validate(limits)?;
         Ok(record)
+    }
+    pub(crate) fn with_package_graph(
+        self,
+        graph: PackageGraphRecord,
+        limits: ModelLimits,
+    ) -> Result<Self> {
+        let mut record = self;
+        record.package_graph = Some(graph);
+        record.validate(limits)?;
+        Ok(record)
+    }
+    pub(crate) fn package_graph(&self) -> Option<&PackageGraphRecord> {
+        self.package_graph.as_ref()
     }
     pub(crate) fn graph(&self) -> &[u8; 32] {
         &self.graph
@@ -440,7 +632,8 @@ impl CatalogModel {
                 existing.target == record.target
                     && existing.graph == record.graph
                     && existing.receipt == record.receipt
-                    && existing.inputs == record.inputs,
+                    && existing.inputs == record.inputs
+                    && existing.package_graph == record.package_graph,
                 "shared layout identity conflicts with registered content facts"
             );
             return Ok(existing.allocation.clone());
@@ -465,6 +658,9 @@ impl CatalogModel {
             language: change.language.clone(),
             transaction,
         })
+    }
+    pub(crate) fn generations(&self) -> impl Iterator<Item = &GenerationRecord> {
+        self.generations.values()
     }
     pub(crate) fn generation(&self, allocation: &str) -> Option<&GenerationRecord> {
         self.generations.get(allocation)

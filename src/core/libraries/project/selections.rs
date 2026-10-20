@@ -161,6 +161,26 @@ impl ProjectSelections {
             .clone();
         Ok(SharedContentReference { record })
     }
+    /// Adds a real graph to shared content before any selection publishes it.
+    pub(crate) fn register_content_graph(
+        &mut self,
+        input: SharedContentInput<'_>,
+        graph: crate::packages::python_environment::model::PackageGraphRecord,
+    ) -> Result<SharedContentReference> {
+        // Build the pure record in an isolated candidate model, then validate
+        // complete graph facts before mutating the authoritative catalog.
+        let mut candidate = Self::new(self.limits)?;
+        let content = candidate.register_content(input)?;
+        let record = content.record.with_package_graph(graph, self.limits)?;
+        let allocation = self.model.register_shared_generation(record)?;
+        Ok(SharedContentReference {
+            record: self
+                .model
+                .generation(&allocation)
+                .expect("registered content")
+                .clone(),
+        })
+    }
     pub(crate) fn apply_selection(
         &mut self,
         key: &SelectionKey,

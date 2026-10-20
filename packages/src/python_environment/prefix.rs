@@ -105,6 +105,19 @@ impl EnvironmentStore {
         deadline: Instant,
     ) -> Result<Self> {
         validate_store_input(root, limits)?;
+        Self::open_shared_writer(root, expected_uid, limits, deadline)
+    }
+
+    /// Shared allocations use the UTF-8-capable R05 root control. Consumers
+    /// still enforce their own script-format restrictions; the existing
+    /// runtime bootstrap entry keeps its ASCII-only gate.
+    pub(crate) fn open_shared_writer(
+        root: &Path,
+        expected_uid: u32,
+        limits: PrefixLimits,
+        deadline: Instant,
+    ) -> Result<Self> {
+        validate_store_input_policy(root, limits, false)?;
         #[cfg(unix)]
         {
             let kernel = Arc::new(StoreWriter::open_writer(
@@ -289,6 +302,9 @@ impl EnvironmentStore {
 }
 
 fn validate_store_input(root: &Path, limits: PrefixLimits) -> Result<()> {
+    validate_store_input_policy(root, limits, true)
+}
+fn validate_store_input_policy(root: &Path, limits: PrefixLimits, ascii: bool) -> Result<()> {
     ensure!(
         limits.max_components != 0
             && limits.max_entries != 0
@@ -299,7 +315,7 @@ fn validate_store_input(root: &Path, limits: PrefixLimits) -> Result<()> {
     );
     let bytes = root.as_os_str().as_encoded_bytes();
     ensure!(
-        root.is_absolute() && bytes.is_ascii() && !bytes.contains(&0),
+        root.is_absolute() && (!ascii || bytes.is_ascii()) && !bytes.contains(&0),
         "environment root must be an absolute ASCII path"
     );
     ensure!(
@@ -400,6 +416,46 @@ pub(crate) struct UnpublishedPrefix {
     ownership: observer::OwnershipRegistration,
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("another complete shared publication already occupies this key")]
+pub(crate) struct SharedPublicationConflict;
+
+/// Keeps the original allocation EX until every member of a shared group
+/// has completed publication. Dropping this guard releases protection but
+/// never invokes temporary-output cleanup on Ready content.
+pub(crate) struct SharedPublishedPrefix {
+    prefix: UnpublishedPrefix,
+    name: String,
+    bytes: Vec<u8>,
+}
+impl SharedPublishedPrefix {
+    /// Revoke only this operation's exact Ready CAS before temporary cleanup.
+    pub(crate) fn rollback(mut self) -> Result<()> {
+        self.prefix.binding.check_build_protection()?;
+        ensure_entry_identity(
+            &self.prefix.binding.store_root,
+            &self.prefix.allocation_id,
+            self.prefix.binding.identity,
+        )?;
+        let mut control = self
+            .prefix
+            .binding
+            .kernel
+            .control(control::ControlLimits::default())?;
+        let current = control
+            .read(control::ControlNamespace::Catalog, &self.name)?
+            .ok_or_else(|| eyre::eyre!("shared publication disappeared before rollback"))?;
+        ensure!(
+            current.bytes() == self.bytes,
+            "shared publication changed before rollback"
+        );
+        control.remove(&current)?;
+        self.prefix.discarded = false;
+        drop(control);
+        Ok(())
+    }
+}
+
 impl UnpublishedPrefix {
     pub(crate) fn final_path(&self) -> &Path {
         &self.final_path
@@ -416,6 +472,87 @@ impl UnpublishedPrefix {
         }
         #[cfg(not(unix))]
         bail!("unpublished environment writes require a supported Unix platform")
+    }
+
+    /// Publish one immutable shared object using the same controlled writer.
+    /// The Ready CAS and disabling temporary cleanup are one operation; a
+    /// caller cannot accidentally delete a committed tree during handoff.
+    pub(crate) fn publish_shared(
+        self,
+        name: &str,
+        bytes: &[u8],
+        inventory: &verify::TreeInventory,
+    ) -> Result<SharedPublishedPrefix> {
+        self.publish_shared_with_after_cas(name, bytes, inventory, || Ok(()))
+    }
+
+    pub(crate) fn publish_shared_with_after_cas(
+        mut self,
+        name: &str,
+        bytes: &[u8],
+        inventory: &verify::TreeInventory,
+        after_cas: impl FnOnce() -> Result<()>,
+    ) -> Result<SharedPublishedPrefix> {
+        #[derive(serde::Deserialize)]
+        struct Envelope {
+            storage: Binding,
+        }
+        #[derive(serde::Deserialize)]
+        struct Binding {
+            allocation: String,
+            inventory: verify::TreeInventory,
+        }
+        self.check_binding()?;
+        let binding: Envelope = serde_json::from_slice(bytes)?;
+        ensure!(
+            binding.storage.allocation == self.allocation_id
+                && &binding.storage.inventory == inventory,
+            "shared publication manifest does not bind its owned allocation"
+        );
+        ensure!(
+            verify::observe_tree_inventory(&self, verify::PrefixInventoryLimits::default())?
+                == *inventory,
+            "shared publication inventory changed"
+        );
+        let mut control = self
+            .binding
+            .kernel
+            .control(control::ControlLimits::default())?;
+        // This preflight and the replace share the same catalog EX. A normal
+        // competing publisher is distinguishable from an IO error after rename.
+        if control
+            .read(control::ControlNamespace::Catalog, name)?
+            .is_some()
+        {
+            return Err(SharedPublicationConflict.into());
+        }
+        let publication = control
+            .replace(control::ControlNamespace::Catalog, name, None, bytes)
+            .and_then(|_| after_cas());
+        if let Err(error) = publication {
+            // R05 replace may fail after rename (for example parent fsync or
+            // the final bounded read). Under original object EX + catalog EX,
+            // only a confirmed absence permits temporary-output cleanup.
+            if !matches!(
+                control.read(control::ControlNamespace::Catalog, name),
+                Ok(None)
+            ) {
+                self.discarded = true;
+                return Err(error.wrap_err(format!(
+                    "shared publication failed; retaining its potentially published allocation at {}",
+                    self.final_path.display()
+                )));
+            }
+            return Err(error);
+        }
+        // Nothing fallible can run before disarming Drop after the durable CAS.
+        self.discarded = true;
+        drop(control);
+        Ok(SharedPublishedPrefix {
+            prefix: self,
+            name: name.into(),
+            bytes: bytes.into(),
+        })
     }
 
     /// Irreversibly downgrade a failed caller operation; never grants access.

@@ -175,8 +175,9 @@ impl<'de> Visitor<'de> for Generation<'_> {
             mut graph,
             mut receipt,
             mut inputs,
+            mut package_graph,
             mut seen,
-        ) = (None, None, None, None, None, None, 0);
+        ) = (None, None, None, None, None, None, None, 0);
         while let Some(key) = map.next_key_seed(Text {
             state: self.0,
             maximum: 32,
@@ -221,6 +222,10 @@ impl<'de> Visitor<'de> for Generation<'_> {
                     self.0.once(&mut seen, 16)?;
                     inputs = Some(map.next_value_seed(List::<InputReference>::inputs(self.0))?);
                 }
+                "package_graph" => {
+                    self.0.once(&mut seen, 64)?;
+                    package_graph = Some(map.next_value_seed(super::graph::Graph(self.0))?);
+                }
                 _ => return self.0.fail("unknown catalog generation field"),
             }
         }
@@ -240,6 +245,8 @@ impl<'de> Visitor<'de> for Generation<'_> {
                 self.0.limits,
             )?;
             record.shared_layout = shared_layout.as_deref().map(hex32).transpose()?;
+            record.package_graph = package_graph;
+            record.validate(self.0.limits)?;
             Ok(record)
         })()
         .ok();

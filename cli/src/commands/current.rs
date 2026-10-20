@@ -41,6 +41,52 @@ pub(crate) struct Current {
 
 impl Current {
     pub(crate) async fn run(self) -> Result<()> {
+        if self
+            .plugin
+            .as_ref()
+            .is_none_or(|plugin| plugin.short == "python")
+        {
+            let report = crate::programs::library::local_project()?;
+            let has_python = report.current.is_some();
+            if let Some(current) = report.current {
+                if self.plugin.is_none() {
+                    pakroprintln!("python {}", current.requested);
+                } else {
+                    pakroprintln!("{}", current.requested);
+                }
+                if current.status != "ready" {
+                    warn!(
+                        "python {}: {} {}",
+                        current.requested,
+                        current.status,
+                        current.detail.unwrap_or_default()
+                    );
+                }
+            }
+            if self.plugin.is_some()
+                || (!report.has_legacy_tools && !report.legacy_installs_present)
+            {
+                return Ok(());
+            }
+            if has_python {
+                let config = Config::get().await?;
+                let mut ts = ToolsetBuilder::new().build_unresolved(&config)?;
+                ts.versions.retain(|backend, _| backend.short != "python");
+                if let Err(error) = ts
+                    .resolve_with_opts(
+                        &config,
+                        &crate::toolset::ResolveOptions {
+                            offline: true,
+                            ..Default::default()
+                        },
+                    )
+                    .await
+                {
+                    warn!("failed to resolve local toolset: {error}");
+                }
+                return self.all(ts).await;
+            }
+        }
         let config = Config::get().await?;
         let ts = ToolsetBuilder::new().build(&config).await?;
         match &self.plugin {

@@ -13,6 +13,18 @@ use crate::python_runtime::{
     PythonImplementation, PythonLibcObservation, PythonPlatformObservation, PythonRuntimeDescriptor,
 };
 
+fn locked_filename(locator: &str) -> Result<String> {
+    let url = url::Url::parse(locator)
+        .map_err(|_| eyre::eyre!("invalid locked Python runtime locator"))?;
+    let encoded = url
+        .path_segments()
+        .and_then(|mut parts| parts.next_back())
+        .context("locked Python runtime filename is missing")?;
+    Ok(urlencoding::decode(encoded)
+        .map_err(|_| eyre::eyre!("invalid locked Python runtime filename encoding"))?
+        .into_owned())
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct RuntimeInstallPlan {
     source: SourceArtifact,
@@ -33,10 +45,50 @@ impl RuntimeInstallPlan {
         patch_sysconfig: bool,
     ) -> Result<crate::libraries::language::identity::LanguageKey> {
         use crate::libraries::language::identity::{
-            IdentityHash, IdentityLimits, LanguageIdentityInput, LanguageInput, LanguageKey,
-            TargetIdentity, TargetIdentityInput,
+            IdentityLimits, LanguageIdentityInput, LanguageInput, LanguageKey,
         };
         use crate::libraries::package::identity::ArtifactId;
+        let (language, implementation, distribution, target) = self.shared_identity_inputs()?;
+        let limits = IdentityLimits::default();
+        // Recipe 1 performs contained strip-one extraction, removes group/other
+        // write bits from archive modes, and binds the contained entrypoint;
+        // recipe 2 additionally applies the existing PBS sysconfig rewrite.
+        let recipe = if patch_sysconfig && self.distribution == RuntimeDistribution::Pbs {
+            2
+        } else {
+            1
+        };
+        Ok(LanguageKey::new(
+            LanguageIdentityInput {
+                implementation,
+                distribution: &distribution,
+                exact_version: language,
+                target: &target,
+                input: LanguageInput::Artifact(ArtifactId::new(self.source.digest())),
+                recipe,
+            },
+            limits,
+        )?)
+    }
+
+    /// Same fixed target inputs as `language_key`, without rebuilding a
+    /// second compatibility identity for shared package consumers.
+    pub(crate) fn shared_target_identity(
+        &self,
+    ) -> Result<crate::libraries::language::identity::TargetIdentity> {
+        Ok(self.shared_identity_inputs()?.3)
+    }
+    fn shared_identity_inputs(
+        &self,
+    ) -> Result<(
+        &str,
+        &'static str,
+        String,
+        crate::libraries::language::identity::TargetIdentity,
+    )> {
+        use crate::libraries::language::identity::{
+            IdentityHash, IdentityLimits, TargetIdentity, TargetIdentityInput,
+        };
 
         let language = self
             .expected_python_version
@@ -93,25 +145,7 @@ impl RuntimeInstallPlan {
             },
             limits,
         )?;
-        // Recipe 1 performs contained strip-one extraction, removes group/other
-        // write bits from archive modes, and binds the contained entrypoint;
-        // recipe 2 additionally applies the existing PBS sysconfig rewrite.
-        let recipe = if patch_sysconfig && self.distribution == RuntimeDistribution::Pbs {
-            2
-        } else {
-            1
-        };
-        Ok(LanguageKey::new(
-            LanguageIdentityInput {
-                implementation,
-                distribution: &distribution,
-                exact_version: language,
-                target: &target,
-                input: LanguageInput::Artifact(ArtifactId::new(self.source.digest())),
-                recipe,
-            },
-            limits,
-        )?)
+        Ok((language, implementation, distribution, target))
     }
 
     pub(in crate::plugins::core::python) fn from_release(release: &RuntimeRelease) -> Self {
@@ -143,6 +177,21 @@ impl RuntimeInstallPlan {
         }
     }
 
+    /// Validate one PBS lock entry against its own complete version/build.
+    /// This is independent of host/settings; the operation checks those again
+    /// when consuming the pin. It grants no source or filesystem authority.
+    pub(crate) fn validate_locked_pbs_entry(request: &str, info: &PlatformInfo) -> Result<()> {
+        let locator = info
+            .url
+            .as_deref()
+            .context("locked Python runtime has no exact artifact URL")?;
+        let filename = locked_filename(locator)?;
+        let (_, _, target, flavor) = super::pbs_filename(&filename)?
+            .context("locked Python artifact is not a supported PBS install archive")?;
+        Self::from_locked(request, &target, flavor, info)?;
+        Ok(())
+    }
+
     pub(crate) fn from_locked(
         request: &str,
         target: &RuntimeArchiveTarget,
@@ -171,15 +220,7 @@ impl RuntimeInstallPlan {
             .url
             .as_deref()
             .context("locked Python runtime has no exact artifact URL")?;
-        let url = url::Url::parse(locator)
-            .map_err(|_| eyre::eyre!("invalid locked Python runtime locator"))?;
-        let encoded = url
-            .path_segments()
-            .and_then(|mut parts| parts.next_back())
-            .context("locked Python runtime filename is missing")?;
-        let filename = urlencoding::decode(encoded)
-            .map_err(|_| eyre::eyre!("invalid locked Python runtime filename encoding"))?
-            .into_owned();
+        let filename = locked_filename(locator)?;
         let (
             distribution,
             expected_python_version,

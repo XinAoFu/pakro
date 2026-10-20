@@ -67,6 +67,11 @@ pub(crate) async fn install<B: Backend + ?Sized>(
     ctx: InstallContext,
     tv: ToolVersion,
 ) -> Result<ToolVersion> {
+    crate::libraries::language::mutation::reject_legacy_mutation(
+        &crate::dirs::DATA,
+        crate::libraries::language::mutation::LegacyMutation::SystemPublish,
+        &tv.install_path(),
+    )?;
     ensure!(
         matches!(
             backend.get_type(),
@@ -337,12 +342,51 @@ fn apply(input: impl BufRead) -> Result<()> {
 /// installs directory (or a tool directory inside it) and the system shims
 /// directory, as configured for the helper's own user.
 fn apply_for_owner(mut input: impl BufRead, owner: u32, roots: &[PathBuf]) -> Result<()> {
+    apply_for_owner_in_data_root(&mut input, owner, roots, &crate::dirs::DATA)
+}
+
+fn apply_for_owner_in_data_root(
+    mut input: impl BufRead,
+    owner: u32,
+    roots: &[PathBuf],
+    data_root: &Path,
+) -> Result<()> {
     let mut header = String::new();
     input.read_line(&mut header)?;
     let request: Request = serde_json::from_str(&header)?;
     let directory = match &request {
         Request::Install { directory, .. } | Request::Links { directory, .. } => directory,
     };
+    use crate::libraries::language::mutation::{LegacyMutation, reject_legacy_mutation};
+    reject_legacy_mutation(data_root, LegacyMutation::SystemPublish, directory)?;
+    match &request {
+        Request::Install { tool, version, .. } => {
+            reject_legacy_mutation(
+                data_root,
+                LegacyMutation::SystemPublish,
+                &directory.join(tool).join(version),
+            )?;
+        }
+        Request::Links {
+            links,
+            remove,
+            replace,
+            ..
+        } => {
+            for name in links
+                .iter()
+                .map(|(name, _)| name)
+                .chain(remove)
+                .chain(replace)
+            {
+                reject_legacy_mutation(
+                    data_root,
+                    LegacyMutation::SystemPublish,
+                    &directory.join(name),
+                )?;
+            }
+        }
+    }
     ensure!(
         roots
             .iter()
@@ -579,6 +623,30 @@ fn unpack(input: impl Read, directory: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn f2_system_publication_rejects_shared_library_before_effects() {
+        let owner = tempfile::tempdir().unwrap();
+        let root = owner.path().canonicalize().unwrap();
+        let library = root.join("languages");
+        let request = Request::Links {
+            directory: library.clone(),
+            links: vec![],
+            remove: vec![],
+            replace: vec![],
+        };
+        let input = format!("{}\n", serde_json::to_string(&request).unwrap());
+        assert!(
+            apply_for_owner_in_data_root(
+                input.as_bytes(),
+                nix::unistd::geteuid().as_raw(),
+                &[library.clone()],
+                &root
+            )
+            .is_err()
+        );
+        assert!(!library.exists());
+    }
 
     #[test]
     fn archive_boundary() -> Result<()> {

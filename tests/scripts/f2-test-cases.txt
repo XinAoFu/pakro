@@ -1,8 +1,26 @@
 # F2 registered test inventory, checked by: bash tests/scripts/f-manual-check.sh f2
 # Real inputs: unit tests use the offline fixture archive; the e2e downloads a
-# real PBS release (network) and is run manually by the user.
+# real PBS release (network); current authorization permits Agent execution.
 programs::install::apply::tests::f2_exact_install_reuses_and_records_only_real_projects
 programs::install::apply::tests::f2_failed_acquire_keeps_published_state
 plugins::core::python::native::pipeline::tests::f2_multiple_builds_are_not_latest_selection
 libraries::language::mutation::tests::f2_legacy_mutation_is_rejected_before_effects
-tests/e2e/cli/test_f2_exact_python_install [network: user lane]
+tests/e2e/cli/test_f2_exact_python_install [network: official PBS]
+
+libraries::language::mutation::tests::f2_legacy_creation_inside_shared_library_is_rejected
+install_rollback::tests::f2_rollback_rejects_shared_payload_before_moving_it
+system_install::tests::f2_system_publication_rejects_shared_library_before_effects
+plugins::core::python::f2_shared_program_tests::f2_shared_exact_adapter_reuses_existing_without_source_resolution
+plugins::core::python::f2_shared_program_tests::f2_shared_exact_adapter_requires_a_unique_existing_build
+
+libraries::project::runtime_pin::tests::f2_observed_runtime_pin_is_preserved_without_writes
+libraries::project::runtime_pin::tests::f2_observed_runtime_conflicts_and_partial_pin_are_not_empty
+plugins::core::python::f2_shared_program_tests::f2_shared_exact_adapter_never_reuses_a_conflicting_runtime_pin
+
+libraries::language::mutation::tests::f2_parent_components_cannot_hide_a_shared_target
+plugins::core::python::f2_shared_program_tests::f2_shared_exact_adapter_reuses_the_matching_frozen_pin
+plugins::core::python::f2_shared_program_tests::f2_frozen_runtime_pin_cannot_override_the_requested_build
+plugins::core::python::native::catalog::tests::f2_exact_catalog_pin_fetches_only_its_official_tag_and_checksum
+plugins::core::python::native::catalog::tests::f2_exact_catalog_bare_request_refuses_two_real_builds_before_checksums
+plugins::core::python::native::catalog::tests::f2_exact_catalog_single_build_proves_final_page_and_skips_unrelated_checksum
+libraries::project::runtime_pin::tests::f2_observed_runtime_entry_build_cannot_disagree_with_frozen_source

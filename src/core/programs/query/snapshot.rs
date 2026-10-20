@@ -123,6 +123,24 @@ pub(crate) fn select_existing(query: &QueryContext<'_>) -> Result<SelectionRepor
             return Ok(SelectionReport::InvalidDeclaration { requested: raw });
         }
     };
+    let runtime_pin =
+        crate::libraries::project::runtime_pin::observed_runtime_pin(query.observed, &requested)
+            .map_err(|error| {
+                QueryError::Unreadable(format!("project runtime source pin is unusable: {error:#}"))
+            })?;
+    if let Some(pin) = &runtime_pin {
+        // Validate the fixed source even when the local library is empty. A
+        // malformed commitment must not be disguised as an uninstalled item.
+        crate::plugins::core::python::pinned_shared_language_spec(
+            requested.as_str(),
+            pin,
+            false,
+            query.context.settings(),
+        )
+        .map_err(|error| {
+            QueryError::Unreadable(format!("project runtime source pin is unusable: {error:#}"))
+        })?;
+    }
     use crate::libraries::language::repository::LanguageEnumerateError;
     use crate::libraries::language::repository::LanguageRepository;
     let languages = LanguageRepository::open_readonly(&query.context)
@@ -147,6 +165,31 @@ pub(crate) fn select_existing(query: &QueryContext<'_>) -> Result<SelectionRepor
                     .is_none_or(|pin| language.build() == Some(pin))
         })
         .collect();
+    if let Some(pin) = runtime_pin {
+        let mut pinned = Vec::new();
+        for language in matching {
+            let expected = crate::plugins::core::python::pinned_shared_language_spec(
+                requested.as_str(),
+                &pin,
+                language.spec().patch_sysconfig(),
+                query.context.settings(),
+            )
+            .map_err(|error| {
+                QueryError::Unreadable(format!("project runtime source pin is unusable: {error:#}"))
+            })?;
+            let actual_source = language.spec().plan().source();
+            let expected_source = expected.plan().source();
+            if expected.key() == language.key()
+                && expected_source.filename() == actual_source.filename()
+                && expected_source.digest() == actual_source.digest()
+            {
+                expected.plan().validate_source_locator(actual_source.url().as_str())
+                    .map_err(|error|QueryError::Unreadable(format!("published runtime differs from the project's canonical source: {error:#}")))?;
+                pinned.push(language);
+            }
+        }
+        matching = pinned;
+    }
     matching.sort_by_key(|language| language.key().fingerprint());
     let into_candidate = |language: crate::libraries::language::repository::PublishedLanguage| {
         LanguageCandidate::new(
@@ -170,17 +213,95 @@ pub(crate) fn select_existing(query: &QueryContext<'_>) -> Result<SelectionRepor
     })
 }
 
-/// The effective Python tool declaration of one observation. Later documents
-/// in the same observation win, matching the snapshot's document order; F1
-/// projects only this one tool from the declaration set.
-fn effective_python_declaration(observed: &ObservedProjectInputs) -> Option<String> {
-    let mut declared = None;
-    for (_, declarations) in observed.declarations() {
-        for tool in &declarations.tools {
-            if tool.name == "python" {
-                declared = Some(tool.version.clone());
-            }
+/// Config discovery is ordered from nearest/highest-priority document to
+/// ancestors and defaults. The first document declaring Python wins, using
+/// the same order as the snapshot's effective-package merge kernel.
+pub(crate) fn effective_python_declaration(observed: &ObservedProjectInputs) -> Option<String> {
+    observed.declarations().find_map(|(_, declarations)| {
+        let tools: Vec<_> = declarations
+            .tools
+            .iter()
+            .filter(|tool| tool.name == "python")
+            .collect();
+        if tools.is_empty() {
+            return None;
         }
+        if let Some(tool) = tools.iter().find(|tool| tool.selector != "version") {
+            return Some(format!(
+                "unsupported Python selector {} for {}",
+                tool.selector, tool.version
+            ));
+        }
+        if let Some(tool) = tools.iter().find(|tool| !tool.options.is_empty()) {
+            return Some(format!(
+                "unsupported Python options [{}] for {}",
+                tool.options.keys().cloned().collect::<Vec<_>>().join(", "),
+                tool.version
+            ));
+        }
+        Some(
+            tools
+                .iter()
+                .map(|tool| tool.version.as_str())
+                .collect::<Vec<_>>()
+                .join(" "),
+        )
+    })
+}
+
+/// Cross-checks the same committed graph against the actual guarded layout.
+/// Both values are needed: a catalog node alone is never Ready evidence.
+pub(crate) fn validate_layout_graph(
+    graph: &crate::libraries::project::package_graph::CommittedGraph,
+    layout: &crate::libraries::package::lease::LayoutLease,
+) -> eyre::Result<()> {
+    use eyre::{ContextCompat, ensure};
+    ensure!(
+        layout.key() == *graph.layout() && layout.language() == *graph.language(),
+        "committed graph differs from its actual layout or language"
+    );
+    ensure!(
+        layout.graph() == graph.fingerprint(),
+        "committed graph facts differ from the actual layout graph identity"
+    );
+    let packages: std::collections::BTreeMap<_, _> = layout
+        .packages()
+        .iter()
+        .map(|package| (package.manifest().key(), &package.manifest().facts))
+        .collect();
+    ensure!(
+        packages.len() == graph.nodes().len(),
+        "committed graph package count differs from its actual layout"
+    );
+    for (index, node) in graph.nodes().iter().enumerate() {
+        let facts = packages
+            .get(node.instance())
+            .context("committed graph package is absent from its actual layout")?;
+        ensure!(
+            facts.name == node.name()
+                && facts.version == node.version()
+                && facts.artifact == node.artifact()
+                && facts.source == node.source_pin(),
+            "committed graph node differs from its verified package manifest"
+        );
+        let mut dependencies: Vec<_> = graph
+            .edges()
+            .iter()
+            .filter(|edge| edge.from() == index)
+            .map(|edge| {
+                graph
+                    .nodes()
+                    .get(edge.to())
+                    .map(|node| *node.instance())
+                    .context("committed graph dependency target is missing")
+            })
+            .collect::<eyre::Result<_>>()?;
+        dependencies.sort_unstable();
+        dependencies.dedup();
+        ensure!(
+            dependencies == facts.dependencies,
+            "committed graph dependency edges differ from verified package facts"
+        );
     }
-    declared
+    layout.check_binding()
 }

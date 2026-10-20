@@ -81,13 +81,16 @@ impl Serialize for Inputs<'_> {
 struct Generation<'a>(&'a GenerationRecord);
 impl Serialize for Generation<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(Some(6))?;
+        let mut map = serializer.serialize_map(Some(7))?;
         map.serialize_entry("allocation", &self.0.allocation)?;
         map.serialize_entry("target", &Hex(&self.0.target))?;
         map.serialize_entry("shared_layout", &self.0.shared_layout.as_ref().map(Hex))?;
         map.serialize_entry("graph", &Hex(&self.0.graph))?;
         map.serialize_entry("receipt", &Hex(&self.0.receipt))?;
         map.serialize_entry("inputs", &Inputs(&self.0.inputs))?;
+        if let Some(graph) = &self.0.package_graph {
+            map.serialize_entry("package_graph", graph)?;
+        }
         map.end()
     }
 }

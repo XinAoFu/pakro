@@ -132,7 +132,7 @@ pub(crate) async fn apply_native_shim_command_wrapper(
     if !same_command_name(shim_name, program) {
         return Ok(None);
     }
-    let Some(wrapper) = command_wrapper_for(config, ts, shim_name, true).await? else {
+    let Some((wrapper, _shared)) = command_wrapper_for(config, ts, shim_name, true).await? else {
         return Ok(None);
     };
     trace!("shim[{shim_name}] WRAPPER command: {}", wrapper.command());
@@ -154,7 +154,7 @@ async fn command_wrapper_for(
     ts: &mut Toolset,
     shim_name: &str,
     install_command: bool,
-) -> Result<Option<CommandWrapper>> {
+) -> Result<Option<(CommandWrapper, bool)>> {
     let wrappers = load_command_wrappers(
         &config.config_files,
         ts.versions.values().flat_map(|versions| &versions.requests),
@@ -173,10 +173,23 @@ async fn command_wrapper_for(
     if same_command_name(wrapper.command(), shim_name) {
         bail!("command wrapper for {shim_name} cannot delegate to itself");
     }
+    let mut wrapper = wrapper.clone();
+    #[cfg(unix)]
+    if let Some(path) = select_shared_python_command(ts, wrapper.command())? {
+        let command = path
+            .to_str()
+            .ok_or_else(|| eyre::eyre!("shared wrapper path is not UTF-8"))?
+            .to_owned();
+        match &mut wrapper {
+            CommandWrapper::Command(value) => *value = command,
+            CommandWrapper::Detailed(options) => options.command = command,
+        }
+        return Ok(Some((wrapper, true)));
+    }
     if install_command {
         install_missing_wrapper_command(config, ts, wrapper.command()).await?;
     }
-    Ok(Some(wrapper.clone()))
+    Ok(Some((wrapper, false)))
 }
 
 /// Whether two command names find the same shim. Windows file names are case-insensitive, so a
@@ -217,15 +230,30 @@ async fn which_shim(
     let task_tools = task_tool_args_from_env()?;
     let mut ts = ToolsetBuilder::new()
         .with_args(&task_tools)
-        .with_resolve_options(resolve_options)
-        .build(config)
-        .await?;
-    if let Some(wrapper) =
-        command_wrapper_for(config, &mut ts, shim_name, !completion_offline).await?
-    {
+        .build_unresolved(config)?;
+    #[cfg(unix)]
+    ts.versions.retain(|backend, _| backend.short != "python");
+    // Inspect wrapper declarations before any legacy version resolution.
+    if let Some((wrapper, shared)) = command_wrapper_for(config, &mut ts, shim_name, false).await? {
+        if shared {
+            return Ok((
+                PathBuf::from(wrapper.command()),
+                Toolset::default(),
+                Some(wrapper),
+            ));
+        }
+        ts.resolve_with_opts(config, &resolve_options).await?;
+        if !completion_offline {
+            install_missing_wrapper_command(config, &mut ts, wrapper.command()).await?;
+        }
         trace!("shim[{bin_name}] WRAPPER command: {}", wrapper.command());
         return Ok((PathBuf::from(wrapper.command()), ts, Some(wrapper)));
     }
+    #[cfg(unix)]
+    if let Some(path) = select_shared_python_command(&ts, shim_name)? {
+        return Ok((path, Toolset::default(), None));
+    }
+    ts.resolve_with_opts(config, &resolve_options).await?;
     // A configured tool may intentionally override an executable bundled by another installed
     // tool (for example, a pinned npm overrides Node's npm). Install a missing provider declared
     // by the registry before resolving an incidental installed provider.

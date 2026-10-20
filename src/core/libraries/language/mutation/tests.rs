@@ -6,6 +6,40 @@ use crate::libraries::language::repository::{LanguageRepository, LanguageState};
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[test]
+fn f2_legacy_creation_inside_shared_library_is_rejected() {
+    let owner = tempfile::tempdir().unwrap();
+    let root = owner.path().canonicalize().unwrap();
+    assert!(
+        reject_legacy_mutation(
+            &root,
+            LegacyMutation::Force,
+            &root.join("languages/not-created/payload"),
+        )
+        .is_err()
+    );
+    assert!(!root.join("languages").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn f2_parent_components_cannot_hide_a_shared_target() {
+    let owner = tempfile::tempdir().unwrap();
+    let root = owner.path().canonicalize().unwrap();
+    std::fs::create_dir_all(root.join("languages/nested")).unwrap();
+    std::fs::create_dir(root.join("outside")).unwrap();
+    std::os::unix::fs::symlink(root.join("languages/nested"), root.join("outside/alias")).unwrap();
+    assert!(
+        reject_legacy_mutation(
+            &root,
+            LegacyMutation::Force,
+            &root.join("outside/alias/../not-created")
+        )
+        .is_err()
+    );
+    assert!(!root.join("languages/not-created").exists());
+}
+
 /// Every legacy mutation kind is refused on the shared payload before any
 /// effect, while paths outside the shared library stay untouched by the gate.
 #[tokio::test]

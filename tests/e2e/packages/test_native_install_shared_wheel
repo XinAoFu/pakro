@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+source "$TEST_DIR/f3_shared_wheel_helpers.sh"
+f3_setup
+f3_declare a z-root
+f3_declare b z-root
+f3_declare dep-only a-dep
+config_before="$(cksum a/pakro.toml)"
+(cd a && pakro install)
+[[ $(f3_package_count) == 2 ]] || fail "root plus real dependency were not published"
+requests_before="$(f3_request_count)"
+((requests_before == 4)) || fail "expected exactly two metadata and two wheel requests"
+(cd b && pakro install)
+[[ $(f3_request_count) == "$requests_before" ]] || fail "B fetched an already published complete closure"
+[[ $(cksum a/pakro.toml) == "$config_before" ]] || fail "install edited project declarations"
+[[ ! -e a/pakro.lock && ! -e b/pakro.lock ]] || fail "install rewrote project lock content"
+eval "$(pakro activate bash)"
+cd a
+eval "$(pakro hook-env -s bash --force)"
+a_python="$(command -v python)"
+assert "python -c 'import z_root,a_dep,pth_marker; print(a_dep.VALUE + \":\" + pth_marker.VALUE)'" 'shared-dependency:pth-visible'
+assert "z-root-cli" 'shared-dependency:pth-visible'
+assert "python -m z_root" 'shared-dependency:pth-visible'
+cd ../b
+eval "$(pakro hook-env -s bash --force)"
+[[ $(command -v python) == "$a_python" ]] || fail "A and B did not reuse the same layout"
+cd ../dep-only
+pakro install
+eval "$(pakro hook-env -s bash --force)"
+assert "python -c 'import a_dep,pth_marker; import importlib.util; assert importlib.util.find_spec(\"z_root\") is None; print(a_dep.VALUE)'" 'shared-dependency'
+[[ $(f3_package_count) == 2 ]] || fail "a common package was copied for another combination"
+[[ ! -d .venv && ! -d .pakro/venvs ]] || fail "install created a project environment copy"
+f3_assert_no_manager

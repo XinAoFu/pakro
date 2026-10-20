@@ -6,7 +6,7 @@ use crate::config::Config;
 use crate::env::{PATH_KEY, join_paths, split_paths};
 use crate::env_diff::EnvMap;
 use crate::shell::{ShellType, get_shell};
-use crate::toolset::{InstallOptions, Toolset, ToolsetBuilder};
+use crate::toolset::{ResolveOptions, Toolset, ToolsetBuilder};
 use crate::wildcard::wildcard_match;
 use indexmap::IndexSet;
 
@@ -18,7 +18,7 @@ use indexmap::IndexSet;
 ///
 /// JSON, dotenv, and shell output contain actual variable values, including secrets.
 /// `--redacted` selects variables marked for redaction; it does not mask their values.
-/// Environment construction may install missing tools according to pakro's settings.
+/// This query uses existing library contents; missing Python or packages require an explicit install.
 #[derive(Debug, usage_rs::Args)]
 #[usage(
     visible_alias = "e",
@@ -62,20 +62,31 @@ pub(crate) struct Env {
 
 impl Env {
     pub(crate) async fn run(self) -> Result<()> {
-        let mut config = Config::get().await?;
+        let config = Config::get().await?;
         let mut ts = ToolsetBuilder::new()
             .with_args(&self.tool)
-            .build(&config)
-            .await?;
+            .build_unresolved(&config)?;
+        // Exclude Python before legacy resolution, including missing or invalid
+        // declarations. A read-only env query cannot authorize a download.
+        #[cfg(unix)]
+        ts.versions.retain(|backend, _| backend.short != "python");
+        if let Err(error) = ts
+            .resolve_with_opts(
+                &config,
+                &ResolveOptions {
+                    offline: true,
+                    ..Default::default()
+                },
+            )
+            .await
+        {
+            warn!("failed to resolve local toolset: {error}");
+        }
         // Shared library python (D07/D08): the declared exact version comes
         // from the shared library when published; this command is read-only
         // and python never auto-installs through the legacy pipeline here.
         #[cfg(unix)]
         let shared_python = crate::programs::directory::select_directory_python(false)?;
-        #[cfg(unix)]
-        if shared_python.is_some() {
-            ts.versions.retain(|backend, _| backend.short != "python");
-        }
         let shared_bin: Option<&std::path::Path> = {
             #[cfg(unix)]
             {
@@ -88,19 +99,7 @@ impl Env {
                 None
             }
         };
-        let (_, missing) = ts
-            .install_missing_versions(&mut config, &InstallOptions::default())
-            .await?;
-        // The printed environment places the shim farms on PATH for lazy
-        // declarations, so evaluating it must leave working bootstrap shims
-        // behind: an eval'd shell has no command-not-found handler to fall
-        // back on (discussion #12678).
-        if ts.has_lazy_declarations()
-            && let Err(err) = crate::shims::ensure_lazy_shims(&missing)
-        {
-            warn!("failed to create shims for lazy tools: {err:#}");
-        }
-        ts.notify_missing_versions(missing);
+        ts.notify_if_versions_missing(&config).await;
 
         // Pre-compute final_env when needed by --redacted or --dotenv to
         // avoid calling it twice. final_env includes the tools-only pass
@@ -305,10 +304,7 @@ impl Env {
 
     /// Puts the shared library's python bin directory in front of PATH so the
     /// selected shared interpreter takes precedence over any legacy install.
-    fn prepend_shared_path(
-        env: &mut EnvMap,
-        shared_bin: Option<&std::path::Path>,
-    ) -> Result<()> {
+    fn prepend_shared_path(env: &mut EnvMap, shared_bin: Option<&std::path::Path>) -> Result<()> {
         let Some(bin) = shared_bin else { return Ok(()) };
         match env.get_mut(&*PATH_KEY) {
             Some(current) => {

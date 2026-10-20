@@ -1,0 +1,19 @@
+# package target full-test-name
+pakro lib programs::query::inventory::tests::f4_query_is_readonly_and_corruption_is_not_empty
+pakro lib programs::query::inventory::tests::f4_library_relations_survive_restart
+pakro lib libraries::language::removal::tests::f4_exact_unreferenced_target_only_is_removed
+pakro lib libraries::language::removal::tests::f4_new_reference_and_live_lease_block_removal
+pakro lib libraries::language::removal::tests::f4_reference_added_after_query_blocks_removal
+pakro lib libraries::language::removal::tests::f4_unknown_or_partial_delete_is_not_success
+pakro lib libraries::package::removal::tests::f4_references_report_chain_and_block
+pakro lib libraries::package::removal::tests::f4_package_live_lease_and_unknown_block_removal
+# Explicitly invoked by the e2e; excluded from the ordinary active-test count:
+# pakro lib programs::query::inventory::tests::f4_e2e_stage_library (ignored staging helper)
+e2e tests/e2e/cli/test_f4_library_query_and_uninstall
+pakro lib libraries::language::removal::tests::f4_partial_delete_revokes_ready
+pakro lib libraries::package::removal::tests::f4_unselected_adapter_is_invalidated_without_expanding_deletion
+pakro lib programs::query::inventory::tests::f4_current_damaged_payload_is_not_ready
+pakro lib programs::query::inventory::tests::f4_missing_committed_catalog_is_unknown_and_blocks_removal
+# Separate crate, also checked/run by the f4 runner:
+# cargo test -p pakro-store --lib control::tests::f4_store_initialization_qualification_is_not_reissued -- --exact --nocapture
+tests/e2e/cli/test_f4_python_queries_are_readonly

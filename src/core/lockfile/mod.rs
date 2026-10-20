@@ -1252,6 +1252,22 @@ impl Lockfile {
             .transpose()?;
         let path = target.as_deref().unwrap_or(path);
         let content = file::read_to_string(path)?;
+        Self::parse_document(&content)
+    }
+
+    /// Parses bytes that an existing project observation already owns. No
+    /// path is opened and no migration, writer, or sidecar lock is created.
+    pub(crate) fn parse_observed(bytes: &[u8]) -> Result<Self> {
+        eyre::ensure!(
+            bytes.len() <= 16 * 1024 * 1024,
+            "observed native lock byte limit exceeded"
+        );
+        let content = std::str::from_utf8(bytes)
+            .map_err(|_| eyre!("observed native lock encoding is invalid"))?;
+        Self::parse_document(content).map_err(|_| eyre!("observed native lock document is damaged"))
+    }
+
+    fn parse_document(content: &str) -> Result<Self> {
         let generated_header_url = existing_lockfile_doc_url(&content);
         let mut table: toml::Table = toml::from_str(&content)?;
         if table.is_empty() {

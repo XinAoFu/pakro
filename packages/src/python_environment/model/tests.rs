@@ -707,3 +707,146 @@ fn r04_typed_key_references_require_sha256_but_artifact_outputs_keep_their_algor
     assert_eq!(record.inputs().len(), 3);
     assert_ne!(record.inputs()[0].kind(), record.inputs()[2].kind());
 }
+
+#[test]
+fn f3_catalog_preserves_real_roots_edges_and_pins_after_restart() {
+    let mut state = model();
+    let owner = key(101, "default");
+    let graph = PackageGraphRecord {
+        roots: vec![0],
+        nodes: vec![
+            package_node("app", "1.0", 21, 31),
+            package_node("dep", "2.0", 22, 32),
+        ],
+        edges: vec![PackageGraphEdge {
+            from: 0,
+            to: 1,
+            declaration: "dep>=1,<3".into(),
+        }],
+    };
+    let record = GenerationRecord::new_shared(
+        &allocation(501),
+        [3; 32],
+        graph.fingerprint().unwrap(),
+        [5; 32],
+        [6; 32],
+        vec![
+            reference(InputKind::Language, 20),
+            reference(InputKind::Package, 21),
+            reference(InputKind::Package, 22),
+        ],
+        ModelLimits::default(),
+    )
+    .unwrap()
+    .with_package_graph(graph.clone(), ModelLimits::default())
+    .unwrap();
+    state.register_shared_generation(record).unwrap();
+    state
+        .apply_selection(
+            &owner,
+            &state.snapshot(&owner),
+            Some(&allocation(501)),
+            Uuid::from_u128(900),
+        )
+        .unwrap();
+    let bytes = state.encode_catalog(CatalogCodecLimits::default()).unwrap();
+    let restored = CatalogModel::decode_catalog(&bytes, CatalogCodecLimits::default()).unwrap();
+    assert_eq!(
+        restored
+            .generation(&allocation(501))
+            .unwrap()
+            .package_graph(),
+        Some(&graph)
+    );
+}
+
+#[test]
+fn f3_graph_rejects_broken_closure_and_reference_mismatch() {
+    let limits = ModelLimits::default();
+    let node = package_node("demo", "1.0", 21, 31);
+    let graph = PackageGraphRecord {
+        roots: vec![0],
+        nodes: vec![node.clone()],
+        edges: vec![],
+    };
+    let record = GenerationRecord::new_shared(
+        &allocation(55),
+        [3; 32],
+        graph.fingerprint().unwrap(),
+        [5; 32],
+        [6; 32],
+        vec![
+            reference(InputKind::Language, 20),
+            reference(InputKind::Package, 21),
+        ],
+        limits,
+    )
+    .unwrap();
+    let mut broken = graph.clone();
+    broken.edges.push(PackageGraphEdge {
+        from: 0,
+        to: 1,
+        declaration: "missing>=1".into(),
+    });
+    assert!(record.clone().with_package_graph(broken, limits).is_err());
+    let mut broken = graph.clone();
+    broken.nodes[0].instance = [22; 32];
+    assert!(record.clone().with_package_graph(broken, limits).is_err());
+    let mut broken = graph.clone();
+    broken.roots.clear();
+    assert!(record.clone().with_package_graph(broken, limits).is_err());
+    let valid = record.with_package_graph(graph, limits).unwrap();
+    let mut state = model();
+    state.register_generation(valid).unwrap();
+    let bytes = state.encode_catalog(CatalogCodecLimits::default()).unwrap();
+    let mut wire: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    wire["generations"][0]["package_graph"]["roots"][0] = serde_json::json!(9);
+    assert!(
+        CatalogModel::decode_catalog(
+            &serde_json::to_vec(&wire).unwrap(),
+            CatalogCodecLimits::default()
+        )
+        .is_err()
+    );
+}
+
+fn package_node(name: &str, version: &str, instance: u8, artifact: u8) -> PackageGraphNode {
+    use crate::packages::python_resolution::lock_model::{
+        ContentPin, PinEvidence, RegistryArtifactKind, RegistryFileRef, RegistryFileRefInput,
+    };
+    let filename = format!("{name}-{version}-py3-none-any.whl");
+    let file = RegistryFileRef::new(
+        RegistryFileRefInput {
+            registry_id: "pypi",
+            canonical_base_fingerprint: [7; 32],
+            project: name,
+            version,
+            filename: &filename,
+            kind: RegistryArtifactKind::Wheel,
+        },
+        Default::default(),
+    )
+    .unwrap();
+    let pin = ContentPin::new(
+        &file,
+        Digest::Sha256([artifact; 32]),
+        100,
+        PinEvidence::Advertised,
+        Default::default(),
+    )
+    .unwrap();
+    PackageGraphNode {
+        name: name.into(),
+        version: version.into(),
+        instance: [instance; 32],
+        source_pin: hex::encode(pin.id().as_bytes()),
+        artifact: pin.digest().to_string(),
+        pin: PackageSourcePin {
+            registry: "pypi".into(),
+            base: [7; 32],
+            filename,
+            size: 100,
+            advertised: true,
+        },
+    }
+}

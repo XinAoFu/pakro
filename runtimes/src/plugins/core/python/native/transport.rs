@@ -123,7 +123,7 @@ fn routed_url(
 /// Apply the existing ordered replacement semantics without logging locators or
 /// patterns. Invalid regexes and non-URL replacement results are skipped, as in
 /// the shared HTTP helper; a parsed but unsafe locator is always an error.
-pub(in super::super) fn request_url(
+pub(crate) fn request_url(
     url: Url,
     replacements: Option<&IndexMap<String, String>>,
 ) -> Result<Url> {

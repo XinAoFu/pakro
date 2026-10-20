@@ -26,8 +26,21 @@ impl HookNotFound {
     pub(crate) async fn run(self) -> Result<()> {
         let mut config = Config::get().await?;
         let settings = Settings::try_get()?;
+        let mut ts = ToolsetBuilder::new().build_unresolved(&config)?;
+        #[cfg(unix)]
+        {
+            ts.versions.retain(|backend, _| backend.short != "python");
+            match crate::shims::select_shared_python_command(&ts, &self.bin) {
+                Ok(Some(_)) => return Ok(()),
+                Ok(None) => {}
+                Err(error) => {
+                    warn!("pakro: {error:#}");
+                    return Err(request_exit(127));
+                }
+            }
+        }
         if settings.not_found_auto_install {
-            let mut ts = ToolsetBuilder::new().build(&config).await?;
+            ts.resolve(&config).await?;
             if ts
                 .install_missing_bin(&mut config, &self.bin)
                 .await?
@@ -37,6 +50,7 @@ impl HookNotFound {
             }
             if settings.not_found_auto_install_registry
                 && let Some(tool) = registry_bin_provider(&self.bin, &settings)
+                && (cfg!(not(unix)) || tool != "python")
                 && !ts
                     .list_current_versions()
                     .into_iter()

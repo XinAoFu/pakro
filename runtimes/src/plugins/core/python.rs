@@ -505,6 +505,73 @@ fn python_version_sort_key(
     (1, prefix_order, true, conda_version, python_version)
 }
 
+/// The original locked-source factory, shared by local pin matching and
+/// explicit acquisition. It performs no catalog, cache, config or network IO.
+fn pinned_runtime_plan(
+    version: &str,
+    info: &PlatformInfo,
+    archive_target: &native::RuntimeArchiveTarget,
+    settings: &Settings,
+) -> Result<native::pipeline::RuntimeInstallPlan> {
+    let flavor = if version.starts_with("pypy") {
+        native::RuntimeFlavor::PyPy
+    } else if let Some(flavor) = settings.python.precompiled_flavor.as_deref() {
+        native_archive_flavor(Some(flavor))?
+    } else if let Some(locator) = info.url.as_deref() {
+        // Honor the precise flavor in older native locks. The pipeline
+        // validates this basename against the complete official URL.
+        let url =
+            url::Url::parse(locator).map_err(|_| eyre!("invalid locked Python runtime locator"))?;
+        let basename = url
+            .path_segments()
+            .and_then(|mut parts| parts.next_back())
+            .ok_or_else(|| eyre!("locked Python runtime filename missing"))?;
+        let filename = urlencoding::decode(basename)
+            .map_err(|_| eyre!("invalid locked Python runtime filename"))?;
+        if filename.ends_with("-freethreaded-install_only_stripped.tar.gz") {
+            native::RuntimeFlavor::FreeThreadedInstallOnlyStripped
+        } else if filename.ends_with("-freethreaded-install_only.tar.gz") {
+            native::RuntimeFlavor::FreeThreadedInstallOnly
+        } else if filename.ends_with("-install_only_stripped.tar.gz") {
+            native::RuntimeFlavor::InstallOnlyStripped
+        } else {
+            native::RuntimeFlavor::InstallOnly
+        }
+    } else {
+        // Let the typed lock validator diagnose incomplete commitments
+        // before attempting to infer a flavor from a missing locator.
+        native::RuntimeFlavor::InstallOnly
+    };
+    let plan =
+        native::pipeline::RuntimeInstallPlan::from_locked(version, archive_target, flavor, info)?;
+    Ok(plan)
+}
+
+#[cfg(unix)]
+pub(crate) fn pinned_shared_language_spec(
+    version: &str,
+    pin: &PlatformInfo,
+    patch_sysconfig: bool,
+    settings: &Settings,
+) -> Result<crate::libraries::language::repository::LanguageInstallSpec> {
+    let requested = crate::programs::shared::exact_version::exact_python_request(version)?;
+    eyre::ensure!(
+        pin.url.is_some() && pin.checksum.is_some(),
+        "a frozen runtime pin requires its exact URL and digest"
+    );
+    let target = PythonPlugin::native_target_using(&PlatformTarget::from_current(), settings)?;
+    let plan = pinned_runtime_plan(requested.version_only(), pin, &target, settings)?;
+    if let Some(expected) = requested.build_pin() {
+        let (_, actual, _, _) = native::pbs_filename(plan.source().filename())?
+            .ok_or_else(|| eyre!("an explicit Python build requires an exact PBS archive"))?;
+        eyre::ensure!(
+            actual == expected,
+            "requested Python build {expected} conflicts with frozen runtime build {actual}"
+        );
+    }
+    crate::libraries::language::repository::LanguageInstallSpec::from_plan(&plan, patch_sysconfig)
+}
+
 impl PythonPlugin {
     pub(crate) fn new() -> Self {
         let ba = Arc::new(plugins::core::new_backend_arg("python"));
@@ -512,6 +579,144 @@ impl PythonPlugin {
             ba,
             native_plans: std::sync::Mutex::new(BTreeMap::new()),
         }
+    }
+
+    /// Program-level exact install. No legacy toolset resolution or task,
+    /// declaration, lockfile or compatibility-directory publication is entered.
+    #[cfg(unix)]
+    pub(crate) async fn install_shared_exact_in_context(
+        &self,
+        operation: &crate::programs::OperationContext,
+        version: &str,
+        config: Arc<Config>,
+        runtime_pin: Option<&PlatformInfo>,
+    ) -> Result<()> {
+        let requested = crate::programs::shared::exact_version::exact_python_request(version)?;
+        operation.checkpoint()?;
+        eyre::ensure!(
+            operation.settings().python_compile(CompilePurpose::Install) != Some(true),
+            "shared exact Python installation currently requires a precompiled runtime"
+        );
+        validate_python_precompiled_settings(operation.settings())?;
+        let request = ToolRequest::new(
+            self.ba.clone(),
+            requested.as_str(),
+            crate::toolset::ToolSource::Argument,
+        )?;
+        let mut tool_version = ToolVersion::new(request, requested.version_only().to_owned());
+        if let Some(pin) = runtime_pin {
+            // Validate the frozen commitment before reading local candidates.
+            // This factory is exactly the native from_locked branch, with no
+            // remote catalog discovery or version completion.
+            let spec = pinned_shared_language_spec(version, pin, false, operation.settings())?;
+            tool_version
+                .lock_platforms
+                .insert(PlatformTarget::from_current().to_key(), pin.clone());
+            Self::native_provenance_preflight(
+                spec.plan(),
+                &tool_version,
+                &self.get_platform_key(),
+                operation.settings(),
+            )?;
+        }
+        let repository =
+            crate::libraries::language::repository::LanguageRepository::open_readonly(operation)?;
+        let published = repository
+            .enumerate_published()
+            .map_err(|error| eyre!("shared language library is unavailable: {error:?}"))?;
+        let mut matching = Vec::new();
+        for language in &published {
+            if language.version() != requested.version_only()
+                || !language.matches_host_platform()
+                || requested
+                    .build_pin()
+                    .is_some_and(|pin| language.build() != Some(pin))
+            {
+                continue;
+            }
+            if let Some(pin) = runtime_pin {
+                let expected = pinned_shared_language_spec(
+                    version,
+                    pin,
+                    language.spec().patch_sysconfig(),
+                    operation.settings(),
+                )?;
+                let source = language.spec().plan().source();
+                let pinned = expected.plan().source();
+                if expected.key() != language.key()
+                    || source.filename() != pinned.filename()
+                    || source.digest() != pinned.digest()
+                {
+                    continue;
+                }
+                // R06 deliberately treats equivalent official URL spellings
+                // as one source; reuse its exact release-locator validator.
+                expected
+                    .plan()
+                    .validate_source_locator(source.url().as_str())?;
+            }
+            matching.push(language);
+        }
+        if matching.len() > 1 {
+            let candidates = matching
+                .iter()
+                .map(|language| {
+                    format!(
+                        "{} (build {})",
+                        language.key().filename(),
+                        language.build().unwrap_or("unknown")
+                    )
+                })
+                .join(", ");
+            bail!(
+                "shared exact Python request {version} is ambiguous: {candidates}; pin one distribution build"
+            );
+        }
+        if let Some(existing) = matching.first()
+            && !operation.settings().force_provenance_verify()
+        {
+            let lease = repository
+                .acquire_by_key(&existing.key())?
+                .ok_or_else(|| eyre!("the selected shared language is no longer Ready"))?;
+            lease.check_binding()?;
+            return Ok(());
+        }
+        eyre::ensure!(
+            operation.policy().writes.libraries,
+            "operation policy forbids shared language installation"
+        );
+        // A missing pinned instance retains the exact frozen PlatformInfo.
+        // Revalidation of an existing instance also preserves its actual
+        // source and adaptation recipe, never manufacturing another build.
+        if runtime_pin.is_none()
+            && let Some(existing) = matching.first()
+        {
+            let source = existing.spec().plan().source();
+            tool_version.lock_platforms.insert(
+                PlatformTarget::from_current().to_key(),
+                PlatformInfo {
+                    url: Some(source.url().to_string()),
+                    checksum: Some(source.digest().to_string().replacen('-', ":", 1)),
+                    ..Default::default()
+                },
+            );
+        }
+        let recipe = matching
+            .first()
+            .map(|existing| existing.spec().patch_sysconfig());
+        let install = InstallContext {
+            config,
+            ts: Arc::new(Toolset::default()),
+            pr: Arc::new(crate::ui::progress_report::QuietReport::new()),
+            force: false,
+            dry_run: false,
+            explicit_yes: true,
+            locked: operation.policy().locked,
+            before_date: None,
+            dependency_context: tokio::sync::OnceCell::new(),
+        };
+        self.install_native_body(operation, &install, &mut tool_version, None, recipe)
+            .await
     }
 
     fn native_policy() -> pakro_index::artifact::NetworkPolicy {
@@ -651,41 +856,7 @@ impl PythonPlugin {
         if let Some(info) = tv.lock_platforms.get(&target.to_key())
             && (info.url.is_some() || info.checksum.is_some() || info.provenance.is_some())
         {
-            let flavor = if tv.version.starts_with("pypy") {
-                native::RuntimeFlavor::PyPy
-            } else if let Some(flavor) = settings.python.precompiled_flavor.as_deref() {
-                native_archive_flavor(Some(flavor))?
-            } else if let Some(locator) = info.url.as_deref() {
-                // Honor the precise flavor in older native locks. The pipeline
-                // validates this basename against the complete official URL.
-                let url = url::Url::parse(locator)
-                    .map_err(|_| eyre!("invalid locked Python runtime locator"))?;
-                let basename = url
-                    .path_segments()
-                    .and_then(|mut parts| parts.next_back())
-                    .ok_or_else(|| eyre!("locked Python runtime filename missing"))?;
-                let filename = urlencoding::decode(basename)
-                    .map_err(|_| eyre!("invalid locked Python runtime filename"))?;
-                if filename.ends_with("-freethreaded-install_only_stripped.tar.gz") {
-                    native::RuntimeFlavor::FreeThreadedInstallOnlyStripped
-                } else if filename.ends_with("-freethreaded-install_only.tar.gz") {
-                    native::RuntimeFlavor::FreeThreadedInstallOnly
-                } else if filename.ends_with("-install_only_stripped.tar.gz") {
-                    native::RuntimeFlavor::InstallOnlyStripped
-                } else {
-                    native::RuntimeFlavor::InstallOnly
-                }
-            } else {
-                // Let the typed lock validator diagnose incomplete commitments
-                // before attempting to infer a flavor from a missing locator.
-                native::RuntimeFlavor::InstallOnly
-            };
-            let plan = native::pipeline::RuntimeInstallPlan::from_locked(
-                &tv.version,
-                &archive_target,
-                flavor,
-                info,
-            )?;
+            let plan = pinned_runtime_plan(&tv.version, info, &archive_target, settings)?;
             let cache_key = format!("{}:{}", tv.version, plan.source().digest());
             if let Some(prepared) = self.native_plans.lock().unwrap().get(&cache_key).cloned()
                 && prepared.distribution() == plan.distribution()
@@ -699,15 +870,6 @@ impl PythonPlugin {
             }
             return Ok(plan);
         }
-        let releases = self
-            .native_releases_using(
-                &archive_target,
-                tv.version.starts_with("pypy"),
-                settings,
-                cache_root,
-                policy,
-            )
-            .await?;
         // F2 exact installs pin one build: several distribution builds of one
         // complete request are reported, never auto-picked as latest. Resolve
         // against the ORIGINAL request spelling: toolset resolution normalizes
@@ -722,9 +884,27 @@ impl PythonPlugin {
         } else {
             tv.version.clone()
         };
-        let release = if crate::programs::shared::exact_version::exact_python_request(&requested)
-            .is_ok()
-        {
+        let exact = crate::programs::shared::exact_version::exact_python_request(&requested).ok();
+        let releases =
+            if let Some(request) = exact.as_ref().filter(|_| !requested.starts_with("pypy")) {
+                Self::native_catalog_using(settings, cache_root, policy)?
+                    .pbs_releases_for_exact(
+                        &archive_target,
+                        native_archive_flavor(settings.python.precompiled_flavor.as_deref())?,
+                        request,
+                    )
+                    .await?
+            } else {
+                self.native_releases_using(
+                    &archive_target,
+                    tv.version.starts_with("pypy"),
+                    settings,
+                    cache_root,
+                    policy,
+                )
+                .await?
+            };
+        let release = if exact.is_some() {
             native::pipeline::choose_unique_release(&releases, &requested)?
         } else {
             native::pipeline::choose_release(&releases, &tv.version)?
@@ -865,7 +1045,9 @@ impl PythonPlugin {
         settings: &Settings,
     ) -> Result<()> {
         let operation = Self::native_operation_context(settings, ctx.locked)?;
-        self.install_native_body(&operation, ctx, tv).await
+        let compatibility = tv.install_path();
+        self.install_native_body(&operation, ctx, tv, Some(&compatibility), None)
+            .await
     }
 
     /// The native install body for one already-frozen operation context. The
@@ -876,6 +1058,8 @@ impl PythonPlugin {
         operation: &crate::programs::OperationContext,
         ctx: &InstallContext,
         tv: &mut ToolVersion,
+        compatibility: Option<&Path>,
+        existing_recipe: Option<bool>,
     ) -> Result<()> {
         let deadline = operation.policy().deadline;
         let plan = tokio::time::timeout_at(
@@ -894,9 +1078,8 @@ impl PythonPlugin {
         let raw_opts = tv.request.options();
         let spec = crate::libraries::language::repository::LanguageInstallSpec::from_plan(
             &plan,
-            PythonOptions::new(&raw_opts).patch_sysconfig(),
+            existing_recipe.unwrap_or_else(|| PythonOptions::new(&raw_opts).patch_sysconfig()),
         )?;
-        let install = tv.install_path();
         let platform_key = self.get_platform_key();
         let has_integrity = Self::has_precompiled_lockfile_integrity(tv, &platform_key);
         let attestations = Self::github_attestations_enabled_using(operation.settings());
@@ -934,7 +1117,10 @@ impl PythonPlugin {
                 Ok(artifact)
             },
         ).await?;
-        publish_native_compatibility(&lease, &install, &operation)
+        if let Some(path) = compatibility {
+            publish_native_compatibility(&lease, path, operation)?;
+        }
+        lease.check_binding()
     }
 
     async fn native_version_infos(&self) -> Result<Vec<VersionInfo>> {
@@ -3400,5 +3586,172 @@ cpython-3.12.13+20260805-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz
 
         let target = PlatformTarget::new(Platform::parse("linux-x64-musl").unwrap());
         assert_eq!(python_os_for_target(&target), "unknown-linux-musl");
+    }
+}
+
+#[cfg(all(test, unix))]
+mod f2_shared_program_tests {
+    use super::*;
+    use crate::libraries::language::repository::tests::{
+        archive, archive_for, install_spec, install_spec_for, operation_context, prepare,
+    };
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn f2_shared_exact_adapter_reuses_existing_without_source_resolution() {
+        let owner = tempfile::tempdir().unwrap();
+        let root = owner.path().canonicalize().unwrap();
+        let operation = operation_context(&root, true, Duration::from_secs(120));
+        let bytes = archive("3.15.0");
+        let spec = install_spec(&bytes);
+        let language = prepare(&spec, &operation, &bytes).await.unwrap();
+        let config = Config::load_from_config_files(Default::default(), false)
+            .await
+            .unwrap();
+        PythonPlugin::new()
+            .install_shared_exact_in_context(&operation, "3.15.0", config, None)
+            .await
+            .unwrap();
+        assert!(
+            !operation
+                .requested_cache_root()
+                .join("python/native-v1")
+                .exists(),
+            "reuse must not resolve a remote release catalog"
+        );
+        language.check_binding().unwrap();
+    }
+
+    #[tokio::test]
+    async fn f2_shared_exact_adapter_requires_a_unique_existing_build() {
+        let owner = tempfile::tempdir().unwrap();
+        let root = owner.path().canonicalize().unwrap();
+        let operation = operation_context(&root, true, Duration::from_secs(120));
+        let bytes = archive("3.15.0");
+        let first = prepare(&install_spec(&bytes), &operation, &bytes)
+            .await
+            .unwrap();
+        let target =
+            native::RuntimeArchiveTarget::new("aarch64", native::RuntimePlatform::Macos).unwrap();
+        let bytes = archive_for("3.15.0", &target, "second-build");
+        let second = prepare(
+            &install_spec_for("3.15.0", &bytes, &target, "20261014"),
+            &operation,
+            &bytes,
+        )
+        .await
+        .unwrap();
+        let config = Config::load_from_config_files(Default::default(), false)
+            .await
+            .unwrap();
+        let plugin = PythonPlugin::new();
+        let error = plugin
+            .install_shared_exact_in_context(&operation, "3.15.0", config.clone(), None)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("ambiguous") && error.contains("20261013") && error.contains("20261014"),
+            "{error}"
+        );
+        plugin
+            .install_shared_exact_in_context(&operation, "3.15.0+20261014", config, None)
+            .await
+            .unwrap();
+        first.check_binding().unwrap();
+        second.check_binding().unwrap();
+    }
+
+    #[tokio::test]
+    async fn f2_shared_exact_adapter_never_reuses_a_conflicting_runtime_pin() {
+        let owner = tempfile::tempdir().unwrap();
+        let root = owner.path().canonicalize().unwrap();
+        let writable = operation_context(&root, true, Duration::from_secs(120));
+        let bytes = archive("3.15.0");
+        let spec = install_spec(&bytes);
+        let language = prepare(&spec, &writable, &bytes).await.unwrap();
+        let operation = operation_context(&root, false, Duration::from_secs(120));
+        let pin = PlatformInfo {
+            url: Some(spec.plan().source().url().to_string()),
+            checksum: Some(format!("sha256:{}", "0".repeat(64))),
+            ..Default::default()
+        };
+        let config = Config::load_from_config_files(Default::default(), false)
+            .await
+            .unwrap();
+        let result = PythonPlugin::new()
+            .install_shared_exact_in_context(&operation, "3.15.0", config, Some(&pin))
+            .await;
+        assert!(
+            result.is_err(),
+            "a local instance with another artifact must not satisfy the frozen runtime pin"
+        );
+        language.check_binding().unwrap();
+        assert!(
+            !operation
+                .requested_cache_root()
+                .join("python/native-v1")
+                .exists()
+        );
+    }
+
+    #[tokio::test]
+    async fn f2_shared_exact_adapter_reuses_the_matching_frozen_pin() {
+        let owner = tempfile::tempdir().unwrap();
+        let root = owner.path().canonicalize().unwrap();
+        let operation = operation_context(&root, true, Duration::from_secs(120));
+        let bytes = archive("3.15.0");
+        let spec = install_spec(&bytes);
+        let language = prepare(&spec, &operation, &bytes).await.unwrap();
+        let pin = PlatformInfo {
+            url: Some(spec.plan().source().url().as_str().replace('+', "%2B")),
+            checksum: Some(
+                spec.plan()
+                    .source()
+                    .digest()
+                    .to_string()
+                    .replacen('-', ":", 1),
+            ),
+            ..Default::default()
+        };
+        let config = Config::load_from_config_files(Default::default(), false)
+            .await
+            .unwrap();
+        PythonPlugin::new()
+            .install_shared_exact_in_context(&operation, "3.15.0+20261013", config, Some(&pin))
+            .await
+            .unwrap();
+        assert!(
+            !operation
+                .requested_cache_root()
+                .join("python/native-v1")
+                .exists()
+        );
+        language.check_binding().unwrap();
+    }
+
+    #[test]
+    fn f2_frozen_runtime_pin_cannot_override_the_requested_build() {
+        let bytes = archive("3.15.0");
+        let spec = install_spec(&bytes);
+        let pin = PlatformInfo {
+            url: Some(spec.plan().source().url().to_string()),
+            checksum: Some(
+                spec.plan()
+                    .source()
+                    .digest()
+                    .to_string()
+                    .replacen('-', ":", 1),
+            ),
+            ..Default::default()
+        };
+        let error =
+            pinned_shared_language_spec("3.15.0+20261014", &pin, false, &Settings::default())
+                .unwrap_err()
+                .to_string();
+        assert!(
+            error.contains("20261013") && error.contains("20261014") && error.contains("conflicts"),
+            "{error}"
+        );
     }
 }

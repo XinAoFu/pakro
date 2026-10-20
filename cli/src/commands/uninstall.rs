@@ -35,8 +35,20 @@ use crate::{config, dirs, exit, file};
 )]
 pub(crate) struct Uninstall {
     /// Tool(s) to remove
-    #[usage(value_name = "INSTALLED_TOOL@VERSION", required_unless = "all")]
+    #[usage(value_name = "INSTALLED_TOOL@VERSION", required_unless = ["all", "package"])]
     installed_tool: Vec<ToolArg>,
+
+    /// Exact bound package request, e.g. python@3.13.16+idna@3.10
+    #[usage(
+        long,
+        value_name = "RUNTIME@VERSION+PACKAGE@VERSION",
+        conflicts = "installed_tool"
+    )]
+    package: Option<String>,
+
+    /// Complete shared-library instance identity from pakro installs ls
+    #[usage(long, value_name = "INSTANCE")]
+    instance: Option<String>,
 
     /// Delete all installed versions
     #[usage(long, short)]
@@ -59,6 +71,9 @@ impl Uninstall {
     }
 
     pub(crate) async fn run(self) -> Result<()> {
+        if self.shared_library_uninstall()? {
+            return Ok(());
+        }
         let config = Config::get().await?;
         let tool_versions = if self.installed_tool.is_empty() && self.all {
             self.get_all_tool_versions(&config).await?
@@ -203,6 +218,103 @@ impl Uninstall {
         .await?;
 
         Ok(())
+    }
+
+    fn shared_library_uninstall(&self) -> Result<bool> {
+        let python: Vec<_> = self
+            .installed_tool
+            .iter()
+            .filter(|tool| tool.ba.short == "python")
+            .collect();
+        if self.package.is_some() {
+            eyre::ensure!(
+                !self.all,
+                "--all cannot expand a shared package removal; specify one exact instance"
+            );
+            let raw = self.package.as_deref().expect("checked package");
+            let parsed =
+                crate::packages::request::parse_install_arg(raw).map_err(|error| eyre!(error))?;
+            let crate::packages::request::InstallArg::Bound {
+                tool,
+                tool_version,
+                packages,
+            } = parsed
+            else {
+                bail!("--package requires a bound exact request such as python@3.13.16+idna@3.10");
+            };
+            let requests = crate::packages::request::requests_from_bound(
+                &tool,
+                tool_version.as_deref(),
+                &packages,
+            )
+            .map_err(|error| eyre!(error))?;
+            eyre::ensure!(
+                requests.len() == 1,
+                "remove one explicitly named package at a time"
+            );
+            let removed = crate::programs::library::uninstall_package(
+                &requests[0],
+                self.instance.as_deref(),
+                self.is_dry_run(),
+            )?;
+            pakroprintln!(
+                "{}{}",
+                if self.is_dry_run() {
+                    "would remove "
+                } else {
+                    "removed "
+                },
+                removed
+            );
+            if self.dry_run_code {
+                return Err(exit::request(1));
+            }
+            return Ok(true);
+        }
+        if python.is_empty() {
+            eyre::ensure!(
+                self.instance.is_none(),
+                "--instance requires an exact Python or --package target"
+            );
+            if self.all && self.installed_tool.is_empty() {
+                eyre::ensure!(
+                    crate::programs::library::inventory()?.is_empty(),
+                    "--all cannot remove shared library objects; name one exact target and instance"
+                );
+            }
+            return Ok(false);
+        }
+        eyre::ensure!(
+            !self.all && self.installed_tool.len() == 1,
+            "shared Python removal requires one exact target; --all cannot expand it"
+        );
+        let version = python[0]
+            .tvr
+            .as_ref()
+            .map(|request| request.version())
+            .unwrap_or_default();
+        eyre::ensure!(
+            !version.is_empty(),
+            "Python removal requires a complete exact version, e.g. python@3.13.16"
+        );
+        let removed = crate::programs::library::uninstall_python(
+            &version,
+            self.instance.as_deref(),
+            self.is_dry_run(),
+        )?;
+        pakroprintln!(
+            "{}{}",
+            if self.is_dry_run() {
+                "would remove "
+            } else {
+                "removed "
+            },
+            removed
+        );
+        if self.dry_run_code {
+            return Err(exit::request(1));
+        }
+        Ok(true)
     }
 
     async fn get_all_tool_versions(

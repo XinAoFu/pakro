@@ -96,6 +96,39 @@ pub fn task_tool_args_from_env() -> Result<Vec<ToolArg>> {
 /// A wrapper's command usually comes from another configured tool (cargo → mbx
 /// from mr-boxington). Install a missing provider the way that command's own
 /// shim would, or the wrapper execs a command that is not on PATH.
+/// A configured non-Python provider keeps its established dispatch path in
+/// a mixed project. Registry bin facts and the backend's declared command
+/// identity are used before resolving or installing anything.
+#[cfg(unix)]
+pub fn configured_non_python_provider(ts: &Toolset, command: &str) -> bool {
+    ts.versions.keys().any(|backend| {
+        backend.short != "python"
+            && (backend.matches_bin_name(command)
+                || crate::registry::REGISTRY
+                    .get(&backend.short)
+                    .is_some_and(|tool| tool.provides_bin(command)))
+    })
+}
+
+/// Shared Python lookup consumes only local facts. A missing command is an
+/// actionable refusal, never permission for the legacy auto-install path.
+#[cfg(unix)]
+pub fn select_shared_python_command(ts: &Toolset, command: &str) -> Result<Option<PathBuf>> {
+    use crate::programs::directory::{DirectoryCommandSelection, select_directory_command};
+    if command.contains(['/', '\\']) {
+        return Ok(None);
+    }
+    match select_directory_command(command)? {
+        DirectoryCommandSelection::Available(path) => Ok(Some(path)),
+        DirectoryCommandSelection::Missing if !configured_non_python_provider(ts, command) => {
+            bail!(
+                "shared Python command {command:?} is unavailable; run an explicit pakro install for the project's exact declaration"
+            )
+        }
+        DirectoryCommandSelection::Missing | DirectoryCommandSelection::NotPython => Ok(None),
+    }
+}
+
 pub async fn install_missing_wrapper_command(
     config: &mut Arc<Config>,
     ts: &mut Toolset,
@@ -103,6 +136,14 @@ pub async fn install_missing_wrapper_command(
 ) -> Result<()> {
     if command.contains(['/', '\\']) {
         return Ok(());
+    }
+    #[cfg(unix)]
+    {
+        if select_shared_python_command(ts, command)?.is_some() {
+            return Ok(());
+        }
+        // No later lazy or auto-install branch can regain a Python provider.
+        ts.versions.retain(|backend, _| backend.short != "python");
     }
     // Match which_shim: a configured registry provider wins over an incidental install.
     if Settings::get().not_found_auto_install
@@ -2632,5 +2673,36 @@ mod tests {
             "2026.5.16",
             "symlink"
         ));
+    }
+}
+
+#[cfg(all(test, unix))]
+mod shared_python_tests {
+    use super::*;
+
+    #[test]
+    fn f1_shared_command_gate_preserves_configured_non_python_provider() {
+        use crate::toolset::{ToolSource, ToolVersionList};
+        let mut toolset = Toolset::default();
+        let node = Arc::new(BackendArg::from("node"));
+        toolset.versions.insert(
+            node.clone(),
+            ToolVersionList::new(node, ToolSource::Unknown),
+        );
+        assert!(configured_non_python_provider(&toolset, "node"));
+        assert!(configured_non_python_provider(&toolset, "npm"));
+        assert!(!configured_non_python_provider(&toolset, "python3.99"));
+    }
+
+    #[tokio::test]
+    async fn f1_missing_python_wrapper_never_enters_legacy_install() {
+        let mut config = Config::get().await.unwrap();
+        let mut toolset = Toolset::default();
+        let result =
+            install_missing_wrapper_command(&mut config, &mut toolset, "python3.999").await;
+        assert!(
+            result.is_err(),
+            "a missing shared Python wrapper must require explicit install even when no legacy provider exists"
+        );
     }
 }

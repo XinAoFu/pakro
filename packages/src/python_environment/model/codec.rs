@@ -2,6 +2,9 @@
 
 use super::*;
 
+#[path = "codec/graph.rs"]
+mod graph;
+
 #[path = "codec/decode.rs"]
 mod decode;
 #[path = "codec/encode.rs"]

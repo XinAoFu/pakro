@@ -1,0 +1,35 @@
+# F3 registered inventory; verified through f-manual-check.sh --list.
+# All active tests run in the pakro lib target with --all-features.
+# Real PBS tests/staging require the already authorized archive at:
+# /Users/fuxinao/文件/project/pakro_test/cpython-3.13.16+20261013-aarch64-apple-darwin-install_only_stripped.tar.gz
+# SHA256: 16a5332fb0dcb77f163fc8f8cbccd95be1644cc53e68e5d2a79f50afd6680a0e
+# Original source-owner/solver tests use genuine wheels from isolated loopback HTTP.
+# Only layout import/native extension and CLI lanes claim real interpreter execution.
+libraries::package::blob::tests::f3_verified_content_is_shared
+libraries::package::tree::tests::f3_changed_same_inode_after_wheel_copy_is_never_published_ready
+libraries::package::layouts::tests::f3_failed_layout_is_not_ready
+libraries::package::layouts::tests::f3_layout_imports_scripts_pth_and_shares_package_trees
+libraries::package::layouts::tests::f3_cyclic_packages_publish_under_their_original_object_protection
+libraries::package::layouts::tests::f3_concurrent_graph_publication_uses_one_package_tree_and_layout
+libraries::package::layouts::tests::f3_native_extension_loads_from_shared_package_tree
+libraries::package::layouts::tests::f3_group_rollback_keeps_unrelated_publications_and_stable_locks
+libraries::package::layouts::tests::f3_failure_after_ready_cas_never_deletes_its_published_tree
+libraries::project::package_graph::tests::f3_existing_graph_checks_source_and_observed_known_pins
+packages::python_environment::model::tests::f3_catalog_preserves_real_roots_edges_and_pins_after_restart
+packages::python_environment::model::tests::f3_graph_rejects_broken_closure_and_reference_mismatch
+packages::python_environment::shared_runtime::tests::f3_shared_runtime_has_no_full_copy
+programs::install::resolve::tests::f3_exact_roots_preserve_real_dependency_edges
+programs::shared::commit::tests::f3_failed_apply_keeps_old_selection
+programs::python::tests::f3_project_inputs_are_exact_before_any_library_write
+programs::python::integration_tests::f3_project_facade_reuses_real_closure_and_preserves_failure
+programs::directory::tests::f3_new_project_reuses_ready_layout_and_missing_never_commits
+# Staging producer is only called explicitly by isolated CLI E2E, never counted as feature success.
+programs::python::integration_tests::f3_e2e_stage_real_language [ignored: e2e]
+# CLI binary must be built once by the stage runner before these scripts.
+tests/e2e/packages/test_native_install_shared_wheel
+tests/e2e/packages/test_native_deps_install_preserves_declarations
+tests/e2e/packages/test_native_deps_no_manager
+
+libraries::package::layouts::tests::f3_valid_json_package_facts_must_match_the_published_tree
+libraries::package::layouts::tests::f3_wheel_payload_cannot_occupy_the_reserved_package_facts_file
+programs::install::resolve::tests::f3_catalog_rejects_changed_graph_roots_and_edge_declarations

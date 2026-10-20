@@ -60,13 +60,21 @@ impl HookEnv {
         let untrusted_configs = crate::config::skipped_untrusted_configs();
         // Shell activation must stay fast and non-networked; missing tools are
         // handled by the normal install paths instead of hook-env.
-        let ts = ToolsetBuilder::new()
-            .with_resolve_options(ResolveOptions {
-                offline: true,
-                ..Default::default()
-            })
-            .build(&config)
-            .await?;
+        let mut ts = ToolsetBuilder::new().build_unresolved(&config)?;
+        #[cfg(unix)]
+        ts.versions.retain(|backend, _| backend.short != "python");
+        if let Err(error) = ts
+            .resolve_with_opts(
+                &config,
+                &ResolveOptions {
+                    offline: true,
+                    ..Default::default()
+                },
+            )
+            .await
+        {
+            warn!("failed to resolve local toolset: {error}");
+        }
         time!("hook-env");
 
         // Try to use cached watch_files for early exit check if env_cache is enabled

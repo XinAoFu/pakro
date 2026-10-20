@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Offline fixture variants plus the explicitly authorized local real PBS and
+# generated wheels exercise actual query and deletion paths in an isolated root.
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
+export CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
+(
+    cd "$ROOT"
+    PAKRO_F4_STAGE_DATA_ROOT="$PAKRO_DATA_DIR" cargo test -p pakro --lib --all-features \
+        programs::query::inventory::tests::f4_e2e_stage_library -- --exact --ignored --nocapture
+)
+
+pakro installs ls --json > inventory.json
+assert "python3 -c 'import json; print(len(json.load(open(\"inventory.json\"))))'" "6"
+first="$(python3 -c 'import json; print(next(x["instance"] for x in json.load(open("inventory.json")) if x["name"]=="python" and x["version"]=="3.15.0" and x["build"]=="20261013"))')"
+second="$(python3 -c 'import json; print(next(x["instance"] for x in json.load(open("inventory.json")) if x["name"]=="python" and x["version"]=="3.15.0" and x["build"]=="20261014"))')"
+parent_instance="$(python3 -c 'import json; print(next(x["instance"] for x in json.load(open("inventory.json")) if x["kind"]=="package" and x["name"]=="parent"))')"
+assert_contains "pakro uninstall python@3.15.0 2>&1 || true" "multiple Python instances"
+assert_contains "pakro uninstall --all python@3.15.0 2>&1 || true" "--all cannot expand"
+assert_contains "pakro installs select '$first' 2>&1 || true" "selected by project declarations"
+
+mkdir project-a
+printf '[tools]\npython = "3.15.0+20261013"\n' >project-a/pakro.toml
+cd project-a
+pakro hook-env -s bash --force >/dev/null
+assert_contains "pakro project ls" "project-a"
+assert_contains "pakro project status" "$first"
+assert "pakro current python" "3.15.0"
+assert_contains "pakro ls python" "$first"
+assert_contains "pakro uninstall python@3.15.0 --instance '$first' 2>&1 || true" "project-a"
+pakro uninstall python@3.15.0 --instance "$second"
+assert "test -d '$PAKRO_DATA_DIR/languages/$second' && echo present || echo absent" "absent"
+assert "test -f '$PAKRO_DATA_DIR/languages/.leases/build/$second.lock' && echo retained" "retained"
+assert "test -d '$PAKRO_DATA_DIR/languages/$first' && echo present" "present"
+
+# Package route uses the existing exact bound-request parser. A retained
+# parent protects its dependency; removing the parent changes that fact only.
+assert_contains "pakro uninstall --package 'python@3.13.16+dep@1.0' 2>&1 || true" "parent==1.0 -> dep==1.0"
+pakro uninstall --package 'python@3.13.16+parent@1.0' --instance "$parent_instance"
+pakro uninstall --package 'python@3.13.16+dep@1.0'
+pakro installs ls --json > remaining.json
+assert "python3 -c 'import json; print([x[\"name\"] for x in json.load(open(\"remaining.json\")) if x[\"kind\"]==\"package\"])'" "['orphan']"
+pakro uninstall --package 'python@3.13.16+orphan@1.0'
+assert_contains "pakro installs ls --json" "$first"

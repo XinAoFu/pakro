@@ -21,6 +21,24 @@ impl ProjectRegistryFixture {
             peer,
         }
     }
+    /// Candidate discovery order deliberately differs from normalized names.
+    pub(crate) fn reversed_name_dependency() -> Self {
+        const ROOT: &str = "z_root-1.0-py3-none-any.whl";
+        const DEPENDENCY: &str = "a_dep-1.0-py3-none-any.whl";
+        let root = wheel("z_root", "1.0", &["a-dep>=1,<2"], "");
+        let dependency = wheel("a_dep", "1.0", &[], "");
+        let peer = Peer::new(move |target| match target {
+            "/simple/z-root/" => Reply::page("z-root", vec![wire_file(ROOT)]),
+            "/simple/a-dep/" => Reply::page("a-dep", vec![wire_file(DEPENDENCY)]),
+            value if value == format!("/files/{ROOT}") => Reply::file(&root),
+            value if value == format!("/files/{DEPENDENCY}") => Reply::file(&dependency),
+            _ => Reply::missing(),
+        });
+        Self {
+            fixture: Fixture::new(&peer),
+            peer,
+        }
+    }
     pub(crate) fn sdist() -> Self {
         const SDIST: &str = "demo_pkg-1.0.tar.gz";
         let bytes = include_bytes!("../../fresh/wheel/fixtures/demo_pkg-1.0.tar.gz");

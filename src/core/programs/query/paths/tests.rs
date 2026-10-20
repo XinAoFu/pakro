@@ -135,3 +135,84 @@ async fn f1_local_selection_reports_missing_and_ambiguity() {
     drop(second_lease);
     drop(lease);
 }
+
+#[test]
+fn f1_python_selector_and_options_are_not_silently_ignored() {
+    for declaration in [
+        "[tools]\npython={path='3.15.0'}\n",
+        "[tools]\npython={prefix='3.15.0'}\n",
+        "[tools]\npython={ref='3.15.0'}\n",
+        "[tools]\npython={version='3.15.0',compile=true}\n",
+        "[tools]\npython={version='3.15.0',postinstall='echo ignored'}\n",
+    ] {
+        let owner = tempfile::tempdir().unwrap();
+        let root = owner.path().canonicalize().unwrap();
+        std::fs::write(root.join("pakro.toml"), declaration).unwrap();
+        let observed = observe_project(&root, read_policy(&root)).unwrap();
+        let raw =
+            crate::programs::query::snapshot::effective_python_declaration(&observed).unwrap();
+        assert!(
+            crate::programs::shared::exact_version::exact_python_request(&raw).is_err(),
+            "unsupported Python declaration was silently accepted: {declaration}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn f1_observed_runtime_pin_selects_only_the_committed_artifact() {
+    let workspace = Workspace::new();
+    let stage = workspace.stage();
+    let context = operation_context(&stage, true, Duration::from_secs(60));
+    let target = crate::plugins::core::python::native::RuntimeArchiveTarget::new(
+        "aarch64",
+        crate::plugins::core::python::native::RuntimePlatform::Macos,
+    )
+    .unwrap();
+    let first_bytes = archive_for("3.15.0", &target, "first");
+    let first = install_spec_for("3.15.0", &first_bytes, &target, "20261013");
+    drop(prepare(&first, &context, &first_bytes).await.unwrap());
+    let second_bytes = archive_for("3.15.0", &target, "second");
+    let second = install_spec_for("3.15.0", &second_bytes, &target, "20261014");
+    drop(prepare(&second, &context, &second_bytes).await.unwrap());
+    let project = workspace.project("pinned");
+    declare(&project, "3.15.0");
+    let platform = crate::backend::platform_target::PlatformTarget::from_current().to_key();
+    let lock = |digest: pakro_store::Digest| {
+        format!(
+            "lockfile_version=3\n[[tools.python]]\nversion='3.15.0'\nbackend='core:python'\nspecifiers=['3.15.0']\n[tools.python.platforms.{platform}]\nurl='{}'\nchecksum='{}'\n",
+            first.plan().source().url().as_str().replace('+', "%2B"),
+            digest.to_string().replacen('-', ":", 1)
+        )
+    };
+    std::fs::write(
+        project.join("pakro.lock"),
+        lock(first.plan().source().digest()),
+    )
+    .unwrap();
+    let observed = observe_project(&project, read_policy(&project)).unwrap();
+    let query = open_query_context(&context, &observed).unwrap();
+    match select_existing(&query).unwrap() {
+        SelectionReport::Selected(candidate) => assert_eq!(*candidate.key(), first.key()),
+        other => {
+            panic!("a known runtime source pin must select its one actual artifact, got {other:?}")
+        }
+    }
+    assert_eq!(
+        std::fs::read_dir(&project).unwrap().count(),
+        2,
+        "query must not create a side lock or edit project inputs"
+    );
+    drop(query);
+    drop(observed);
+    std::fs::write(
+        project.join("pakro.lock"),
+        lock(pakro_store::Digest::Sha256([99; 32])),
+    )
+    .unwrap();
+    let observed = observe_project(&project, read_policy(&project)).unwrap();
+    let query = open_query_context(&context, &observed).unwrap();
+    assert!(matches!(
+        select_existing(&query).unwrap(),
+        SelectionReport::Missing { .. }
+    ));
+}

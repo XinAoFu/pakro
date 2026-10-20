@@ -5,8 +5,14 @@
 pub mod directory;
 pub(crate) mod install;
 #[cfg(unix)]
+pub mod library;
+#[cfg(unix)]
+pub mod python;
+#[cfg(unix)]
 pub(crate) mod query;
 pub(crate) mod shared;
+#[cfg(unix)]
+pub(crate) mod uninstall;
 
 pub use install::request::{
     InstallCommandIntent, InstallRequest, InvocationInputs, InvocationSnapshot, normalize_intent,

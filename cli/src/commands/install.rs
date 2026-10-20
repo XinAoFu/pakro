@@ -158,7 +158,6 @@ impl Install {
 
     #[async_backtrace::framed]
     pub async fn run(mut self) -> Result<()> {
-        let config = Config::get().await?;
         // F2 exact-Python fast path (D10): one explicit python request with a
         // complete version enters before the legacy migration, task-tool
         // collection or any remote resolution; incomplete versions are
@@ -181,11 +180,47 @@ impl Install {
                 "python {version:?} is not a complete exact version; \
                  write the full version, e.g. pakro install python 3.13.16"
             );
-            return self.run_exact_python_install(config.clone()).await;
+            return self.run_exact_python_install(Config::get().await?).await;
         }
+        let config = Config::get().await?;
         // bare package names (`pakro install numpy@1.26.4`) bind to the sole
         // package-capable runtime declared in config
         let bare_pins = self.split_bare_packages(&config).await?;
+        #[cfg(unix)]
+        if self.tool.as_deref().is_none_or(|tools| {
+            tools.is_empty()
+                || matches!(tools, [tool] if tool.short == "python" && tool.version.is_none())
+        }) {
+            let mut extras = bare_pins.clone();
+            extras.extend(
+                crate::packages::request::CLI_PACKAGE_ARGS
+                    .get()
+                    .cloned()
+                    .unwrap_or_default(),
+            );
+            if let Some(project) = crate::programs::python::prepare_current_project(&extras)? {
+                eyre::ensure!(
+                    !self.force && !self.system && self.shared.is_none(),
+                    "shared Python installs do not support force or alternate install destinations"
+                );
+                eyre::ensure!(
+                    project.only_python_tools() || self.tool.is_some(),
+                    "install the declared non-Python tools explicitly; this shared project path currently prepares Python only"
+                );
+                eyre::ensure!(
+                    !self.monorepo && !self.include_task_tools,
+                    "shared Python project installation does not support monorepo or task-tool expansion"
+                );
+                if self.is_dry_run() {
+                    pakroprintln!(
+                        "Would install the declared Python {} and its exact project packages",
+                        project.version()
+                    );
+                    return Ok(());
+                }
+                return project.install(config).await;
+            }
+        }
         if !self.is_dry_run() && !Settings::get().generate_lockfiles() {
             crate::lockfile::migrate_monorepo_lockfiles(&config, false)?;
         }
@@ -215,25 +250,35 @@ impl Install {
     /// links the surrounding project through the same F1 selection chain.
     #[async_backtrace::framed]
     async fn run_exact_python_install(&self, config: Arc<Config>) -> Result<()> {
-        // Normalize the two-arg spelling into one clean python@version arg so
-        // the single-tool machinery sees exactly one runtime.
-        let runtime: Vec<ToolArg> = match self.tool.as_deref().unwrap_or(&[]) {
-            [single] => vec![single.clone()],
+        let version = match self.tool.as_deref().unwrap_or(&[]) {
+            [single] => single.version.as_deref().expect("exact Python request"),
             [first, second] if first.version.is_none() && second.version.is_none() => {
-                vec![ToolArg::from_str(&format!("python@{}", second.short))?]
+                second.short.as_str()
             }
             _ => unreachable!("the fast path validated one python request"),
         };
-        let original_tool_args = env::TOOL_ARGS.read().unwrap().clone();
-        env::TOOL_ARGS.write().unwrap().clone_from(&runtime);
-        self.install_runtimes(config, &runtime, original_tool_args, Vec::new())
-            .await?;
-        // D09: a project directory declaring this exact python is registered
-        // and selected through the controlled F1 chain; a global install in a
-        // non-project directory records nothing.
+        eyre::ensure!(
+            !self.force && !self.system && self.shared.is_none(),
+            "shared Python installs do not support force or alternate install destinations"
+        );
+        if self.is_dry_run() {
+            // Validate the package declarations before any library writes.
+            crate::programs::python::prepare_current_project(&[])?;
+            pakroprintln!("Would install Python {version}");
+            return Ok(());
+        }
         #[cfg(unix)]
-        crate::programs::directory::select_directory_python(true)?;
-        Ok(())
+        return crate::programs::python::install_exact_python(
+            version,
+            config,
+            crate::packages::request::CLI_PACKAGE_ARGS
+                .get()
+                .map(Vec::as_slice)
+                .unwrap_or(&[]),
+        )
+        .await;
+        #[cfg(not(unix))]
+        eyre::bail!("shared Python installation requires macOS or Linux")
     }
 
     async fn install_config_packages(

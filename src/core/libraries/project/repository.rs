@@ -15,7 +15,7 @@ use pakro_store::control::{
     ControlLimits, ControlNamespace, ControlSnapshot, ReadStore, RootLimits, StoreWriter,
 };
 
-use crate::packages::python_environment::model::{CatalogCodecLimits, CatalogModel, ModelLimits};
+use crate::packages::python_environment::model::{CatalogCodecLimits, CatalogModel};
 use crate::programs::OperationContext;
 
 use super::read_views::ProjectReadViews;
@@ -64,6 +64,21 @@ impl ProjectRepository {
             context.policy().deadline,
         )?;
         context.checkpoint()?;
+        // Only the actual store initializer can publish a first empty
+        // authority. Do this before any project lock is allocated, so the
+        // first commit's later reload has the same real catalog as every
+        // subsequent reader. Existing missing catalogs are never repaired.
+        if writer.initialized_here() {
+            let mut control = writer.control(ControlLimits::default())?;
+            if control
+                .read(ControlNamespace::Catalog, PROJECTS_CATALOG)?
+                .is_none()
+            {
+                let limits = CatalogCodecLimits::default();
+                let empty = CatalogModel::new(limits.model)?.encode_catalog(limits)?;
+                control.replace(ControlNamespace::Catalog, PROJECTS_CATALOG, None, &empty)?;
+            }
+        }
         let (model, catalog) = load_catalog(&path, context)?;
         Ok(Self {
             context: context.clone(),
@@ -102,6 +117,7 @@ impl ProjectRepository {
     /// be dropped by the caller.
     pub(crate) fn commit_model(&mut self) -> Result<()> {
         self.context.checkpoint()?;
+        validate_default_selections(&self.model)?;
         let bytes = self.model.encode_catalog(self.codec)?;
         let writer = self.writer()?;
         let mut control = writer.control(ControlLimits::default())?;
@@ -120,8 +136,8 @@ impl ProjectRepository {
     }
 }
 
-/// Loads the catalog bytes from one store. A missing store or catalog file is
-/// an empty model; damaged bytes are an explicit error.
+/// An absent store has no registrations. Once initialized, its authoritative
+/// catalog must exist; loss is unknown state, never an empty reference set.
 fn load_catalog(
     path: &Path,
     context: &OperationContext,
@@ -142,9 +158,12 @@ fn load_catalog(
         Some(snapshot) => {
             let model = CatalogModel::decode_catalog(snapshot.bytes(), limits)
                 .map_err(|error| eyre::eyre!("project catalog is damaged: {error:#}"))?;
+            validate_default_selections(&model)?;
             Ok((model, Some(snapshot)))
         }
-        None => Ok((CatalogModel::new(ModelLimits::default())?, None)),
+        None => eyre::bail!(
+            "initialized project store is missing its authoritative catalog; references are unknown"
+        ),
     }
 }
 
@@ -156,4 +175,22 @@ pub(crate) fn repository_uid() -> u32 {
 /// The canonical language identity string stored in selections.
 pub(crate) fn language_digest(fingerprint: [u8; 32]) -> String {
     Digest::Sha256(fingerprint).to_string()
+}
+
+/// A directory default group has one active target. Multiple default targets
+/// are damaged project facts; readonly views must never choose by revisions
+/// that belong to different independent target slots.
+fn validate_default_selections(model: &CatalogModel) -> Result<()> {
+    let mut projects = std::collections::BTreeSet::new();
+    for (key, stamp) in model.selection_slots() {
+        if key.group() == crate::programs::shared::commit::DEFAULT_GROUP
+            && (stamp.language().is_some() || stamp.generation().is_some())
+        {
+            ensure!(
+                projects.insert(key.project()),
+                "project catalog has multiple active default target selections"
+            );
+        }
+    }
+    Ok(())
 }

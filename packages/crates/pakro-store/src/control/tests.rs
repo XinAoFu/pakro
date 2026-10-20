@@ -583,3 +583,63 @@ fn r05_readonly_regular_open_has_no_write_access() {
         "readonly opening requested write access"
     );
 }
+
+#[test]
+fn f4_store_initialization_qualification_is_not_reissued() {
+    use std::sync::{Arc, Barrier};
+    let (_temp, path) = fixture();
+    fs::create_dir(&path).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+    let start = Arc::new(Barrier::new(3));
+    let results = std::thread::scope(|scope| {
+        let mut workers = Vec::new();
+        for _ in 0..2 {
+            let path = path.clone();
+            let start = start.clone();
+            workers.push(scope.spawn(move || {
+                start.wait();
+                StoreWriter::open_writer(&path, uid(), RootLimits::default(), deadline())
+                    .map(|store| store.initialized_here())
+            }));
+        }
+        start.wait();
+        workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        results
+            .iter()
+            .filter(|result| matches!(result, Ok(true)))
+            .count(),
+        1,
+        "exactly the stable-inode initializer gets the creation fact: {results:?}"
+    );
+    // A racing opener may conservatively fail before the identity marker is
+    // complete. Neither that failure nor a successful reopen grants creation.
+    assert!(results.iter().any(|result| !matches!(result, Ok(true))));
+    assert!(!writer(&path).initialized_here());
+    let before = inventory(&path);
+    // Deterministically exercise the EEXIST fallback as well as the real
+    // racing opens above: the losing initializer must not run the callback
+    // from which StoreWriter derives its creation qualification.
+    let called = std::cell::Cell::new(false);
+    let root = open_trusted_store(&path, uid(), false).unwrap();
+    let anchor = initialize_anchor_with_hook(path.clone(), root, uid(), deadline(), || {
+        called.set(true);
+        Ok(())
+    })
+    .unwrap();
+    anchor.check_binding(deadline()).unwrap();
+    assert!(
+        !called.get(),
+        "an initialization loser received creation qualification"
+    );
+    assert!(!writer(&path).initialized_here());
+    assert_eq!(
+        inventory(&path),
+        before,
+        "reopening changed initialized store contents"
+    );
+}

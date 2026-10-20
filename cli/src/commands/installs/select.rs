@@ -32,6 +32,20 @@ pub(super) struct InstallsSelect {
 
 impl InstallsSelect {
     pub(super) fn run(self) -> Result<()> {
+        let entries = crate::programs::library::inventory()?;
+        if self.installation.starts_with("language-")
+            || self.installation.starts_with("package-")
+            || entries.iter().any(|entry| {
+                entry.instance == self.installation
+                    || entry.path.to_string_lossy() == self.installation
+            })
+        {
+            eyre::bail!(
+                "shared library instances are selected by project declarations; installs select cannot change a global shared-library link"
+            );
+        }
+        crate::config::Settings::get().ensure_experimental("pakro installs select")?;
+        eyre::ensure!(resolver::enabled(), "the identity install layout is off");
         let selected = resolver::select(&self.installation)?;
         let tool = selected
             .requested_as

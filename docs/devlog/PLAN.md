@@ -1,14 +1,28 @@
 # Pakro 首版逐文件实施计划
 
-日期：2026-10-18（Asia/Shanghai）。
+日期：2026-10-20（Asia/Shanghai）。
 
-**状态：R00–R06 已完成；首版计划现为F1–F4，用户明确将库内容/关联查询及指定删除纳入首版，并重申完整精确版本要求。2026-10-18用户下令开始F1：行为测试与可编译桩已写入并注册，编译与预期失败由用户手动确认；F2–F4与最小实现尚未开始。** 长期功能没有被永久取消；本次未运行编译/测试/fmt/check，未提交Git。后续编译、测试和检查仍由用户手动执行。
+**2026-10-20 当前授权：** 用户要求继续完成 F1–F4，Agent 自行编译、测试和检查；每项测试/命令组墙钟上限 600 秒，超时停止本组及自己启动的子进程并联系用户，不能靠拆分重跑绕过。复用同一 target 和关闭增量/调试信息的构建配置，及时清理无用编译产物，保留日志与真实输入。该指令覆盖下文历史手动执行限制，架构及阶段范围不变；不自动提交 Git。
 
-架构仍以[主文件](../../Pakro主架构文件与Agent规则.md)为准。原R00–R45详案完整保存在[历史详案](archive/PLAN-R00-R45-2026-10-18.md)，用于追溯；它不再是必须逐项完成的前置队列，也不恢复历史测试授权。计划更新不代表获得开工许可。
+**本轮具体接缝补充：** 新增 `src/core/programs/library.rs` 作为 F4 独立 CLI 可调用的只读查询/指定删除门面，不公开 IO owner；F3 生产入口新增 `src/core/programs/python.rs`，仅包装已有观测、语言、求解、布局、单 catalog 提交。F3 必要新增接缝 `packages/src/python_environment/prefix.rs` 以消费原受控未发布 owner 并持久化共享发布，仍保留原 cleanup 权限限制。F3 必要协议接缝 `packages/src/python_resolution/source/registry_depot/closed.rs` 消费已闭合图为 wheel owner 和持续证据，复用原保留核，退出完整runtime复制。F2 按原文件清单补 `install_rollback.rs`、`system_install.rs` 的共享对象拒绝门及真实入口测试。
+
+**当前状态（2026-10-20）：F1–F4已完成本机macOS arm64首版实现与本轮授权的Agent验收。64项不同核心用例、8条CLI验收及实际公开PyPI安装均通过；底层及相邻回归通过。F2官方完整下载/运行/双项目共享/重装复用经现有SOCKS接入通过300.9秒。** 所有组均少于600秒；用户已明确授权提交本轮改动，提交号以git log -1为准，不包含编译产物或测试临时文件。
+
+架构仍以[主文件](../../Pakro主架构文件与Agent规则.md)为准。原R00–R45详案完整保存在[历史详案](archive/PLAN-R00-R45-2026-10-18.md)，用于追溯；它不再是必须逐项完成的前置队列，也不恢复历史测试授权。本轮实施权限来自上方用户授权，计划本身不额外授予首版以外的实施权限。
 
 **本次细化方式：** 恢复原详案的逐文件清单、接口交接、实施顺序、边界和验收合同，仍只有F1–F4四个交付阶段。下文行号为2026-10-18工作树的定位锚点，实施前按函数名重新定位；包含已有未提交/未跟踪实现，不以HEAD替代当前文件。
 
 ## 为什么缩减
+
+本轮必要共享接缝追加：`packages/src/python_resolution/lock_session.rs` 的原解码/同文件比较纯核供已观测锁pin复核；`packages/src/python_environment/model/codec/graph.rs` 复用有界codec保存完整图及来源pin；`runtimes/src/plugins/core/python/native/transport.rs` 的无日志纯路由供公开Simple来源使用；`native/pipeline.rs` 与 `libraries/language/lease.rs` 提取同一真实目标身份。均服务F1–F4现有合同，不增加产品功能。
+
+验证与来源具体文件追加：`src/core/libraries/project/runtime_pin.rs` 在已观测字节上读取运行时pin；`src/core/lockfile/mod.rs` 从原read提取同一纯parser。测试在 `programs/python/integration_tests.rs`、`programs/shared/commit/tests.rs`、`libraries/project/package_graph/tests.rs`；真实CLI复用 `tests/e2e/packages/f3_shared_wheel_fixture.py`、`f3_shared_wheel_helpers.sh` 与本阶段表列三个E2E；`registry_depot/tests/project_fixture.rs` 只增加原夹具producer。上述新增模块按父mod注册，不扩大正式写域。
+
+F1真实消费者补充：`cli/src/commands/shim.rs` 是原shim执行入口，与已列 `hook_not_found.rs`、`runtimes/src/shims/mod.rs` 一同接共享Python只读命令选择，关闭not-found/lazy隐式补装；复用原入口不新增命令。增加 `tests/e2e/cli/test_f1_command_lookup_no_install`，开启旧自动安装配置仍必须零获取，已有命令真实执行。
+
+F2真实联网接缝补充：`runtimes/src/plugins/core/python/native/catalog.rs` 在原解析/来源/校验/缓存核上增加精确请求scope，`python.rs` 在catalog获取前保留本次完整版本/build。已指定build只查询对应官方tag及所选制品摘要，未指定build仍真实证明唯一或列出至少两个实际候选拒绝，不能选择最新。精确cache不得冒充旧完整版本清单。此改接消除精确安装对无关历史发行和其checksum的依赖，不改变指定来源、版本及原期限。
+
+最终完整性复核接缝：`src/core/libraries/project/runtime_pin.rs` 与 `runtimes/src/plugins/core/python/native/pipeline.rs` 复用原纯 locked-source/filename 校验，保留锁条目自身 `+build` 约束，不能因本次裸版本请求丢失。`packages/src/python_environment/model.rs`、`src/core/programs/install/resolve.rs` 将原闭合图 fingerprint 正文提为唯一纯核，`src/core/programs/shared/commit.rs` 与 `src/core/programs/query/snapshot.rs` 对照同一真实 layout graph；模型 codec 读取必须拒绝保持旧 graph digest 却更改 roots/依赖声明的记录。 `src/core/libraries/project/package_graph.rs` 的只读视图携带模型已验证的 graph digest，`package_graph/tests.rs` 同步其纯描述夹具；不在每次查询重复序列化整图。测试仅增补 `src/core/libraries/project/runtime_pin.rs`、`src/core/programs/install/resolve/tests.rs`，必要模型旧夹具在 `packages/src/python_environment/model/tests.rs` 改为真实 graph fingerprint；先确认 RED 再实施，不新增来源、解析器或 IO 权限。
 
 旧计划的问题主要是交付顺序，而不是所有检查都无用：
 
@@ -53,13 +67,13 @@
 
 首版坚持一个权威catalog完成内部登记/选择提交。准备阶段可先发布未被项目选中的完整共享对象；失败时允许留下明确无项目关联的完整对象，不能谎报项目成功。对象就绪后才提交选择，旧选择保持到提交成功；已完成并可安全结束的临时/退休保护要收尾，不把历史记录变成永久引用。若确实要写项目配置、项目锁或第二个权威文件，则已超出本计划的简化写域，应收窄分支或补该项真实提交保护，不把完整R15默默塞回所有阶段。
 
-- 每阶段按“行为测试并注册→用户执行确认失败→最小实现→用户复测→Spec/Standards两轴静态审查”推进；只有有实际结果才勾选，失败原因和未执行范围单列。
+- 每阶段按“行为测试并注册→实际确认失败→最小实现→复测→Spec/Standards两轴静态审查”推进；本轮用户已授权Agent自行执行，只有有实际结果才勾选，失败原因和未执行范围单列。
 - 新文件须在表内父mod注册。CLI在独立binary crate，公开最小程序入口/请求/报告；库IO/owner保持私有。删除默认是**无**，只有对应旧调用确已替代且用户验收后才局部退役。
-- 本轮只把计划写具体。后续每次只执行用户授权的阶段，不因文件清单完整而自动开工，不自行运行编译/测试/fmt/check，不自动提交或清理target/用户数据。
+- 本轮按用户授权完成F1–F4，自行编译/测试/格式检查，每组600秒；只清理已确认归属且无用的本轮产物，不动用户库或原输入，不自动提交。首版以外工作仍须新的用户指令。
 
 ## F1：进目录就选中库里已有的 Python
 
-**状态：** ☑ 测试已写并注册（2026-10-18，含可编译桩）；☑ 用户确认预期失败（2026-10-19，单测 4 项均以 "f1 ... is not implemented" 形态失败；e2e 暂存通过后在 `command -v python` 选择断言处失败；格式通过；证据 `target/f1-manual-20261019-{104029,104202,104520,105020,105327,105541}.log`）；☑ 最小实现（2026-10-19，2026-10-19用户授权Agent自行执行测试≤10分钟/组；`target/f1-manual-20261019-121806.log` 单测4/4+e2e+格式全部通过；相邻回归 model37/catalog13/prefix-control90/selections11/journal14/language37 与 env/activate e2e 通过；`test_activate_export` 经 git stash 对照确认为改动前既有失败，不属F1）；☑ 用户验收（2026-10-19 通过：用户在真实终端按演示命令确认四项行为——A/B 同一 payload/bin/python、缺项仅提示不下载、退出撤回；暂存/重启语义由 `target/f1-manual-20261019-121806.log` 与用户复跑的暂存输出证明）；☑ 两轴静态审查（2026-10-19 通过：Spec 轴 7 PASS/1 PARTIAL、Standards 轴 5 PASS/2 PARTIAL/0 FAIL；唯一阻塞"提交锁序与规格相反"及两条高价值建议已修复并复验全绿 `target/f1-manual-20261019-200450.log`；非阻塞建议记 F2+ 跟进，见[2026-10-19日志](log/2026-10-19-1-F1-RED确认与夹具修复.md) 20:10 条目）。**F1 五步全部完成。**本次注册：下表四个行为测试与e2e、`tests/scripts/f1-test-cases.txt`与`tests/scripts/f-manual-check.sh`（新增`--list`模式）；`programs/install/selection/tests.rs`含`#[ignore]`环境驱动暂存助手`f1_e2e_stage_shared_language`（读`PAKRO_F1_STAGE_DATA_ROOT`/`PAKRO_F1_STAGE_VERSION`，仅供e2e脚本调用，不在`f1_`过滤运行中执行）。
+**状态：** ☑ 测试先行/实际RED；☑ 实现与旁路补漏；☑ 本轮授权的Agent实测验收；☑ Spec/Standards审查。12项核心、目录CLI与命令查找CLI均通过（f-core-final、f1-cli-accepted、f1-cli-command-accepted-20261020.log）。覆盖优先级、完整版本/来源pin、缺项零获取、实际包选择、跨target旧引用退出与命令缺失不隐式安装。历史2026-10-19人工验收保持原日志，不冒充本轮人工确认。
 
 **先完成：** R00–R06已有基础。先交付F1，不等待F2–F4。
 
@@ -82,7 +96,7 @@
 | `cli/src/commands/hook_not_found.rs:26`、`runtimes/src/shims/mod.rs:100` | 新共享Python路径的command-not-found、lazy/wrapper只提示缺项，不能触发安装；保留尚未迁移生态的独立代码。 |
 | `src/core/programs/{mod,shared/mod,install/mod}.rs`、`src/core/libraries/project/mod.rs` | 注册下列新增模块及测试，只向CLI公开应用请求/结果/入口，不公开库writer或租约构造器。 |
 
-**拟新增文件（当前不存在，不是已完成接口）：**
+**本阶段新增文件：**
 
 | 文件 | 单一职责 |
 | --- | --- |
@@ -126,7 +140,7 @@
 
 ## F2：用户决定安装缺少的 Python，装好就能选用
 
-**状态：** ☑ 测试已写并注册（2026-10-19，含可编译桩；RED 已由 Agent 自测确认——4 项 f2_ 单测均失败于 "f2 ... is not implemented" 桩，`cargo test f2_` 0 passed/4 failed；格式通过）；☑ 最小实现（2026-10-19：CLI 双写法分流+D10 副作用前拒绝、install_native_body 提取+唯一 build 选定、拒绝门 5 处接线；f2 批 4/4、f1 套件、格式全绿 `target/f1-manual-20261019-213620.log`；rollback/system_install 门为记录的后续加固点）；☐ 用户验收（含网络 e2e `tests/e2e/cli/test_f2_exact_python_install`，用户道）；☐ 两轴静态审查。
+**状态：** ☑ 测试先行/实际RED；☑ 精确安装、来源/build pin及旧写入口拒绝；☑ 本轮授权的Agent实测验收；☑ Spec/Standards审查。19项核心、原catalog26项、官方完整网络CLI均通过。真实下载Python 3.13.16+20261013、A/B同payload、重装仅一个实例、模糊请求零安装，证据target/f2-cli-socks-accepted-20261020.log（300.9秒）。HTTP代理实测native TLS -9806连接关闭，正式验收采用机器已启用的SOCKS协议；没有修改来源、摘要、版本、期限或加入生产自动重试，失败日志与网络诊断保留。
 
 **先完成：** F1。新增安装复用R06，不重做语言库。
 
@@ -173,7 +187,7 @@
 
 ## F3：配置里的一个真实 Python 包能导入
 
-**状态：** ☐ 测试已写并注册；☐ 用户确认预期失败；☐ 最小实现；☐ 用户验收；☐ 两轴静态审查。当前全部未实施。
+**状态：** ☑ 测试先行/实际RED；☑ 原生闭包、共享包树/轻量布局、同catalog精确图与提交；☑ 本轮授权的Agent实测验收；☑ Spec/Standards审查。21个不同核心用例均已有GREEN：f3-accepted组20通过，唯一旧fixture任意摘要改为真实fingerprint后于f-core-final组通过。三个真实PBS+wheel CLI均通过（88.1/121.1/120.3秒）；实际公开PyPI idna==3.10安装、中文域名编码及查询通过（f3-live-pypi-20261020.log，64.5秒）。不调用外部pip/uv，不写项目声明或锁，不复制项目runtime。
 
 **先完成：** F2。完成后形成第一条实际可用的Python项目闭环。
 
@@ -188,6 +202,7 @@
 | `packages/src/python_wheel{,_plan,_install}.rs`、`python_wheel_install/materialize.rs`、`python_wheel_scripts/launcher.rs` | 原wheel图、ZIP/RECORD/scheme/冲突/脚本校验改消费受管共享输入和最终位置；只提取有真实新消费者的接缝，不放宽现有校验。 |
 | `packages/src/python_environment/{build,runtime_target,resolved_build,runtime_bootstrap}.rs` | 新生产链以真实LanguageLease代替OwnedRuntimeSnapshot及完整runtime输入复制；原目标探测和构建核共用，旧消费者尚存时保留兼容薄层。 |
 | `packages/src/python_environment/{runtime_layout,runtime_startup,seal}.rs`、`runtime_startup/installed.rs`、`prefix/verify.rs` | 适配库内包的真实启动/导入/入口与最终核验；受管链接有专门receipt，不能全局放松nofollow/nlink。 |
+| `packages/src/python_environment/prefix/verify.rs`、`src/core/libraries/package/tree.rs` | F3最终证据交接：原verify核返回同次按C4 receipt及已知wrapper/facts字节核验的TreeInventory；保留原receipt至发布前复验，不能将C4后同inode篡改重新观测为合法Ready。 |
 | `runtimes/src/toolinstall/python_site_adapter.py` | 仅在既有启动适配确需时接选定包路径；不修改共享Python全局site-packages，不执行用户额外激活步骤。 |
 | `src/core/libraries/project/{selections,repository,read_views}.rs`、`programs/shared/commit.rs`；`packages/src/python_environment/model.rs`及F1列明的codec文件 | 在同一权威保存精确根、节点、真实依赖边、来源制品pin及layout→language/tree关联；当前扁平typed refs+graph摘要不足以供F4反查，不再造另一refs表。 |
 | `cli/src/commands/install.rs`、`cli/src/commands/deps/install.rs`、`packages/src/install.rs` | 受支持Python请求进入同一原生程序；新分支退出DepsEngine/外部manager、旧sidecar和自动GC调用；保留其他生态尚存消费者。 |
@@ -225,6 +240,7 @@
 | --- | --- |
 | 新增`src/core/programs/install/resolve/tests.rs` | `f3_exact_roots_preserve_real_dependency_edges`：直接根必须精确，metadata传递范围真实解析，记录闭包的节点/边/pin。 |
 | 新增`src/core/libraries/package/{blob,layouts}/tests.rs` | `f3_verified_content_is_shared`、`f3_failed_layout_is_not_ready`：同内容复用、实际赢家重验；损坏/不兼容/中断不发布假Ready。 |
+| `src/core/libraries/package/tree.rs`内测试 | `f3_changed_same_inode_after_wheel_copy_is_never_published_ready`：真实C4完成后原inode等长改正文，原receipt核验必须拒绝且无Ready，不用新观测覆盖制品证据。 |
 | 新增`packages/src/python_environment/shared_runtime/tests.rs`，扩F2的`src/core/programs/install/apply/tests.rs` | `f3_shared_runtime_has_no_full_copy`、`f3_failed_apply_keeps_old_selection`：真实语言租约与标准库来源、关联失败保留旧选择、项目声明未改。 |
 | 新增`tests/e2e/packages/test_native_install_shared_wheel`、`test_native_deps_install_preserves_declarations`、`test_native_deps_no_manager` | 真实CLI安装固定完整版本、带传递依赖和console script的公开wheel；真实import/版本/路径/入口，A/B复用且选择隔离，不调用pip/uv或自动prune。 |
 
@@ -232,7 +248,9 @@
 
 ## F4：查看库内容及关联，删除明确指定的语言和包
 
-**状态：** ☐ 测试已写并注册；☐ 用户确认预期失败；☐ 最小实现；☐ 用户验收；☐ 两轴静态审查。当前全部未实施。
+最终只读接线补充：`src/core/programs/library.rs` 复用同次 `ObservedProjectInputs` 报告项目根、有效包声明、当前Python与是否存在旧生态声明；`cli/src/commands/{ls,current,project}.rs` 的共享Python分支移除多余旧 `Config::get()`，避免Tracker/monorepo marker写入。非Python原视图仍用原入口；不重写旧配置parser。独立 `tests/e2e/cli/test_f4_python_queries_are_readonly` 验证完整但缺项的Python查询不会初始化三库、写追踪或项目元数据，加入F4清单与原runner。
+
+**状态：** ☑ 测试先行/实际RED；☑ 真实只读查询、双向引用与指定删除；☑ 本轮授权的Agent实测验收；☑ Spec/Standards审查。12项pakro核心、pakro-store完整54项、查询/删除CLI及纯Python只读CLI均通过。包括实际包--instance删除、持有租约与项目/依赖引用拒绝、部分删除撤销Ready、损坏内容与丢失已提交catalog不得当空、只读命令不触发旧Tracker。证据f-core-final、f-store-final、f4-cli-accepted、f4-query-cli-green-20261020.log。
 
 **先完成：** F1–F3的真实内容及持久关联。用户已明确纳入首版，不以旧R21整项完成作为前置。
 
@@ -252,6 +270,7 @@
 | `src/core/libraries/language/{repository,manifest,lease}.rs`、F3的`package/{blob,tree,manifest,lease,layouts}.rs` | 复用实际列举/manifest/租约，支持目标身份复核和删除状态；不直接以目录名当安装事实。 |
 | `packages/src/python_environment/prefix/observer/cleanup.rs:325` | 只在确需时提取共用的逐项删除/目录绑定内核；原函数的权限属于未提交暂存，不能直接套给已发布对象，原暂存检查须保留。 |
 | `src/core/programs/mod.rs`、`src/core/libraries/{language,package}/mod.rs` | 注册下列模块与测试；CLI只取得请求/报告，不能得到任意路径删除权限。 |
+| `packages/crates/pakro-store/src/control/write.rs`、`packages/crates/pakro-store/src/control/tests.rs`；既有 `src/core/libraries/project/repository.rs` | F4 缺失权威保护的必要接缝：仅由原稳定锁 `create_new` 获胜后的初始化回调产生本次 writer 新初始化事实，普通重开或竞争失败不能取得该资格。ProjectRepository 只由该初始赢者、在创建项目锁前经原 catalog CAS 发布真实空 catalog；已初始化库后续缺 catalog 一律未知并拒查/拒删。复用并发初始化夹具验证资格唯一，不改 Anchor/marker 格式、不新增第二权威或自动 repair。 |
 
 **拟新增文件：**
 
@@ -306,14 +325,12 @@
 - 当前确实会执行的写入不能覆盖用户文件、修改其他项目共享内容，半成品不能报成功；不支持的修改/删除入口直接拒绝，不先实现全套恢复能力。
 - 每个阶段交一条真实使用链及关键失败例；只验证本次改动和受影响的旧调用，不重复跑未变化的全套，不提前扩展跨平台/极端故障矩阵。
 - 使用中发现问题：先定位，补最小复现，再修对应路径。不要顺手把未来所有边界都加成当前阶段的前置。
-- 编译、测试和格式检查由用户手动运行，Agent在实际接口存在后给准确命令并读取日志；0 tests、全ignored或仅编译成功不算用户功能交付。
+- 本轮编译、测试与格式检查由Agent按600秒上限自行执行并保存真实日志；0 tests、全ignored或仅编译成功不算功能交付。
 - 保持同一构建配置，继续采用已有关闭增量缓存/调试信息的手动方案，不无故生成多套产物；不自动清理用户数据或提交Git。
 
-## 各阶段的手动验收交付
+## 各阶段的验收与复跑入口
 
-本节是未来实施时必须交付的测试入口合同。**F1的`tests/scripts/f-manual-check.sh`与`tests/scripts/f1-test-cases.txt`已于2026-10-18随测试注册创建；当前桩阶段预期全部`f1_`用例失败（RED），通过不算交付。F2–F4脚本仍不存在，当前不要执行对应命令。**原R06脚本及通过证据保留，不把它改成新阶段运行器，不无故重跑R06全组。
-
-F1实施时新增`tests/scripts/f-manual-check.sh`及`tests/scripts/f1-test-cases.txt`；F2/F3/F4分别增对应`f2-test-cases.txt`、`f3-test-cases.txt`、`f4-test-cases.txt`并扩同一脚本。每份清单登记本阶段真实包、lib/bin、完整测试名和明确E2E脚本；复用已有cargo/`tests/e2e/run_test`，不新建测试框架。脚本只允许用户手动调用。
+同一 `tests/scripts/f-manual-check.sh` 已支持F1–F4、`--list`、`--format-only`与第二参数`--lib-only`，四份用例清单及8条CLI脚本均已注册，实际`--list`通过。F4另运行pakro-store初始化资格用例，不混算pakro测试数。复用原cargo/`tests/e2e/run_test`，没有新测试框架。Agent执行时另加600秒进程组上限及独立ASCII TMPDIR；用户仍可用下表入口复跑，不要求用户代替本轮测试。
 
 - 用例存在并注册后，先`--list`逐个核对完整名称再执行；0 tests、全ignored、只编译、仅子进程helper都不能记为通过。真实测试依赖缺失明确停下，不跳过后仍打印成功。
 - 固定`CARGO_TARGET_DIR=target`、`CARGO_INCREMENTAL=0`、`CARGO_PROFILE_DEV_DEBUG=0`、`CARGO_PROFILE_TEST_DEBUG=0`和`--all-features`，同阶段保持包集合与构建配置；不自动补跑release或换target目录堆出第二套产物。
@@ -328,7 +345,7 @@ F1实施时新增`tests/scripts/f-manual-check.sh`及`tests/scripts/f1-test-case
 | F3 | 包和依赖是否能真实导入/执行，A/B是否共享且不串包，源码/锁不被改，失败不冒充成功。 | `bash tests/scripts/f-manual-check.sh f3` |
 | F4 | 库内容和关联能否查清；有人/依赖在用是否列明拒删，无引用是否只删除指定对象。 | `bash tests/scripts/f-manual-check.sh f4` |
 
-实际交付时提供带`cd '/Users/fuxinao/文件/project/pakro'`、真实输入前提的完整可复制命令，并依据当时已实现接口核实清单；这里的规划入口不等于代码已经存在。
+复跑时使用带`cd '/Users/fuxinao/文件/project/pakro'`、真实输入前提的完整可复制命令，并依据当时已实现接口核实清单；当前入口已实际运行和核对。
 
 ## 已完成基础与证据
 
@@ -337,7 +354,8 @@ F1实施时新增`tests/scripts/f-manual-check.sh`及`tests/scripts/f1-test-case
 | R00–R03 | 基线、程序请求/上下文、真实配置观测与项目快照。 |
 | R04–R05 | 内容身份与项目选择分离、受控IO、稳定锁和统一内核。 |
 | R06 | 唯一共享Python、实际租约、发布/复用、来源证明与真实共享验收。 |
+| F1–F4 | 本机首版目录选择、显式精确Python安装、真实共享wheel/项目关联、只读查询与受引用保护的指定删除；64项不同核心、8条CLI及实际公开PyPI验收通过。 |
 
 R06合并150项不同测试通过；三包非测试编译、37文件格式与diff检查通过，详见[交接记录](HANDOFF.md)和[完成日志](log/2026-10-18-4-R06共享语言库.md)。原详案的完成状态与文件/测试合同原样存档，不把后移任务写成已完成。
 
-**下一步不是开工。** F4和精确版本要求已按用户指令写入；仍需用户明确指定开始实现，不能借计划重排自行启动R07或F1–F4。
+**首版F1–F4已完成本轮验收。** 当前实现与证据见HANDOFF及2026-10-20日志。首版以外的后移能力仍需用户另行安排，不自动启动历史R07或Java/Node。
