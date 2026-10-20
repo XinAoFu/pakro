@@ -240,10 +240,27 @@ impl RuntimeInstallPlan {
         } else {
             let (version, build, parsed, parsed_flavor) = super::pbs_filename(&filename)?
                 .context("locked Python artifact is not a supported PBS install archive")?;
+            // A `+YYYYMMDD` request pin is the distribution build of the same
+            // complete version; validate against the bare version plus the
+            // pinned build instead of the raw request string.
+            let (bare_request, build_pin) = match request.split_once('+') {
+                Some((bare, pin))
+                    if pin.len() == 8 && pin.bytes().all(|byte| byte.is_ascii_digit()) =>
+                {
+                    (bare, Some(pin))
+                }
+                _ => (request, None),
+            };
             ensure!(
-                version == request,
+                version == bare_request,
                 "locked PBS language version differs from requested version"
             );
+            if let Some(pin) = build_pin {
+                ensure!(
+                    build == pin,
+                    "locked PBS archive build {build} differs from the requested pin {pin}"
+                );
+            }
             ensure!(
                 &parsed == target,
                 "locked PBS archive target differs from requested target"
