@@ -234,6 +234,88 @@ impl UseTool {
 }
 
 impl Use {
+    pub(super) async fn preflight(&self) -> Result<()> {
+        #[cfg(unix)]
+        {
+            use crate::programs::python::{PythonWriteOperation, reject_python_write};
+            eyre::ensure!(
+                !self.tools.is_empty() || !self.remove.is_empty(),
+                "interactive use cannot determine its target before side effects; specify explicit tools"
+            );
+            let config = super::read_config_for_admission().await?;
+            let args = self
+                .tools
+                .iter()
+                .map(|tool| tool.tool.clone())
+                .collect::<Vec<_>>();
+            let planned = ToolsetBuilder::new()
+                .with_args(&args)
+                .with_default_to_latest(true)
+                .with_scope(if self.global {
+                    ConfigScope::GlobalOnly
+                } else {
+                    ConfigScope::All
+                })
+                .build_unresolved(&config)?;
+            for tool in &self.tools {
+                reject_python_write(PythonWriteOperation::Use, &tool.tool.ba)?;
+                for (backend, versions) in &planned.versions {
+                    if backend.full_without_opts() != tool.tool.ba.full_without_opts() {
+                        continue;
+                    }
+                    for request in &versions.requests {
+                        let mut request = request.clone();
+                        if tool.has_options() {
+                            request.set_options(tool.request_options()?);
+                        }
+                        super::reject_python_install_dependencies(&request)?;
+                    }
+                }
+            }
+            for backend in &self.remove {
+                reject_python_write(PythonWriteOperation::Use, backend)?;
+            }
+            if !self.is_dry_run() {
+                // use saves its chosen file and then passes all effective
+                // package groups (including an out-of-tree write target) to
+                // the legacy package installer. Refuse that complete batch
+                // before installing a tool or saving its declaration.
+                let configured_python_packages = config.config_files.values().any(|file| {
+                    file.to_package_requests()
+                        .iter()
+                        .any(|request| request.runtime_name == "python")
+                });
+                let bound_python_packages =
+                    crate::packages::CLI_PACKAGE_ARGS
+                        .get()
+                        .is_some_and(|requests| {
+                            requests
+                                .iter()
+                                .any(|request| request.runtime_name == "python")
+                        });
+                eyre::ensure!(
+                    !configured_python_packages && !bound_python_packages,
+                    "Python package groups would enter the unsupported legacy package installation path; \
+                     refusing the complete use request before any effect"
+                );
+                let previous = crate::config::readonly_invocation();
+                crate::config::set_readonly_invocation(true);
+                let target = self.get_config_file().await;
+                crate::config::set_readonly_invocation(previous);
+                let target = target?;
+                eyre::ensure!(
+                    !target
+                        .to_package_requests()
+                        .iter()
+                        .any(|request| request.runtime_name == "python"),
+                    "Python package groups in the use write target would enter the unsupported legacy package installation path; \
+                     refusing the complete request before any effect"
+                );
+            }
+        }
+        Ok(())
+    }
+
     pub(super) async fn use_global_registry_tool(tool: &str) -> Result<()> {
         Self {
             tools: vec![UseTool {
@@ -253,6 +335,7 @@ impl Use {
     }
 
     pub(crate) async fn run(mut self) -> Result<()> {
+        self.preflight().await?;
         if self.tools.is_empty() && self.remove.is_empty() {
             self.tools = vec![UseTool {
                 postinstall: None,
@@ -274,8 +357,10 @@ impl Use {
         };
         let mut ts = ToolsetBuilder::new()
             .with_scope(scope)
-            .build(&config)
-            .await?;
+            .build_unresolved(&config)?;
+        ts.versions
+            .retain(|backend, _| !crate::programs::python::is_python_backend(backend));
+        ts.resolve(&config).await?;
         let mut cf = self.get_config_file().await?;
         if self.tools.iter().any(|target| target.postinstall.is_some())
             && !matches!(cf.source(), ToolSource::PakroToml(_))
@@ -417,10 +502,13 @@ impl Use {
             }
 
             let config = Config::reset().await?;
-            let ts = config.get_toolset().await?;
+            let mut ts = ToolsetBuilder::new().build_unresolved(&config)?;
+            ts.versions
+                .retain(|backend, _| !crate::programs::python::is_python_backend(backend));
+            ts.resolve(&config).await?;
             config::rebuild_shims_and_runtime_symlinks(
                 &config,
-                ts,
+                &ts,
                 &versions,
                 crate::lockfile::LockfileUpdateMode::Normal,
             )
@@ -441,7 +529,11 @@ impl Use {
                 package_config_files.shift_insert(0, target_path, Arc::clone(&cf));
             }
             let package_config = config.with_config_files(package_config_files)?;
-            let package_ts = package_config.get_toolset().await?;
+            let mut package_ts = ToolsetBuilder::new().build_unresolved(&package_config)?;
+            package_ts
+                .versions
+                .retain(|backend, _| !crate::programs::python::is_python_backend(backend));
+            package_ts.resolve(&package_config).await?;
             let settings = Settings::get();
             let policy = crate::packages::install::PackageInvocationPolicy {
                 locked: settings.locked,

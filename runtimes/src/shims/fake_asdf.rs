@@ -11,6 +11,10 @@ use crate::path_env::PathEnv;
 use crate::{env, file};
 
 pub(crate) fn setup() -> color_eyre::Result<PathBuf> {
+    eyre::ensure!(
+        !crate::config::readonly_invocation(),
+        "a local query cannot create the asdf compatibility helper"
+    );
     static SETUP: OnceCell<PathBuf> = OnceCell::new();
     let path = SETUP.get_or_try_init(|| {
         let path = env::PAKRO_DATA_DIR.join(".fake-asdf");
@@ -38,9 +42,8 @@ pub(crate) fn get_path_with_fake_asdf() -> String {
     let mut path_env = PathEnv::from_iter(env::split_paths(
         &env::var_os(&*PATH_KEY).unwrap_or_default(),
     ));
-    match setup() {
-        Ok(fake_asdf_path) => path_env.add(fake_asdf_path),
-        Err(e) => warn!("Failed to setup fake asdf: {:#}", e),
-    };
+    // Computing a plugin's environment is metadata loading, not execution.
+    // ScriptManager materializes this helper only after write admission.
+    path_env.add(env::PAKRO_DATA_DIR.join(".fake-asdf"));
     path_env.to_string()
 }

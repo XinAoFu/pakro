@@ -1,5 +1,59 @@
 # 代码复用、改造与删除清单
 
+**当前说明（2026-10-25）：用户已确认P1本机macOS arm64产品验收通过，自动多进程运行器禁用，并授权提交既有P1实现、测试及收尾文档。本轮仅改文档，不改代码。** 下表记录实际文件与消费者，验收证据见TESTS；长测试继续由用户终端执行。P2尚未启动，整个项目停用dev-flow skill。
+
+文件范围依据[PLAN的P1.2逐文件表](PLAN.md)，并与本次`git diff --name-only`及未跟踪文件清单核对；额外接缝均列明实际调用和原因。工作树原有的主架构、README及开发文档修改予以保留，不把全部未提交文档归为本次代码改动。下方2026-10-18历史正文保持原样，不将当时状态重新解释为当前授权。F/S基线见[交叉盘点](ARCHITECTURE-REVIEW-2026-10-24.md)，验收证据由主任务写入[TESTS](TESTS.md)及[本轮日志](log/2026-10-24-6-P1实施.md)。
+
+项目级入口 `AGENTS.md` 仅把“停用dev-flow”和权威文档位置提前提供给后续Agent，不新增第二套架构或授权。
+
+## 2026-10-25定向修复接缝
+
+- `install.rs`：在root目标早return前读取/缓存完整扩展计划；`config/mod.rs`、`task/mod.rs`、`task_tool_installer.rs`仅在只读规划时严格保真未知/remote错误并避免无关模板求值。
+- `which.rs`：默认共享候选优先，同名与env/hook一致，保留已装NonPy companion和显式定向。
+- `p1-watchdog.py/test-p1-watchdog.py`：撤去无法证明完整性的树快照执行；默认拒绝，显式受限单进程内核执行单列。`p1-manual-recheck.sh`为用户终端长验证入口，不能暗中绕过为Agent运行。
+- 新E2E `test_p1_expanded_python_admission`、`test_p1_shared_command_priority`已由用户构建和实测通过（原始all-002758日志）；自动运行器禁用不追加为产品验收门槛。
+
+## 本轮审查修复接缝
+
+- `install.rs/use.rs`：准入覆盖实际后续配置包组和写目标；非Python目标不再先安装/保存后才进入旧Python链。
+- `backend/asdf.rs/external_plugin_cache.rs`、`plugins/script_manager.rs`、`toolset_env.rs/toolset_paths.rs`：直接source与缓存、readonly错误保真和静态bin路径共用保护。
+- `env.rs/which.rs/bin_paths.rs/mod.rs`、`toolset/mod.rs`、`query/snapshot.rs`：有效追加scope、实际companion路径与alias options一致判断。
+- 新增4条review/冷安装E2E及固定PBS HTTP fixture；新增`p1-watchdog.py/test-p1-watchdog.py`与资源前后比较driver/测试fixture。
+- A14原版采用隔离git archive及仅cfg(test)计数/注册改动；不改原生产实现，不替换当前工作树。
+
+## 当前P1实现文件与消费者
+
+| 实际文件 | 消费者及本次接线 | 保留边界或新增原因 |
+| --- | --- | --- |
+| `src/core/programs/query/environment.rs`（新）、`query/snapshot.rs`、`query/mod.rs`；`src/core/programs/directory.rs` | 共同查询核接语言、环境、包图及命令入口；目录适配消费同一观察结果，将只读描述与已有内容的关联应用分开。 | 区分无声明、缺语言、缺包图、歧义、损坏等结果；显式目标不借用cwd另一版本的包图，使用原取消/期限和完整对象核验。 |
+| `src/core/config/mod.rs`；`src/core/libraries/project/runtime_pin.rs` | 冻结发现接真实profile/global/system/override/no-config等输入；运行时pin读取当前Python逻辑别名对应的锁键。 | 复用既有配置发现、held观察及锁解析；不另建配置或锁权威，不写统一项目锁。 |
+| `src/core/programs/library.rs`；`cli/src/commands/{where,which,bin_paths,env,current}.rs` | 本地路径、解释器/console入口、环境及当前版本消费共同查询结果；明确目标/provider先分流。 | 保留各命令文本/JSON职责；Python缺失不回旧安装目录，非Python独立请求保留相应分支；不支持的Python运行时选项明确拒绝。 |
+| `cli/src/commands/ls.rs`、`installs/{mod,ls}.rs`、`project.rs` | 库库存和项目状态按查询意图接共享事实，区分空库、当前声明、已提交关联和可用状态。 | 不把空结果当成退出共享Python路由的依据；project仅调整查询投影，未新增登记/声明事务。 |
+| `cli/src/commands/{hook_env,hook_not_found,shim}.rs`；`runtimes/src/shims/mod.rs` | hook在关联应用后输出新环境；wrapper/shim/not-found复用明确provider归属与共享Python查询。 | Python缺项保持显式安装诊断；目录切换撤回Pakro环境差异；明确非Python执行在归属判定后恢复既有安装/执行能力。路径报告不授予外部进程运行租约。 |
+| `src/core/programs/python.rs`、`install/{apply,mod}.rs`；`cli/src/commands/install.rs`、`deps/install.rs` | 显式Python安装、完整项目安装和deps install收敛到现有生产门面；原仅供测试的PBS-only apply重复正文退出生产注册。 | 继续复用真实F/S的runtime pin、完整根、wheel/source构建与提交核；list/explain和安装分开；精确bytecode恢复早分流保留。 |
+| `src/core/programs/shared/python_entry.rs`及`python_entry/tests.rs`（新）、`shared/mod.rs`；`src/core/programs/python.rs` | 纯分类器消费解析后的backend/provider与操作种类，经有限门面供CLI和运行时调用；Python门面另承接旧库存的prune准入读取。 | 分类器本身不读取库、不扫描任意shell文本；库存不可读保留错误，不冒充空集合。 |
+| `cli/src/commands/{use,upgrade,unuse,prune,install_into}.rs`、`deps/{add,remove,mod}.rs` | 未迁移Python声明变更、批量回收和Python provider在目标复核后早拒绝；无版本请求同样检查实际依赖；install-into在handler开头全部拒绝。 | 混合批次不能先改非Python部分；独立非Pythondeps操作排除cwd中无关Python补装。D01仅落实执行拒绝，完整命令树/Schema退役未在P1展开。 |
+| `cli/src/commands/mod.rs`、`command_effects.rs`；`runtimes/src/toolset/install_state.rs` | `run_inner`在解析阶段只加载本地元数据，维护前调用命令准入；本地观察分支绕开自动更新、registry刷新、迁移、cache和purgatory维护；效果说明反映隐式安装与hook关联写入。 | 保留别名、`--cd`、根flag及更早的精确恢复分支；只读安装状态扫描不采纳旧安装、不写迁移manifest、不删除插件。 |
+| `runtimes/src/toolset/toolset_install.rs`、`runtimes/src/backend/mod.rs`、`runtimes/src/toolinstall/install_context.rs` | 旧批次在plugin准备前检查目标及依赖元数据；Backend直接install/force在prepare前拒绝，postinstall在环境求值/脚本前拒绝；复用原metadata validate传播未知目标错误。 | 直接调用仍保留底层共享路径保护。只读且空批次直接返回，使已就绪共享环境可经过Exec检查而不顺带安装env-only插件；普通非Python空批次语义保留。 |
+| `src/core/config/mod.rs`、`config/config_file/mod.rs` | Config加载中的Tracker、monorepo marker和trust持久化受只读调用标志约束。 | 这些写入发生在handler之前，单有handler准入不足；已信任输入继续读取，不能在观察阶段提示后持久化信任或忽略决定。 |
+| `src/core/config/remote_include.rs`、`config/env_directive/mod.rs`、`src/core/util/tera.rs`；`runtimes/src/backend/mod.rs` | Config实际加载链的remote include、vars/source/module/建venv、模板exec和plugin idiomatic元数据执行分别受只读能力约束。 | 新接缝来自真实可达的下载/执行/创建路径；保留纯模板求值与内置只读元数据，对无法静态确定的动态输入明确诊断，不静默运行后再拒绝。 |
+| `runtimes/src/shims/fake_asdf.rs`、`plugins/script_manager.rs`、`plugins/asdf_plugin.rs`、`backend/asdf.rs` | plugin对象构造只计算PATH；`.fake-asdf` helper创建移到真正脚本执行，ScriptManager受准入保护并向调用者传播错误。 | 实际CLI快照暴露`backend::load_tools → ScriptManager::new → INITIAL_ENV → setup`提前创建helper，故增加这些接缝；正常非Python插件实际执行仍可按需创建。 |
+| `runtimes/src/toolset/env_cache.rs`、`src/core/util/hint.rs` | 只读调用禁用两类环境cache；真实TTY提示继续显示，但不写“已显示”标记。 | Ready环境/Exec会进入env cache保存路径，TTY current会进入hint持久化路径；这两者不能从只读启动分支重新引入状态写入。 |
+| `src/core/programs/directory/tests.rs`、`query/paths/tests.rs`、`install/apply/tests.rs`、`python/integration_tests.rs`；上述CLI/Backend/Toolset文件内测试 | 补显式目标、冻结观察、前缀歧义、别名pin及保留F/S断言；准入测试包含真实Backend force/postinstall和真实Toolset批入口。 | 测试文件存在仅表示用例已落盘；不以纯分类器断言替代生产入口验证，不在本表记录通过状态。 |
+| `src/core/programs/directory/resource_baseline.rs`（新）；`src/core/libraries/{language,package}/lease.rs` | 有限可见的既有测试计数供固定大图fixture记录完整核验次数、选择/关联与FD变化。 | lease改动仅限`cfg(test)`计数可见性；不改生产持有模型、hash/namespace检查、300秒预算或4096软FD目标。 |
+| `tests/e2e/cli/test_p1_{shared_python_queries,shared_python_empty_queries,python_write_admission,readonly_initialization,non_python_command_dispatch,query_option_admission}`（新）；`tests/e2e/run_test` | 真实CLI覆盖共享/空/损坏库、目标及scope、写准入、启用维护设置的状态快照/HTTP计数、TTY提示、独立非Python派发和查询选项；原runner透传显式归档输入。 | 复用既有隔离HOME、HTTP夹具及真实runtime/wheel入口；不操作用户库/ISAT/真实4-pyc，不把不存在的Ready目录伪造为可用语言。 |
+| `tests/scripts/p1-check.sh`、`p1-test-cases.txt`、`p1-resource-baseline.py`（新） | 按实际注册核对非零用例、单Cargo及统一target/profile运行有界组，记录资源观测和完整日志。 | 每组共同600秒上限；失败/超时和清理结果分别保留，不以拆组绕过某一超时场景，不硬编码本机测试binary哈希。 |
+
+### 本会话接线记录（2026-10-24）
+
+本次文档补充仅更新本文件顶部，保留其后历史清单。授权从“方案细化”进入P1实现，故撤下原“代码未开始”的当前说明；没有把P2、通用联合事务、声明写入、完整来源接入或批量回收纳入本次实现。
+
+实现先统一观察和消费，再对旧写入口及启动前置链加入准入。新增配置、plugin、helper、hint和env-cache接缝均对应上表列出的实际调用路径；其中`.fake-asdf`提前创建来自真实CLI状态快照定位。问题定位与修复代码分别记录，不在本文件把“已修”写成“验收通过”。无版本依赖检查复用Toolset未求解请求和原依赖metadata核；未知metadata传播错误，force/postinstall另保留真实直接入口断言。
+
+本表基于本次读取时的未提交工作树，包含已修改及已新增文件；最终文件范围和测试结果仍由主任务集成确认。此次只改`docs/devlog/FILES.md`，未运行Cargo、未启动P2、未调用dev-flow、未提交Git。
+
+## 历史清单及当时进展（2026-10-18）
+
 日期：2026-10-18。**本清单记录目标处置及当前进展；R00 的 reshim 条件编译修复已获用户 release 构建通过；R05 已提取受控IO、锁和有界帧，原业务owner保留。** 以当前工作树（含未提交/未跟踪文件）为准，不恢复用户已清空的旧 docs。
 
 **本轮范围已确定：Python → Java → Node，先完善Python。D01已取消install-into：其代码列为明确退出项，下载和安装统一由Pakro库管理。R00–R06 已完成；用户要求先不启动R07，不提前执行后续退出或删除。**

@@ -47,6 +47,31 @@ impl Toolset {
             .collect())
     }
 
+    /// Read-only consumers cannot silently discard executable metadata errors
+    /// or reuse an unverified process cache from an earlier permission scope.
+    pub async fn list_paths_for_query(&self, config: &Arc<Config>) -> Result<Vec<PathBuf>> {
+        if !crate::config::readonly_invocation() {
+            return Ok(self.list_paths(config).await);
+        }
+        let mut installed = self.list_current_installed_versions(config);
+        Self::sort_by_overrides(&mut installed)?;
+        let mut paths = Vec::new();
+        for (backend, version) in installed {
+            paths.extend(
+                backend
+                    .list_bin_paths(config, &version)
+                    .await
+                    .wrap_err_with(|| {
+                        format!("cannot determine read-only bin paths for {version}")
+                    })?,
+            );
+        }
+        Ok(paths
+            .into_iter()
+            .filter(|path| path.parent().is_some())
+            .collect())
+    }
+
     pub async fn list_paths(&self, config: &Arc<Config>) -> Vec<PathBuf> {
         // Build a stable cache key based on project_root and current installed versions
         let mut key_parts = vec![];
@@ -122,7 +147,7 @@ impl Toolset {
         paths.extend(env_results.tool_add_paths);
 
         // 5. Tool paths
-        paths.extend(self.list_paths(config).await);
+        paths.extend(self.list_paths_for_query(config).await?);
 
         // 6. env_results.env_paths (from load_post_env like _.path directives) - these go at the front
         let mut paths = env_results.env_paths.into_iter().chain(paths).collect();
@@ -165,7 +190,7 @@ impl Toolset {
         tool_paths.extend(env_results.tool_add_paths);
 
         // Tool installation paths
-        tool_paths.extend(self.list_paths(config).await);
+        tool_paths.extend(self.list_paths_for_query(config).await?);
 
         Ok((user_paths, tool_paths))
     }

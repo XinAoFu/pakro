@@ -482,6 +482,16 @@ impl EnvResults {
         };
 
         for (directive, source) in filtered_input {
+            eyre::ensure!(
+                !crate::config::readonly_invocation()
+                    || !matches!(
+                        &directive,
+                        EnvDirective::Source(..)
+                            | EnvDirective::Module(..)
+                            | EnvDirective::PythonVenv { create: true, .. }
+                    ),
+                "dynamic environment providers are unavailable during read-only target admission or local queries"
+            );
             let mut tera = None;
             // trace!(
             //     "resolve: directive: {:?}, source: {:?}",

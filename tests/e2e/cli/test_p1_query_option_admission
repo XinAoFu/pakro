@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Query targets with install/build options must be rejected before inspecting
+# inventory, even when that inventory is empty or damaged.
+mkdir query-options
+cd query-options
+cat >pakro.toml <<'TOML'
+[tools]
+python = "3.13.99"
+[alias.py]
+backend = "core:python"
+[alias.py-compile]
+backend = "core:python[compile=true]"
+TOML
+p1_before="$(cksum pakro.toml)"
+for command in \
+  "where 'python[compile=true]@3.13.16'" \
+  "where 'python[compile=true]' 3.13" \
+  "where 'core:python[compile=true]@3.13.16'" \
+  "where 'py[compile=true]@3.13.16'" \
+  "where py-compile@3.13.16" \
+  "env 'python[compile=true]@3.13.16' --json" \
+  "env node@22 'python[compile=true]@3.13.16' --json" \
+  "which python --tool='python[compile=true]@3.13.16'" \
+  "which --complete --tool='python[compile=true]@3.13.16'" \
+  "bin-paths 'python[compile=true]@3.13.16' --json" \
+  "bin-paths node@22 'python[compile=true]@3.13.16' --json" \
+  "current 'python[compile=true]'" \
+  "ls 'python[compile=true]' --json" \
+  "installs ls 'python[compile=true]' --json"; do
+  assert_fail_contains "pakro $command 2>&1" 'do not support runtime options'
+done
+if pakro env 'python[compile=true]@3.13.16' --json >"$TMPDIR/p1-option.stdout" 2>"$TMPDIR/p1-option.stderr"; then
+  fail 'unsupported query options unexpectedly succeeded'
+fi
+[[ ! -s "$TMPDIR/p1-option.stdout" && -s "$TMPDIR/p1-option.stderr" ]] || fail 'query-option diagnostics contaminated JSON stdout'
+[[ $(cksum pakro.toml) == "$p1_before" ]] || fail 'query-option rejection changed project declarations'
+for library in languages packages projects; do
+  [[ ! -e "$PAKRO_DATA_DIR/$library" ]] || fail "query-option rejection initialized $library"
+done
+for tracking in tracked-configs tracked-stubs; do
+  [[ ! -e "$PAKRO_STATE_DIR/$tracking" ]] || fail "query-option rejection wrote $tracking"
+done
+# Options win over a damaged-library error as well: this is argument admission.
+printf 'invalid library root\n' >"$PAKRO_DATA_DIR/languages"
+assert_fail_contains "pakro where 'python[compile=true]@3.13.16' 2>&1" 'do not support runtime options'

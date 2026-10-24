@@ -196,7 +196,7 @@ impl AsdfBackend {
             //     }
             // }
             Settings::ensure_not_safe("executing asdf plugin scripts")?;
-            let output = sm.cmd(&Script::ListBinPaths).read()?;
+            let output = sm.cmd(&Script::ListBinPaths)?.read()?;
             output
                 .split_whitespace()
                 .map(|f| {
@@ -218,10 +218,12 @@ impl AsdfBackend {
         ts: &Toolset,
         tv: &ToolVersion,
     ) -> Result<EnvMap> {
+        self.plugin.script_man.ensure_execution_allowed()?;
         let mut sm = self.script_man_for_tv(config, tv).await?;
         for p in ts.list_paths(config).await {
             sm.prepend_path(p);
         }
+        sm.prepare_execution()?;
         let script = sm.get_script_path(&ExecEnv);
         let dir = dirs::CWD.clone().unwrap_or_default();
         let ed = EnvDiff::from_bash_script(&script, &dir, &sm.env, &Default::default())?;
@@ -427,7 +429,9 @@ impl Backend for AsdfBackend {
         .to_string();
         let idiomatic_version = normalize_idiomatic_contents(&idiomatic_version);
 
-        self.write_idiomatic_cache(idiomatic_file, &idiomatic_version)?;
+        if !crate::config::readonly_invocation() {
+            self.write_idiomatic_cache(idiomatic_file, &idiomatic_version)?;
+        }
         if idiomatic_version.is_empty() {
             return Ok(vec![]);
         }
@@ -514,6 +518,9 @@ impl Backend for AsdfBackend {
             // the second is to prevent infinite loops
             return Ok(BTreeMap::new());
         }
+        // Reject before cache lookup/key rendering as well as before the sourced
+        // execution path. Cached exec-env output is not a verified local fact.
+        self.plugin.script_man.ensure_execution_allowed()?;
         let res = self
             .cache
             .exec_env(config, self, tv, async || {

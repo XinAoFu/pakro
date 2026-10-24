@@ -1,5 +1,31 @@
 pub use pakro_util::tera::*;
 
+/// Preserve the configured renderer and pure template functions while denying
+/// command execution during local observation and startup target admission.
+pub fn render_str(
+    renderer: &mut TeraEngine,
+    input: &str,
+    context: &::tera::Context,
+) -> ::tera::TeraResult<String> {
+    if crate::config::readonly_invocation() {
+        match renderer {
+            TeraEngine::V2(renderer) => renderer.register_function(
+                "exec",
+                |_: ::tera::Kwargs, _: &::tera::State| -> ::tera::TeraResult<::tera::Value> {
+                    Err(::tera::Error::message("exec() is unavailable during read-only target admission or local queries"))
+                },
+            ),
+            TeraEngine::V1(renderer) => renderer.register_function(
+                "exec",
+                |_: &std::collections::HashMap<String, serde_json::Value>| -> ::tera1::Result<serde_json::Value> {
+                    Err(::tera1::Error::msg("exec() is unavailable during read-only target admission or local queries"))
+                },
+            ),
+        }
+    }
+    pakro_util::tera::render_str(renderer, input, context)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

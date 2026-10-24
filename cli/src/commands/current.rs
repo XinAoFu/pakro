@@ -40,19 +40,31 @@ pub(crate) struct Current {
 }
 
 impl Current {
+    pub(super) fn explicitly_non_python(&self) -> bool {
+        self.plugin
+            .as_ref()
+            .is_some_and(|tool| !crate::programs::python::is_python_backend(tool))
+    }
+
     pub(crate) async fn run(self) -> Result<()> {
+        if let Some(tool) = &self.plugin {
+            crate::programs::python::validate_python_query_options(tool)?;
+        }
         if self
             .plugin
             .as_ref()
-            .is_none_or(|plugin| plugin.short == "python")
+            .is_none_or(|plugin| crate::programs::python::is_python_backend(plugin))
         {
             let report = crate::programs::library::local_project()?;
-            let has_python = report.current.is_some();
             if let Some(current) = report.current {
+                let version = current
+                    .resolved_version
+                    .as_deref()
+                    .unwrap_or(&current.requested);
                 if self.plugin.is_none() {
-                    pakroprintln!("python {}", current.requested);
+                    pakroprintln!("python {}", version);
                 } else {
-                    pakroprintln!("{}", current.requested);
+                    pakroprintln!("{}", version);
                 }
                 if current.status != "ready" {
                     warn!(
@@ -68,10 +80,11 @@ impl Current {
             {
                 return Ok(());
             }
-            if has_python {
+            {
                 let config = Config::get().await?;
                 let mut ts = ToolsetBuilder::new().build_unresolved(&config)?;
-                ts.versions.retain(|backend, _| backend.short != "python");
+                ts.versions
+                    .retain(|backend, _| !crate::programs::python::is_python_backend(backend));
                 if let Err(error) = ts
                     .resolve_with_opts(
                         &config,
@@ -88,7 +101,11 @@ impl Current {
             }
         }
         let config = Config::get().await?;
-        let ts = ToolsetBuilder::new().build(&config).await?;
+        let mut ts = ToolsetBuilder::new().build_unresolved(&config)?;
+        if let Some(requested) = &self.plugin {
+            ts.versions.retain(|backend, _| **backend == *requested);
+        }
+        ts.resolve(&config).await?;
         match &self.plugin {
             Some(ba) => {
                 if let Some(plugin) = ba.backend()?.plugin()

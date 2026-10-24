@@ -29,6 +29,22 @@ use crate::ui::multi_progress_report::MultiProgressReport;
 use crate::{backend, config, hooks, runtime_symlinks, shims};
 
 impl Toolset {
+    /// Verify one decoded request and its declared install dependencies before
+    /// entering any legacy acquisition path. The error does not grant IO rights.
+    pub fn ensure_python_install_admission(request: &ToolRequest) -> Result<()> {
+        #[cfg(unix)]
+        {
+            use crate::programs::python::{PythonWriteOperation, reject_python_write};
+            reject_python_write(PythonWriteOperation::LegacyInstall, request.ba())?;
+            let dependencies = install_dependency_declarations(request);
+            dependencies.validate()?;
+            for dependency in dependencies.iter() {
+                reject_python_write(PythonWriteOperation::LegacyInstall, dependency)?;
+            }
+        }
+        Ok(())
+    }
+
     async fn missing_lazy_bin_provider(
         &self,
         config: &Arc<Config>,
@@ -310,6 +326,19 @@ impl Toolset {
         opts: &InstallOptions,
         progress: Option<Box<dyn InstallProgress>>,
     ) -> Result<Vec<ToolVersion>> {
+        // A ready shared environment may pass through Exec's generic install
+        // check with an empty toolset. There is no acquisition to perform and
+        // read-only execution must not opportunistically install env plugins.
+        if crate::config::readonly_invocation() && versions.is_empty() {
+            return Ok(vec![]);
+        }
+        for request in &versions {
+            Self::ensure_python_install_admission(request)?;
+        }
+        eyre::ensure!(
+            !crate::config::readonly_invocation(),
+            "a local query cannot install tools or plugins"
+        );
         if versions.is_empty() {
             // Configured plugins are still installed when no tools need work
             // (for example, env-only plugins).
@@ -1136,6 +1165,40 @@ async fn installed_version_ships_bin(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn p1_unknown_dependency_metadata_refuses_the_batch_before_plugin_setup() {
+        let baseline = Config::get().await.unwrap();
+        let mut config = baseline.with_config_files(Default::default()).unwrap();
+        let sentinel = format!("p1-admission-unexpected-{}", std::process::id());
+        let plugin_path = crate::dirs::PLUGINS.join(&sentinel);
+        assert!(!plugin_path.exists());
+        Arc::get_mut(&mut config).unwrap().repo_urls.insert(
+            sentinel,
+            "file:///p1-admission-must-not-attempt-plugin-install".into(),
+        );
+        let unknown = ToolRequest::new(
+            Arc::new(crate::args::BackendArg::from("p1-unsupported:p1-unknown")),
+            "1.0.0",
+            ToolSource::Argument,
+        )
+        .unwrap();
+        let error = Toolset::default()
+            .install_all_versions_with_progress(
+                &mut config,
+                vec![unknown],
+                &InstallOptions::default(),
+                None,
+            )
+            .await
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("p1-unsupported"), "{error:#}");
+        assert!(
+            !plugin_path.exists(),
+            "batch performed plugin setup before admission"
+        );
+    }
     use crate::args::BackendArg;
     use crate::toolset::parse_tool_options;
 

@@ -24,7 +24,7 @@ thread_local! {
     static FULL_INVENTORY_CHECKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 #[cfg(test)]
-pub(in crate::libraries) fn full_inventory_checks() -> usize {
+pub(crate) fn full_inventory_checks() -> usize {
     FULL_INVENTORY_CHECKS.with(|count| count.get())
 }
 

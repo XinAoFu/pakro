@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Real CLI entrypoints must reject the entire batch before startup maintenance,
+# plugin execution, declaration edits, package-manager execution or installation.
+export PAKRO_AUTO_UPDATE=1 PAKRO_AUTO_UPDATE_CHECK_DURATION=0s PAKRO_OFFLINE=0
+export PAKRO_CACHE_PRUNE_AGE=1ns PAKRO_UPGRADE_AUTO_PRUNE=1
+export NO_PROXY=127.0.0.1,localhost,::1
+export no_proxy="$NO_PROXY"
+request_log="$TMPDIR/p1-requests"
+mkdir -p "$request_log"
+start_http_server --headers-log "$request_log"
+export PAKRO_URL_REPLACEMENTS="{\"https://pypi.org\":\"http://127.0.0.1:$HTTP_PORT\",\"https://files.pythonhosted.org\":\"http://127.0.0.1:$HTTP_PORT\",\"https://github.com\":\"http://127.0.0.1:$HTTP_PORT\",\"https://api.github.com\":\"http://127.0.0.1:$HTTP_PORT\",\"https://mise-versions.jdx.dev\":\"http://127.0.0.1:$HTTP_PORT\",\"https://mise.jdx.dev\":\"http://127.0.0.1:$HTTP_PORT\",\"https://downloads.python.org\":\"http://127.0.0.1:$HTTP_PORT\",\"https://pypy.org\":\"http://127.0.0.1:$HTTP_PORT\"}"
+mkdir p1-admission
+cd p1-admission
+cat >pakro.toml <<'TOML'
+[tools]
+python = "3.13.99"
+[alias.py]
+backend = "core:python"
+TOML
+mkdir -p "$PAKRO_DATA_DIR/plugins/gradle/bin"
+git init --quiet "$PAKRO_DATA_DIR/plugins/gradle"
+git -C "$PAKRO_DATA_DIR/plugins/gradle" config remote.origin.url https://github.com/rfrancis/asdf-gradle.git
+cat >"$PAKRO_DATA_DIR/plugins/gradle/bin/list-all" <<'SH'
+#!/bin/sh
+touch "$HOME/p1-plugin-executed"
+exit 91
+SH
+chmod +x "$PAKRO_DATA_DIR/plugins/gradle/bin/list-all"
+
+cat >"$PAKRO_STATE_DIR/tool-purgatory.json" <<JSON
+{"schema_version":1,"entries":{"p1-due-receipt":{"install_path":"$PAKRO_DATA_DIR/installs/dummy/0","display":"dummy@0","remove_after":0}}}
+JSON
+
+p1_snapshot() {
+  find "$PAKRO_DATA_DIR" "$PAKRO_STATE_DIR" "$PAKRO_CACHE_DIR" "$PAKRO_CONFIG_DIR" "$PWD" \
+    -type f -exec cksum {} \; | LC_ALL=C sort
+  find "$PAKRO_DATA_DIR" "$PAKRO_STATE_DIR" "$PAKRO_CACHE_DIR" "$PAKRO_CONFIG_DIR" "$PWD" \
+    -print | LC_ALL=C sort
+}
+before="$(p1_snapshot)"
+reject_write() {
+  local output
+  if output="$(pakro "$@" 2>&1)"; then
+    fail "unsupported Python write succeeded: $*"
+  fi
+  [[ $output == *Python* || $output == *'shared Python'* || $output == *install-into* ]] ||
+    fail "wrong admission diagnosis for '$*': $output"
+  [[ -z $(find "$request_log" -type f -print -quit) ]] || fail "unexpected HTTP acquisition for $*"
+  local after
+  after="$(p1_snapshot)"
+  if [[ "$after" != "$before" ]]; then
+    diff -u <(printf '%s\n' "$before") <(printf '%s\n' "$after") >&2 || true
+    fail "admission changed state for '$*': $output"
+  fi
+  [[ ! -e $HOME/p1-plugin-executed ]] || fail "admission executed a plugin for '$*'"
+}
+reject_write use python@3.13.99
+reject_write u dummy@1 python@3.13.99
+reject_write use --remove python
+reject_write use 'python@3.13.99+example@1.0.0'
+reject_write use py@3.13.99
+reject_write use 'dummy[depends=["python"]]'
+reject_write upgrade python
+reject_write up
+reject_write upgrade 'dummy[depends=["python"]]'
+reject_write unuse --no-prune python
+reject_write rm python
+reject_write deps add pip:example
+reject_write deps add npm:example uv:example
+reject_write deps remove poetry:example
+reject_write deps install pip
+reject_write deps install --only uv
+reject_write deps install --monorepo
+reject_write prune python
+reject_write prune
+reject_write install --force python@3.13.99
+reject_write --force install python@3.13.99
+reject_write install dummy@1 python@3.13.99
+reject_write install 'dummy[depends=["python"]]'
+reject_write install-into python@3.13.99 "$PWD/new-parent/python"
+reject_write install-into dummy@1 "$PWD/new-parent/dummy"
+
+# Explicit independent non-Python requests keep their ordinary path, even
+# while the current directory declares Python. No real runtime is fetched.
+assert_succeed 'pakro use --dry-run dummy@1'
+[[ $(cat pakro.toml) == *'python = "3.13.99"'* ]] || fail 'non-Python use changed Python declaration'

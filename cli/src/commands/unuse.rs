@@ -52,7 +52,22 @@ pub(crate) struct Unuse {
 }
 
 impl Unuse {
+    pub(super) async fn preflight(&self) -> Result<()> {
+        #[cfg(unix)]
+        {
+            let _config = super::read_config_for_admission().await?;
+            for tool in &self.installed_tool {
+                crate::programs::python::reject_python_write(
+                    crate::programs::python::PythonWriteOperation::Unuse,
+                    &tool.ba,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) async fn run(self) -> Result<()> {
+        self.preflight().await?;
         let config = Config::get().await?;
         let requests = config.get_tool_request_set().await?;
         for ta in &self.installed_tool {

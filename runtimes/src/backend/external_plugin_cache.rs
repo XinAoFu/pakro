@@ -28,6 +28,12 @@ impl ExternalPluginCache {
         Fut: Future<Output = eyre::Result<Vec<String>>>,
         F: FnOnce() -> Fut,
     {
+        // The fallback may be a pure default-bin projection. It must still
+        // pass the script guard when a plugin needs executable metadata, and
+        // read-only calls must never populate a persistent cache.
+        if crate::config::readonly_invocation() {
+            return fetch().await;
+        }
         let cm = self
             .list_bin_paths
             .entry(tv.request.clone())
@@ -66,6 +72,9 @@ impl ExternalPluginCache {
         Fut: Future<Output = eyre::Result<EnvMap>>,
         F: FnOnce() -> Fut,
     {
+        if crate::config::readonly_invocation() {
+            return fetch().await;
+        }
         let cm = self.exec_env.entry(tv.request.clone()).or_insert_with(|| {
             let exec_env_filename = match &plugin.toml.exec_env.cache_key {
                 Some(key) => {

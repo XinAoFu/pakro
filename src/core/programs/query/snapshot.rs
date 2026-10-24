@@ -11,16 +11,19 @@ use thiserror::Error;
 use crate::libraries::language::identity::LanguageKey;
 use crate::libraries::project::snapshot::ObservedProjectInputs;
 use crate::programs::shared::context::OperationContext;
-use crate::programs::shared::exact_version::ExactPythonRequest;
 
 #[derive(Debug, Error)]
 pub(crate) enum QueryError {
-    #[error("operation deadline expired or was cancelled")]
-    Cancelled,
-    #[error("observed project inputs changed; observe the project again")]
-    StaleInput,
+    #[error(transparent)]
+    Operation(#[from] crate::programs::shared::errors::OperationError),
+    #[error(transparent)]
+    Observation(#[from] crate::libraries::project::snapshot::ProjectObservationError),
     #[error("language library state is unreadable: {0}")]
     Unreadable(String),
+    #[error(
+        "shared Python local queries do not support runtime options for {0}; select an installed version or build explicitly"
+    )]
+    UnsupportedBackendOptions(String),
 }
 
 /// One published local instance, described from its real manifest and payload
@@ -31,6 +34,7 @@ pub(crate) struct LanguageCandidate {
     root: PathBuf,
     entrypoint: PathBuf,
     version: String,
+    exact_version: String,
 }
 
 impl LanguageCandidate {
@@ -44,6 +48,7 @@ impl LanguageCandidate {
             key,
             root,
             entrypoint,
+            exact_version: version.clone(),
             version,
         }
     }
@@ -55,6 +60,9 @@ impl LanguageCandidate {
     }
     pub(crate) fn entrypoint(&self) -> &Path {
         &self.entrypoint
+    }
+    pub(crate) fn exact_version(&self) -> &str {
+        &self.exact_version
     }
     pub(crate) fn version(&self) -> &str {
         &self.version
@@ -72,10 +80,10 @@ pub(crate) enum SelectionReport {
         requested: String,
     },
     Missing {
-        requested: ExactPythonRequest,
+        requested: String,
     },
     Ambiguous {
-        requested: ExactPythonRequest,
+        requested: String,
         candidates: Vec<LanguageCandidate>,
     },
     Corrupt {
@@ -94,8 +102,8 @@ pub(crate) fn open_query_context<'a>(
     context: &OperationContext,
     observed: &'a ObservedProjectInputs,
 ) -> Result<QueryContext<'a>, QueryError> {
-    context.checkpoint().map_err(|_| QueryError::Cancelled)?;
-    observed.recheck().map_err(|_| QueryError::StaleInput)?;
+    context.checkpoint()?;
+    observed.recheck()?;
     Ok(QueryContext {
         context: context.clone(),
         observed,
@@ -106,33 +114,52 @@ pub(crate) fn open_query_context<'a>(
 /// Only real manifests of the shared language library are considered; nothing
 /// is acquired and no remote source is contacted for a missing item.
 pub(crate) fn select_existing(query: &QueryContext<'_>) -> Result<SelectionReport, QueryError> {
-    query
-        .context
-        .checkpoint()
-        .map_err(|_| QueryError::Cancelled)?;
-    query
-        .observed
-        .recheck()
-        .map_err(|_| QueryError::StaleInput)?;
-    let Some(raw) = effective_python_declaration(query.observed) else {
+    select_target(query, None)
+}
+
+/// An explicit prefix is a local inventory filter only. Project declarations
+/// still require a complete exact version and never acquire a latest release.
+pub(crate) fn select_target(
+    query: &QueryContext<'_>,
+    target: Option<&str>,
+) -> Result<SelectionReport, QueryError> {
+    query.context.checkpoint()?;
+    query.observed.recheck()?;
+    if target.is_none()
+        && let Some(backend) = effective_python_backend_options(query.observed)
+    {
+        return Err(QueryError::UnsupportedBackendOptions(backend));
+    }
+    let declared = effective_python_declaration(query.observed);
+    let Some(raw) = target.map(str::to_owned).or_else(|| declared.clone()) else {
         return Ok(SelectionReport::NoLanguageRequest);
     };
-    let requested = match crate::programs::shared::exact_version::exact_python_request(&raw) {
-        Ok(request) => request,
-        Err(_) => {
-            return Ok(SelectionReport::InvalidDeclaration { requested: raw });
-        }
-    };
-    let runtime_pin =
-        crate::libraries::project::runtime_pin::observed_runtime_pin(query.observed, &requested)
+    let exact = crate::programs::shared::exact_version::exact_python_request(&raw).ok();
+    let prefix = target.is_some() && local_prefix(&raw);
+    if exact.is_none() && !prefix {
+        return Ok(SelectionReport::InvalidDeclaration { requested: raw });
+    }
+    // The current project's runtime pin applies only when querying its own
+    // exact declaration. An override never inherits a different runtime pin.
+    let runtime_pin = if target.is_none() || declared.as_deref() == Some(raw.as_str()) {
+        match &exact {
+            Some(requested) => crate::libraries::project::runtime_pin::observed_runtime_pin(
+                query.observed,
+                requested,
+            )
             .map_err(|error| {
                 QueryError::Unreadable(format!("project runtime source pin is unusable: {error:#}"))
-            })?;
+            })?,
+            None => None,
+        }
+    } else {
+        None
+    };
     if let Some(pin) = &runtime_pin {
         // Validate the fixed source even when the local library is empty. A
         // malformed commitment must not be disguised as an uninstalled item.
         crate::plugins::core::python::pinned_shared_language_spec(
-            requested.as_str(),
+            &raw,
             pin,
             false,
             query.context.settings(),
@@ -158,18 +185,23 @@ pub(crate) fn select_existing(query: &QueryContext<'_>) -> Result<SelectionRepor
     let mut matching: Vec<_> = published
         .into_iter()
         .filter(|language| {
-            language.version() == requested.version_only()
-                && language.matches_host_platform()
-                && requested
-                    .build_pin()
-                    .is_none_or(|pin| language.build() == Some(pin))
+            language.matches_host_platform()
+                && match &exact {
+                    Some(requested) => {
+                        language.version() == requested.version_only()
+                            && requested
+                                .build_pin()
+                                .is_none_or(|pin| language.build() == Some(pin))
+                    }
+                    None => language.version().starts_with(&format!("{raw}.")),
+                }
         })
         .collect();
     if let Some(pin) = runtime_pin {
         let mut pinned = Vec::new();
         for language in matching {
             let expected = crate::plugins::core::python::pinned_shared_language_spec(
-                requested.as_str(),
+                &raw,
                 &pin,
                 language.spec().patch_sysconfig(),
                 query.context.settings(),
@@ -192,15 +224,20 @@ pub(crate) fn select_existing(query: &QueryContext<'_>) -> Result<SelectionRepor
     }
     matching.sort_by_key(|language| language.key().fingerprint());
     let into_candidate = |language: crate::libraries::language::repository::PublishedLanguage| {
-        LanguageCandidate::new(
+        let mut candidate = LanguageCandidate::new(
             language.key(),
             language.payload_root().to_path_buf(),
             language.entrypoint().to_path_buf(),
             language.version(),
-        )
+        );
+        candidate.exact_version = language.build().map_or_else(
+            || language.version(),
+            |build| format!("{}+{build}", language.version()),
+        );
+        candidate
     };
     if matching.is_empty() {
-        return Ok(SelectionReport::Missing { requested });
+        return Ok(SelectionReport::Missing { requested: raw });
     }
     if matching.len() == 1 {
         return Ok(SelectionReport::Selected(into_candidate(
@@ -208,23 +245,120 @@ pub(crate) fn select_existing(query: &QueryContext<'_>) -> Result<SelectionRepor
         )));
     }
     Ok(SelectionReport::Ambiguous {
-        requested,
+        requested: raw,
         candidates: matching.into_iter().map(into_candidate).collect(),
     })
+}
+
+fn local_prefix(raw: &str) -> bool {
+    let parts: Vec<_> = raw.split('.').collect();
+    (1..=2).contains(&parts.len())
+        && parts.iter().all(|part| {
+            !part.is_empty()
+                && part.bytes().all(|byte| byte.is_ascii_digit())
+                && (part.len() == 1 || !part.starts_with('0'))
+        })
+}
+
+/// Resolve only inert backend identity from the same frozen declarations.
+/// Never ask a plugin or a second Config observation to classify ownership.
+fn frozen_backend_name<'a>(observed: &'a ObservedProjectInputs, requested: &'a str) -> &'a str {
+    let name = crate::args::split_bracketed_opts(requested).map_or(requested, |(name, _)| name);
+    // Match Config::load_aliases and PakroToml::aliases without consulting a
+    // second Config: later backends win; current entries replace legacy ones.
+    observed
+        .declarations()
+        .filter_map(|(_, declarations)| {
+            let fields = &declarations.unprojected_fields;
+            fields
+                .get("tool_alias")
+                .and_then(|section| section.get(name))
+                .or_else(|| fields.get("alias").and_then(|section| section.get(name)))?
+                .get("backend")?
+                .as_str()
+        })
+        .last()
+        .unwrap_or(requested)
+}
+
+pub(crate) fn python_tool_name(observed: &ObservedProjectInputs, name: &str) -> bool {
+    let backend = frozen_backend_name(observed, name);
+    let base = crate::args::split_bracketed_opts(backend).map_or(backend, |(base, _)| base);
+    matches!(base, "python" | "core:python" | "asdf:python")
+}
+
+fn python_backend_options(observed: &ObservedProjectInputs, name: &str) -> Option<String> {
+    let backend = frozen_backend_name(observed, name);
+    (crate::args::split_bracketed_opts(name).is_some()
+        || crate::args::split_bracketed_opts(backend).is_some())
+    .then(|| format!("{name} ({backend})"))
+}
+
+fn effective_python_backend_options(observed: &ObservedProjectInputs) -> Option<String> {
+    if observed.scope() != crate::libraries::project::snapshot::ReadScope::LocalOnly {
+        let names: Vec<_> = observed
+            .environment()
+            .keys()
+            .filter_map(|key| crate::toolset::tool_from_env_var_name(key))
+            .filter(|name| python_tool_name(observed, name))
+            .collect();
+        if !names.is_empty() {
+            return names
+                .iter()
+                .find_map(|name| python_backend_options(observed, name));
+        }
+    }
+    for (_, declarations) in observed.declarations() {
+        let mut tools = declarations
+            .tools
+            .iter()
+            .filter(|tool| python_tool_name(observed, &tool.name))
+            .peekable();
+        if tools.peek().is_some() {
+            return tools.find_map(|tool| python_backend_options(observed, &tool.name));
+        }
+    }
+    None
 }
 
 /// Config discovery is ordered from nearest/highest-priority document to
 /// ancestors and defaults. The first document declaring Python wins, using
 /// the same order as the snapshot's effective-package merge kernel.
 pub(crate) fn effective_python_declaration(observed: &ObservedProjectInputs) -> Option<String> {
+    if observed.scope() != crate::libraries::project::snapshot::ReadScope::LocalOnly {
+        let mut versions: Vec<_> = observed
+            .environment()
+            .iter()
+            .filter_map(|(key, value)| {
+                let name = crate::toolset::tool_from_env_var_name(key)?;
+                python_tool_name(observed, &name).then_some(value.as_str())
+            })
+            .collect();
+        versions.dedup();
+        if !versions.is_empty() {
+            if let Some(backend) = effective_python_backend_options(observed) {
+                return Some(format!("unsupported Python backend options for {backend}"));
+            }
+            return Some(versions.join(" "));
+        }
+    }
     observed.declarations().find_map(|(_, declarations)| {
         let tools: Vec<_> = declarations
             .tools
             .iter()
-            .filter(|tool| tool.name == "python")
+            .filter(|tool| python_tool_name(observed, &tool.name))
             .collect();
         if tools.is_empty() {
             return None;
+        }
+        if let Some(tool) = tools
+            .iter()
+            .find(|tool| python_backend_options(observed, &tool.name).is_some())
+        {
+            return Some(format!(
+                "unsupported Python backend options for {}",
+                tool.name
+            ));
         }
         if let Some(tool) = tools.iter().find(|tool| tool.selector != "version") {
             return Some(format!(

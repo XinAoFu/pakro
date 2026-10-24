@@ -157,7 +157,23 @@ impl ScriptManager {
         self.get_script_path(script).is_file()
     }
 
-    pub(crate) fn cmd(&self, script: &Script) -> Expression {
+    /// Shared by executable and sourced-script entrypoints. Merely obtaining
+    /// a script path never authorizes executing it or creating compatibility files.
+    pub(crate) fn ensure_execution_allowed(&self) -> Result<()> {
+        eyre::ensure!(
+            !crate::config::readonly_invocation(),
+            "plugin scripts are unavailable during read-only target admission or local queries"
+        );
+        Ok(())
+    }
+
+    pub(crate) fn prepare_execution(&self) -> Result<()> {
+        self.ensure_execution_allowed()?;
+        crate::fake_asdf::setup().map(|_| ())
+    }
+
+    pub(crate) fn cmd(&self, script: &Script) -> Result<Expression> {
+        self.prepare_execution()?;
         let args = match script {
             Script::ParseIdiomaticFile(filename) => vec![filename.clone()],
             Script::RunExternalCommand(_, args) => args.clone(),
@@ -173,12 +189,12 @@ impl ScriptManager {
             // ignore stdin, otherwise a prompt may show up where the user won't see it
             cmd = cmd.stdin_null();
         }
-        cmd
+        Ok(cmd)
     }
 
     pub(crate) fn read(&self, script: &Script) -> Result<String> {
         Settings::ensure_not_safe("executing asdf plugin scripts")?;
-        let mut cmd = self.cmd(script);
+        let mut cmd = self.cmd(script)?;
         let settings = &Settings::try_get()?;
         if !settings.verbose {
             cmd = cmd.stderr_null();
@@ -188,6 +204,7 @@ impl ScriptManager {
     }
 
     pub(crate) fn run_by_line(&self, script: &Script, pr: &dyn SingleReport) -> Result<()> {
+        self.prepare_execution()?;
         Settings::ensure_not_safe("executing asdf plugin scripts")?;
         let path = self.get_script_path(script);
         pr.set_message(display_path(&path));

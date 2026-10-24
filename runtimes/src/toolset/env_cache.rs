@@ -304,6 +304,9 @@ impl CachedEnv {
 
     /// Returns true if env caching is enabled and we have an encryption key
     pub(crate) fn is_enabled() -> bool {
+        if crate::config::readonly_invocation() {
+            return false;
+        }
         Settings::get().env_cache && get_encryption_key().is_some()
     }
 
@@ -451,6 +454,9 @@ impl CachedNonToolEnv {
 
     /// Returns true if env caching is enabled and we have an encryption key
     pub(crate) fn is_enabled() -> bool {
+        if crate::config::readonly_invocation() {
+            return false;
+        }
         Settings::get().env_cache && get_encryption_key().is_some()
     }
 }

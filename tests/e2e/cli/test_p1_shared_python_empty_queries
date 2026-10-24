@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Empty shared libraries remain authoritative even when old Python is present.
+mkdir empty-query
+cd empty-query
+printf '[tools]\npython = "3.13.99"\n' >pakro.toml
+mkdir -p "$PAKRO_DATA_DIR/installs/python/3.13.99/bin"
+cat >"$PAKRO_DATA_DIR/installs/python/3.13.99/bin/python" <<'PYTHON'
+#!/bin/sh
+printf 'OLD_PYTHON_MUST_NOT_RUN\n'
+exit 93
+PYTHON
+chmod +x "$PAKRO_DATA_DIR/installs/python/3.13.99/bin/python"
+export PAKRO_NOT_FOUND_AUTO_INSTALL=1 PAKRO_NOT_FOUND_AUTO_INSTALL_REGISTRY=1
+assert 'pakro installs ls python --json' '[]'
+assert 'pakro ls python --json | jq -r ".instances | length"' '0'
+assert 'pakro ls python node --json | jq -r ".instances | length"' '0'
+assert 'pakro ls python node --json | jq -r "has(\"python\")"' 'false'
+assert_fail_contains 'pakro ls python node --grouped 2>&1' 'does not support'
+assert 'pakro current python 2>/dev/null' '3.13.99'
+assert_fail_contains 'pakro where python 2>&1' 'shared'
+assert_fail_contains 'pakro which python 2>&1' 'shared'
+assert_fail_contains 'pakro bin-paths python --json 2>&1' 'shared'
+# Errors keep stdout clear, including JSON mode.
+if pakro env --json >env.json 2>env.err; then fail 'missing Python env query succeeded'; fi
+[[ ! -s env.json && -s env.err ]] || fail 'JSON error mixed diagnostics into stdout'
+rm env.json env.err
+for library in languages packages projects; do
+  [[ ! -e "$PAKRO_DATA_DIR/$library" ]] || fail "query initialized $library library"
+done
+for tracking in tracked-configs tracked-stubs; do
+  [[ ! -e "$PAKRO_STATE_DIR/$tracking" ]] || fail "query wrote legacy $tracking"
+done
+[[ $(find . -mindepth 1 -print | wc -l | tr -d ' ') == 1 ]] || fail 'query wrote project metadata'
+# An independent non-Python query does not need to open even a malformed
+# Python library. The normal dummy backend supplies a real installed command.
+assert_succeed 'pakro install dummy@1.0.0'
+printf 'malformed library root\n' >"$PAKRO_DATA_DIR/languages"
+assert_fail 'pakro ls python --json'
+assert 'pakro where dummy@1.0.0' "$PAKRO_DATA_DIR/installs/dummy/1.0.0"
+assert 'pakro which dummy --tool=dummy@1.0.0' "$PAKRO_DATA_DIR/installs/dummy/1.0.0/bin/dummy"
+assert 'pakro bin-paths dummy@1.0.0' "$PAKRO_DATA_DIR/installs/dummy/1.0.0/bin"
+assert_fail 'pakro env dummy@1.0.0 --json'
+assert 'pakro --no-config env dummy@1.0.0 --json | jq -r ".PATH | split(\":\")[0]"' "$PAKRO_DATA_DIR/installs/dummy/1.0.0/bin"
+assert_succeed 'pakro current dummy'
+assert_succeed 'pakro ls dummy --json | jq -e "type == \"array\""'
+assert_succeed 'pakro installs ls dummy --json | jq -e "type == \"array\""'

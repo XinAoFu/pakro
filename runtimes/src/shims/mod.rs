@@ -102,7 +102,7 @@ pub fn task_tool_args_from_env() -> Result<Vec<ToolArg>> {
 #[cfg(unix)]
 pub fn configured_non_python_provider(ts: &Toolset, command: &str) -> bool {
     ts.versions.keys().any(|backend| {
-        backend.short != "python"
+        !crate::programs::python::is_python_backend(backend)
             && (backend.matches_bin_name(command)
                 || crate::registry::REGISTRY
                     .get(&backend.short)
@@ -115,7 +115,7 @@ pub fn configured_non_python_provider(ts: &Toolset, command: &str) -> bool {
 #[cfg(unix)]
 pub fn select_shared_python_command(ts: &Toolset, command: &str) -> Result<Option<PathBuf>> {
     use crate::programs::directory::{DirectoryCommandSelection, select_directory_command};
-    if command.contains(['/', '\\']) {
+    if command.contains(['/', '\\']) || configured_non_python_provider(ts, command) {
         return Ok(None);
     }
     match select_directory_command(command)? {
@@ -143,8 +143,12 @@ pub async fn install_missing_wrapper_command(
             return Ok(());
         }
         // No later lazy or auto-install branch can regain a Python provider.
-        ts.versions.retain(|backend, _| backend.short != "python");
+        ts.versions
+            .retain(|backend, _| !crate::programs::python::is_python_backend(backend));
     }
+    // This helper is reached only by an actual wrapper invocation. Shared
+    // Python lookup has already refused every unavailable Python command.
+    crate::config::set_readonly_invocation(false);
     // Match which_shim: a configured registry provider wins over an incidental install.
     if Settings::get().not_found_auto_install
         && ts

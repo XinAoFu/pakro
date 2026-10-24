@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# Exercise the real run_inner startup path with maintenance and auto-install
+# enabled. Missing shared content must not revive a legacy Python installation.
+export PAKRO_AUTO_UPDATE=1 PAKRO_AUTO_UPDATE_CHECK_DURATION=0s PAKRO_OFFLINE=0
+export PAKRO_CACHE_PRUNE_AGE=1ns PAKRO_UPGRADE_AUTO_PRUNE=1
+export NO_PROXY=127.0.0.1,localhost,::1
+export no_proxy="$NO_PROXY"
+request_log="$TMPDIR/p1-requests"
+mkdir -p "$request_log"
+start_http_server --headers-log "$request_log"
+export PAKRO_URL_REPLACEMENTS="{\"https://pypi.org\":\"http://127.0.0.1:$HTTP_PORT\",\"https://files.pythonhosted.org\":\"http://127.0.0.1:$HTTP_PORT\",\"https://github.com\":\"http://127.0.0.1:$HTTP_PORT\",\"https://api.github.com\":\"http://127.0.0.1:$HTTP_PORT\",\"https://mise-versions.jdx.dev\":\"http://127.0.0.1:$HTTP_PORT\",\"https://mise.jdx.dev\":\"http://127.0.0.1:$HTTP_PORT\",\"https://downloads.python.org\":\"http://127.0.0.1:$HTTP_PORT\",\"https://pypy.org\":\"http://127.0.0.1:$HTTP_PORT\"}"
+export PAKRO_NOT_FOUND_AUTO_INSTALL=1
+export PAKRO_IDIOMATIC_VERSION_FILE_ENABLE_TOOLS=gradle
+mkdir p1-readonly
+cd p1-readonly
+printf '[tools]\npython = "3.13.99"\n' >pakro.toml
+mkdir -p "$PAKRO_DATA_DIR/plugins/gradle/bin" "$PAKRO_DATA_DIR/installs/python/3.13.99/bin"
+git init --quiet "$PAKRO_DATA_DIR/plugins/gradle"
+git -C "$PAKRO_DATA_DIR/plugins/gradle" config remote.origin.url https://github.com/rfrancis/asdf-gradle.git
+cat >"$PAKRO_DATA_DIR/plugins/gradle/bin/list-all" <<'SH'
+#!/bin/sh
+touch "$HOME/p1-readonly-plugin-executed"
+exit 92
+SH
+cp "$PAKRO_DATA_DIR/plugins/gradle/bin/list-all" "$PAKRO_DATA_DIR/plugins/gradle/bin/list-legacy-filenames"
+chmod +x "$PAKRO_DATA_DIR/plugins/gradle/bin/"*
+printf '#!/bin/sh\ntouch "$HOME/p1-legacy-python-executed"\nexit 93\n' >"$PAKRO_DATA_DIR/installs/python/3.13.99/bin/python"
+chmod +x "$PAKRO_DATA_DIR/installs/python/3.13.99/bin/python"
+printf 'python\ncore:python\n' >"$PAKRO_DATA_DIR/installs/python/.pakro.backend"
+printf 'old cache sentinel\n' >"$PAKRO_CACHE_DIR/p1-old-cache"
+touch -t 200001010000 "$PAKRO_CACHE_DIR/p1-old-cache"
+
+cat >"$PAKRO_STATE_DIR/tool-purgatory.json" <<JSON
+{"schema_version":1,"entries":{"p1-due-receipt":{"install_path":"$PAKRO_DATA_DIR/installs/dummy/0","display":"dummy@0","remove_after":0}}}
+JSON
+
+p1_snapshot() {
+  find "$PAKRO_DATA_DIR" "$PAKRO_STATE_DIR" "$PAKRO_CACHE_DIR" "$PAKRO_CONFIG_DIR" "$PWD" \
+    -type f -exec cksum {} \; | LC_ALL=C sort
+  find "$PAKRO_DATA_DIR" "$PAKRO_STATE_DIR" "$PAKRO_CACHE_DIR" "$PAKRO_CONFIG_DIR" "$PWD" \
+    -print | LC_ALL=C sort
+}
+before="$(p1_snapshot)"
+query() {
+  local expected="$1" output result=0
+  shift
+  output="$(pakro "$@" 2>&1)" || result=$?
+  last_query_output="$output"
+  if [[ $expected == success ]]; then
+    [[ $result == 0 ]] || fail "query '$*' failed: $output"
+  else
+    [[ $result != 0 ]] || fail "missing shared Python query '$*' succeeded: $output"
+  fi
+  [[ $output != *"$PAKRO_DATA_DIR/installs/python/3.13.99"* ]] || fail "query revived old Python: $output"
+  [[ -z $(find "$request_log" -type f -print -quit) ]] || fail "unexpected HTTP acquisition for $*"
+  local after
+  after="$(p1_snapshot)"
+  if [[ "$after" != "$before" ]]; then
+    diff -u <(printf '%s\n' "$before") <(printf '%s\n' "$after") >&2 || true
+    fail "query startup changed state for '$*': $output"
+  fi
+  [[ ! -e $HOME/p1-readonly-plugin-executed && ! -e $HOME/p1-legacy-python-executed ]] || fail "query executed legacy code: $*"
+}
+query success current
+query success current python
+query success ls python
+query success ls
+query success installs ls python
+query success project status
+query success project ls
+query fail where python@3.13.99
+query fail which --tool python@3.13.99 python
+query fail env python@3.13.99
+query fail bin-paths python@3.13.99
+query success deps install --list
+
+# stdout, stdin and stderr are real terminal handles here. This exercises
+# auto-update eligibility and the current-command hint which normally stores
+# a "shown once" marker when called from a terminal.
+printf '[tools]\npython = "3.13.99"\ndummy = "1.0.0"\n' >pakro.toml
+before="$(p1_snapshot)"
+tty_output="$(python3 - "$(command -v pakro)" <<'PY'
+import errno
+import os
+import pty
+import select
+import signal
+import subprocess
+import sys
+import time
+
+master, slave = pty.openpty()
+proc = subprocess.Popen([sys.argv[1], "current"], stdin=slave, stdout=slave,
+                        stderr=slave, start_new_session=True)
+os.close(slave)
+output = bytearray()
+deadline = time.monotonic() + 20
+while True:
+    if time.monotonic() >= deadline:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
+        raise SystemExit("terminal query exceeded 20 seconds")
+    readable, _, _ = select.select([master], [], [], 0.1)
+    if readable:
+        try:
+            data = os.read(master, 65536)
+        except OSError as error:
+            if error.errno != errno.EIO:
+                raise
+            break
+        if not data:
+            break
+        output.extend(data)
+    elif proc.poll() is not None:
+        break
+os.close(master)
+sys.stdout.write(output.decode(errors="replace"))
+raise SystemExit(proc.wait())
+PY
+)" || fail 'terminal current query failed'
+[[ $tty_output == *'install missing tools'* ]] || fail "terminal query did not exercise the hint: $tty_output"
+[[ "$(p1_snapshot)" == "$before" ]] || fail "terminal query changed state: $tty_output"
+[[ -z $(find "$request_log" -type f -print -quit) ]] || fail 'terminal query contacted a remote service'
+
+# Dynamic configuration cannot run code while admission is still determining
+# the target. A template is parsed by Tera and its exec function is denied.
+cat >>pakro.toml <<TOML
+
+[vars]
+unsafe = '{{ exec(command="touch $HOME/p1-template-executed") }}'
+TOML
+before="$(p1_snapshot)"
+query fail where python@3.13.99
+[[ $last_query_output == *'exec() is unavailable during read-only'* ]] ||
+  fail "dynamic template failed without reaching the exec admission guard: $last_query_output"
+[[ ! -e $HOME/p1-template-executed ]] || fail 'read-only startup executed a template'

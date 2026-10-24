@@ -54,11 +54,44 @@ impl Commands {
 }
 
 impl Deps {
+    pub(super) async fn preflight(&self) -> Result<()> {
+        match &self.command {
+            Some(Commands::Add(cmd)) => preflight_packages(&cmd.packages, false),
+            Some(Commands::Remove(cmd)) => preflight_packages(&cmd.packages, true),
+            Some(Commands::Install(cmd)) => cmd.preflight().await,
+            None => self.install.preflight().await,
+        }
+    }
+
+    pub(super) fn is_local_observation(&self) -> bool {
+        match &self.command {
+            Some(Commands::Install(cmd)) => cmd.list || cmd.explain,
+            None => self.install.list || self.install.explain,
+            _ => false,
+        }
+    }
+
     pub(crate) async fn run(self) -> Result<()> {
         let cmd = self.command.unwrap_or(Commands::Install(self.install));
 
         cmd.run().await
     }
+}
+
+fn preflight_packages(packages: &[String], remove: bool) -> Result<()> {
+    for spec in packages {
+        let (provider, _) = parse_package_spec(spec)?;
+        #[cfg(unix)]
+        crate::programs::python::reject_python_provider_write(
+            if remove {
+                crate::programs::python::PythonWriteOperation::Remove
+            } else {
+                crate::programs::python::PythonWriteOperation::Add
+            },
+            provider,
+        )?;
+    }
+    Ok(())
 }
 
 /// Parse a package spec like "npm:react" or "npm:@types/react@19" into (ecosystem, package)

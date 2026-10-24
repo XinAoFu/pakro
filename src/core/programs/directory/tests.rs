@@ -1,5 +1,7 @@
 use super::*;
+use crate::config::FrozenConfigDiscovery;
 use crate::libraries::language::repository::tests::operation_context;
+use crate::libraries::project::repository::ProjectRepository;
 use crate::libraries::project::snapshot::{ObservedProjectInputs, ReadPolicy, observe_project};
 
 fn observe(root: &std::path::Path) -> ObservedProjectInputs {
@@ -162,7 +164,9 @@ async fn f3_new_project_reuses_ready_layout_and_missing_never_commits() {
     .unwrap();
     drop(observed_a);
     let observed_b = observe(&b);
-    let selected = select_observed(&context, &observed_b, true)
+    let selected = apply_observed(&context, &observed_b)
+        .unwrap()
+        .into_ready()
         .unwrap()
         .expect("same exact local graph should select");
     assert_eq!(selected.bin_dir, bin);
@@ -180,11 +184,10 @@ async fn f3_new_project_reuses_ready_layout_and_missing_never_commits() {
         "from-shared-tree"
     );
     let observed_missing = observe(&missing);
-    assert!(
-        select_observed(&context, &observed_missing, true)
-            .unwrap()
-            .is_none()
-    );
+    assert!(matches!(
+        apply_observed(&context, &observed_missing).unwrap(),
+        PythonQueryReport::MissingPackages { .. }
+    ));
     let projects = ProjectRepository::open_readonly(&context)
         .unwrap()
         .read_views()
@@ -214,7 +217,7 @@ async fn f1_requires_python_blocks_language_only_selection() {
     )
     .unwrap();
     let observed = observe(&project);
-    assert!(select_observed(&context, &observed, true).is_err());
+    assert!(apply_observed(&context, &observed).is_err());
     assert!(
         ProjectRepository::open_readonly(&context)
             .unwrap()
@@ -223,3 +226,209 @@ async fn f1_requires_python_blocks_language_only_selection() {
             .is_empty()
     );
 }
+
+#[tokio::test]
+async fn p1_explicit_targets_and_language_only_do_not_borrow_current_packages() {
+    use crate::libraries::language::repository::tests::{archive, install_spec, prepare};
+    use crate::programs::query::environment::query_observed;
+    let owner = tempfile::tempdir().unwrap();
+    let root = owner.path().canonicalize().unwrap();
+    let stage = root.join("stage");
+    let project = root.join("project");
+    std::fs::create_dir(&stage).unwrap();
+    std::fs::create_dir(&project).unwrap();
+    let context = context(&stage);
+    let bytes = archive("3.15.0");
+    let spec = install_spec(&bytes);
+    let language = prepare(&spec, &context, &bytes).await.unwrap();
+    let language_root = language.root().to_owned();
+    drop(language);
+    let observed = observe(&project);
+    let query = |target: Option<&str>, scope| PythonQueryRequest {
+        target: target.map(str::to_owned),
+        scope,
+    };
+    assert!(matches!(
+        query_observed(
+            &context,
+            &observed,
+            &query(None, PythonQueryScope::Environment)
+        )
+        .unwrap()
+        .report,
+        PythonQueryReport::NoDeclaration
+    ));
+    let selected = query_observed(
+        &context,
+        &observed,
+        &query(Some("3.15"), PythonQueryScope::Environment),
+    )
+    .unwrap()
+    .report
+    .into_ready()
+    .unwrap()
+    .unwrap();
+    assert_eq!(selected.root, language_root);
+    drop(observed);
+    std::fs::write(
+        project.join("pakro.toml"),
+        "[tools]\npython='3.15.0'\n[packages.\"python@3.15.0\"]\ndemo='1.0'\n",
+    )
+    .unwrap();
+    let observed = observe(&project);
+    assert!(matches!(
+        query_observed(
+            &context,
+            &observed,
+            &query(None, PythonQueryScope::Language)
+        )
+        .unwrap()
+        .report,
+        PythonQueryReport::Ready(_)
+    ));
+    assert!(matches!(
+        query_observed(
+            &context,
+            &observed,
+            &query(None, PythonQueryScope::Environment)
+        )
+        .unwrap()
+        .report,
+        PythonQueryReport::MissingPackages { .. }
+    ));
+    let current = crate::programs::library::current_observed(&context, &observed)
+        .unwrap()
+        .unwrap();
+    assert_eq!(current.status, "missing-packages");
+    assert_eq!(current.path.as_deref(), Some(language_root.as_path()));
+    assert!(current.instance.is_some());
+    assert!(matches!(
+        query_observed(
+            &context,
+            &observed,
+            &query(Some("3.14"), PythonQueryScope::Environment)
+        )
+        .unwrap()
+        .report,
+        PythonQueryReport::MissingLanguage { .. }
+    ));
+    drop(observed);
+    std::fs::write(
+        project.join("pakro.toml"),
+        "[tools]\npython='3.14.0'\n[packages.\"python@3.14.0\"]\ndemo='1.0'\n",
+    )
+    .unwrap();
+    let observed = observe(&project);
+    assert!(matches!(
+        query_observed(
+            &context,
+            &observed,
+            &query(Some("3.15"), PythonQueryScope::Language)
+        )
+        .unwrap()
+        .report,
+        PythonQueryReport::Ready(_)
+    ));
+    assert!(matches!(
+        query_observed(
+            &context,
+            &observed,
+            &query(Some("3.15"), PythonQueryScope::Environment)
+        )
+        .unwrap()
+        .report,
+        PythonQueryReport::IncompatibleTarget { .. }
+    ));
+    assert!(
+        ProjectRepository::open_readonly(&context)
+            .unwrap()
+            .read_views()
+            .registered_projects()
+            .is_empty()
+    );
+    assert!(!stage.join("data/projects").exists());
+}
+
+#[test]
+fn p1_stale_and_expired_observation_errors_are_not_empty_selections() {
+    use crate::programs::query::environment::query_observed;
+    let owner = tempfile::tempdir().unwrap();
+    let root = owner.path().canonicalize().unwrap();
+    let stage = root.join("stage");
+    let project = root.join("project");
+    std::fs::create_dir(&stage).unwrap();
+    std::fs::create_dir(&project).unwrap();
+    std::fs::write(project.join("pakro.toml"), "[tools]\npython='3.15.0'\n").unwrap();
+    let context = context(&stage);
+    let observed = observe(&project);
+    std::fs::write(project.join("pakro.toml"), "[tools]\npython='3.14.0'\n").unwrap();
+    let request = PythonQueryRequest {
+        target: None,
+        scope: PythonQueryScope::Environment,
+    };
+    assert!(
+        query_observed(&context, &observed, &request)
+            .unwrap_err()
+            .to_string()
+            .contains("changed")
+    );
+    assert!(apply_observed(&context, &observed).is_err());
+    let observed = observe(&project);
+    let expired = operation_context(&stage, false, Duration::from_millis(5));
+    std::thread::sleep(Duration::from_millis(6));
+    assert!(query_observed(&expired, &observed, &request).is_err());
+    assert!(!stage.join("data").exists());
+}
+
+#[path = "resource_baseline.rs"]
+mod resource_baseline;
+
+#[tokio::test]
+async fn p1_already_applied_selection_rechecks_inputs_and_cancellation() {
+    use crate::libraries::language::repository::tests::{archive, install_spec, prepare};
+    use crate::programs::query::environment::query_observed;
+    let owner = tempfile::tempdir().unwrap();
+    let root = owner.path().canonicalize().unwrap();
+    let stage = root.join("stage");
+    let project = root.join("project");
+    std::fs::create_dir(&stage).unwrap();
+    std::fs::create_dir(&project).unwrap();
+    let context = context(&stage);
+    let bytes = archive("3.15.0");
+    drop(
+        prepare(&install_spec(&bytes), &context, &bytes)
+            .await
+            .unwrap(),
+    );
+    let declaration = "[tools]\npython='3.15.0'\n";
+    std::fs::write(project.join("pakro.toml"), declaration).unwrap();
+    let observed = observe(&project);
+    assert!(matches!(
+        apply_observed(&context, &observed).unwrap(),
+        PythonQueryReport::Ready(_)
+    ));
+    let request = PythonQueryRequest {
+        target: None,
+        scope: PythonQueryScope::Environment,
+    };
+    let selected = query_observed(&context, &observed, &request).unwrap();
+    assert!(selected.already_applied);
+    std::fs::write(project.join("pakro.toml"), "[tools]\npython='3.14.0'\n").unwrap();
+    assert!(
+        apply_selection(&context, &observed, selected).is_err(),
+        "changed inputs must not emit an already-applied success"
+    );
+    drop(observed);
+    std::fs::write(project.join("pakro.toml"), declaration).unwrap();
+    let observed = observe(&project);
+    let selected = query_observed(&context, &observed, &request).unwrap();
+    assert!(selected.already_applied);
+    context.cancellation_token().cancel();
+    assert!(
+        apply_selection(&context, &observed, selected).is_err(),
+        "cancelled operations must not emit an already-applied success"
+    );
+}
+
+#[path = "resource_comparison.rs"]
+mod resource_comparison;

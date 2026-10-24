@@ -1,16 +1,103 @@
 # 测试执行规则与用例合同
 
-日期：2026-10-18。**R00–R06 已完成验证；用户最新要求先不启动R07，后续编译、测试与检查由用户手动执行。Agent读取实际日志判断，不自行续跑，分项证据见反馈记录。**
+**当前状态（2026-10-25）：P1 本机 macOS arm64 产品验收通过，自动多进程运行器禁用。** 用户已核对原始手动验收日志：主程序构建成功、扩展准入无提前副作用、which/env/hook同名优先级一致，整组exit0；此前精确安装与资源前后对照继续有效。通用多进程监督器不追加为P1产品门槛；长测试继续由用户终端执行。跨平台、完整ISAT业务及后续阶段边界保持。本次仅同步文档并提交既有实现，不改代码，不重跑已通过且未变化的长测试。
 
-此前Agent获授权运行小范围验证时使用同组1200秒墙钟上限并保留完整日志；该历史许可当前已由用户手动执行规则覆盖，不得据此启动测试。监督机制的历史证据见target/r01-timeout-selftest.log。需要用户执行验证时给两项：
+## 2026-10-25再次定向复核
 
-> **现在要测试什么：** 用大白话说明实际功能，例如“A、B是不是共用一份Python，删除A后B还能不能用”。
->
-> **测试命令：** 完整可复制的命令，带必要工作目录、参数与前提。
+最新手动日志已通过：[all-002758](../../target/p1-recheck-manual-all-20261025-002758.log)。构建1分07秒；扩展准入7秒（11拒绝场景＋NonPy四版本正例）、同名优先级231秒；最终all exit0。不存在本次编译或测试失败，摘要见[结构化核对](../../target/p1-recheck-manual-result-summary.json)。此前001500的E0433记录保留，现已修复并实际构建通过。此次为用户手动执行，automatic_tree_supervision=false；用户已确认这不影响P1本机产品验收通过，自动运行器继续禁用。
 
-没有实际运行输出不记通过；超时标“未完成，交用户”。0 tests、全部ignored、夹具没有跑起来、只编译成功，都不能写成行为通过。历史手动结果仍如实保留。
 
-## 当前已有和未来新增
+前次手动日志[p1-recheck-manual-all-20261025-001500.log](../../target/p1-recheck-manual-all-20261025-001500.log)构建exit101，仅E0433：TaskFileFetcher不存在。已改实际TaskFetcher，当时定向格式0.02秒及diff通过、尚未重编；该失败不计通过，后续成功结果以上述002758日志为准。
+
+**P1本机产品验收通过。** 本轮产品补丁已由用户手动构建及两条定向E2E验证通过；通用多进程严格监督未实现，作为运行器禁用边界保留，不是P1产品阻塞。证据输入：p1-recheck-expanded-admission.json、p1-recheck-command-priority.json、p1-recheck-watchdog-race.json。
+
+已做短检查：68个变更Rust文件在明确单进程内核限制下通过rustfmt；Shell/Python语法与diff通过。监督器能力实验见[capability log](../../target/p1-recheck-watchdog-capability.log)：默认tree在spawn前拒绝，coverage=false/survivors=null；显式single-process阻止fork/posix_spawn，父限制不变，超时的唯一进程被终止。不是通用树监督通过，不再复用此前轮询实验的“无后代”结论。
+
+用户已成功执行：`tests/scripts/p1-manual-recheck.sh all`。需要先设置原3.13.16 stripped归档的PAKRO_TEST_PYTHON_ARCHIVE；脚本检查真实TTY，使用同一target/all-features、关闭增量/DEV/TEST debug，串行构建与2条定向E2E。日志写target。该手动入口没有自动全后代超时保证，不能记为Agent严格监督组；本次按实际002758日志记为产品用例通过，不提升为严格监督通过。
+
+## 上一轮P1审查修复与补证（保留历史覆盖）
+
+上一轮产品路径及补证有实际通过记录；其中监督器轮询方案后来被快速脱离复现推翻，已撤回完整性结论并改为默认拒绝。用户现已确认P1本机产品验收通过；下方上一轮日志保留为真实历史覆盖，后续阶段不自动启动。
+
+| 问题/缺口 | 修复与本次证据 |
+| --- | --- |
+| 非Pythoninstall/use附带Python包组 | 将实际尾部包组和写目标纳入早准入；11种拒绝及非Python/共享路径正例。[组合回归](../../target/p1-review-combinations.log) |
+| 只读exec-env/script/cache绕过 | cache前与直接source前检查；只读错误向上传播，不成功返回缺字段env；cold/warm cache、默认bin、动态bin、正常exec均测。[组合回归](../../target/p1-review-combinations.log) |
+| env追加工具丢Python | 按配置加CLI后的有效工具集分流；保留Python PATH/字节码、追加dummy目录，JSON/extended/dotenv/shell及显式Python覆盖均测。[组合回归](../../target/p1-review-combinations.log) |
+| which附带命令被缺Python阻断 | 先核实已安装非Python可执行文件与归属，Python错误不盖过已知companion。[组合回归](../../target/p1-review-combinations.log) |
+| alias options变成无声明 | 先剥离options识别Python再拒绝；无参/显式、alias环境覆盖及安装准备的精确版本门一致。[核心回归](../../target/p1-review-core-tests.log)、[最终alias与测量组](../../target/p1-review-final-measure.log) |
+| 组长退出后监督器遗留后代 | 不以leader.wait作为整树退出证据；私有session/已观察后代追踪，TERM后继续KILL并复查；含另开session、正常退出遗留、无关进程及监督器TERM。[短时实验](../../target/p1-review-watchdog-selftest-final.log) |
+| 显式精确Python安装CLI正例 | 冷空库实际CLI获取固定官方tag/SHA256SUMS/真实原归档，核验manifest、真实解释器/prefix，重复零新增请求且声明/lock不变。48.6秒。[冷安装](../../target/p1-review-exact-install.log) |
+| A14同配置前后对照 | 原3d2a6c291生产代码与当前代码使用相同fixture body、版本、平台、profile、端口、图/语言identity、64包448文件75456字节；只增加测试计数/注册，不改原生产代码。[对照JSON](../../target/p1-review-resource-comparison.json)、[原版](../../target/p1-review-resource-original.log)、[当前](../../target/p1-review-final-measure.log) |
+
+新增3条组合E2E通过21.6秒；原5条P1边界E2E本轮复跑通过21.4秒；核心18项（资源另测）通过3.4秒；真实共享wheel三项目导入/console/共享隔离通过82.9秒；原非Python查询4条通过14.4秒。见[真实wheel](../../target/p1-review-real-shared-wheel.log)、[非Python](../../target/p1-review-nonpython.log)。不重复运行未变化的全部历史S/恢复长组，也不把它们记为本轮新通过。
+
+A14对照限定**生产选择/应用内核，不含CLI启动和完整ISAT**。前后query包完整核验128、首次apply（含查询）320、重复apply128；语言核验5/9/5；FD均11→1216→11，来源连接0。与上一轮“只计commit”的192不能直接混比。最终样本的query/首次apply/重复apply耗时分别比原版约+5.8%/+4.5%/+4.2%；这是一组小样本观测，不归因为确定的算法变化，也不宣称提速。完整扫描次数及FD没有增长，必要的当前性校验保留，未降低校验强度或提高预算。
+
+前后测量的binary SHA、共用fixture SHA、原版生产文件审计和测试-only补丁均保存在`target/p1-review-baseline/`及对照JSON。原源码通过git archive从3d2a6c291取得，使用同一target/profile串行构建；没有切换/重置当前工作树。复跑driver：`p1-resource-baseline.py --test-filter p1_resource_same_configuration_entrypoints`（当前版需`--ignored`及固定`PAKRO_P1_BASELINE_PORT`），结果由`p1-compare-resources.py`核对identity/文件量/计数。
+
+新的`p1-watchdog.py`用于所有后续长组；`p1-check.sh --review/--watchdog-test/--exact-install`已增加相应入口。监督器预留清理时间在600秒预算内；短实验中的124是预期测试结果，不是整组超时。历史监督器并未在此前真实长组触发600秒，不能把那些通过日志当作其超时分支正确的证据。
+
+## P1本次证据索引
+
+| 组 | 实际结果 | 完整日志 |
+| --- | --- | --- |
+| 主程序all-features构建 | exit 0，69.1秒 | [final build](../../target/p1-build-final.log) |
+| P1及相邻核心 | 17个P1、3个原目录、2个真实安装门面用例通过，141.2秒 | [core](../../target/p1-lib-20261024-200601.log) |
+| CLI参数/启动分类 | 2项通过，74.1秒（含编译） | [CLI unit](../../target/p1-cli-unit-20261024-200954.log) |
+| P1空库/写准入/只读初始化/非Python派发/选项 | 5条真实E2E通过，26.6秒 | [P1 CLI](../../target/p1-e2e-empty-20261024-200601.log) |
+| 真实PBS＋wheel查询及hook | 1条完整E2E通过，155.7秒；含所有env格式、scope、无获取/无登记、缺项和坏TOML撤回 | [shared CLI](../../target/p1-e2e-shared-20261024-201157.log) |
+| 原非Python查询 | where、which、未安装版本诊断、bin-paths四条通过，12.4秒 | [non-Python](../../target/p1-nonpython-regression.log) |
+| F1–F4核心回归 | 32＋22＋38＋12＝104项通过；4个ignored辅助用例不计通过；366.5秒 | [F regression](../../target/p1-f-regression-20261024-193116.log) |
+| S源码构建内核 | S1 11、S2 9、S3 13，共33项通过，162.2秒 | [source unit](../../target/p1-source-unit.log) |
+| 真实纯Python源码项目 | iopath 0.1.10／Hydra 1.3.7／ANTLR 4.9.3实际构建、导入/功能、重复与跨项目在网络不可用时复用通过，148.7秒 | [source CLI](../../target/p1-source-real-cli-canonical.log) |
+| 限定字节码恢复 | owned隔离库通过，86.3秒；恰好4项恢复，2240项与引用不变 | [recovery CLI](../../target/p1-bytecode-recovery.log) |
+| F1命令与F4指定删除 | Ready shim/console、缺失不补装、指定语言/包删除与引用保护、只读查询3条E2E通过，185.9秒 | [terminal/library](../../target/p1-terminal-library.log) |
+| 资源/FD | 两次独立进程测量、64包低soft子进程、4项进程上限用例通过，37.7秒 | [resource log](../../target/p1-resources-20261024-202902.log)、[最终同binary测量](../../target/p1-resource-final-binary.log)、[JSON](../../target/p1-resource-baseline.json) |
+| 最后合同与完整性回归 | 包inventory/namespace 5、语言批次5、固定build current与损坏1、R01公开合同6、恢复分类2，共19项通过，100.9秒 | [final contracts](../../target/p1-final-contracts.log) |
+| 最终格式/注册 | 变更Rust格式、脚本语法、diff检查通过1.4秒；18个P1库用例及清单路径核对通过1.1秒 | [format](../../target/p1-format-20261024-204858.log)、[registration](../../target/p1-list-20261024-205014.log) |
+
+同项目并发补充：[真实竞争提交](../../target/p1-same-project-concurrency.log)1项通过，74.9秒（含测试编译）；两个请求在相同revision准备完成后同时提交，恰好一个成功，另一个stale拒绝，另一项目引用不变。该用例已加入P1精确清单。
+
+以上组存在重叠用例，不把所有行简单相加成“不同测试数”。helpers仅在真实E2E明确调用时证明夹具建立，普通ignored不冒充行为通过。编译仍输出dead_code、链接器和依赖future-incompat警告，不宣称零警告。
+
+## P1 A01–A15对应
+
+| ID | 本次验收依据 |
+| --- | --- |
+| A01 | shared CLI真实PBS/wheel/console；source CLI真实legacy与源码构建；source unit保留动态build requires、同solver和双证据；配置及语言manifest未改。 |
+| A02 | F3 facade与共享布局回归；真实源码同项目/跨项目在网络不可用时复用；不同图及失败保持由F3核心覆盖。 |
+| A03 | where语言payload、which/python与console、bin-paths、env各格式、current与project status；F4固定build的current基础版本兼容由terminal/library CLI覆盖。 |
+| A04 | 显式X覆盖cwd Y、无项目目标、无声明；profile/cd/env override/no-config/ignore/global/system、别名及本地前缀；glob字符和跨文件alias由P1核心覆盖。 |
+| A05 | 缺语言/缺包/缺命令真实CLI；损坏库/旧Python哨兵；无效pin、版本/build歧义、损坏payload/catalog、过期/取消由核心实际文件用例覆盖。不是每个错误分支都另有CLI注入。 |
+| A06 | 启用auto-update/lazy/cache prune/purgatory设置与计数HTTP；完整data/state/cache/config/project快照不变，真实TTY提示无持久写；Ready环境启用有效env-cache key仍不写state。 |
+| A07 | 显式dummy与损坏Python库隔离、混合/空库/特殊flags/JSON/补全；原四条非Python查询与真实shim/wrapper/lazy/not-found通过；未支持的Python options明确拒绝。 |
+| A08 | 真实hook进入→缺失→离开→坏TOML撤PATH/自有字节码差异且引用保留；观察后改写、already-applied取消/改写、Config旧输入与新观察桥接由P1文件receipt用例覆盖。 |
+| A09 | use/unuse/upgrade/deps add/remove/旧deps install/prune、混合/别名/依赖补装/force以及任意install-into从真实CLI早拒绝；HTTP和目录快照证明没有先产生副作用。 |
+| A10 | 真实Backend force/postinstall回调计数为0；真实Toolset未知metadata在插件建立前失败；原rollback/system/purge/指定删除保护通过F回归。 |
+| A11 | 原恢复分类与真实恢复E2E：dry-run/quiet/坏参数/精确4项边界，未操作用户真实实例。 |
+| A12 | 同项目真实双线程CAS竞争、F1旧引用保持、F3并发发布/同图共享、F4新引用与指定删除交错、活lease与未知状态；项目→对象→catalog顺序保留。 |
+| A13 | 真实64包布局low-soft256/hard4096子进程、hard/父进程不变、高soft不降低与释放；完整manifest/namespace保护由F及最后s4回归覆盖。 |
+| A14 | 固定64-wheel查询/apply双进程JSON，记录观察、匹配＋核验、提交重获、计数、FD、文件/字节及来源连接；见下方范围。 |
+| A15 | 当次非零注册、真实F/S/CLI、非测试构建和最后定向合同/格式结果；完整ISAT、其他平台未覆盖范围保持。 |
+
+## 资源基线的实际含义
+
+固定64个真实wheel树，448个包文件、76608字节；runtime是确定性仓库fixture，**不是完整ISAT或真实标准库大图的性能数据**。冷进程与重复进程各做首次query/apply和已关联重复query/apply：匹配＋完整核验约413–417ms，首次提交重获约560–564ms；观察单独记录。每次query完整包inventory为128，首次commit为192，已匹配关联commit为0。两进程来源连接均0（内部offline=false），FD分别11→1227→11与11→1228→11，峰值为1ms采样。
+
+旧binary的独立64包容量夹具为31→2283→31（[旧FD记录](../../target/p1-old-fd-metrics.log)）；本次同一容量夹具通过hard4096和释放断言。它与上述query/apply夹具持有阶段不同，不能据两个峰值宣称复杂度或速度改进；也不把历史ISAT 32.71秒与此fixture直接比较。未提高300秒查询边界或4096软FD目标，未加入跨操作hash缓存或削弱核验。
+
+## 可复跑入口与边界
+
+`tests/scripts/p1-check.sh`支持`--list/--build/--lib/--cli-unit/--e2e-empty/--e2e-shared/--f-regression/--source/--resources/--format`，每次调用是独立600秒组。精确注册见`p1-test-cases.txt`；日志写入target，失败根仅保留本轮owned目录供定位。完整源码/历史CLI可按上表原入口复跑，不将全部历史测试自动加入每一组。
+
+真实shared E2E需要显式`PAKRO_TEST_PYTHON_ARCHIVE`指向已验证的CPython 3.13.16+20261013 arm64 macOS stripped归档；恢复及原S实际源码driver使用显式`PAKRO_BYTECODE_RECOVERY_ARCHIVE`的3.11.17原归档。P1资源driver从Cargo输出取得test executable，没有硬编码本机binary hash或ISAT路径。原S历史driver的本机代理/路径限制仍记录为后续验收设施工作。
+
+完整ISAT自动冷组、24根完整图复用/全业务/NMS/模型推理、其他平台/架构/PyPy和外部进程完整生命周期仍未由P1覆盖；原ISAT人工启动证据保持原含义。P2锁恢复、P3声明事务、P4批量回收等未实施。动态执行配置、未知依赖metadata或不支持的共享查询组合会明确诊断，不静默执行后再拒绝。
+
+前期编译/夹具/runner失败和修复保留在[本轮日志](log/2026-10-24-6-P1实施.md)，没有将失败或零测试回写成通过。每组均未超过600秒；最长已结束组为380.9秒（runner失败组），最长上述通过组366.5秒。历史规则和记录如下，dev-flow流程不恢复。
+
+## 历史基线与当时待新增项（2026-10-18）
 
 - 当前F1–F4的逐文件测试合同与未来手动入口统一见[PLAN](PLAN.md)。`tests/scripts/f-manual-check.sh`、`f1-test-cases.txt`至`f4-test-cases.txt`及新F测试现在尚不存在，不能执行空过滤器后记通过；实施时逐阶段创建/注册，验证仍由用户手动运行。下方历史基线和R任务合同不是首版每次必须重跑的队列。
 - B0/B1/B2/B3的包、测试源码和runner当前存在；已确认用户的 B0 release、三个核心库测试编译、CLI test binary 编译和 B1 三项行为用例通过；其余分项依实际反馈记录，不能从源码存在或列举成功推断通过。

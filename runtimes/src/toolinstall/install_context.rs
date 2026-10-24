@@ -39,7 +39,7 @@ impl InstallDependencyDeclarations {
             .any(|dependency| backend_args_match(dependency, candidate))
     }
 
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         match &self.metadata_error {
             Some(err) => Err(eyre!(err.clone())),
             None => Ok(()),

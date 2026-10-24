@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+# Expanded plans must be admitted before startup maintenance, tracking, lock
+# migration, plugin execution or task bodies can alter anything.
+export PAKRO_EXPERIMENTAL=1 PAKRO_AUTO_UPDATE=1 PAKRO_AUTO_UPDATE_CHECK_DURATION=0s
+export PAKRO_CACHE_PRUNE_AGE=1ns PAKRO_UPGRADE_AUTO_PRUNE=1 PAKRO_OFFLINE=0
+export NO_PROXY=127.0.0.1,localhost,::1
+export no_proxy="$NO_PROXY"
+p1_requests="$TMPDIR/p1-expanded-requests"
+mkdir -p "$p1_requests"
+start_http_server --headers-log "$p1_requests"
+export PAKRO_URL_REPLACEMENTS="{\"https://pypi.org\":\"http://127.0.0.1:$HTTP_PORT\",\"https://files.pythonhosted.org\":\"http://127.0.0.1:$HTTP_PORT\",\"https://github.com\":\"http://127.0.0.1:$HTTP_PORT\",\"https://api.github.com\":\"http://127.0.0.1:$HTTP_PORT\"}"
+mkdir p1-expanded
+cd p1-expanded
+p1_workspace="$PWD"
+printf 'must survive rejected expansion\n' >"$PAKRO_CACHE_DIR/p1-expanded-old-cache"
+touch -t 200001010000 "$PAKRO_CACHE_DIR/p1-expanded-old-cache"
+mkdir -p "$PAKRO_DATA_DIR/installs/dummy/0"
+printf 'owned old runtime\n' >"$PAKRO_DATA_DIR/installs/dummy/0/sentinel"
+cat >"$PAKRO_STATE_DIR/tool-purgatory.json" <<JSON
+{"schema_version":1,"entries":{"owned-due":{"install_path":"$PAKRO_DATA_DIR/installs/dummy/0","display":"dummy@0","remove_after":0}}}
+JSON
+snapshot() {
+  /usr/bin/python3 - "$PAKRO_DATA_DIR" "$PAKRO_STATE_DIR" "$PAKRO_CACHE_DIR" "$PAKRO_CONFIG_DIR" "$p1_workspace" <<'PY'
+import hashlib, json, os, stat, sys
+from pathlib import Path
+rows=[]
+for value in sys.argv[1:]:
+    root=Path(value)
+    paths=[root]
+    if root.is_dir():
+        for directory, dirs, files in os.walk(root,followlinks=False):
+            paths.extend(Path(directory)/name for name in dirs+files)
+    for path in sorted(set(paths)):
+        s=path.lstat()
+        row=[str(path),s.st_dev,s.st_ino,s.st_mode,s.st_uid,s.st_gid,s.st_size,s.st_mtime_ns,s.st_ctime_ns]
+        if stat.S_ISREG(s.st_mode):row.append(hashlib.sha256(path.read_bytes()).hexdigest())
+        elif stat.S_ISLNK(s.st_mode):row.append(os.readlink(path))
+        rows.append(row)
+print(json.dumps(rows,sort_keys=True))
+PY
+}
+reject_expansion() {
+  local expected="$1" before after output
+  shift
+  before="$(snapshot)"
+  if output="$(pakro "$@" 2>&1)"; then fail "unsupported expansion succeeded: $*"; fi
+  [[ $output == *"$expected"* ]] || fail "wrong expansion diagnosis for '$*': $output"
+  after="$(snapshot)"
+  [[ "$after" == "$before" ]] || fail "expansion changed files or metadata before refusal: $*: $output"
+  [[ -z $(find "$p1_requests" -type f -print -quit) ]] || fail 'expansion performed HTTP acquisition'
+  [[ ! -e "$p1_workspace/task-ran" && ! -e "$p1_workspace/hook-ran" ]] || fail 'expansion executed a task/hook'
+}
+
+# Python can appear only in a descendant; the root remains non-Python.
+mkdir -p mono/packages/python mono/packages/plain
+cat >mono/pakro.toml <<'TOML'
+monorepo_root = true
+[monorepo]
+config_roots = ["packages/*"]
+[tools]
+dummy = "1.0.0"
+[hooks]
+preinstall = "touch ../hook-ran"
+TOML
+printf '[tools]\npython="3.13.99"\n' >mono/packages/python/pakro.toml
+printf '[tools]\ndummy="2.0.0"\n' >mono/packages/plain/pakro.toml
+(
+  cd mono
+  reject_expansion Python install --monorepo
+  reject_expansion Python install --monorepo --include-task-tools
+  # Migration covers the entire monorepo before tool filtering, so P1 cannot
+  # admit a Python-containing union even for an explicit non-Python filter.
+  reject_expansion Python install --monorepo dummy@1.0.0
+)
+
+mkdir tasks
+cat >tasks/pakro.toml <<'TOML'
+[tools]
+dummy = "1.0.0"
+[tasks.python-only-in-task]
+tools.python = "3.13.99"
+run = "touch ../task-ran"
+TOML
+(cd tasks && reject_expansion Python install --include-task-tools)
+(cd tasks && reject_expansion Python install dummy@1.0.0 --include-task-tools)
+cat >tasks/pakro.toml <<'TOML'
+[tools]
+dummy = "1.0.0"
+[task_templates.python-tools]
+tools.python = "3.13.99"
+[tasks.inherited]
+extends = "python-tools"
+run = "touch ../task-ran"
+TOML
+(cd tasks && reject_expansion Python install --include-task-tools)
+
+mkdir included
+cat >included/pakro.toml <<'TOML'
+[tools]
+dummy = "1.0.0"
+[task_config]
+includes = ["tasks.toml"]
+TOML
+printf '[included]\ntools.python="3.13.99"\nrun="touch ../task-ran"\n' >included/tasks.toml
+(cd included && reject_expansion Python install --include-task-tools)
+
+mkdir -p file-task/.pakro/tasks
+printf '[tools]\ndummy="1.0.0"\n' >file-task/pakro.toml
+cat >file-task/.pakro/tasks/hidden-python <<'TASK'
+#!/usr/bin/env bash
+#PAKRO tools.python="3.13.99"
+touch ../../task-ran
+TASK
+chmod +x file-task/.pakro/tasks/hidden-python
+(cd file-task && reject_expansion Python install --include-task-tools)
+
+# Unknown dynamic/remote task metadata must not be discarded or evaluated.
+mkdir unknown
+cat >unknown/pakro.toml <<'TOML'
+[tools]
+dummy = "1.0.0"
+[tasks.dynamic]
+tools.dummy = "{{exec(command='touch ../task-ran')}}"
+run = "touch ../task-ran"
+TOML
+(cd unknown && reject_expansion 'dynamic task metadata' install --include-task-tools)
+cat >unknown/pakro.toml <<TOML
+[tools]
+dummy = "1.0.0"
+[task_config]
+includes = ["git::http://127.0.0.1:$HTTP_PORT/tasks.git//tasks"]
+TOML
+(cd unknown && reject_expansion 'remote task includes' install --include-task-tools)
+cat >unknown/pakro.toml <<TOML
+[tools]
+dummy = "1.0.0"
+[tasks.remote]
+file = "http://127.0.0.1:$HTTP_PORT/task.sh"
+TOML
+(cd unknown && reject_expansion 'remote task metadata' install --include-task-tools)
+
+# A complete static non-Python expansion still works, including task tools.
+export PAKRO_AUTO_UPDATE=0 PAKRO_CACHE_PRUNE_AGE=0 PAKRO_UPGRADE_AUTO_PRUNE=0
+mkdir -p positive/packages/plain
+cat >positive/pakro.toml <<'TOML'
+monorepo_root = true
+[monorepo]
+config_roots = ["packages/*"]
+[tools]
+dummy = "1.0.0"
+[tasks.local]
+tools.dummy = "1.1.0"
+description = "{{exec(command='touch ../task-ran')}}"
+run = "echo {{vars.not_needed_for_tool_admission}}; touch ../task-ran"
+TOML
+cat >positive/packages/plain/pakro.toml <<'TOML'
+[tools]
+dummy = "2.0.0"
+[tasks.child]
+tools.dummy = "3.0.0"
+run = "touch ../../../task-ran"
+TOML
+(
+  cd positive
+  preview="$(pakro install --monorepo --include-task-tools --dry-run 2>&1)"
+  [[ $preview == *dummy@1.0.0* && $preview == *dummy@1.1.0* && $preview == *dummy@2.0.0* && $preview == *dummy@3.0.0* ]] || fail "non-Python expansion lost requests: $preview"
+  assert_succeed 'pakro install --monorepo --include-task-tools'
+)
+for version in 1.0.0 1.1.0 2.0.0 3.0.0; do
+  [[ -x "$PAKRO_DATA_DIR/installs/dummy/$version/bin/dummy" ]] || fail "non-Python expanded target missing: $version"
+done
+[[ ! -e task-ran && ! -e hook-ran ]] || fail 'tool preparation executed task bodies'
+for library in languages packages projects; do
+  [[ ! -e "$PAKRO_DATA_DIR/$library" ]] || fail "non-Python expansion initialized $library"
+done
+[[ ! -e "$PAKRO_DATA_DIR/installs/python" ]] || fail 'expanded admission entered old Python installation'

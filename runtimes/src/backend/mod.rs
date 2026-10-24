@@ -870,6 +870,130 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[cfg(unix)]
+    #[derive(Debug)]
+    struct PythonAdmissionProbe {
+        ba: Arc<BackendArg>,
+        preparation_calls: std::sync::atomic::AtomicUsize,
+        environment_calls: std::sync::atomic::AtomicUsize,
+    }
+
+    #[cfg(unix)]
+    #[async_trait]
+    impl Backend for PythonAdmissionProbe {
+        fn ba(&self) -> &Arc<BackendArg> {
+            &self.ba
+        }
+
+        async fn _list_remote_versions(&self, _: &Arc<Config>) -> Result<Vec<VersionInfo>> {
+            panic!("admission must not resolve remote versions");
+        }
+
+        async fn prepare_install_version(
+            &self,
+            _: &InstallContext,
+            _: ToolVersion,
+        ) -> Result<ToolVersion> {
+            self.preparation_calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            bail!("unexpected backend preparation before admission")
+        }
+
+        async fn install_version_(
+            &self,
+            _: &InstallContext,
+            _: ToolVersion,
+        ) -> Result<ToolVersion> {
+            panic!("admission must not enter backend installation");
+        }
+
+        async fn exec_env(
+            &self,
+            _: &Arc<Config>,
+            _: &Toolset,
+            _: &ToolVersion,
+        ) -> Result<BTreeMap<String, String>> {
+            self.environment_calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            bail!("unexpected environment callback before admission")
+        }
+    }
+
+    #[cfg(unix)]
+    async fn python_admission_probe(
+        force: bool,
+        destination: PathBuf,
+    ) -> (PythonAdmissionProbe, InstallContext, ToolVersion) {
+        let backend = PythonAdmissionProbe {
+            ba: Arc::new(BackendArg::new("py".into(), Some("core:python".into()))),
+            preparation_calls: Default::default(),
+            environment_calls: Default::default(),
+        };
+        let request =
+            ToolRequest::new(backend.ba.clone(), "3.13.99", ToolSource::Argument).unwrap();
+        let mut version = ToolVersion::new(request, "3.13.99".into());
+        version.install_path = Some(destination);
+        version.install_path_is_exact = true;
+        let context = InstallContext {
+            config: Config::get().await.unwrap(),
+            ts: Arc::new(Toolset::default()),
+            pr: Arc::new(crate::ui::progress_report::QuietReport::new()),
+            force,
+            dry_run: false,
+            explicit_yes: true,
+            locked: false,
+            before_date: None,
+            dependency_context: Default::default(),
+        };
+        (backend, context, version)
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn p1_direct_python_force_stops_before_backend_preparation() {
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("existing-external-runtime");
+        fs::create_dir(&destination).unwrap();
+        fs::write(destination.join("sentinel"), "original bytes").unwrap();
+        let (backend, context, version) = python_admission_probe(true, destination.clone()).await;
+        let error = backend.install_version(context, version).await.unwrap_err();
+        assert!(format!("{error:#}").contains("Python Force"), "{error:#}");
+        assert_eq!(
+            backend
+                .preparation_calls
+                .load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+        assert_eq!(
+            fs::read(destination.join("sentinel")).unwrap(),
+            b"original bytes"
+        );
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn p1_direct_python_postinstall_stops_before_environment_or_script() {
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("missing-external-runtime");
+        let (backend, context, version) = python_admission_probe(false, destination).await;
+        let error = backend
+            .run_postinstall_hook(&context, &version, "exit 99")
+            .await
+            .unwrap_err();
+        assert!(
+            format!("{error:#}").contains("Python PostInstall"),
+            "{error:#}"
+        );
+        assert_eq!(
+            backend
+                .environment_calls
+                .load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+    }
+
+    #[cfg(unix)]
     #[test]
     fn relative_install_paths_preserve_the_raw_entry_during_recovery() {
         let root = tempfile::tempdir().unwrap();
@@ -3576,6 +3700,20 @@ pub trait Backend: Debug + Send + Sync {
     /// 1. It calls `_idiomatic_filenames` to get backend-specific filenames.
     /// 2. It checks the Registry for any additional filenames defined there.
     async fn idiomatic_filenames(&self) -> Result<Vec<String>> {
+        if crate::config::readonly_invocation() && self.plugin().is_some() {
+            // Only built-in metadata may be loaded before admission. Do not
+            // execute list-idiomatic-filenames or populate its legacy cache.
+            return Ok(REGISTRY
+                .get(self.id())
+                .map(|entry| {
+                    entry
+                        .idiomatic_files
+                        .iter()
+                        .map(|file| file.path.to_string())
+                        .collect()
+                })
+                .unwrap_or_default());
+        }
         let mut filenames = self._idiomatic_filenames().await?;
         if let Some(rt) = REGISTRY.get(self.id()) {
             filenames.extend(rt.idiomatic_files.iter().map(|f| f.path.to_string()));
@@ -3693,6 +3831,31 @@ pub trait Backend: Debug + Send + Sync {
         ctx: InstallContext,
         tv: ToolVersion,
     ) -> eyre::Result<ToolVersion> {
+        #[cfg(unix)]
+        {
+            use crate::programs::python::{PythonWriteOperation, reject_python_write};
+            reject_python_write(
+                if ctx.force {
+                    PythonWriteOperation::Force
+                } else {
+                    PythonWriteOperation::LegacyInstall
+                },
+                self.ba(),
+            )?;
+            crate::libraries::language::mutation::reject_legacy_mutation(
+                &crate::dirs::DATA,
+                if ctx.force {
+                    crate::libraries::language::mutation::LegacyMutation::Force
+                } else {
+                    crate::libraries::language::mutation::LegacyMutation::Repair
+                },
+                &tv.install_path(),
+            )?;
+        }
+        eyre::ensure!(
+            !crate::config::readonly_invocation(),
+            "a local query cannot install tools"
+        );
         // Read the entry through the BackendArg so a tool alias reaches it, and only warn
         // when the resolved backend is one of its own, so a plugin that overrides the
         // shorthand doesn't get a warning about a CLI it doesn't install.
@@ -4163,6 +4326,22 @@ pub trait Backend: Debug + Send + Sync {
         tv: &ToolVersion,
         script: &str,
     ) -> eyre::Result<()> {
+        #[cfg(unix)]
+        {
+            crate::programs::python::reject_python_write(
+                crate::programs::python::PythonWriteOperation::PostInstall,
+                self.ba(),
+            )?;
+            crate::libraries::language::mutation::reject_legacy_mutation(
+                &crate::dirs::DATA,
+                crate::libraries::language::mutation::LegacyMutation::PostInstall,
+                &tv.install_path(),
+            )?;
+        }
+        eyre::ensure!(
+            !crate::config::readonly_invocation(),
+            "a local query cannot run postinstall hooks"
+        );
         // Resolve the hook against the exact version just installed (locked) rather
         // than the request's runtime symlink: for a fuzzy request (e.g. `version = "3"`)
         // the runtime symlink (installs/python/3) still points at the previous version

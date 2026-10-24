@@ -260,3 +260,84 @@ async fn f1_default_target_switch_retires_previous_reference() {
         1
     );
 }
+
+#[tokio::test]
+async fn p1_same_project_competing_commits_keep_one_winner_and_other_project() {
+    let owner = tempfile::tempdir().unwrap();
+    let root = owner.path().canonicalize().unwrap();
+    let stage = root.join("stage");
+    std::fs::create_dir(&stage).unwrap();
+    let context = context(&stage);
+    let bytes = archive("3.15.0");
+    let spec = install_spec(&bytes);
+    drop(prepare(&spec, &context, &bytes).await.unwrap());
+    let projects = [root.join("a"), root.join("b")];
+    let mut identities = Vec::new();
+    for project in &projects {
+        std::fs::create_dir(project).unwrap();
+        std::fs::write(project.join("pakro.toml"), "[tools]\npython='3.15.0'\n").unwrap();
+        let observed = observe(project);
+        identities.push(ProjectIdentity::from_observation(&observed).unwrap());
+        let query = open_query_context(&context, &observed).unwrap();
+        let SelectionReport::Selected(candidate) = select_existing(&query).unwrap() else {
+            panic!("the fixture language must be Ready");
+        };
+        commit_selection(prepare_selection_commit(&context, &observed, &candidate).unwrap())
+            .unwrap();
+    }
+    let before = ProjectRepository::open_readonly(&context).unwrap();
+    let key = SelectionKey::new(
+        identities[0].as_uuid(),
+        DEFAULT_GROUP,
+        spec.key().target(),
+        before.model().limits(),
+    )
+    .unwrap();
+    let revision = before.model().snapshot(&key).revision();
+    drop(before);
+    let barrier = std::sync::Barrier::new(2);
+    let results = std::thread::scope(|scope| {
+        let mut competitors = Vec::new();
+        for _ in 0..2 {
+            let project = &projects[0];
+            let context = &context;
+            let barrier = &barrier;
+            competitors.push(scope.spawn(move || {
+                let observed = observe(project);
+                let query = open_query_context(context, &observed).unwrap();
+                let SelectionReport::Selected(candidate) = select_existing(&query).unwrap() else {
+                    panic!("the shared language must remain Ready");
+                };
+                let prepared = prepare_selection_commit(context, &observed, &candidate).unwrap();
+                // Both requests freeze the same revision before either commits.
+                barrier.wait();
+                commit_selection(prepared)
+                    .map(|receipt| receipt.revision())
+                    .map_err(|error| format!("{error:#}"))
+            }));
+        }
+        competitors
+            .into_iter()
+            .map(|thread| thread.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        results.iter().filter(|result| result.is_ok()).count(),
+        1,
+        "{results:?}"
+    );
+    assert!(
+        results.iter().any(|result| result
+            .as_ref()
+            .is_err_and(|error| error.contains("project selection changed"))),
+        "{results:?}"
+    );
+    let after = ProjectRepository::open_readonly(&context).unwrap();
+    assert_eq!(after.model().snapshot(&key).revision(), revision + 1);
+    assert_eq!(after.read_views().registered_projects().len(), 2);
+    for identity in &identities {
+        let selected = after.read_views().language_selection(identity).unwrap();
+        assert_eq!(selected.language(), &spec.key().fingerprint());
+        assert!(selected.package_references().is_empty());
+    }
+}

@@ -5,6 +5,27 @@ use crate::packages::PackageInstallRequest;
 use crate::programs::OperationContext;
 use eyre::{ContextCompat, Result, ensure};
 
+pub use super::shared::python_entry::{
+    PythonWriteOperation, is_python_backend, is_python_provider, reject_python_provider_write,
+    reject_python_write, validate_python_query_options,
+};
+
+/// Inspect the legacy inventory before unrestricted prune can enter its
+/// mutation path. Unreadable inventory is an error, never an empty target set.
+pub fn preflight_legacy_python_inventory() -> Result<()> {
+    for installed in crate::toolset::install_state::try_list_tools()?.values() {
+        reject_python_write(
+            PythonWriteOperation::Prune,
+            &crate::args::BackendArg::from(installed.clone()),
+        )?;
+    }
+    eyre::ensure!(
+        !crate::dirs::DATA.join("languages").exists(),
+        "Python Prune is not supported by the shared Python transaction path yet; specify explicit non-Python tools before pruning"
+    );
+    Ok(())
+}
+
 pub struct PythonProjectInstall {
     context: OperationContext,
     observed: ObservedProjectInputs,
@@ -20,9 +41,12 @@ impl PythonProjectInstall {
         !self.roots.is_empty()
     }
     pub fn only_python_tools(&self) -> bool {
-        self.observed
-            .declarations()
-            .all(|(_, declarations)| declarations.tools.iter().all(|tool| tool.name == "python"))
+        self.observed.declarations().all(|(_, declarations)| {
+            declarations
+                .tools
+                .iter()
+                .all(|tool| super::query::snapshot::python_tool_name(&self.observed, &tool.name))
+        })
     }
 
     /// Called only after explicit installation intent. Preparation never edits
@@ -31,21 +55,32 @@ impl PythonProjectInstall {
         self,
         config: std::sync::Arc<crate::config::Config>,
     ) -> futures_util::future::BoxFuture<'static, Result<()>> {
+        let version = self.version.clone();
+        self.install_version(version, config)
+    }
+
+    fn install_version(
+        self,
+        version: String,
+        config: std::sync::Arc<crate::config::Config>,
+    ) -> futures_util::future::BoxFuture<'static, Result<()>> {
         Box::pin(async move {
-            let request = super::shared::exact_version::exact_python_request(&self.version)?;
+            self.context.checkpoint()?;
+            self.observed.recheck()?;
+            let request = super::shared::exact_version::exact_python_request(&version)?;
             let pin = crate::libraries::project::runtime_pin::observed_runtime_pin(
                 &self.observed,
                 &request,
             )?;
             crate::plugins::core::python::PythonPlugin::new()
-                .install_shared_exact_in_context(&self.context, &self.version, config, pin.as_ref())
+                .install_shared_exact_in_context(&self.context, &version, config, pin.as_ref())
                 .await?;
             install_project_packages(&self.context, &self.observed, &self.roots).await
         })
     }
 }
 
-fn project_plan(
+pub(crate) fn project_plan(
     context: OperationContext,
     observed: ObservedProjectInputs,
     extra: &[PackageInstallRequest],
@@ -163,16 +198,8 @@ pub(crate) fn project_roots(
 pub fn prepare_current_project(
     extra: &[PackageInstallRequest],
 ) -> Result<Option<PythonProjectInstall>> {
-    use crate::config::FrozenConfigDiscovery;
-    use crate::libraries::project::snapshot::{ReadPolicy, observe_project};
     let context = capture_install_context()?;
-    let mut discovery =
-        FrozenConfigDiscovery::new(vec!["pakro.toml".into(), "pakro.local.toml".into()]);
-    discovery.ceiling_paths = vec![std::path::PathBuf::from("/")];
-    let observed = observe_project(
-        &std::env::current_dir()?,
-        ReadPolicy::new(discovery, context.policy().deadline),
-    )?;
+    let observed = super::library::observe_current_project(&context)?;
     project_plan(context, observed, extra)
 }
 
@@ -234,38 +261,24 @@ pub fn install_exact_python<'a>(
 ) -> futures_util::future::BoxFuture<'a, Result<()>> {
     Box::pin(async move {
         let requested = super::shared::exact_version::exact_python_request(version)?;
-        if let Some(project) = prepare_current_project(extra)? {
+        // Capture once, including the global/no-project branch. Reusing this
+        // invocation preserves the original deadline, source policy and settings.
+        let context = capture_install_context()?;
+        let observed = super::library::observe_current_project(&context)?;
+        if let Some(project) = project_plan(context.clone(), observed, extra)? {
             let declared = super::shared::exact_version::exact_python_request(project.version())?;
             if declared.version_only() == requested.version_only()
                 && declared
                     .build_pin()
                     .is_none_or(|pin| Some(pin) == requested.build_pin())
             {
-                let pin = crate::libraries::project::runtime_pin::observed_runtime_pin(
-                    &project.observed,
-                    &requested,
-                )?;
-                crate::plugins::core::python::PythonPlugin::new()
-                    .install_shared_exact_in_context(
-                        &project.context,
-                        version,
-                        config,
-                        pin.as_ref(),
-                    )
-                    .await?;
-                return install_project_packages(
-                    &project.context,
-                    &project.observed,
-                    &project.roots,
-                )
-                .await;
+                return project.install_version(version.to_owned(), config).await;
             }
         }
         ensure!(
             extra.is_empty(),
             "explicit package bindings require the matching declared project Python"
         );
-        let context = capture_install_context()?;
         crate::plugins::core::python::PythonPlugin::new()
             .install_shared_exact_in_context(&context, version, config, None)
             .await
@@ -553,7 +566,11 @@ fn project_lock_path(observed: &ObservedProjectInputs) -> Result<std::path::Path
     }
     let config = observed
         .declarations()
-        .find(|(_, declarations)| declarations.tools.iter().any(|tool| tool.name == "python"))
+        .find(|(_, declarations)| {
+            declarations.tools.iter().any(|tool| {
+                crate::programs::query::snapshot::python_tool_name(observed, &tool.name)
+            })
+        })
         .map(|(path, _)| path)
         .context("Python declaration has no owning configuration")?;
     Ok(crate::lockfile::lockfile_path_for_config_with_folder_fragment(config, None, false).0)

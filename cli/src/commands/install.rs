@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use crate::args::ToolArg;
+use crate::args::{BackendArg, ToolArg};
 use crate::config::Settings;
 use crate::config::{Config, SettingsExt};
 use crate::errors::split_install_result;
@@ -56,6 +56,10 @@ pub(crate) struct Install {
     /// e.g.: node@20
     #[usage(value_name = "TOOL@VERSION")]
     tool: Option<Vec<ToolArg>>,
+
+    /// One read-only expansion reused by the eventual legacy installer.
+    #[usage(skip)]
+    expanded_inputs: tokio::sync::OnceCell<ExpandedInstallInputs>,
 
     /// Force reinstall even if already installed
     /// With no tools specified, reinstall all configured tools
@@ -145,6 +149,22 @@ pub(crate) struct Install {
     yes: bool,
 }
 
+#[derive(Clone)]
+struct ExpandedInstallInputs {
+    monorepo: Option<Arc<config::MonorepoUnion>>,
+    task_requests: Vec<ToolRequest>,
+}
+
+impl std::fmt::Debug for ExpandedInstallInputs {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ExpandedInstallInputs")
+            .field("monorepo", &self.monorepo.is_some())
+            .field("task_request_count", &self.task_requests.len())
+            .finish()
+    }
+}
+
 impl Install {
     /// a bare `pakro install` (install everything missing from config), as run
     /// by `pakro bootstrap`
@@ -154,6 +174,11 @@ impl Install {
             yes,
             ..Default::default()
         }
+    }
+
+    pub(super) fn inherit_root_admission_flags(&mut self, force: bool, dry_run: bool) {
+        self.force |= force;
+        self.dry_run |= dry_run;
     }
 
     pub(crate) fn inherit_root_yes(&mut self, yes: bool) {
@@ -181,6 +206,199 @@ impl Install {
         self.dry_run || self.dry_run_code
     }
 
+    /// Admission runs during read-only startup, before maintenance or Config tracking.
+    pub(super) async fn preflight(&self) -> Result<()> {
+        if self.is_bytecode_recovery() {
+            return Ok(());
+        }
+        use crate::programs::python::is_python_backend;
+        let tools = self.tool.as_deref().unwrap_or(&[]);
+        let bound_python = crate::packages::request::CLI_PACKAGE_ARGS
+            .get()
+            .is_some_and(|requests| {
+                requests
+                    .iter()
+                    .any(|request| request.runtime_name == "python")
+            });
+        let config = Config::get().await?;
+        // Expansion is part of admission, not work to postpone until after
+        // auto-update, migration, cache pruning or tracking have run.
+        self.expanded_install_inputs(&config).await?;
+        let explicit_python = tools.iter().any(|tool| is_python_backend(&tool.ba));
+        let requests = config.get_tool_request_set().await?;
+        let declared_python = requests
+            .iter()
+            .any(|(backend, _, _)| is_python_backend(backend));
+        // Unknown tool names are the existing bare-package syntax. Bind them
+        // with the same parser as run(), before allowing maintenance or writes.
+        let runtimes: Vec<_> = requests
+            .iter()
+            .filter_map(|(backend, versions, _)| {
+                (is_python_backend(backend) || backend.short == "node")
+                    .then(|| {
+                        versions.first().map(|version| {
+                            (
+                                if is_python_backend(backend) {
+                                    "python".to_owned()
+                                } else {
+                                    backend.short.clone()
+                                },
+                                version.version().to_string(),
+                            )
+                        })
+                    })
+                    .flatten()
+            })
+            .collect();
+        let positional_version = matches!(tools, [first, second] if is_python_backend(&first.ba)
+            && first.version.is_none() && second.version.is_none()
+            && crate::programs::directory::is_exact_python_version(&second.short));
+        let package_tools = if positional_version {
+            tools[..1].to_vec()
+        } else {
+            tools.to_vec()
+        };
+        let (kept, packages) =
+            crate::packages::split_bare_packages(package_tools, &runtimes, |name| {
+                BackendArg::from_str(name)
+                    .ok()
+                    .and_then(|backend| backend.backend().ok())
+                    .is_some()
+            })
+            .map_err(|error| eyre::eyre!("{error}"))?;
+        // Check actual indirect runtime requirements before startup maintenance,
+        // including requests without an explicit version and config options.
+        for tool in kept.iter().filter(|tool| !is_python_backend(&tool.ba)) {
+            let request = match &tool.tvr {
+                Some(request) => request.clone(),
+                None => ToolRequest::new(tool.ba.clone(), "latest", ToolSource::Argument)?,
+            };
+            Toolset::ensure_python_install_admission(&request)?;
+        }
+        for (backend, versions, _) in requests.iter() {
+            if !is_python_backend(backend)
+                && (tools.is_empty() || kept.iter().any(|tool| tool.ba.short == backend.short))
+            {
+                for request in versions {
+                    Toolset::ensure_python_install_admission(request)?;
+                }
+            }
+        }
+        // The legacy tail installs every effective config package group, not
+        // only packages belonging to the tools named on the command line.
+        // Admit the actual route before startup maintenance or runtime writes.
+        let shared_exact_route = positional_version
+            || matches!(tools, [tool] if is_python_backend(&tool.ba) && tool.version.is_some());
+        let shared_project_route = !shared_exact_route
+            && declared_python
+            && (kept.is_empty()
+                || matches!(kept.as_slice(), [tool] if is_python_backend(&tool.ba) && tool.version.is_none()));
+        let shared_route = shared_exact_route || shared_project_route;
+        let configured_python_packages = config.config_files.values().any(|file| {
+            file.to_package_requests()
+                .iter()
+                .any(|request| request.runtime_name == "python")
+        });
+        eyre::ensure!(
+            self.is_dry_run()
+                || shared_route
+                || (!configured_python_packages
+                    && !bound_python
+                    && !packages
+                        .iter()
+                        .any(|request| request.runtime_name == "python")),
+            "Python package groups would enter the unsupported legacy package installation path; \
+             refusing the complete request before any effect"
+        );
+        eyre::ensure!(
+            !explicit_python || shared_route,
+            "shared Python installation supports one Python target per request; \
+             refusing an unsupported legacy installation batch before any effect"
+        );
+        let touches_python = explicit_python
+            || bound_python
+            || packages
+                .iter()
+                .any(|request| request.runtime_name == "python")
+            || (tools.is_empty() && declared_python);
+        if !touches_python {
+            return Ok(());
+        }
+        eyre::ensure!(
+            !self.force && !self.system && self.shared.is_none(),
+            "shared Python installs do not support force or alternate install destinations"
+        );
+        eyre::ensure!(
+            !self.monorepo && !self.include_task_tools,
+            "shared Python installation does not support monorepo or task-tool expansion"
+        );
+        eyre::ensure!(
+            positional_version || kept.iter().all(|tool| is_python_backend(&tool.ba)),
+            "install the non-Python tools explicitly; mixed Python installation is not supported"
+        );
+        for tool in tools.iter().filter(|tool| is_python_backend(&tool.ba)) {
+            if let Some(version) = &tool.version {
+                eyre::ensure!(
+                    crate::programs::directory::is_exact_python_version(version),
+                    "python {version:?} is not a complete exact version"
+                );
+            }
+            eyre::ensure!(
+                tool.ba.opts.is_none(),
+                "shared Python installs do not support legacy tool options"
+            );
+        }
+        // A legacy postinstall hook would otherwise be silently dropped by
+        // the shared path or run later against immutable library contents.
+        for (backend, versions, _) in requests.iter() {
+            if is_python_backend(backend) {
+                for request in versions {
+                    eyre::ensure!(
+                        request.options().postinstall().is_none(),
+                        "Python postinstall is not supported by the shared Python installation path"
+                    );
+                }
+            }
+        }
+        if tools.is_empty() {
+            eyre::ensure!(
+                requests
+                    .iter()
+                    .all(|(backend, _, _)| is_python_backend(backend)),
+                "install the declared non-Python tools explicitly; mixed Python installation is not supported"
+            );
+        }
+        let mut extras = packages;
+        extras.extend(
+            crate::packages::request::CLI_PACKAGE_ARGS
+                .get()
+                .into_iter()
+                .flatten()
+                .cloned(),
+        );
+        let project = crate::programs::python::prepare_current_project(&extras)?;
+        eyre::ensure!(
+            (!shared_project_route && extras.is_empty()) || project.is_some(),
+            "Python package installation requires a matching declared project Python"
+        );
+        if !extras.is_empty() && shared_exact_route {
+            let version = if positional_version {
+                tools[1].short.as_str()
+            } else {
+                tools[0]
+                    .version
+                    .as_deref()
+                    .expect("one exact Python target")
+            };
+            eyre::ensure!(
+                extras.iter().all(|request| request.runtime_name != "python"
+                    || request.runtime_version == version),
+                "Python package bindings must match the explicit Python target"
+            );
+        }
+        Ok(())
+    }
+
     #[async_backtrace::framed]
     pub async fn run(mut self) -> Result<()> {
         // Recovery is deliberately independent of project discovery, legacy
@@ -188,15 +406,18 @@ impl Install {
         if let Some(instance) = &self.restore_bytecode {
             return self.run_bytecode_recovery(instance);
         }
+        self.preflight().await?;
         // F2 exact-Python fast path (D10): one explicit python request with a
         // complete version enters before the legacy migration, task-tool
         // collection or any remote resolution; incomplete versions are
         // rejected here before anything is fetched or written. Both the
         // `python@3.13.16` and the `python 3.13.16` spellings qualify.
         let exact_python_version: Option<String> = match self.tool.as_deref().unwrap_or(&[]) {
-            [single] if single.short == "python" => single.version.clone(),
+            [single] if crate::programs::python::is_python_backend(&single.ba) => {
+                single.version.clone()
+            }
             [first, second]
-                if first.short == "python"
+                if crate::programs::python::is_python_backend(&first.ba)
                     && first.version.is_none()
                     && second.version.is_none() =>
             {
@@ -219,7 +440,7 @@ impl Install {
         #[cfg(unix)]
         if self.tool.as_deref().is_none_or(|tools| {
             tools.is_empty()
-                || matches!(tools, [tool] if tool.short == "python" && tool.version.is_none())
+                || matches!(tools, [tool] if crate::programs::python::is_python_backend(&tool.ba) && tool.version.is_none())
         }) {
             let mut extras = bare_pins.clone();
             extras.extend(
@@ -453,18 +674,77 @@ impl Install {
         Ok(pins)
     }
 
-    async fn collect_task_tool_requests(&self, config: &Arc<Config>) -> Result<Vec<ToolRequest>> {
-        if !self.include_task_tools {
-            return Ok(vec![]);
-        }
-
-        let task_context = self.monorepo.then(TaskLoadContext::all);
-        let tasks = config.tasks_with_context(task_context.as_ref()).await?;
-        let context_builder = TaskContextBuilder::new();
-        let installer = TaskToolInstaller::new(&context_builder, &[]);
-        installer
-            .collect_tool_requests(config, tasks.values())
+    async fn expanded_install_inputs<'a>(
+        &'a self,
+        config: &Arc<Config>,
+    ) -> Result<&'a ExpandedInstallInputs> {
+        self.expanded_inputs
+            .get_or_try_init(|| async {
+                let previous = crate::config::readonly_invocation();
+                crate::config::set_readonly_invocation(true);
+                let result = self.read_expanded_install_inputs(config).await;
+                crate::config::set_readonly_invocation(previous);
+                result
+            })
             .await
+    }
+
+    async fn read_expanded_install_inputs(
+        &self,
+        config: &Arc<Config>,
+    ) -> Result<ExpandedInstallInputs> {
+        let monorepo = if self.monorepo {
+            Some(Arc::new(config.monorepo_union().await?))
+        } else {
+            None
+        };
+        if let Some(union) = &monorepo {
+            eyre::ensure!(
+                union.tool_request_set.unknown_tools.is_empty(),
+                "expanded installation has unknown tool targets; refusing before any effect"
+            );
+            // Migration covers the whole union even when CLI tools filter the
+            // runtime installation. P1 cannot admit a Python-containing union.
+            for (_, requests, _) in union.tool_request_set.iter() {
+                for request in requests {
+                    Toolset::ensure_python_install_admission(request)?;
+                }
+            }
+            eyre::ensure!(
+                !union.config_files.values().any(|file| file
+                    .to_package_requests()
+                    .iter()
+                    .any(|request| request.runtime_name == "python")),
+                "Python package groups in an expanded monorepo are not supported; refusing before any effect"
+            );
+        }
+        let task_requests = if self.include_task_tools {
+            let task_context = self.monorepo.then(TaskLoadContext::all);
+            let tasks = config.tasks_with_context(task_context.as_ref()).await?;
+            let context_builder = TaskContextBuilder::new();
+            let installer = TaskToolInstaller::new(&context_builder, &[]);
+            let requests = installer
+                .collect_tool_requests(config, tasks.values())
+                .await?;
+            for request in &requests {
+                Toolset::ensure_python_install_admission(request)?;
+            }
+            requests
+        } else {
+            vec![]
+        };
+        Ok(ExpandedInstallInputs {
+            monorepo,
+            task_requests,
+        })
+    }
+
+    async fn collect_task_tool_requests(&self, config: &Arc<Config>) -> Result<Vec<ToolRequest>> {
+        Ok(self
+            .expanded_install_inputs(config)
+            .await?
+            .task_requests
+            .clone())
     }
 
     /// one-time hint when `[bootstrap.packages]` entries are missing — pakro
@@ -564,13 +844,13 @@ impl Install {
         original_tool_args: Vec<ToolArg>,
         task_requests: Vec<ToolRequest>,
     ) -> Result<Vec<PackageRuntimeBinding>> {
-        let monorepo_union = if self.monorepo {
-            Some(config.monorepo_union().await?)
-        } else {
-            None
-        };
+        let monorepo_union = self
+            .expanded_install_inputs(&config)
+            .await?
+            .monorepo
+            .clone();
         let mut install_config = self
-            .effective_config(&config, monorepo_union.as_ref())
+            .effective_config(&config, monorepo_union.as_deref())
             .await?;
         crate::lockfile::warn_outdated_lockfiles(&install_config);
         let base_trs = match &monorepo_union {
@@ -865,11 +1145,11 @@ impl Install {
         config: Arc<Config>,
         task_requests: Vec<ToolRequest>,
     ) -> eyre::Result<Vec<PackageRuntimeBinding>> {
-        let monorepo_union = if self.monorepo {
-            Some(config.monorepo_union().await?)
-        } else {
-            None
-        };
+        let monorepo_union = self
+            .expanded_install_inputs(&config)
+            .await?
+            .monorepo
+            .clone();
         let base_trs = measure!("get_tool_request_set", {
             match &monorepo_union {
                 Some(union) => union.tool_request_set.clone(),
@@ -886,7 +1166,7 @@ impl Install {
             .collect_vec();
         ensure_compatible_install_requests(&install_candidates)?;
         let mut install_config = self
-            .effective_config(&config, monorepo_union.as_ref())
+            .effective_config(&config, monorepo_union.as_deref())
             .await?;
         crate::lockfile::warn_outdated_lockfiles(&install_config);
 
@@ -1098,7 +1378,16 @@ impl Install {
         }
         let config_files = match monorepo_union {
             Some(union) => union.config_files.clone(),
-            None => config.monorepo_union().await?.config_files,
+            None => self
+                .expanded_install_inputs(config)
+                .await?
+                .monorepo
+                .as_ref()
+                .ok_or_else(|| {
+                    eyre::eyre!("monorepo installation is missing its admitted input plan")
+                })?
+                .config_files
+                .clone(),
         };
         config.with_config_files(config_files)
     }

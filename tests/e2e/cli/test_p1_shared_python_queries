@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# Real shared language/wheel environment: every query observes the same target,
+# with a separate language-only projection and no acquisition or registration.
+source "$TEST_ROOT/packages/f3_shared_wheel_helpers.sh"
+P1_ORIGINAL_TEST_DIR="$TEST_DIR"
+TEST_DIR="$TEST_ROOT/packages"
+f3_setup
+TEST_DIR="$P1_ORIGINAL_TEST_DIR"
+p1_workspace="$PWD"
+f3_declare ready z-root
+(cd ready && pakro install)
+export PAKRO_NOT_FOUND_AUTO_INSTALL=1 PAKRO_NOT_FOUND_AUTO_INSTALL_REGISTRY=1
+p1_requests_before="$(f3_request_count)"
+p1_catalog_before="$(cksum "$PAKRO_DATA_DIR/projects/.control/catalog/projects")"
+export PAKRO_ENV_CACHE=1
+export __PAKRO_ENV_CACHE_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+p1_state_snapshot() {
+  find "$PAKRO_STATE_DIR" -type f -exec cksum {} \; | LC_ALL=C sort
+  find "$PAKRO_STATE_DIR" -print | LC_ALL=C sort
+}
+p1_state_before="$(p1_state_snapshot)"
+cd ready
+p1_language_root="$(pakro where python)"
+[[ -d "$p1_language_root" && "$F3_STAGED_PYTHON" == "$p1_language_root/"* ]] || fail 'where did not return the real language payload root'
+p1_bin="$(pakro bin-paths python)"
+p1_python="$(pakro which python)"
+p1_script="$(pakro which z-root-cli)"
+[[ -x "$p1_python" && -x "$p1_script" ]] || fail 'which did not return existing shared commands'
+[[ "$p1_python" == "$p1_bin/"* && "$p1_script" == "$p1_bin/"* ]] || fail 'which and bin-paths disagree'
+[[ "$p1_bin" != "$p1_language_root/bin" ]] || fail 'the package layout must differ from the language root'
+assert "pakro which python --plugin" 'python'
+assert "pakro which z-root-cli --version" '3.13.16'
+assert "pakro which python --tool=python@3.13.16" "$p1_python"
+assert "pakro env --json | jq -r '.PATH | split(\":\")[0]'" "$p1_bin"
+assert "pakro env --json-extended | jq -r '.PYTHONDONTWRITEBYTECODE.value'" '1'
+assert_contains 'pakro env --shell bash' 'export PYTHONDONTWRITEBYTECODE=1'
+assert_contains 'pakro env --dotenv' 'PYTHONDONTWRITEBYTECODE=1'
+assert_succeed "pakro env --values | grep -Fx 1"
+# Source annotations cannot overwrite the effective shared PATH or bytecode policy.
+printf '[env]\nPATH = "/usr/bin:/bin"\nPYTHONDONTWRITEBYTECODE = "0"\n' >pakro.local.toml
+assert "pakro env --json-extended | jq -r '.PATH.value | split(\":\")[0]'" "$p1_bin"
+assert "pakro env --json-extended | jq -r '.PYTHONDONTWRITEBYTECODE.value'" '1'
+assert "pakro bin-paths python --json | jq -r 'map(select(.name == \"z-root-cli\")) | length'" '1'
+assert_succeed "pakro which --complete | grep -Fx z-root-cli"
+assert "PYTHONDONTWRITEBYTECODE=1 \"$p1_script\"" 'shared-dependency:pth-visible'
+assert_fail_contains 'pakro which definitely-not-a-command --tool=python@3.13.16 2>&1' 'does not provide'
+# Explicit X overrides cwd Y when Y has no package binding. None of these may
+# accidentally use Y or consult a remote version resolver.
+cd ..
+mkdir language-y
+printf '[tools]\npython = "3.13.99"\n' >language-y/pakro.toml
+cd language-y
+assert "pakro where python@3.13" "$p1_language_root"
+assert "pakro where python 3.13.16" "$p1_language_root"
+assert "pakro which python --tool=python@3.13.16 --version" '3.13.16'
+p1_explicit_bin="$(pakro bin-paths python@3.13.16)"
+assert "pakro env python@3.13.16 --json | jq -r '.PATH | split(\":\")[0]'" "$p1_explicit_bin"
+assert_fail_contains 'pakro where python 2>&1' '3.13.99'
+assert_fail_contains 'pakro env --json 2>&1' '3.13.99'
+# Language readiness does not claim the requested packages are available.
+cd ..
+f3_declare incomplete never-published
+cd incomplete
+assert "pakro where python" "$p1_language_root"
+assert_fail_contains 'pakro env --json 2>&1' 'never-published'
+assert_fail_contains 'pakro which python 2>&1' 'never-published'
+assert_fail_contains 'pakro bin-paths python --json 2>&1' 'never-published'
+assert 'pakro current python 2>/dev/null' '3.13.16'
+assert_succeed "pakro project status | grep -E 'missing|incomplete'"
+# A package graph bound to Y cannot be spliced into explicit X.
+printf '[tools]\npython = "3.13.99"\n[packages."python@3.13.99"]\nz-root = "1.0"\n' >pakro.toml
+assert "pakro where python@3.13.16" "$p1_language_root"
+assert_fail_matches 'pakro env python@3.13.16 --json 2>&1' 'incompatible|bound|binding'
+# No declaration has no implicit current Python; explicit local target works.
+cd ..
+mkdir undeclared
+cd undeclared
+assert "pakro current python | wc -c | tr -d ' '" '0'
+assert "pakro where python@3.13.16" "$p1_language_root"
+assert_fail_contains 'pakro where python 2>&1' 'no current'
+assert_fail_contains 'pakro which python 2>&1' 'no current'
+# Backend-qualified and aliased Python keep shared ownership.
+assert "pakro where core:python@3.13.16" "$p1_language_root"
+cat >pakro.toml <<'TOML'
+[alias.py]
+backend = "core:python"
+[tools]
+py = "3.13.16"
+TOML
+assert "pakro where py" "$p1_language_root"
+assert 'pakro current py' '3.13.16'
+assert 'pakro ls py --json | jq -r ".instances | length"' '1'
+# The real CLI discovery scope reaches the same observation as path queries.
+cd "$p1_workspace"
+mkdir scope
+printf '[tools]\npython = "3.13.99"\n' >scope/pakro.toml
+printf '[tools]\npython = "3.13.16"\n' >scope/pakro.p1.toml
+assert "pakro --cd scope --profile p1 where python" "$p1_language_root"
+cd scope
+assert "PAKRO_ENV=p1 pakro where python" "$p1_language_root"
+assert "PAKRO_PYTHON_VERSION=3.13.16 pakro where python" "$p1_language_root"
+assert "pakro --no-config where python@3.13.16" "$p1_language_root"
+assert_fail_contains 'pakro --no-config where python 2>&1' 'no current'
+assert "PAKRO_IGNORED_CONFIG_PATHS=\"$PWD\" pakro current python | wc -c | tr -d ' '" '0'
+cd "$p1_workspace"
+mkdir scope-global
+cd scope-global
+printf '[tools]\npython = "3.13.16"\n' >global-config.toml
+printf '[tools]\npython = "3.13.99"\n' >system-config.toml
+assert "PAKRO_GLOBAL_CONFIG_FILE=\"$PWD/global-config.toml\" PAKRO_SYSTEM_CONFIG_FILE=\"$PWD/system-config.toml\" pakro where python" "$p1_language_root"
+assert_fail_contains "PAKRO_SYSTEM_CONFIG_FILE=\"$PWD/system-config.toml\" pakro where python 2>&1" '3.13.99'
+[[ $(f3_request_count) == "$p1_requests_before" ]] || fail 'query fetched remote metadata'
+[[ $(cksum "$PAKRO_DATA_DIR/projects/.control/catalog/projects") == "$p1_catalog_before" ]] || fail 'query modified the committed selection'
+f3_assert_no_manager
+[[ "$(p1_state_snapshot)" == "$p1_state_before" ]] || fail 'read-only Ready query wrote state or env cache'
+
+# Actual shell transition: a failed selection withdraws the prior environment
+# and bytecode policy without releasing the persistent project reference.
+cd "$p1_workspace"
+rm ready/pakro.local.toml
+export PYTHONDONTWRITEBYTECODE=0
+eval "$(pakro activate bash)"
+cd ready
+eval "$(pakro hook-env -s bash --force)"
+assert 'command -v python' "$p1_python"
+assert 'printf %s "$PYTHONDONTWRITEBYTECODE"' '1'
+p1_applied_catalog="$(cksum "$PAKRO_DATA_DIR/projects/.control/catalog/projects")"
+cd ../incomplete
+eval "$(pakro hook-env -s bash --force)"
+[[ $(command -v python || true) != "$p1_python" ]] || fail 'failed hook retained the previous shared Python PATH'
+assert 'printf %s "$PYTHONDONTWRITEBYTECODE"' '0'
+[[ $(cksum "$PAKRO_DATA_DIR/projects/.control/catalog/projects") == "$p1_applied_catalog" ]] || fail 'failed hook changed persistent project references'
+cd "$p1_workspace"
+eval "$(pakro hook-env -s bash --force)"
+assert 'printf %s "$PYTHONDONTWRITEBYTECODE"' '0'
+[[ $(cksum "$PAKRO_DATA_DIR/projects/.control/catalog/projects") == "$p1_applied_catalog" ]] || fail 'leaving the directory released project references'
+[[ $(f3_request_count) == "$p1_requests_before" ]] || fail 'hook selection fetched remote metadata'
+
+# Parsing a broken project must also emit the old environment withdrawal,
+# even though the CLI returns a failure before normal selection can run.
+cd "$p1_workspace/ready"
+eval "$(pakro hook-env -s bash --force)"
+assert 'command -v python' "$p1_python"
+assert 'printf %s "$PYTHONDONTWRITEBYTECODE"' '1'
+p1_applied_catalog="$(cksum "$PAKRO_DATA_DIR/projects/.control/catalog/projects")"
+mkdir -p "$p1_workspace/invalid-toml"
+printf '[tools\npython = "3.13.16"\n' >"$p1_workspace/invalid-toml/pakro.toml"
+cd "$p1_workspace/invalid-toml"
+if pakro hook-env -s bash --force >"$TMPDIR/p1-hook-withdraw.sh" 2>"$TMPDIR/p1-hook-invalid.err"; then
+  fail 'invalid project TOML unexpectedly produced a successful hook'
+fi
+[[ -s "$TMPDIR/p1-hook-withdraw.sh" && -s "$TMPDIR/p1-hook-invalid.err" ]] || fail 'failed hook omitted withdrawal or its original diagnostic'
+eval "$(cat "$TMPDIR/p1-hook-withdraw.sh")"
+[[ $(command -v python || true) != "$p1_python" ]] || fail 'invalid TOML retained the previous shared Python PATH'
+assert 'printf %s "$PYTHONDONTWRITEBYTECODE"' '0'
+[[ $(cksum "$PAKRO_DATA_DIR/projects/.control/catalog/projects") == "$p1_applied_catalog" ]] || fail 'invalid TOML changed persistent project references'

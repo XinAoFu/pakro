@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Existing non-Python plugin dispatch must leave startup admission only after
+# shared Python ownership has been checked; Python misses keep refusing.
+p1_binary="$(command -v pakro)"
+p1_dispatch="$TMPDIR/p1-command-dispatch"
+mkdir -p "$p1_dispatch"
+for name in dummy wrapped-dummy python3.99 python-fail; do
+  ln -s "$p1_binary" "$p1_dispatch/$name"
+done
+cat >pakro.toml <<'TOML'
+[tools]
+python = "3.13.99"
+dummy = "1.0.0"
+[wrappers.wrapped-dummy]
+command = "dummy"
+args = ["first", "second"]
+[wrappers.python-fail]
+command = "python3.99"
+TOML
+assert_succeed 'pakro install dummy@1.0.0'
+assert_contains "\"$p1_dispatch/dummy\"" 'This is Dummy 1.0.0!'
+assert_contains "\"$p1_dispatch/wrapped-dummy\"" 'This is Dummy 1.0.0! second first'
+cat >pakro.local.toml <<'TOML'
+[tools]
+dummy = { version = "2.0.0", lazy = true, lazy_bins = ["dummy"] }
+TOML
+assert_contains "PAKRO_NOT_FOUND_AUTO_INSTALL=0 \"$p1_dispatch/wrapped-dummy\"" 'This is Dummy 2.0.0! second first'
+[[ -x "$PAKRO_DATA_DIR/installs/dummy/2.0.0/bin/dummy" ]] || fail 'non-Python lazy wrapper did not install its provider'
+printf '[tools]\ndummy = "3.0.0"\n' >pakro.local.toml
+assert_succeed 'PAKRO_NOT_FOUND_AUTO_INSTALL=1 pakro hook-not-found dummy'
+assert 'pakro where dummy@3.0.0' "$PAKRO_DATA_DIR/installs/dummy/3.0.0"
+assert_fail_contains "PAKRO_NOT_FOUND_AUTO_INSTALL=1 \"$p1_dispatch/python3.99\" 2>&1" 'explicit'
+assert_fail_contains "PAKRO_NOT_FOUND_AUTO_INSTALL=1 \"$p1_dispatch/python-fail\" 2>&1" 'explicit'
+assert_fail_contains 'PAKRO_NOT_FOUND_AUTO_INSTALL=1 pakro hook-not-found python3.99 2>&1' 'explicit'
+for library in languages packages projects; do
+  [[ ! -e "$PAKRO_DATA_DIR/$library" ]] || fail "command dispatch initialized $library"
+done
+[[ ! -e "$PAKRO_DATA_DIR/installs/python" ]] || fail 'command dispatch entered a legacy Python install'

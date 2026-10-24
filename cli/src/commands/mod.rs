@@ -23,6 +23,21 @@ static CLI_SETTING_PROPS: &[PropMeta] = &[
 ];
 const CLI_SETTINGS_REGISTRY: SettingsRegistry = SettingsRegistry::new(CLI_SETTING_PROPS);
 
+/// Load only the existing configuration needed to resolve target identities.
+/// This phase cannot register configs or migrate installation metadata.
+pub(super) async fn read_config_for_admission() -> Result<std::sync::Arc<Config>> {
+    let previous = crate::config::readonly_invocation();
+    crate::config::set_readonly_invocation(true);
+    let result = Config::get().await;
+    crate::config::set_readonly_invocation(previous);
+    result
+}
+
+#[cfg(unix)]
+fn reject_python_install_dependencies(request: &crate::toolset::ToolRequest) -> Result<()> {
+    crate::toolset::Toolset::ensure_python_install_admission(request)
+}
+
 /// The settings layer given by command-local flags declared with `setting = "..."`.
 fn command_local_settings(layer: &usage_rs::config::CliLayer) -> Result<SettingsPartial> {
     let resolved = usage_rs::config::resolve(CLI_SETTINGS_REGISTRY, Layers::new().then(layer))?;
@@ -397,6 +412,37 @@ pub(crate) enum Commands {
 }
 
 impl Commands {
+    fn is_local_observation(&self) -> bool {
+        match self {
+            Self::Where(command) => !command.explicitly_non_python(),
+            Self::Which(command) => !command.explicitly_non_python(),
+            Self::BinPaths(command) => !command.explicitly_non_python(),
+            Self::Env(command) => !command.explicitly_non_python(),
+            Self::Current(command) => !command.explicitly_non_python(),
+            Self::Ls(command) => !command.explicitly_non_python(),
+            Self::HookEnv(_) => true,
+            Self::Project(command) => command.is_local_observation(),
+            Self::Installs(command) => {
+                command.is_local_observation() && !command.explicitly_non_python()
+            }
+            Self::Deps(command) => command.is_local_observation(),
+            _ => false,
+        }
+    }
+
+    async fn preflight_python_writes(&self) -> Result<()> {
+        match self {
+            Self::Use(command) => command.preflight().await,
+            Self::Unuse(command) => command.preflight().await,
+            Self::Upgrade(command) => command.preflight().await,
+            Self::Prune(command) => command.preflight().await,
+            Self::InstallInto(command) => command.preflight(),
+            Self::Deps(command) => command.preflight().await,
+            Self::Install(command) => command.preflight().await,
+            _ => Ok(()),
+        }
+    }
+
     fn is_dry_run(&self) -> bool {
         match self {
             Self::Bootstrap(cmd) => cmd.is_dry_run(),
@@ -1123,6 +1169,7 @@ impl Cli {
         }
         crate::env::ARGS.write().unwrap().clone_from(args);
         let original_cwd = std::env::current_dir().ok();
+        crate::config::set_readonly_invocation(true);
         // Load .pakrorc.toml early, before PAKRO_ENV and other early settings are accessed.
         // This allows setting PAKRO_ENV in a config file instead of only via env vars.
         crate::config::pakrorc::init()?;
@@ -1144,7 +1191,7 @@ impl Cli {
         // parsing, while leaving full backend loading until after registry refresh.
         if !print_version {
             measure!("install_state::init", {
-                crate::toolset::install_state::init().await?
+                crate::toolset::install_state::init_readonly_plugin_metadata()?
             });
         }
         // Pre-process args to handle naked runs before parsing
@@ -1173,6 +1220,7 @@ impl Cli {
         }
         if let Some(Commands::Install(install)) = &mut cli.command {
             install.inherit_root_yes(cli.yes);
+            install.inherit_root_admission_flags(cli.force, cli.dry_run);
         }
         config_file::set_implicitly_trust_active_config(
             cli.command
@@ -1191,7 +1239,14 @@ impl Cli {
         // path past the length `SetCurrentDirectory` accepts. Dropping the error here does not
         // avoid it, it only defers it: `BASE_SETTINGS` stays empty, so the next `Settings::get()`
         // repeats the same failure and unwraps it.
-        measure!("settings", { Settings::try_get() })?;
+        if let Err(error) = measure!("settings", { Settings::try_get() }) {
+            if let Some(Commands::HookEnv(command)) = &cli.command {
+                if let Err(withdrawal) = command.withdraw_previous_environment() {
+                    warn!("could not withdraw the previous managed environment: {withdrawal:#}");
+                }
+            }
+            return Err(error);
+        }
         // Git may hold installation locks while asking for credentials. Do not
         // refresh registries, migrate, or auto-update from its helper process.
         if let Some(Commands::Token(token)) = &cli.command
@@ -1205,6 +1260,37 @@ impl Cli {
         if let Some(Commands::PublishSystemInstall(cmd)) = &cli.command {
             return cmd.run();
         }
+        if let Some(command) = &cli.command {
+            command.preflight_python_writes().await?;
+            // Resolve configured aliases without tracking or maintenance before
+            // classifying an explicit tool as outside shared Python.
+            if matches!(
+                command,
+                Commands::Where(_)
+                    | Commands::Which(_)
+                    | Commands::BinPaths(_)
+                    | Commands::Env(_)
+                    | Commands::Current(_)
+                    | Commands::Ls(_)
+                    | Commands::Installs(_)
+            ) {
+                read_config_for_admission().await?;
+            }
+            let local_observation = match command {
+                Commands::Env(command) => command.requires_shared_python().await?,
+                Commands::BinPaths(command) => command.requires_shared_python().await?,
+                Commands::Which(command) => command.requires_shared_python().await?,
+                _ => command.is_local_observation(),
+            };
+            if local_observation {
+                // The core/backend registry can be decoded from existing local
+                // metadata. Refresh, tracking, migrations and maintenance are
+                // deliberately absent from this branch, including mixed queries.
+                backend::load_tools().await?;
+                return cli.get_command().await?.run().await;
+            }
+        }
+        crate::config::set_readonly_invocation(false);
         // After everything that can still refuse this invocation — a bad
         // `--cd`, unbuildable settings, an untrusted config — so their errors
         // land in a console somebody can still read, and before the
@@ -2156,6 +2242,51 @@ mod tests {
                 .as_ref()
                 .is_some_and(Commands::allows_auto_update)
         );
+    }
+
+    #[test]
+    fn p1_local_query_startup_is_selected_from_parsed_commands() {
+        for args in [
+            vec!["pakro", "where", "python@3.13.99"],
+            vec!["pakro", "which", "--tool=python@3.13.99", "python"],
+            vec!["pakro", "env", "python@3.13.99"],
+            vec!["pakro", "ls", "python", "node"],
+            vec!["pakro", "current"],
+            vec!["pakro", "bin-paths", "python@3.13.99"],
+            vec!["pakro", "project", "status"],
+            vec!["pakro", "installs", "ls", "python"],
+            vec!["pakro", "deps", "install", "--list"],
+            vec!["pakro", "hook-env", "-s", "bash"],
+        ] {
+            let cli = parse_cli(&args).unwrap();
+            assert!(
+                cli.command.as_ref().unwrap().is_local_observation(),
+                "{args:?}"
+            );
+        }
+        for args in [
+            vec!["pakro", "env", "core:node@22"],
+            vec!["pakro", "where", "core:node@22"],
+            vec!["pakro", "project", "init"],
+            vec!["pakro", "exec", "--", "echo", "install-into", "python"],
+        ] {
+            let cli = parse_cli(&args).unwrap();
+            assert!(
+                !cli.command.as_ref().unwrap().is_local_observation(),
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn p1_install_into_admission_rejects_every_decoded_backend() {
+        for tool in ["python@3.13.99", "core:node@22", "dummy@1"] {
+            let cli = parse_cli(&["pakro", "install-into", tool, "/tmp/pakro-p1-unused"]).unwrap();
+            let Some(Commands::InstallInto(command)) = cli.command else {
+                panic!("wrong command");
+            };
+            assert!(command.preflight().unwrap_err().to_string().contains("D01"));
+        }
     }
 
     /// Guards [`GLOBAL_FLAGS_WITH_VALUES`]. It is hardcoded so that startup does

@@ -162,6 +162,50 @@ enum PruneMode {
 }
 
 impl Upgrade {
+    pub(super) async fn preflight(&self) -> Result<()> {
+        #[cfg(unix)]
+        {
+            use crate::programs::python::{PythonWriteOperation, reject_python_write};
+            let config = super::read_config_for_admission().await?;
+            if self.tool.is_empty() {
+                let targets = ToolsetBuilder::new()
+                    .with_scope(self.scope())
+                    .build_unresolved(&config)?;
+                for (backend, versions) in &targets.versions {
+                    if self
+                        .exclude
+                        .iter()
+                        .any(|excluded| backend_args_match(&excluded.ba, backend))
+                    {
+                        continue;
+                    }
+                    reject_python_write(PythonWriteOperation::Upgrade, backend)?;
+                    for request in &versions.requests {
+                        super::reject_python_install_dependencies(request)?;
+                    }
+                }
+            } else {
+                let planned = ToolsetBuilder::new()
+                    .with_args(&self.tool)
+                    .with_scope(self.scope())
+                    .with_default_to_latest(true)
+                    .build_unresolved(&config)?;
+                for tool in &self.tool {
+                    reject_python_write(PythonWriteOperation::Upgrade, &tool.ba)?;
+                    for (backend, versions) in &planned.versions {
+                        if backend.full_without_opts() != tool.ba.full_without_opts() {
+                            continue;
+                        }
+                        for request in &versions.requests {
+                            super::reject_python_install_dependencies(request)?;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn is_dry_run(&self) -> bool {
         self.dry_run || self.dry_run_code
     }
@@ -189,6 +233,7 @@ impl Upgrade {
     }
 
     pub(crate) async fn run(mut self) -> Result<()> {
+        self.preflight().await?;
         if self.legacy_bump {
             deprecated_at!(
                 "2026.8.5",

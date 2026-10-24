@@ -251,7 +251,11 @@ fn read_legacy_backend_meta(short: &str) -> Option<(String, Option<String>, bool
 /// lookups load lazily via [`get_tool`]; enumerating callers get the full scan
 /// on first use of [`list_tools`].
 pub async fn init() -> Result<()> {
-    measure!("init_plugins", { init_plugins().await })?;
+    if crate::config::readonly_invocation() {
+        init_readonly_plugin_metadata()?;
+    } else {
+        measure!("init_plugins", { init_plugins().await })?;
+    }
     Ok(())
 }
 
@@ -545,7 +549,9 @@ fn full_scan_tools() -> MutexResult<InstallStateTools> {
         // legacy entries.
         let mut updated_manifest: Option<Manifest> = None;
         let mut tools = BTreeMap::new();
-        crate::install_layout::resolver::adopt_unrecorded_installs(&subdirs);
+        if !crate::config::readonly_invocation() {
+            crate::install_layout::resolver::adopt_unrecorded_installs(&subdirs);
+        }
         for dir_name in subdirs {
             // `.pakro` holds the install catalog, and an identity-layout installation
             // is not a tool directory.
@@ -567,7 +573,9 @@ fn full_scan_tools() -> MutexResult<InstallStateTools> {
         }
 
         // Write updated manifest if we migrated any legacy entries
-        if let Some(ref m) = updated_manifest {
+        if !crate::config::readonly_invocation()
+            && let Some(ref m) = updated_manifest
+        {
             let _lock = MANIFEST_LOCK.lock().expect("MANIFEST_LOCK lock failed");
             if let Err(err) = write_manifest(m) {
                 warn!("failed to write install manifest: {err:#}");

@@ -26,6 +26,14 @@ enum Commands {
 }
 
 impl Installs {
+    pub(super) fn explicitly_non_python(&self) -> bool {
+        matches!(&self.command, Some(Commands::Ls(command)) if command.explicitly_non_python())
+    }
+
+    pub(super) fn is_local_observation(&self) -> bool {
+        matches!(&self.command, None | Some(Commands::Ls(_)))
+    }
+
     pub(crate) async fn run(self) -> Result<()> {
         match self
             .command

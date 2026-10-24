@@ -177,8 +177,11 @@ async fn f4_current_damaged_payload_is_not_ready() {
     drop(lease);
     let project = root.join("project");
     std::fs::create_dir(&project).unwrap();
-    std::fs::write(project.join("pakro.toml"), "[tools]\npython='3.15.0'\n").unwrap();
-    std::fs::write(executable, b"damaged interpreter").unwrap();
+    std::fs::write(
+        project.join("pakro.toml"),
+        "[tools]\npython='3.15.0+20261013'\n",
+    )
+    .unwrap();
     let mut discovery = crate::config::FrozenConfigDiscovery::new(vec!["pakro.toml".into()]);
     discovery.ceiling_paths = vec![root.clone()];
     let observed = observe_project(
@@ -186,6 +189,13 @@ async fn f4_current_damaged_payload_is_not_ready() {
         ReadPolicy::new(discovery, context.policy().deadline),
     )
     .unwrap();
+    let current = crate::programs::library::current_observed(&context, &observed)
+        .unwrap()
+        .unwrap();
+    assert_eq!(current.requested, "3.15.0+20261013");
+    assert_eq!(current.resolved_version.as_deref(), Some("3.15.0"));
+    assert_eq!(current.status, "ready");
+    std::fs::write(executable, b"damaged interpreter").unwrap();
     assert!(crate::programs::library::current_observed(&context, &observed).is_err());
 }
 

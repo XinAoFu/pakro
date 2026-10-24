@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Positional env tools augment the project; real installed companion commands
+# have non-Python ownership even when their names are absent from the registry.
+export CARGO_TARGET_DIR="$ROOT/target"
+export CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
+mkdir mixed
+cd mixed
+printf '[tools]\npython = "3.13.99"\ndummy = "1.0.0"\n' >pakro.toml
+assert_succeed 'pakro install dummy@1.0.0'
+p1_dummy="$PAKRO_DATA_DIR/installs/dummy/1.0.0/bin"
+p1_snapshot() {
+  find "$PAKRO_DATA_DIR" "$PAKRO_STATE_DIR" "$PAKRO_CACHE_DIR" "$PAKRO_CONFIG_DIR" "$PWD" -type f -exec cksum {} \; | LC_ALL=C sort
+  find "$PAKRO_DATA_DIR" "$PAKRO_STATE_DIR" "$PAKRO_CACHE_DIR" "$PAKRO_CONFIG_DIR" "$PWD" -print | LC_ALL=C sort
+}
+p1_before="$(p1_snapshot)"
+assert 'pakro which dummy-exec-tiny' "$p1_dummy/dummy-exec-tiny"
+assert 'pakro which dummy-exec-tiny --plugin' 'dummy'
+assert 'pakro which dummy-exec-tiny --version' '1.0.0'
+assert 'pakro which dummy-exec-tiny --tool=dummy@1.0.0' "$p1_dummy/dummy-exec-tiny"
+assert_fail_contains 'pakro which python 2>&1' '3.13.99'
+assert_fail_contains 'pakro env dummy@1.0.0 --json 2>&1' '3.13.99'
+[[ "$(p1_snapshot)" == "$p1_before" ]] || fail 'missing Python/companion lookup modified state'
+# Unknown command names cannot cause a damaged Python library to be inspected
+# when a real installed non-Python executable already establishes ownership.
+printf 'damaged root\n' >"$PAKRO_DATA_DIR/languages"
+p1_before="$(p1_snapshot)"
+assert 'pakro which dummy-exec-tiny' "$p1_dummy/dummy-exec-tiny"
+[[ "$(p1_snapshot)" == "$p1_before" ]] || fail 'companion lookup changed the damaged-library fixture'
+rm "$PAKRO_DATA_DIR/languages"
+(
+  cd "$ROOT"
+  PAKRO_F1_STAGE_DATA_ROOT="$PAKRO_DATA_DIR" PAKRO_F1_STAGE_VERSION=3.15.0 \
+    cargo test -p pakro --lib --all-features programs::install::selection::tests::f1_e2e_stage_shared_language -- --exact --ignored --nocapture
+) >"$TMPDIR/p1-query-stage.log" 2>&1 || { cat "$TMPDIR/p1-query-stage.log"; fail 'deterministic language staging failed'; }
+printf '[tools]\npython = "3.15.0"\n' >pakro.toml
+p1_python_bin="$(pakro where python)/bin"
+p1_before="$(p1_snapshot)"
+assert "pakro env dummy@1.0.0 --json | jq -r '.PATH | split(\":\")[0]'" "$p1_python_bin"
+assert 'pakro env dummy@1.0.0 --json | jq -r .PYTHONDONTWRITEBYTECODE' '1'
+assert "pakro env dummy@1.0.0 --json | jq -r '.PATH | split(\":\") | index(\"$p1_dummy\") != null'" 'true'
+assert "pakro env dummy@1.0.0 --json-extended | jq -r '.PATH.value | split(\":\")[0]'" "$p1_python_bin"
+assert 'pakro env dummy@1.0.0 --json-extended | jq -r .PYTHONDONTWRITEBYTECODE.value' '1'
+assert_contains 'pakro env dummy@1.0.0 --dotenv' 'PYTHONDONTWRITEBYTECODE=1'
+assert_contains 'pakro env dummy@1.0.0 --shell bash' 'export PYTHONDONTWRITEBYTECODE=1'
+assert_fail_contains 'pakro env dummy@1.0.0 python@3.13.99 --json 2>&1' '3.13.99'
+[[ "$(p1_snapshot)" == "$p1_before" ]] || fail 'appended env query wrote cache, declarations or registrations'
+# Bare current/env must reject alias options too, rather than silently treating
+# a configured Python runtime as absent. Use both supported alias tables.
+for p1_alias_table in alias tool_alias; do
+  printf '[%s.py]\nbackend = "core:python[compile=true]"\n[tools]\npy = "3.15.0"\n' "$p1_alias_table" >pakro.toml
+  p1_before="$(p1_snapshot)"
+  assert_fail_contains 'pakro env --json 2>&1' 'do not support runtime options'
+  assert_fail_contains 'pakro env dummy@1.0.0 --json 2>&1' 'do not support runtime options'
+  assert_fail_contains 'pakro current 2>&1' 'do not support runtime options'
+  assert_fail_contains 'pakro current py 2>&1' 'do not support runtime options'
+  assert_fail_contains 'pakro where py 2>&1' 'do not support runtime options'
+  [[ "$(p1_snapshot)" == "$p1_before" ]] || fail 'alias option rejection modified the fixture'
+done

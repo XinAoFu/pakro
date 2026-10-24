@@ -100,6 +100,13 @@ impl ProjectsIndex {
 }
 
 impl Project {
+    pub(super) fn is_local_observation(&self) -> bool {
+        matches!(
+            &self.command,
+            ProjectCommands::Ls(_) | ProjectCommands::Status(_)
+        )
+    }
+
     pub(crate) async fn run(self) -> Result<()> {
         match self.command {
             ProjectCommands::Init(cmd) => cmd.run(),
@@ -248,6 +255,8 @@ impl ProjectStatus {
             if let Some(detail) = current.detail {
                 pakroprintln!("detail: {detail}");
             }
+        } else {
+            pakroprintln!("python: (no current declaration)");
         }
         Ok(())
     }

@@ -10,6 +10,18 @@ use std::fmt::{Debug, Formatter};
 use std::path::{Component, Path, PathBuf};
 use std::sync::LazyLock as Lazy;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+// Startup admission and local queries may decode configuration but must never
+// turn that observation into tracking, migration, or installation metadata.
+static READONLY_INVOCATION: AtomicBool = AtomicBool::new(false);
+
+pub fn set_readonly_invocation(readonly: bool) {
+    READONLY_INVOCATION.store(readonly, Ordering::Relaxed);
+}
+
+pub fn readonly_invocation() -> bool {
+    READONLY_INVOCATION.load(Ordering::Relaxed)
+}
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime};
 use tokio::{sync::OnceCell, task::JoinSet};
@@ -87,6 +99,105 @@ pub(crate) struct FrozenConfigDiscovery {
     pub(crate) no_config: bool,
 }
 impl FrozenConfigDiscovery {
+    /// Capture the same invocation choices as Config without loading plugins,
+    /// evaluating configuration or touching the tracker. Discovery itself then
+    /// records both present and missing paths in the project observation.
+    pub(crate) fn from_process() -> Self {
+        let tool_overrides = env::PAKRO_OVERRIDE_TOOL_VERSIONS_FILENAMES
+            .as_ref()
+            .map(|patterns| patterns.iter().cloned().collect::<Vec<_>>());
+        let config_overrides = env::PAKRO_OVERRIDE_CONFIG_FILENAMES
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut frozen = Self::from_explicit_options(
+            &env::PAKRO_DEFAULT_TOOL_VERSIONS_FILENAME,
+            &env::PAKRO_DEFAULT_CONFIG_FILENAME,
+            tool_overrides.as_deref(),
+            &config_overrides,
+        );
+        frozen.environments = env::PAKRO_ENV_WITH_AUTO.clone();
+        frozen.env_conf_d = env::env_conf_d();
+        frozen.ceiling_paths = env::PAKRO_CEILING_PATHS.iter().cloned().collect();
+        frozen.ignored_paths = env::PAKRO_IGNORED_CONFIG_PATHS.clone();
+        frozen.no_config = Settings::no_config();
+        frozen.global_candidates = Self::external_candidates(
+            &dirs::CONFIG,
+            env::PAKRO_GLOBAL_CONFIG_FILE.as_deref(),
+            &frozen.environments,
+            frozen.env_conf_d,
+        );
+        frozen.system_candidates = Self::external_candidates(
+            &dirs::SYSTEM_CONFIG,
+            env::PAKRO_SYSTEM_CONFIG_FILE.as_deref(),
+            &frozen.environments,
+            frozen.env_conf_d,
+        );
+        if env::PAKRO_GLOBAL_CONFIG_FILE.is_none() && !*env::PAKRO_USE_TOML {
+            frozen.global_candidates.push(ConfigDiscoveryCandidate {
+                directory: dirs::HOME.to_path_buf(),
+                pattern: env::PAKRO_DEFAULT_TOOL_VERSIONS_FILENAME.to_string(),
+            });
+        }
+        frozen
+    }
+
+    fn external_candidates(
+        directory: &Path,
+        explicit: Option<&Path>,
+        environments: &[String],
+        env_conf_d: bool,
+    ) -> Vec<ConfigDiscoveryCandidate> {
+        if let Some(path) = explicit {
+            return vec![ConfigDiscoveryCandidate {
+                directory: path.parent().unwrap_or(Path::new("/")).to_owned(),
+                pattern: glob::Pattern::escape(
+                    &path.file_name().unwrap_or_default().to_string_lossy(),
+                ),
+            }];
+        }
+        let mut patterns = vec![
+            "conf.d/*.toml".to_owned(),
+            "conf.d/*/pakro.toml".to_owned(),
+            "conf.d/*/pakro.local.toml".to_owned(),
+            "config.toml".to_owned(),
+            "pakro.toml".to_owned(),
+        ];
+        for environment in environments {
+            let environment = glob::Pattern::escape(environment);
+            if env_conf_d {
+                patterns.push(format!("conf.d/*.{}.toml", environment));
+            }
+            patterns.extend([
+                format!("conf.d/*/pakro.{environment}.toml"),
+                format!("config.{environment}.toml"),
+                format!("pakro.{environment}.toml"),
+            ]);
+        }
+        patterns.extend([
+            "config.local.toml".to_owned(),
+            "pakro.local.toml".to_owned(),
+        ]);
+        for environment in environments {
+            let environment = glob::Pattern::escape(environment);
+            if env_conf_d {
+                patterns.push(format!("conf.d/*.{}.local.toml", environment));
+            }
+            patterns.extend([
+                format!("conf.d/*/pakro.{environment}.local.toml"),
+                format!("config.{environment}.local.toml"),
+                format!("pakro.{environment}.local.toml"),
+            ]);
+        }
+        patterns
+            .into_iter()
+            .map(|pattern| ConfigDiscoveryCandidate {
+                directory: directory.to_owned(),
+                pattern,
+            })
+            .collect()
+    }
+
     pub(crate) fn new(local_patterns: Vec<String>) -> Self {
         Self {
             local_patterns,
@@ -533,6 +644,207 @@ mod r03_discovery_tests {
     }
 
     #[test]
+    fn p1_config_read_receipt_rejects_changed_source_before_shared_observation() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        let path = root.join("pakro.toml");
+        std::fs::write(&path, "[tools]\npython='3.15.0'\n[env]\nEPOCH='old'\n").unwrap();
+        let mut discovery =
+            FrozenConfigDiscovery::new(vec!["pakro.toml".into(), "pakro.local.toml".into()]);
+        discovery
+            .ceiling_paths
+            .push(root.parent().unwrap().to_owned());
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let receipt = ConfigReadReceipt::capture(
+            &root,
+            discovery,
+            std::slice::from_ref(&path),
+            deadline,
+            deadline,
+        )
+        .unwrap();
+        // The legacy parser has consumed the old source; a later Python
+        // observation must not merge a new declaration into those old envs.
+        let _parsed = PakroToml::from_file(&path).unwrap();
+        receipt.recheck(deadline).unwrap();
+        std::fs::write(&path, "[tools]\npython='3.14.0'\n[env]\nEPOCH='new'\n").unwrap();
+        assert!(receipt.recheck(deadline).is_err());
+    }
+
+    #[test]
+    fn p1_config_read_receipt_rejects_new_higher_priority_files() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        let path = root.join("pakro.toml");
+        std::fs::write(&path, "[tools]\npython='3.15.0'\n").unwrap();
+        let mut discovery =
+            FrozenConfigDiscovery::new(vec!["pakro.toml".into(), "pakro.local.toml".into()]);
+        discovery
+            .ceiling_paths
+            .push(root.parent().unwrap().to_owned());
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let receipt = ConfigReadReceipt::capture(
+            &root,
+            discovery.clone(),
+            std::slice::from_ref(&path),
+            deadline,
+            deadline,
+        )
+        .unwrap();
+        std::fs::write(root.join("pakro.local.toml"), "[tools]\npython='3.14.0'\n").unwrap();
+        assert!(receipt.recheck(deadline).is_err());
+        // Also reject a file created after legacy discovery but before the
+        // receipt capture, instead of accepting the stale legacy fileset.
+        assert!(ConfigReadReceipt::capture(&root, discovery, &[path], deadline, deadline).is_err());
+    }
+
+    #[test]
+    fn p1_config_read_receipt_keeps_legacy_inputs_without_python_parsing() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        let path = root.join(".nvmrc");
+        std::fs::write(&path, "v22.0.0\n").unwrap();
+        let mut discovery = FrozenConfigDiscovery::new(vec![".nvmrc".into()]);
+        discovery
+            .ceiling_paths
+            .push(root.parent().unwrap().to_owned());
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let receipt = ConfigReadReceipt::capture(
+            &root,
+            discovery,
+            std::slice::from_ref(&path),
+            deadline,
+            deadline,
+        )
+        .unwrap();
+        receipt.recheck(deadline).unwrap();
+        std::fs::write(&path, "v23.0.0\n").unwrap();
+        assert!(receipt.recheck(deadline).is_err());
+    }
+
+    #[test]
+    fn p1_frozen_alias_backends_match_existing_cross_file_override_order() {
+        use crate::libraries::project::snapshot::{ReadPolicy, observe_project};
+        use crate::programs::query::snapshot::python_tool_name;
+        let temporary = tempfile::tempdir().unwrap();
+        let parent = temporary.path().canonicalize().unwrap();
+        let child = parent.join("child");
+        std::fs::create_dir(&child).unwrap();
+        for (near, far) in [("core:python", "asdf:node"), ("asdf:node", "core:python")] {
+            let near_path = child.join("pakro.toml");
+            let far_path = parent.join("pakro.toml");
+            let near_body = format!("[tool_alias.py]\nbackend='{near}'\n[tools]\npy='3.15.0'\n");
+            let far_body = format!("[tool_alias.py]\nbackend='{far}'\n");
+            std::fs::write(&near_path, &near_body).unwrap();
+            std::fs::write(&far_path, &far_body).unwrap();
+            let mut config_files = ConfigMap::new();
+            config_files.insert(
+                near_path.clone(),
+                Arc::new(PakroToml::from_str(&near_body, &near_path).unwrap()),
+            );
+            config_files.insert(
+                far_path.clone(),
+                Arc::new(PakroToml::from_str(&far_body, &far_path).unwrap()),
+            );
+            let loaded = load_aliases(&config_files).unwrap();
+            assert_eq!(loaded["py"].backend.as_deref(), Some(far));
+            let mut discovery = FrozenConfigDiscovery::new(vec!["pakro.toml".into()]);
+            discovery
+                .ceiling_paths
+                .push(parent.parent().unwrap().to_owned());
+            let observed = observe_project(
+                &child,
+                ReadPolicy::new(discovery, Instant::now() + Duration::from_secs(10)),
+            )
+            .unwrap();
+            assert_eq!(
+                python_tool_name(&observed, "py"),
+                loaded["py"].backend.as_deref() == Some("core:python")
+            );
+        }
+    }
+
+    #[test]
+    fn p1_discovery_literal_global_and_system_files_escape_glob_syntax() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("project");
+        let global = temporary.path().join("global");
+        let system = temporary.path().join("system");
+        for directory in [&root, &global, &system] {
+            std::fs::create_dir(directory).unwrap();
+        }
+        let global_file = global.join("config[dev].toml");
+        let system_file = system.join("settings?.toml");
+        for path in [
+            &global_file,
+            &global.join("configd.toml"),
+            &system_file,
+            &system.join("settings1.toml"),
+        ] {
+            std::fs::write(path, "").unwrap();
+        }
+        let mut options = FrozenConfigDiscovery::new(vec![]);
+        options.ceiling_paths.push(root.clone());
+        options.global_candidates =
+            FrozenConfigDiscovery::external_candidates(&global, Some(&global_file), &[], false);
+        options.system_candidates =
+            FrozenConfigDiscovery::external_candidates(&system, Some(&system_file), &[], false);
+        assert_eq!(
+            discover(&root, &options).files,
+            vec![global_file, system_file]
+        );
+    }
+
+    #[test]
+    fn p1_discovery_external_profiles_escape_glob_syntax() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("project");
+        let external = temporary.path().join("external");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::create_dir_all(external.join("conf.d/fragment")).unwrap();
+        let expected = [
+            "config.dev[one].toml",
+            "pakro.dev[one].local.toml",
+            "conf.d/extras.dev[one].toml",
+            "conf.d/fragment/pakro.dev[one].toml",
+        ]
+        .map(|name| external.join(name));
+        for path in &expected {
+            std::fs::write(path, "").unwrap();
+        }
+        for decoy in [
+            "config.devo.toml",
+            "pakro.devo.local.toml",
+            "conf.d/extras.devo.toml",
+            "conf.d/fragment/pakro.devo.toml",
+        ] {
+            std::fs::write(external.join(decoy), "").unwrap();
+        }
+        for system in [false, true] {
+            let mut options = FrozenConfigDiscovery::new(vec![]);
+            options.ceiling_paths.push(root.clone());
+            options.environments = vec!["dev[one]".into()];
+            options.env_conf_d = true;
+            let candidates = FrozenConfigDiscovery::external_candidates(
+                &external,
+                None,
+                &options.environments,
+                true,
+            );
+            if system {
+                options.system_candidates = candidates;
+            } else {
+                options.global_candidates = candidates;
+            }
+            let actual = discover(&root, &options)
+                .files
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(actual, expected.iter().cloned().collect());
+        }
+    }
+
+    #[test]
     fn r03_discovery_explicit_builder_freezes_custom_format_patterns() {
         let options =
             FrozenConfigDiscovery::from_explicit_options("runtime-pins", "Pakrofile", None, &[]);
@@ -837,6 +1149,111 @@ pub struct Config {
     /// lookups ask for them hundreds of times per invocation, so derive once
     /// per config.
     lockfile_discovery: std::sync::OnceLock<Arc<crate::lockfile::LockfileDiscovery>>,
+    readonly_receipt: Option<Arc<ConfigReadReceipt>>,
+}
+
+/// Raw configuration input receipt. It reuses existing readonly file/path
+/// owners and discovery; it does not parse Python or grant mutation authority.
+struct ConfigReadReceipt {
+    root: PathBuf,
+    discovery: FrozenConfigDiscovery,
+    discovered: DiscoveredConfigInputs,
+    root_owner: crate::lockfile::transaction::ReadOnlyPathObservation,
+    files: Vec<crate::lockfile::transaction::ReadOnlyFileObservation>,
+    observation_deadline: std::time::Instant,
+    query_deadline: std::time::Instant,
+}
+impl ConfigReadReceipt {
+    fn capture(
+        root: &Path,
+        discovery: FrozenConfigDiscovery,
+        legacy_paths: &[PathBuf],
+        observation_deadline: std::time::Instant,
+        query_deadline: std::time::Instant,
+    ) -> Result<Self> {
+        use crate::lockfile::transaction::{ReadOnlyFileObservation, ReadOnlyPathObservation};
+        let discovered =
+            discover_project_configs(root, &discovery, Default::default(), observation_deadline)?;
+        // The legacy parser and the shared observation must consume the same
+        // files. Alias spellings may differ, while their real source is equal.
+        let identities = |paths: &[PathBuf]| -> Result<BTreeSet<PathBuf>> {
+            paths
+                .iter()
+                .map(|path| path.canonicalize().map_err(Into::into))
+                .collect()
+        };
+        eyre::ensure!(
+            identities(&discovered.files)? == identities(legacy_paths)?,
+            "configuration discovery changed between reads; observe the project again"
+        );
+        let paths: BTreeSet<_> = discovered
+            .files
+            .iter()
+            .chain(legacy_paths)
+            .cloned()
+            .collect();
+        eyre::ensure!(
+            paths.len() <= 1024,
+            "configuration observation file budget exceeded"
+        );
+        let mut files = Vec::new();
+        let mut bytes = 0usize;
+        for path in paths {
+            let owner =
+                ReadOnlyFileObservation::open(&path, Default::default(), observation_deadline)?;
+            bytes = bytes
+                .checked_add(owner.bytes().len())
+                .ok_or_else(|| eyre!("configuration observation byte budget exceeded"))?;
+            eyre::ensure!(
+                bytes <= 16 * 1024 * 1024,
+                "configuration observation byte budget exceeded"
+            );
+            files.push(owner);
+        }
+        let root_owner =
+            ReadOnlyPathObservation::open(root, Default::default(), observation_deadline)?;
+        eyre::ensure!(
+            root_owner.exists(),
+            "configuration observation root is unavailable"
+        );
+        let receipt = Self {
+            root: root.to_owned(),
+            discovery,
+            discovered,
+            root_owner,
+            files,
+            observation_deadline,
+            query_deadline,
+        };
+        receipt.recheck(observation_deadline)?;
+        Ok(receipt)
+    }
+    fn recheck(&self, deadline: std::time::Instant) -> Result<()> {
+        let deadline = deadline.min(self.observation_deadline);
+        eyre::ensure!(
+            std::time::Instant::now() < deadline,
+            "configuration observation deadline expired"
+        );
+        self.root_owner.recheck()?;
+        let current =
+            discover_project_configs(&self.root, &self.discovery, Default::default(), deadline)?;
+        eyre::ensure!(
+            current == self.discovered,
+            "configuration inputs changed; observe the project again"
+        );
+        for file in &self.files {
+            eyre::ensure!(
+                std::time::Instant::now() < deadline,
+                "configuration observation deadline expired"
+            );
+            file.recheck()?;
+        }
+        eyre::ensure!(
+            std::time::Instant::now() < deadline,
+            "configuration observation deadline expired"
+        );
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -906,6 +1323,20 @@ impl Config {
         }
         measure!("load config", { Self::load().await })
     }
+    /// Validate the original source receipt without exposing its file owners.
+    /// Query consumers reuse its original 300-second boundary; installation
+    /// keeps its own HTTP operation budget.
+    pub(crate) fn recheck_readonly_inputs(&self, deadline: std::time::Instant) -> Result<()> {
+        if let Some(receipt) = &self.readonly_receipt {
+            receipt.recheck(deadline)?;
+        }
+        Ok(())
+    }
+    pub(crate) fn readonly_query_deadline(&self) -> Option<std::time::Instant> {
+        self.readonly_receipt
+            .as_ref()
+            .map(|receipt| receipt.query_deadline)
+    }
     pub(crate) fn maybe_get() -> Option<Arc<Self>> {
         _CONFIG.read().unwrap().as_ref().cloned()
     }
@@ -960,6 +1391,7 @@ impl Config {
             vars: self.vars.clone(),
             vars_results: OnceCell::new(),
             lockfile_discovery: Default::default(),
+            readonly_receipt: self.readonly_receipt.clone(),
         }))
     }
 
@@ -982,6 +1414,7 @@ impl Config {
 
     #[async_backtrace::framed]
     pub async fn load() -> Result<Arc<Self>> {
+        let started = std::time::Instant::now();
         backend::load_tools().await?;
         let idiomatic_files = measure!("config::load idiomatic_files", {
             load_idiomatic_filenames().await
@@ -995,11 +1428,39 @@ impl Config {
             load_config_paths(&config_filenames, false)
         });
         trace!("config_paths: {config_paths:?}");
+        let readonly_receipt = if cfg!(unix) && readonly_invocation() {
+            let mut discovery = FrozenConfigDiscovery::from_process();
+            // Idiomatic non-Python files still use their original parser; the
+            // receipt only keeps their bytes and the original discovered set.
+            discovery
+                .local_patterns
+                .splice(0..0, idiomatic_files.keys().cloned());
+            let query_deadline = started + Duration::from_secs(300);
+            let observation_deadline = started
+                + Settings::get()
+                    .http_download_timeout()
+                    .max(Duration::from_secs(300));
+            Some(Arc::new(ConfigReadReceipt::capture(
+                &std::env::current_dir()?,
+                discovery,
+                &config_paths,
+                observation_deadline,
+                query_deadline,
+            )?))
+        } else {
+            None
+        };
         let config_files = measure!("config::load config_files", {
             load_all_config_files(&config_paths, &idiomatic_files).await?
         });
 
-        let config = Self::load_from_config_files(config_files, false).await?;
+        let mut config = Self::load_from_config_files(config_files, false).await?;
+        if let Some(receipt) = &readonly_receipt {
+            receipt.recheck(receipt.observation_deadline)?;
+        }
+        Arc::get_mut(&mut config)
+            .ok_or_else(|| eyre!("new configuration unexpectedly shared before publication"))?
+            .readonly_receipt = readonly_receipt;
         *_CONFIG.write().unwrap() = Some(config.clone());
         Ok(config)
     }
@@ -1030,6 +1491,7 @@ impl Config {
             vars: Default::default(),
             vars_results: OnceCell::new(),
             lockfile_discovery: Default::default(),
+            readonly_receipt: None,
         };
         let vars_config = Arc::new(Self {
             tera_ctx: config.tera_ctx.clone(),
@@ -1053,6 +1515,7 @@ impl Config {
             vars: config.vars.clone(),
             vars_results: OnceCell::new(),
             lockfile_discovery: Default::default(),
+            readonly_receipt: None,
         });
         let vars_results = measure!("config::load vars_results", {
             let results = load_vars(&vars_config).await?;
@@ -1880,6 +2343,12 @@ impl Config {
         ctx: Option<&crate::task::TaskLoadContext>,
     ) -> Result<BTreeMap<String, Task>> {
         let config = Config::get().await?;
+        eyre::ensure!(
+            !(readonly_invocation()
+                && Settings::get().experimental
+                && !Settings::get().task.auto_infer.is_empty()),
+            "inferred task metadata is unavailable during read-only installation admission"
+        );
         time!("load_all_tasks");
 
         let workspace_graph = (Settings::get().experimental && config.monorepo_root().is_some())
@@ -4343,14 +4812,18 @@ async fn load_all_config_files(
                     )));
                 }
             };
-            if let Err(err) = Tracker::track(f) {
+            if !readonly_invocation()
+                && let Err(err) = Tracker::track(f)
+            {
                 warn!("tracking config: {err:#}");
             }
             parsed.insert(f.clone(), cf.clone());
             root_configs.insert(f.clone(), cf);
         }
 
-        if let Some(project_root) = root_configs.values().find_map(|cf| cf.project_root()) {
+        if !readonly_invocation()
+            && let Some(project_root) = root_configs.values().find_map(|cf| cf.project_root())
+        {
             let enabled = resolve_monorepo_config_at_root(&project_root, &root_configs).is_some();
             if let Some(source) = root_configs.values().next()
                 && let Err(err) = config_file::set_monorepo_root_marker(source.get_path(), enabled)
@@ -5578,6 +6051,7 @@ async fn load_local_tasks_with_context(
                                     hierarchy_configs.insert(config_path, cf);
                                 }
                                 Err(err) => {
+                                    if readonly_invocation() { return Err(err); }
                                     let rel_path = hierarchy_dir
                                         .strip_prefix(&monorepo_root)
                                         .unwrap_or(&hierarchy_dir);
@@ -6519,13 +6993,18 @@ async fn load_config_tasks(
         }
         match t.render(&config, &config_root).await {
             Ok(()) => {
-                apply_task_config_inputs(&mut t, &config, &task_config.inputs).await?;
+                if !readonly_invocation() {
+                    apply_task_config_inputs(&mut t, &config, &task_config.inputs).await?;
+                }
                 apply_task_config_cache_default(&mut t, &task_config.cache);
                 apply_task_config_rust_cache_default(&mut t, &task_config.rust_cache);
                 task_config.environment.apply(&mut t)?;
                 tasks.push(t);
             }
             Err(e) => {
+                if readonly_invocation() {
+                    return Err(e);
+                }
                 if monorepo_cf.is_some() {
                     warn!(
                         "Failed to render task {} in {}: {e:#}. Task will not be available.",
@@ -6672,6 +7151,9 @@ async fn load_tasks_includes(
                 monorepo_cf.cloned(),
             )?;
             if let Err(err) = resolve_task_template(&mut task, templates) {
+                if readonly_invocation() {
+                    return Err(err);
+                }
                 if monorepo_cf.is_some() {
                     warn!(
                         "Failed to resolve task {} in {}: {err:#}. Task will not be available.",
@@ -6695,6 +7177,9 @@ async fn load_tasks_includes(
                 task.shell = task_config.shell.clone();
             }
             if let Err(err) = task.render(&config, &config_root).await {
+                if readonly_invocation() {
+                    return Err(err);
+                }
                 if monorepo_cf.is_some() {
                     warn!(
                         "Failed to render task {} in {}: {err:#}. Task will not be available.",
@@ -6747,6 +7232,10 @@ fn is_remote_task_include(include: &str) -> bool {
 }
 
 async fn resolve_oci_url_to_path(oci_url: &str) -> Result<TaskFileArtifact> {
+    eyre::ensure!(
+        !readonly_invocation(),
+        "remote task includes are unavailable during read-only installation admission"
+    );
     let no_cache = Settings::get().task.remote_no_cache.unwrap_or(false);
     let providers = TaskFileProvidersBuilder::new()
         .with_cache(!no_cache)
@@ -6769,6 +7258,10 @@ async fn resolve_oci_url_to_path(oci_url: &str) -> Result<TaskFileArtifact> {
 }
 
 async fn resolve_git_url_to_path(git_url: &str) -> Result<TaskFileArtifact> {
+    eyre::ensure!(
+        !readonly_invocation(),
+        "remote task includes are unavailable during read-only installation admission"
+    );
     let no_cache = Settings::get().task.remote_no_cache.unwrap_or(false);
     if !no_cache {
         let task_file_providers = TaskFileProvidersBuilder::new().with_cache(true).build();
@@ -7432,6 +7925,24 @@ async fn load_task_sources_from_configs(
             })
         })
         .unwrap_or_default();
+    if readonly_invocation() {
+        for pattern in &excludes {
+            if is_glob_pattern(pattern) {
+                glob(&excludes_root, pattern)?;
+            }
+        }
+        for include in &includes {
+            eyre::ensure!(
+                !is_remote_task_include(include)
+                    && !include.starts_with("http://")
+                    && !include.starts_with("https://"),
+                "remote task includes are unavailable during read-only installation admission"
+            );
+            if is_glob_pattern(include) {
+                glob(&resolve_dir, include)?;
+            }
+        }
+    }
     let excludes = resolve_task_excludes(&excludes_root, &excludes);
 
     let mut inputs = cascaded_task_config
@@ -7614,6 +8125,9 @@ async fn load_task_file(
                 out.push(task);
             }
             Err(err) => {
+                if readonly_invocation() {
+                    return Err(err);
+                }
                 if monorepo_cf.is_some() {
                     warn!(
                         "Failed to render task {} in {}: {err:#}. Task will not be available.",
@@ -9385,6 +9899,7 @@ mod tests {
             vars: Default::default(),
             vars_results: OnceCell::new(),
             lockfile_discovery: Default::default(),
+            readonly_receipt: None,
         };
         config.tool_request_set.set(trs).ok();
         let config = Arc::new(config);
@@ -9465,6 +9980,7 @@ backend = "cargo:ripgrep"
             vars: Default::default(),
             vars_results: OnceCell::new(),
             lockfile_discovery: Default::default(),
+            readonly_receipt: None,
         };
         let legacy = crate::backend::get(&BackendArg::from("cargo:ripgrep")).unwrap();
         let preferred =
@@ -9526,6 +10042,7 @@ backend = "cargo:ripgrep"
             vars: Default::default(),
             vars_results: OnceCell::new(),
             lockfile_discovery: Default::default(),
+            readonly_receipt: None,
         };
         config.tool_request_set.set(trs).ok();
         let config = Arc::new(config);
@@ -9616,6 +10133,7 @@ backend = "cargo:ripgrep"
             vars: Default::default(),
             vars_results: OnceCell::new(),
             lockfile_discovery: Default::default(),
+            readonly_receipt: None,
         };
         config.tool_request_set.set(trs).ok();
         let config = Arc::new(config);
@@ -9708,6 +10226,7 @@ backend = "cargo:ripgrep"
             vars: Default::default(),
             vars_results: OnceCell::new(),
             lockfile_discovery: Default::default(),
+            readonly_receipt: None,
         };
         config.tool_request_set.set(trs).ok();
         let config = Arc::new(config);
@@ -9770,6 +10289,7 @@ backend = "cargo:ripgrep"
                 vars: Default::default(),
                 vars_results: OnceCell::new(),
                 lockfile_discovery: Default::default(),
+                readonly_receipt: None,
             };
             config.tool_request_set.set(ToolRequestSet::new()).ok();
             let config = Arc::new(config);
@@ -9857,6 +10377,7 @@ config_roots = ["apps/api", "apps/web"]
             vars: Default::default(),
             vars_results: OnceCell::new(),
             lockfile_discovery: Default::default(),
+            readonly_receipt: None,
         };
         let config = Arc::new(config);
 
@@ -10018,6 +10539,7 @@ config_roots = ["apps/api", "apps/web"]
             vars: Default::default(),
             vars_results: OnceCell::new(),
             lockfile_discovery: Default::default(),
+            readonly_receipt: None,
         };
 
         assert_eq!(

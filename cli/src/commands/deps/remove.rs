@@ -22,6 +22,7 @@ pub(super) struct DepsRemove {
 
 impl DepsRemove {
     pub(super) async fn run(self) -> Result<()> {
+        super::preflight_packages(&self.packages, true)?;
         Settings::get().ensure_experimental("deps")?;
 
         let mut config = Config::get().await?;
@@ -29,8 +30,11 @@ impl DepsRemove {
         // Build and install toolset so tools like npm are available
         let mut ts = ToolsetBuilder::new()
             .with_default_to_latest(true)
-            .build(&config)
-            .await?;
+            .build_unresolved(&config)?;
+        #[cfg(unix)]
+        ts.versions
+            .retain(|backend, _| !crate::programs::python::is_python_backend(backend));
+        ts.resolve(&config).await?;
 
         let install_opts = InstallOptions {
             missing_args_only: false,

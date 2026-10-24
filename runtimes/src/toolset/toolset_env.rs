@@ -159,7 +159,7 @@ impl Toolset {
         for p in &add_paths {
             path_env.add(p.clone());
         }
-        for p in self.list_paths(config).await {
+        for p in self.list_paths_for_query(config).await? {
             path_env.add(p);
         }
         env.insert(PATH_KEY.to_string(), path_env.to_string());
@@ -452,7 +452,11 @@ impl Toolset {
         ))
     }
 
-    pub async fn env_from_tools(&self, config: &Arc<Config>) -> Vec<(String, String, String)> {
+    pub async fn env_from_tools(
+        &self,
+        config: &Arc<Config>,
+    ) -> Result<Vec<(String, String, String)>> {
+        let readonly = crate::config::readonly_invocation();
         let this = Arc::new(self.clone());
         let items: Vec<_> = self
             .list_current_installed_versions(config)
@@ -461,26 +465,34 @@ impl Toolset {
             .map(|(b, tv)| (config.clone(), this.clone(), b, tv))
             .collect();
 
-        let envs = parallel::parallel(items, |(config, this, b, tv)| async move {
+        let envs = parallel::parallel(items, move |(config, this, b, tv)| async move {
             let backend_id = b.id().to_string();
             match b.exec_env(&config, &this, &tv).await {
                 Ok(env) => Ok(env
                     .into_iter()
                     .map(|(k, v)| (k, v, backend_id.clone()))
                     .collect::<Vec<_>>()),
+                Err(e) if readonly => Err(e.wrap_err(format!(
+                    "cannot determine the complete read-only environment for {tv}"
+                ))),
                 Err(e) => {
                     warn!("Error running exec-env: {:#}", e);
                     Ok(Vec::new())
                 }
             }
         })
-        .await
-        .unwrap_or_default();
+        .await;
+        let envs = if readonly {
+            envs?
+        } else {
+            envs.unwrap_or_default()
+        };
 
-        envs.into_iter()
+        Ok(envs
+            .into_iter()
             .flatten()
             .filter(|(k, _, _)| k.to_uppercase() != "PATH")
-            .collect()
+            .collect())
     }
 
     /// Resolve tool and non-tool environment contributions needed before the
@@ -489,7 +501,7 @@ impl Toolset {
         time!("env start");
         let entries = self
             .env_from_tools(config)
-            .await
+            .await?
             .into_iter()
             .map(|(k, v, _)| (k, v))
             .collect::<Vec<(String, String)>>();
@@ -581,7 +593,7 @@ impl Toolset {
         for p in &add_paths {
             path_env.add(p.clone());
         }
-        for p in self.list_paths(config).await {
+        for p in self.list_paths_for_query(config).await? {
             path_env.add(p);
         }
         tera_env.insert(PATH_KEY.to_string(), path_env.to_string());

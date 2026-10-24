@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# A genuinely published fixture-language instance plus a normal installed asdf
+# tool exercise the mixed env path. The fixture uses deterministic runtime
+# bytes: this is script/cache admission, not an interpreter compatibility test.
+export CARGO_TARGET_DIR="$ROOT/target"
+export CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
+stage_log="$TMPDIR/p1-mixed-env-language.log"
+(
+  cd "$ROOT"
+  PAKRO_F1_STAGE_DATA_ROOT="$PAKRO_DATA_DIR" PAKRO_F1_STAGE_VERSION=3.15.0 \
+    cargo test -p pakro --lib --all-features \
+      programs::install::selection::tests::f1_e2e_stage_shared_language \
+      -- --exact --ignored --nocapture
+) >"$stage_log" 2>&1 || { cat "$stage_log"; fail 'shared-language fixture staging failed'; }
+[[ $(find "$PAKRO_DATA_DIR/languages" -type d -name payload | wc -l | tr -d ' ') == 1 ]] || fail 'fixture did not publish exactly one real payload'
+
+# The harness links the repository's dummy plugin. Copy it before adding any
+# test-only scripts so no repository or user plugin can be modified.
+[[ -L "$PAKRO_DATA_DIR/plugins/dummy" ]] || fail 'expected the isolated dummy link'
+rm "$PAKRO_DATA_DIR/plugins/dummy"
+cp -R "$ROOT/tests/support/data/plugins/dummy" "$PAKRO_DATA_DIR/plugins/dummy"
+pakro install dummy@1.0.0
+cat >pakro.toml <<'TOML'
+[tools]
+python = "3.15.0"
+dummy = "1.0.0"
+TOML
+# Remove only this fixture tool's disposable version cache: even a default
+# bin projection must not populate it while serving a read-only request.
+rm -rf "$PAKRO_CACHE_DIR/dummy/1.0.0"
+export P1_EXEC_ENV_LOG="$TMPDIR/p1-exec-env-ran"
+export P1_BIN_PATH_LOG="$TMPDIR/p1-bin-path-ran"
+snapshot() {
+  find "$PAKRO_DATA_DIR" "$PAKRO_CACHE_DIR" "$PAKRO_STATE_DIR" "$PAKRO_CONFIG_DIR" "$PWD" \
+    -type f -exec cksum {} \; | LC_ALL=C sort
+  find "$PAKRO_DATA_DIR" "$PAKRO_CACHE_DIR" "$PAKRO_STATE_DIR" "$PAKRO_CONFIG_DIR" "$PWD" \
+    -print | LC_ALL=C sort
+}
+# No scripts are required: both tool paths and bytecode protection are present,
+# and computing their environment must leave every persisted input unchanged.
+before="$(snapshot)"
+pakro env --json >"$TMPDIR/p1-mixed-default.json"
+/usr/bin/python3 - "$TMPDIR/p1-mixed-default.json" "$PAKRO_DATA_DIR" <<'PY'
+import json, os, sys
+value=json.load(open(sys.argv[1])); paths=value['PATH'].split(os.pathsep)
+assert any('/languages/' in path and path.endswith('/payload/bin') for path in paths)
+assert sys.argv[2]+'/installs/dummy/1.0.0/bin' in paths
+assert value['PYTHONDONTWRITEBYTECODE']=='1'
+PY
+[[ "$(snapshot)" == "$before" ]] || fail 'default-bin mixed query wrote state/cache'
+
+cat >"$PAKRO_DATA_DIR/plugins/dummy/bin/exec-env" <<'EXEC'
+#!/bin/sh
+printf '%s\n' exec-env >> "$P1_EXEC_ENV_LOG"
+export P1_PLUGIN_ENV=executed
+EXEC
+chmod +x "$PAKRO_DATA_DIR/plugins/dummy/bin/exec-env"
+reject_query() {
+  local before
+  before="$(snapshot)"
+  if pakro "$@" >"$TMPDIR/p1-mixed.stdout" 2>"$TMPDIR/p1-mixed.stderr"; then
+    fail "mixed read-only query silently accepted plugin execution: $*"
+  fi
+  [[ ! -s "$TMPDIR/p1-mixed.stdout" ]] || fail 'failed JSON environment contains stdout data'
+  [[ $(cat "$TMPDIR/p1-mixed.stderr") == *'read-only'* ]] || fail 'missing read-only execution diagnosis'
+  [[ "$(snapshot)" == "$before" ]] || fail "read-only query changed state: $*"
+  [[ ! -e "$P1_EXEC_ENV_LOG" && ! -e "$P1_BIN_PATH_LOG" ]] || fail 'read-only query executed plugin metadata'
+}
+reject_query env --json
+reject_query env --json-extended
+reject_query env dummy@1.0.0 --json
+
+# A normal explicit non-Python execution still evaluates the installed plugin.
+# Use a separate project so adding a tool to env does not remove configured Python.
+mkdir non-python
+printf '[tools]\ndummy = "1.0.0"\n' >non-python/pakro.toml
+(cd non-python && PAKRO_OVERRIDE_CONFIG_FILENAMES=isolated.toml pakro exec dummy@1.0.0 -- /bin/sh -c 'test "$P1_PLUGIN_ENV" = executed')
+[[ -s "$P1_EXEC_ENV_LOG" ]] || fail 'ordinary explicit execution did not run exec-env'
+[[ -n $(find "$PAKRO_CACHE_DIR/dummy" -name '*exec_env*' -type f -print -quit) ]] || fail 'ordinary explicit execution did not populate its normal cache'
+rm "$P1_EXEC_ENV_LOG"
+# A warm mutable exec-env cache cannot bypass read-only admission either.
+reject_query env --json
+
+rm "$PAKRO_DATA_DIR/plugins/dummy/bin/exec-env"
+cat >"$PAKRO_DATA_DIR/plugins/dummy/bin/list-bin-paths" <<'BINS'
+#!/bin/sh
+printf '%s\n' list-bin-paths >> "$P1_BIN_PATH_LOG"
+printf '%s\n' bin
+BINS
+chmod +x "$PAKRO_DATA_DIR/plugins/dummy/bin/list-bin-paths"
+# list-bin-paths errors must not be swallowed into an incomplete successful env.
+reject_query env --json

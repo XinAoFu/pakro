@@ -50,23 +50,96 @@ pub(crate) struct Which {
 }
 
 impl Which {
+    pub(super) fn explicitly_non_python(&self) -> bool {
+        self.tool
+            .as_ref()
+            .is_some_and(|tool| !crate::programs::python::is_python_backend(&tool.ba))
+    }
+
+    pub(super) async fn requires_shared_python(&self) -> Result<bool> {
+        if let Some(tool) = &self.tool {
+            return Ok(crate::programs::python::is_python_backend(&tool.ba));
+        }
+        let config = Config::get().await?;
+        let effective = ToolsetBuilder::new().build_unresolved(&config)?;
+        Ok(effective.versions.is_empty()
+            || effective
+                .versions
+                .keys()
+                .any(|backend| crate::programs::python::is_python_backend(backend))
+            || self.bin_name.as_deref().is_some_and(|command| {
+                python_command(command)
+                    && !crate::shims::configured_non_python_provider(&effective, command)
+            }))
+    }
+
     pub(crate) async fn run(self) -> Result<()> {
+        if let Some(tool) = &self.tool {
+            crate::programs::python::validate_python_query_options(&tool.ba)?;
+        }
         let config = Config::get().await?;
         if self.complete {
             return self.complete(&config).await;
         }
+        let include_shared_python = self.requires_shared_python().await?;
         let ts = self.get_toolset(&config).await?;
-
         let bin_name = self.bin_name.clone().unwrap();
-        match ts.which(&config, &bin_name).await {
-            Some((p, tv)) => {
+        let python_owned = self
+            .tool
+            .as_ref()
+            .is_some_and(|tool| crate::programs::python::is_python_backend(&tool.ba))
+            || (self.tool.is_none()
+                && python_command(&bin_name)
+                && !crate::shims::configured_non_python_provider(&ts, &bin_name));
+
+        // env and the directory hook prepend the verified shared bin paths.
+        // Resolve that candidate once before returning a legacy tool's same-name
+        // executable. Retain a failed Python query until local ownership is
+        // known, so an unrelated missing Python does not hide a real companion.
+        #[cfg(unix)]
+        let shared = if include_shared_python {
+            self.shared_python(&ts, Some(&bin_name))
+        } else {
+            Ok(None)
+        };
+        #[cfg(unix)]
+        if let Ok(Some(selected)) = &shared {
+            if let Some(path) = selected.command(&bin_name)? {
+                if self.version {
+                    pakroprintln!("{}", selected.version);
+                } else if self.plugin {
+                    pakroprintln!("python");
+                } else {
+                    pakroprintln!("{}", path.display());
+                }
+                return Ok(());
+            }
+        }
+        #[cfg(unix)]
+        if python_owned {
+            let selected = shared?.ok_or_else(|| {
+                eyre::eyre!("no current shared Python declaration; name an installed target with --tool=python@VERSION")
+            })?;
+            bail!(
+                "shared Python {} does not provide command {bin_name:?}",
+                selected.version
+            );
+        }
+        let remaining = ts.which_for_query(&config, &bin_name).await?;
+        #[cfg(unix)]
+        if remaining.is_none() {
+            // Missing, invalid and damaged Python must not turn into an empty
+            // result or a legacy Python fallback when no other tool owns it.
+            shared?;
+        }
+        match remaining {
+            Some((p, tv, path)) => {
                 if self.version {
                     pakroprintln!("{}", tv.version);
                 } else if self.plugin {
                     pakroprintln!("{p}");
                 } else {
-                    let path = p.which(&config, &tv, &bin_name).await?;
-                    pakroprintln!("{}", path.unwrap().display());
+                    pakroprintln!("{}", path.display());
                 }
                 Ok(())
             }
@@ -91,15 +164,28 @@ impl Which {
     }
     async fn complete(&self, config: &Arc<Config>) -> Result<()> {
         let ts = self.get_toolset(config).await?;
-        let bins = ts
-            .list_paths(config)
-            .await
-            .into_iter()
-            .flat_map(|p| file::ls(&p).unwrap_or_default())
-            .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
-            .unique()
-            .sorted()
-            .collect_vec();
+        let mut paths = ts.list_paths_for_query(config).await?;
+        #[allow(unused_mut)]
+        let mut verified_paths = std::collections::HashSet::<std::path::PathBuf>::new();
+        #[cfg(unix)]
+        if let Some(shared) = self.shared_python(&ts, None)? {
+            verified_paths.extend(shared.bin_dirs.iter().cloned());
+            paths.extend(shared.bin_dirs);
+        }
+        let mut bins = Vec::new();
+        for path in paths {
+            let entries = match file::ls(&path) {
+                Ok(entries) => entries,
+                Err(error) if verified_paths.contains(&path) => return Err(error),
+                Err(_) => continue,
+            };
+            for entry in entries {
+                if entry.is_file() && file::is_executable(&entry) {
+                    bins.push(entry.file_name().unwrap().to_string_lossy().into_owned());
+                }
+            }
+        }
+        let bins = bins.into_iter().unique().sorted();
         for bin in bins {
             pakroprintln!("{bin}");
         }
@@ -112,8 +198,60 @@ impl Which {
                 .with_args(std::slice::from_ref(tool))
                 .with_overridden_lockfile_warnings();
         }
-        let ts = tsb.build(config).await?;
+        let mut ts = tsb.build_unresolved(config)?;
+        #[cfg(unix)]
+        ts.versions
+            .retain(|backend, _| !crate::programs::python::is_python_backend(backend));
+        if let Some(tool) = &self.tool {
+            ts.versions.retain(|backend, _| **backend == *tool.ba);
+        }
+        ts.resolve_with_opts(
+            config,
+            &crate::toolset::ResolveOptions {
+                offline: self
+                    .tool
+                    .as_ref()
+                    .is_none_or(|tool| crate::programs::python::is_python_backend(&tool.ba)),
+                ..Default::default()
+            },
+        )
+        .await?;
         Ok(ts)
+    }
+
+    #[cfg(unix)]
+    fn shared_python(
+        &self,
+        ts: &Toolset,
+        command: Option<&str>,
+    ) -> Result<Option<crate::programs::directory::DirectoryPython>> {
+        use crate::programs::directory::{PythonQueryRequest, PythonQueryScope, query_python};
+        if self
+            .tool
+            .as_ref()
+            .is_some_and(|tool| !crate::programs::python::is_python_backend(&tool.ba))
+        {
+            return Ok(None);
+        }
+        let selected = query_python(PythonQueryRequest {
+            target: self.tool.as_ref().and_then(|tool| tool.version.clone()),
+            scope: PythonQueryScope::Environment,
+        })?
+        .into_ready()?;
+        if selected.is_none()
+            && (self
+                .tool
+                .as_ref()
+                .is_some_and(|tool| crate::programs::python::is_python_backend(&tool.ba))
+                || command.is_some_and(|name| {
+                    python_command(name) && !crate::shims::configured_non_python_provider(ts, name)
+                }))
+        {
+            bail!(
+                "no current shared Python declaration; name an installed target with --tool=python@VERSION"
+            );
+        }
+        Ok(selected)
     }
     /// `--tool` replaces whatever the config requested, so a version that isn't
     /// installed leaves nothing for [`Toolset::which`] to search. Saying the bin
@@ -142,4 +280,19 @@ impl Which {
     fn has_shim(&self, shim: &str) -> bool {
         dirs::shims().join(shim).exists() || dirs::system_shims().join(shim).exists()
     }
+}
+
+/// Python's version-qualified commands are still owned by the shared library
+/// when no current declaration exists; they cannot fall back to an old install.
+#[cfg(unix)]
+fn python_command(command: &str) -> bool {
+    ["python", "pip"].iter().any(|prefix| {
+        command.strip_prefix(prefix).is_some_and(|suffix| {
+            suffix.is_empty()
+                || (!suffix.starts_with('.')
+                    && suffix
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || byte == b'.'))
+        })
+    })
 }

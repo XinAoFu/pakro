@@ -48,10 +48,84 @@ pub(crate) struct DepsInstall {
 }
 
 impl DepsInstall {
+    pub(super) async fn preflight(&self) -> Result<()> {
+        if self.list || self.explain {
+            return Ok(());
+        }
+        let config = Config::get().await?;
+        let only: Vec<_> = self
+            .provider
+            .iter()
+            .chain(self.only.iter().flatten())
+            .cloned()
+            .collect();
+        let targets_python = only.is_empty()
+            || only
+                .iter()
+                .any(|id| crate::programs::python::is_python_provider(id));
+        if targets_python {
+            if let Some(project) = crate::programs::python::prepare_current_project(&[])? {
+                eyre::ensure!(
+                    !self.monorepo
+                        && !self.force
+                        && only.iter().all(|id| id == "python")
+                        && self.skip.as_ref().is_none_or(|skip| skip.is_empty()),
+                    "legacy Python dependency provider options are not supported by the shared Python path"
+                );
+                eyre::ensure!(
+                    project.only_python_tools(),
+                    "the shared dependency path currently supports Python-only project declarations"
+                );
+                return Ok(());
+            }
+        }
+        let union = if self.monorepo {
+            Some(config.monorepo_union().await?)
+        } else {
+            None
+        };
+        let engine = match &union {
+            Some(union) => DepsEngine::new_monorepo(&config, union.config_files.values().cloned())?,
+            None => DepsEngine::new(&config)?,
+        };
+        for provider in engine.list_providers() {
+            if (only.is_empty() || only.iter().any(|id| id == provider.id()))
+                && self
+                    .skip
+                    .as_ref()
+                    .is_none_or(|skip| !skip.iter().any(|id| id == provider.id()))
+            {
+                crate::programs::python::reject_python_provider_write(
+                    crate::programs::python::PythonWriteOperation::LegacyInstall,
+                    provider.id(),
+                )?;
+            }
+        }
+        for id in only {
+            crate::programs::python::reject_python_provider_write(
+                crate::programs::python::PythonWriteOperation::LegacyInstall,
+                &id,
+            )?;
+        }
+        Ok(())
+    }
+
     pub(super) async fn run(self) -> Result<()> {
+        self.preflight().await?;
         let config = Config::get().await?;
         #[cfg(unix)]
-        if !self.list && !self.explain && !self.monorepo {
+        if !self.list
+            && !self.explain
+            && !self.monorepo
+            && self
+                .provider
+                .as_deref()
+                .is_none_or(|provider| provider == "python")
+            && self
+                .only
+                .as_ref()
+                .is_none_or(|only| only.iter().all(|provider| provider == "python"))
+        {
             if let Some(project) = crate::programs::python::prepare_current_project(&[])? {
                 eyre::ensure!(
                     project.only_python_tools(),
@@ -119,6 +193,15 @@ impl DepsInstall {
         // installing unrelated tools from the project toolset.
         engine.validate_selection(only.as_deref(), &skip)?;
 
+        if self.explain {
+            let env = std::env::vars().collect();
+            return Self::explain_provider(
+                &engine,
+                self.provider.as_deref().expect("provider checked above"),
+                &env,
+            );
+        }
+
         // Build and install the effective toolset so package managers declared
         // in monorepo config roots are available to their deps providers.
         let mut install_config = match &monorepo_union {
@@ -128,25 +211,18 @@ impl DepsInstall {
         let mut ts = match &monorepo_union {
             Some(union) => {
                 let mut ts: Toolset = union.tool_request_set.clone().into();
-                ts.resolve(&install_config).await?;
+                ts.versions
+                    .retain(|backend, _| !crate::programs::python::is_python_backend(backend));
                 ts
             }
-            None => {
-                ToolsetBuilder::new()
-                    .with_default_to_latest(true)
-                    .build(&install_config)
-                    .await?
-            }
+            None => ToolsetBuilder::new()
+                .with_default_to_latest(true)
+                .build_unresolved(&install_config)?,
         };
 
-        if self.explain {
-            let env = ts.env_with_path(&install_config).await?;
-            return Self::explain_provider(
-                &engine,
-                self.provider.as_deref().expect("provider checked above"),
-                &env,
-            );
-        }
+        ts.versions
+            .retain(|backend, _| !crate::programs::python::is_python_backend(backend));
+        ts.resolve(&install_config).await?;
 
         let install_opts = InstallOptions {
             missing_args_only: false,

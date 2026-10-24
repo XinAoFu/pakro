@@ -25,7 +25,8 @@ use crate::toolset::ToolsetBuilder;
 pub(crate) struct Where {
     /// Tool to look up
     /// e.g.: ruby@3
-    /// With "@<PREFIX>", shows the latest installed version matching the prefix.
+    /// With "@<PREFIX>", queries installed versions matching the prefix.
+    /// Shared Python requires one unique local instance; other tools choose the latest.
     /// Otherwise, shows the current, active installed version.
     #[usage(value_name = "TOOL@VERSION", verbatim_doc_comment)]
     tool: ToolArg,
@@ -38,7 +39,29 @@ pub(crate) struct Where {
 }
 
 impl Where {
+    pub(super) fn explicitly_non_python(&self) -> bool {
+        !crate::programs::python::is_python_backend(&self.tool.ba)
+    }
+
     pub(crate) async fn run(self) -> Result<()> {
+        crate::programs::python::validate_python_query_options(&self.tool.ba)?;
+        #[cfg(unix)]
+        if crate::programs::python::is_python_backend(&self.tool.ba) {
+            use crate::programs::directory::{PythonQueryRequest, PythonQueryScope, query_python};
+            let target = self.tool.version.clone().or(self.asdf_version.clone());
+            let selected = query_python(PythonQueryRequest {
+                target,
+                scope: PythonQueryScope::Language,
+            })?
+            .into_ready()?
+            .ok_or_else(|| {
+                eyre::eyre!(
+                    "no current Python declaration; name an installed Python version explicitly"
+                )
+            })?;
+            pakroprintln!("{}", selected.root.display());
+            return Ok(());
+        }
         let config = Config::get().await?;
         // A version named on the command line carries no install options.
         let named_here = self.tool.tvr.is_some() || self.asdf_version.is_some();

@@ -1,8 +1,235 @@
-# Pakro 首版逐文件实施计划
+# Pakro Python完整化实施计划：P1–P9
 
-计划创建：2026-10-20；本次进度截止：2026-10-24（Asia/Shanghai）。
+方案确认与P1细化：2026-10-24（Asia/Shanghai）。源码基线：`3d2a6c291`；已有F/S成果与证据见[交叉盘点](ARCHITECTURE-REVIEW-2026-10-24.md)。架构权威是根[主架构与Agent规则](../../Pakro主架构文件与Agent规则.md)。
 
-## S：Python源码包构建与安装（本轮实现与ISAT启动验收已截止）
+**授权状态（2026-10-25）：用户确认P1本机macOS arm64产品验收通过，自动多进程运行器禁用，授权将既有P1实现、测试和收尾文档提交Git；本轮不改代码。** 长测试继续由用户终端执行；通用监督器不追加为P1产品验收门槛。整个项目停用dev-flow，不自动开始P2；跨平台、完整ISAT业务及后续阶段边界保留。
+
+## 当前方案与阶段顺序
+
+配置表达用户意图；统一`pakro.lock`保存可移植精确结果；catalog是本机选择和引用权威；manifest描述实际内容和所有权。保持三类程序、三种库，CLI不直接写删库对象；以真实F/S生产链为复用基线，不为填满旧文件表再建一套实现。
+
+| 阶段 | 本阶段交付 | 前置与完成条件 | 旧R追溯（只对应剩余范围） |
+| --- | --- | --- | --- |
+| P1 统一当前Python生产路径 | 真实入口收敛、查询/目录事实一致、旧Python写路径早拒绝、大图/FD/并发基线。 | 保留F/S全部现有能力；只读无隐式获取/写入；详见下方P1。 | R01/R07/R16/R18/R26及局部R40/R43 |
+| P2 精确锁与严格恢复 | 统一锁读写、锁/catalog最小受控提交；先wheel，再已有纯Python源码包。 | 依赖P1真实入口；冷/暖回放不重新求解、不改锁，拒绝不支持/不匹配条目；源码输入与实际输出分开核验。 | R11/R14/R15必要部分 |
+| P3 完整项目变更 | 同一提交核加入声明；use/deps add → deps remove/unuse → upgrade；项目移动、解除关联、失联保护。 | 依赖P2提交/读一致协议；准备失败保留旧状态、最后一个包根能提交、精确目标升级不破坏其他项目，不自动prune。 | R09/R17/R22/R23/R24/R15剩余部分 |
+| P4 显式回收与恢复 | 指定删除完善、显式prune/预览、持久回收进度、中断续行与明确修复边界。 | 依赖P3正确引用释放；从真实项目/在途根标记，无根环可回收，未知不当零引用；4-pyc例外不推广成force。 | R07/R21/R25剩余部分 |
+| P5 完整来源接入 | 私有registry → 精确URL → Git固定快照 → local不可变快照及项目自身依赖。 | 复用P2–P4合同；每来源同交付查询、锁、严格恢复和引用/回收，不只完成下载。 | R10/R27–R29 |
+| P6 完整构建 | 支持的归档、受控C/C++/Rust扩展、解释器源码配方、Linux原生布局。 | 先保持P2已有源码恢复；工具链/SDK为固定输入，实际强制工具准入而非单纯关闭deny_process；不同重建输出不偷改锁。 | R12/R13/R30/R31/R33剩余部分 |
+| P7 editable | 活源码绑定、可写范围、metadata失效、扩展重建、卸载。 | 依赖local及已支持构建；editable产物不进入普通不可变缓存，不删除用户源码。 | R29/R32 |
+| P8 Conda | 独立求解语义接共同三库/事务/锁/回收，检查混合PyPI冲突。 | 共同合同稳定后可并行设计；唯一Python payload，文件/分发冲突写入前拒绝，整图可恢复。 | R34 |
+| P9 Python收尾与完整验收 | 查询/辅助入口、Python旧链退役、工程/Schema/生成资源收尾及真实项目/平台总验收。 | 汇总各阶段证据；Python完成门通过后才Java，Java完成后才Node。 | R18/R19/R26/R39–R44及R45的Python部分 |
+
+P1→P2→P3为最先实施主线。平台、性能、故障与局部退役随阶段开展；工程入口拆分可并行规划，不成为P1整仓重构前置。P5–P8每新增一种对象或来源，必须同步锁/查询/引用/回收，不能让P4只认识旧wheel。旧R/F/S“后移”不永久取消相应新阶段，也不自动授权实施。
+
+### Python完成门
+
+1. 安装、目录选用、增删依赖、精确升级、查询、解除关联、卸载和显式回收形成共同事实上的完整生命周期。
+2. wheel、源码、支持来源和Conda严格冷/暖恢复，以及并发、中断、外部改写/损坏有实际证据；查询只读，不在恢复窗口拼接新旧事实。
+3. 同语言实例只有一份实际内容，兼容包可共享，各项目选择隔离，删除/升级A不破坏B。
+4. 既定Python范围包括源码包、解释器源码、editable、私有/URL/Git/local及Conda；明确支持的版本/后端，不能笼统声称所有包均支持。
+5. Linux/macOS、x86_64/arm64、glibc/musl、CPython/PyPy按适用组合列矩阵并验证；Windows不在当前目标，未测组合不称通过。
+6. 补齐ISAT完整图复用、冷恢复和已定义业务断言，用独立小项目覆盖源码/editable/Conda；验收设施摆脱本机路径及测试binary哈希。
+
+IDE/外部解释器完整生命周期仍单列后置，路径描述不是运行租约；Go与独立Rust生态不恢复。旧测试数据清理只处理明确对象，不从P1文档获得删除权限。
+
+## P1：统一当前Python生产路径
+
+**状态：P1 本机 macOS arm64 产品验收通过，自动多进程运行器禁用。** 用户已核对最终构建和定向E2E原始日志（all exit0），此前精确安装CLI正例及A14同配置对照继续有效。通用监督器不作为额外产品验收门槛；长测试由用户终端执行。按本次授权提交Git，本轮只同步文档，不改代码，不自动进入P2。
+
+### 2026-10-25定向复核
+
+最新用户手动日志`p1-recheck-manual-all-20261025-002758.log`已成功构建（1分07秒），两条定向E2E通过，all exit0。此前E0433已消除；用户现确认P1本机产品验收通过。自动多进程运行器仍禁用，通用监督能力不作为本阶段额外门槛。
+
+- monorepo/task：维护前收集完整扩展工具/依赖/包组，缓存同次计划供实际安装复用。含Python的monorepo写域整体拒绝（包括显式NonPy过滤），静态NonPy扩展保留；未知/remote工具元数据早报错，工具规划不求值无关run/description模板。
+- which：默认先检查共享Ready入口，使同名时与env/hook共享PATH优先级一致；共享查询失败时仍允许已核实的NonPy companion，显式--tool保持定向。
+- 监督能力：旧快照追踪不能覆盖快速setsid/reparent；默认tree现在返回125、coverage_complete=false、survivors=null且不启动目标。显式single-process仅供可信非特权无子进程命令，macOS在exec前设置RLIMIT_NPROC软硬0，内核阻止fork/spawn。严格任意多进程树执行仍未实现，自动运行器保持禁用；用户已确认不将通用监督器追加为P1产品验收门槛。
+- 验收：Rust格式、Shell/Python语法和短监督能力实验通过；用户长构建与2条定向E2E已通过（日志002758）；无需无变化重复运行。入口`bash tests/scripts/p1-manual-recheck.sh all`，复用target/all-features/debug=0/incremental=0，不另建release/target。
+
+### 本轮审查修复与补证
+
+1. 配置Python包组纳入install/use实际尾部执行计划，未迁移组合在安装/声明保存前拒绝；独立非Python正例保留。
+2. asdf exec-env直接source及ExternalPluginCache纳入只读保护，动态bin路径/环境错误向上返回，不能静默丢字段后成功。
+3. env依据配置加CLI追加后的有效工具集分流，非Python追加不撤掉项目Python。
+4. which先核实已安装非Python附带命令的实际路径，再判断共享Python；缺Python不挡已有companion。
+5. alias去选项后识别Python归属，再统一拒绝选项；无参查询和环境版本覆盖不再丢失声明。
+6. 监督器以私有session和已观察后代为清理对象，TERM后无论组长是否退出都继续KILL/复查，覆盖正常退出遗留和监督器中断。
+
+补证：冷空库精确Python CLI安装已通过固定官方tag/校验和/真实归档的本地传输夹具；A14以原3d2a6c291的生产选择核和当前选择核运行同一64包夹具，比较完整query与apply入口。详细结果以TESTS本轮表及日志为准；不将有限覆盖推断为所有组合通过，不自动进入P2。
+
+### P1范围、保留能力与排除项
+
+P1只交付三项实际结果：现有Python安装链有唯一生产编排；本地查询/目录使用同一事实；未迁移Python写路径在首次副作用前拒绝。附带可复现的大图耗时/FD/并发基线及本次收敛的防回退证据。
+
+必须保留F1目录选择/F2官方预编译精确安装/F3 wheel/F4指定查询删除，以及S的registry纯Python `.tar.gz`、legacy、初始/动态构建依赖、同solver续传、源码与实际wheel双证据和native COW。保持来源pin、build歧义、实际内容核验、PYTHONDONTWRITEBYTECODE、soft FD初始化及原严格Locked包安装拒绝。现有`--restore-bytecode`精确特例及其dry-run/quiet早分流继续保留，只用隔离夹具回归，不再次操作用户实际4个pyc。
+
+P1不写统一项目锁、不实现配置/锁/catalog通用WAL，不接通use/add/remove/unuse/upgrade新事务，不新增批量prune、来源/编译器或生态。不改三库目录/格式，不重构lease或稳定锁持有模型，不开放跨操作hash缓存，不扩大300秒选择期限或4096软FD目标。工程入口拆分只记录依赖，整仓清理不混入P1。
+
+### P1.1 入口与结果合同
+
+| 请求/结果 | P1合同 |
+| --- | --- |
+| 不适用共享Python | 依据解析后的实际目标/provider判断，才允许非Python既有路径；不是“结果为空”或“共享库尚未初始化”。显式非Python查询不必读损坏的Python库。 |
+| 无当前Python声明 | 目录不选择Python、不登记；显式版本查询仍可只查本地库存；无目标时不拿某个旧Python冒充当前选择。 |
+| 语言已就绪 | 已核验唯一实际语言实例，可返回安装根。并不自动代表项目包图完整。 |
+| 环境已就绪 | 语言、当前请求所需包图/layout及命令入口均符合同次观测与pin；返回描述，不授予未来进程租约。 |
+| 缺语言/缺包图/缺命令 | 分别报告缺项；不得获取、自动修复或落回旧Python/外部manager。 |
+| 无效/歧义/损坏/不可读 | 保留错误类别与必要候选身份；不折叠成None、空库或不适用。观察过期、取消、超时也有明确结果。 |
+| 声明与已提交选择不同 | 同时区分当前声明、匹配的已有内容和已提交关联；查询不“同步”catalog，原引用到新选择成功后才更新。 |
+| 显式目标覆盖 | `env python@X`、`which --tool=python@X`、`bin-paths python@X`消费X，不偷用cwd的Y；与X不兼容的Y包图不拼入结果，明确给出目标/包绑定不兼容或缺项。覆盖只影响此次查询，不改项目声明/选择。 |
+| Python版本筛选 | 安装及项目声明保持完整精确版本。已有路径查询的前缀仅作本地候选过滤，不访问远端；单路径输出要求唯一实例，多候选列明歧义，不任取最新build。未支持参数组合明确诊断，不回旧Python。非Python原查询规则保留。 |
+| 只读CLI初始化 | 共享Python本地查询在handler之前也不得自动更新、刷新registry、安装插件、迁移、清理或写Tracker。按真实解析命令/作用域分流，保留必要的只读内置元数据加载，不依赖字符串搜索。 |
+
+查询按所需事实加载，不能强迫每个字段重复完整环境核验：`where`返回语言payload安装根；`which`返回当前有效的解释器/console script入口；`bin-paths`返回有效bin集合；`current`保留版本输出并区别环境是否完整；`project status`区别声明/登记/可用性。语言存在而包缺失时，where仍可正确定位语言，环境查询明确缺包。
+
+普通查询对缺项/无效等沿各命令原有文本/JSON和退出约定输出；必须单独验证非零错误与状态列表两类合同。hook可非致命警告，但不能输出新的成功选择；撤销前一目录的Pakro PATH/自有字节码变量差异，不能释放持久引用。JSON stdout不混入诊断，诊断走stderr。
+
+### P1.2 具体文件与改动落位
+
+以下保留P1开工前的逐文件合同；实际落位、新增必要接缝及局部退出详见[FILES当前P1表](FILES.md)。路径相对仓库，未迁移的后续能力不因本表而开放。
+
+**A. 统一本地查询和目录应用（先做）**
+
+| 文件 | 当前锚点/问题 | 拟改内容及边界 |
+| --- | --- | --- |
+| `src/core/programs/query/snapshot.rs` | `SelectionReport`、`select_existing`只表达语言；完整包匹配另在directory。 | 扩展请求作用域、明确目标和类型化状态，复用原语言/pin核；承接按需完整环境匹配，区分语言和环境就绪。 |
+| `src/core/programs/query/paths.rs` | `SelectionPaths`、`selection_paths`只投影语言。 | 投影同一结果的payload根、有效bin、解释器与有归属的console script；不读取/安装另一套事实。 |
+| `src/core/programs/directory.rs` | `select_directory_python`、`select_observed`吞错误为None，包图匹配/打印/commit混合。 | 匹配下沉query，保留目录适配；把只读选择与已有内容关联应用分开，取消易误用的公共commit布尔语义；冻结一次原总期限，内核不打印/吞错。 |
+| `src/core/programs/library.rs` | `observe_current_project`、`local_project`、`current_observed`另建观测，ready只核验语言。 | 公共只读门面复用同次观察/上下文，按需返回声明、语言、环境、登记事实；不暴露writer/owner。 |
+| `src/core/programs/query/inventory.rs`、`src/core/programs/query/projects.rs` | `inventory`、`projects`分别只读。 | 接共同上下文，区分空库/无当前选择/不可访问；空结果不决定路由，不登记或修复。 |
+| `src/core/config/mod.rs`、`src/core/libraries/project/snapshot.rs` | `FrozenConfigDiscovery::from_explicit_options`、`observe_project`已有核；目录入口硬编码配置名。 | 集中绑定真实profile/global/system/ignore/no-config与CLI覆盖，消费既有冻结发现核，不另写parser。与旧Config接缝同时审查Tracker写入。 |
+| `src/core/programs/install/selection.rs`、`src/core/programs/shared/commit.rs` | `apply_directory_selection`及语言/包选择commit。 | 只改接描述与观测。查询租约先释放，提交仍按项目→对象→catalog重获并复核；不持query对象锁反向取项目锁，不扩大单catalog写域。 |
+| `src/core/programs/mod.rs`、`src/core/programs/query/mod.rs` | 公共facade与私有query注册。 | 只导出CLI所需请求/报告，优先扩既有library/directory门面；库IO/lease/删除许可继续私有。 |
+
+**B. CLI与终端消费者（按A的同一合同接入）**
+
+| 文件 | 拟修改锚点与具体行为 |
+| --- | --- |
+| `cli/src/commands/where.rs` | `Where::run`在旧resolve前按目标分流，输出真实语言安装根；Python缺项/歧义不走latest/旧目录。 |
+| `cli/src/commands/which.rs` | `run`、`complete`、`get_toolset`接解释器/包入口；保留`--tool/--version/--plugin`和补全差异，补全仅列已有内容。 |
+| `cli/src/commands/bin_paths.rs` | `run`、`list_bins`按Python/非Python分区再合并去重；保留bin names/JSON字段，受管损坏不能被目录扫描吞成空。 |
+| `cli/src/commands/env.rs` | `Env::run`把self.tool的Python目标传入统一查询；所有输出格式共享结果，保留字节码变量优先级，只读不提交。 |
+| `cli/src/commands/hook_env.rs` | `HookEnv::run`消费类型化结果，Ready关联应用成功后才输出新环境；保留原快速路径、PATH撤回和变量恢复，不获取缺项。 |
+| `runtimes/src/shims/mod.rs` | `configured_non_python_provider`、`select_shared_python_command`、`install_missing_wrapper_command`保留明确provider归属；Missing不能变成None后触发旧Python lazy安装。 |
+| `cli/src/commands/shim.rs`、`cli/src/commands/hook_not_found.rs` | `command_wrapper_for`、`which_shim`、not-found的run使用同一归属/结果；保留wrapper参数与非Python行为，不宣称外部进程生命周期已保护。 |
+| `cli/src/commands/current.rs` | `Current::run`保留版本文本、补环境不完整诊断；混合请求不重新显示旧Python。 |
+| `cli/src/commands/ls.rs` | `shared_library_query`不因special/mixed/空结果整体回旧路；给共享flag支持表，不支持的Python组合提前诊断。 |
+| `cli/src/commands/installs/ls.rs` | `InstallsLs::run`按意图而非shared_names决定归属；显式Python空库仍输出共享空库；混合结果去除旧Python重复行。 |
+| `cli/src/commands/project.rs` | 只改`ProjectLs::run`、`ProjectStatus::run`的只读投影，区分当前声明与已提交选择，不改init/attach或新增登记命令。 |
+| `cli/src/commands/mod.rs` | `run_inner`在`install_state::init`、auto-update、registry/migrate/cache/purgatory及Tracker写之前，提供同一纯参数/只读目标判定通路，覆盖本地查询、将被拒绝的旧Python写请求及所有install-into。判定未完成前禁止自动维护，未知目标明确诊断；尊重别名、`--cd`、profile及更早的bytecode恢复独立分流。 |
+| `runtimes/src/toolset/install_state.rs` | `init`/既有只读初始化接缝：受影响混合查询及准入判定阶段不能创建安装/跟踪状态；不重写其他命令全局初始化。 |
+| `cli/src/commands/command_effects.rs` | 修正“隐式安装不算effect”的相反注释；查询与会提交关联的hook不能混称同一只读行为。只按真实行为修相应说明/分类。 |
+
+混合请求须隔离Python与非Python读取；受影响的本地查询不得借非Python兼容分支重新加入旧Python、获取或写跟踪。无法保持某组合原输出及只读合同的，明确拒绝该组合，不静默降级。明确非Python独立请求继续原能力，不因cwd存在Python就一刀切拒绝。
+
+**C. 保留真实F/S安装编排，收敛重复门面**
+
+| 文件 | 锚点与拟改内容 |
+| --- | --- |
+| `src/core/programs/python.rs` | 以`prepare_current_project`、`PythonProjectInstall::install`、`install_exact_python`、`install_project_packages`、`resolve_and_commit`为生产基准；统一当前两安装入口所需意图/上下文，不丢完整根、runtime pin、source证明和S续传。 |
+| `src/core/programs/install/request.rs`、`src/core/programs/install/context.rs` | 复用`normalize_intent`及同次观测核对；只接Install/DepsInstall当前需要的合同，不因Use/Upgrade/Add类型存在就开放声明写。 |
+| `src/core/programs/install/apply.rs` | `install_exact_python`目前仅测试消费且只懂PBS输入。将重复编排委托生产核或退出已无consumer的私有正文，保留有价值断言；不得反向用它替换掉真实来源/pin处理。 |
+| `src/core/programs/install/mod.rs` | 仅同步上述收敛/测试注册；不提前创建plan/acquire/layout/verify等完整R文件族。 |
+| `runtimes/src/plugins/core/python.rs` | `install_shared_exact_in_context`、`install_shared_exact_with_report`、`install_native_body`维持真实runtime适配；新生产链不绕回旧Backend安装。旧`install_native_runtime/install_version_`暂留源码资产，不从新链可达。 |
+| `src/core/programs/install/runtime.rs` | `prepare_language_with_revalidation`保持唯一获取/复用/实际来源核，只作必要接口适配，不重写R06发布。 |
+| `cli/src/commands/install.rs`、`cli/src/commands/deps/install.rs` | `Install::run/run_exact_python_install`及`DepsInstall::run`统一交programs，保留当前显式runtime、bare/bound包及完整项目安装；list/explain的真只读行为与执行分开。 |
+
+默认只复用、不改业务语义：`src/core/programs/install/resolve.rs`、`src/core/programs/install/build.rs`、现有registry/solver/wheel/source worker、语言/包发布与manifest核。不得为了合并门面重做这些内核；若接口确需变化，先列具体接缝，不自动扩范围。
+
+**D. 旧写入口在首次副作用前拦截**
+
+新增拟定私有文件：`src/core/programs/shared/python_entry.rs`及其`python_entry/tests.rs`，在`shared/mod.rs`注册，通过现有`programs/python.rs`提供有限纯分类/准入门面。名称为实施落位，职责固定为解析后目标与操作类别的判断，不读写库、不扫描shell命令字符串、不产生第二份配置权威。
+
+| 入口/文件 | 具体截断位置与行为 |
+| --- | --- |
+| `cli/src/commands/use.rs` | `Use::run`在Toolset构建/补装/配置编辑前判断目标；Python use/remove/bound包等未迁移变更明确拒绝，不能等写配置后才失败。 |
+| `cli/src/commands/upgrade.rs` | `Upgrade::run`在`migrate_monorepo_lockfiles`、远端候选和写入前判断显式或无参实际目标；P1不选择最新目标、不安排Python延迟清理。 |
+| `cli/src/commands/unuse.rs` | `Unuse::run`在选取/初始化写目标和保存前拒绝Python声明移除；`--no-prune`不绕开未具备的事务。 |
+| `cli/src/commands/deps/add.rs`、`cli/src/commands/deps/remove.rs`、`cli/src/commands/deps/mod.rs` | 先用既有纯`parse_package_spec`和provider标识判定，早于`install_missing_versions`与env/provider执行；pip/uv/poetry等Python适配也纳入，不用字符串黑名单。 |
+| `cli/src/commands/deps/install.rs` | 保留新F/S分支；monorepo/only/skip等会进入旧Python provider的执行计划提前拒绝；list/explain不得借名补装。 |
+| `cli/src/commands/prune.rs` | `Prune::run`及可被其他命令调用的`prune`函数，在Tracker/Trust清理和删除前核定目标；未支持Python批量回收拒绝，F4指定uninstall仍保留。 |
+| `cli/src/commands/install_into.rs` | D01已取消，在`run`开头拒绝执行，早于Config/resolve/父目录创建；完整命令树/Schema退役留后续，不为它实现新安装。 |
+| `runtimes/src/toolset/toolset_install.rs` | `install_all_versions_with_progress`在`ensure_config_plugins_installed`前检查旧批次及会补装的依赖，防未列CLI间接调用。 |
+| `runtimes/src/backend/mod.rs` | `Backend::install_version`早于`prepare_install_version`接防遗漏门；`run_postinstall_hook`补真实生产接点，不等最终PythonPlugin才拒绝。 |
+| `src/core/libraries/language/mutation.rs`及其`mutation/tests.rs` | 保留共享路径的底层拒绝核并核对真实调用。Force/PostInstall目前只见枚举测试直接调用，不能算全部生产已接；路径保护不替代前面的意图保护。 |
+
+准入按实际目标判定：显式非Python且不会附带修改Python，继续既有能力；混合批次含未支持Python变更，整批在副作用前拒绝，不能先安装其他工具。缺省目标要用同次只读观测明确，不能先调用会安装/迁移的旧加载器再决定。未知/动态目标无法安全预判时明确诊断。任意自定义任务/脚本文本不做全局扫描封禁，整体task退役属于后续范围。
+
+上表handler准入是最终目标复核，不代替`run_inner`启动前判定：在命令run之前已有安装状态初始化、自动更新、registry刷新、迁移和清理，因此同一准入逻辑必须覆盖这段前置链。`install-into`按D01对所有工具拒绝，非Python保留原则不为它提供例外；其他明确非Python请求保持原能力。
+
+已接的底层保护默认只回归、不修改：`runtimes/src/toolinstall/install_rollback.rs`、`runtimes/src/toolinstall/system_install.rs`、`runtimes/src/toolinstall/tool_purgatory.rs`、现有语言/包removal。若发现新旁路，先提供实际可达消费者与最早副作用位置，再补具体文件。
+
+**E. 测试与资源记录（代码实施时才创建/修改）**
+
+| 具体文件 | 计划用途 |
+| --- | --- |
+| `src/core/programs/query/paths/tests.rs`、`src/core/programs/query/inventory/tests.rs`、`src/core/programs/directory/tests.rs` | 扩类型化状态、语言/环境区分、显式目标、scope及错误保真；同输入多输出不重复全量获取。 |
+| `src/core/programs/install/selection/tests.rs`、`src/core/programs/shared/commit/tests.rs` | 查询后输入/对象变化、选择竞争、引用提交失败保留；保持真实锁序。 |
+| `src/core/programs/install/request/tests.rs`、`src/core/programs/install/context/tests.rs`、`src/core/programs/install/apply/tests.rs`、`src/core/programs/python/integration_tests.rs`、`tests/r01_program_contract.rs` | 合同与实际facade对应；迁移重复apply断言，保留runtime pin、来源/预算、全部根、S及无声明写入。 |
+| `runtimes/src/shims/mod.rs`中的测试、相应CLI文件内测试 | provider归属、wrapper/not-found/补全和初始化策略；旧写拒绝用真实入口验证，不能只测纯分类器。 |
+| 现有`tests/e2e/cli/test_f1_directory_selection`、`test_f1_command_lookup_no_install`、`test_f4_python_queries_are_readonly` | 扩空库、错误/歧义、有旧Python且自动安装打开、目录切换和真实只读断言。 |
+| 现有`tests/e2e/cli/test_python_bytecode_recovery`、`src/core/libraries/language/recovery/tests.rs` | 仅回归既定精确恢复及隔离真实归档，不扩大恢复范围，不操作用户库；配合CLI既有分类测试确保早分流不被新准入误禁。 |
+| 现有`tests/e2e/cli/test_where`、`test_which`、`test_which_tool_not_installed`、`test_bin_paths` | 保留既有非Python/输出语义，新增共享Python分支使用专门fixture。 |
+| 拟新建`tests/e2e/cli/test_p1_shared_python_queries`、`test_p1_python_write_admission`、`test_p1_readonly_initialization` | 分别承接跨命令一致/显式覆盖、旧入口首副作用前拒绝、真实启动维护/Tracker零副作用。 |
+| 现有`tests/e2e/packages/f3_shared_wheel_fixture.py`、`f3_shared_wheel_helpers.sh` | 优先复用真实HTTP计数、wheel/console脚本、隔离库夹具，仅补P1确需的语言/图或哨兵，不伪造Ready。 |
+| 现有`src/core/libraries/package/layouts/tests/file_descriptors.rs`、`src/core/libraries/package/layouts/tests/language_batch.rs`、`src/core/libraries/package/lease/tests.rs` | 保留64包、批次、完整inventory/manifest/namespace篡改断言；只增加必要测试观测，不改生产owner结构。 |
+| 现有`src/crates/pakro-util/src/process_limits.rs`中的测试 | 原soft提升、hard限制、高soft不降、父进程不变的回归；P1不改变资源策略。 |
+| 拟新建`tests/scripts/p1-check.sh`、`tests/scripts/p1-test-cases.txt`、`tests/scripts/p1-resource-baseline.py` | 薄runner、精确非零注册清单和只记录必要指标的基线driver；复用原E2E运行器，不另造测试框架，不硬编码本机binary哈希/代理/ISAT路径。 |
+
+已存在的`tests/scripts/f-manual-check.sh`、F1–F4用例清单、`s-source-check.sh/s-source-test-cases.txt`继续提供历史回归索引，非本轮强制全跑。脚本中每组阶段有明确范围，长编译和行为验收按实际独立组定义，不拆同一超时场景绕过600秒限制。
+
+### P1.3 实施步骤与交接
+
+实施状态：原实现保留；查询组合、旧写准入、监督器及两项验收证据重新核验。各步不再视为全部勾选完成。
+
+| 步骤 | 实施动作 | 交给下一步的明确结果 |
+| --- | --- | --- |
+| 1. 固定行为和观测基线 | 冻结P1.1命令合同、支持参数与前置判定；记录当前CLI调用/第一副作用、共享图及资源基线，选定非零测试注册。 | 当前失败/缺口可定位；基线明确代码版本、profile、图及平台。不因预期有问题就声称实际RED。 |
+| 2. 统一查询事实 | 按A接同一冻结输入、语言/环境分层结果与路径投影，先让library/current/project消费。 | `只读请求+同次观测→类型化事实`；无写权限/隐式联网；状态不再折叠为Option。 |
+| 3. 接路径及目录消费者 | 按B接where/which/bin-paths/env覆盖，再hook、shim/wrapper/not-found；补ls/installs空库及混合路径。 | 各命令输出可相互解释；hook释放查询保护后经现有commit重获复核，成功才应用。 |
+| 4. 收敛生产安装与准入 | 按C保留真实F/S链、处理重复apply；按D接入口和底层两层门。初始化策略与此步同时落地，不将它留到验收后。 | Install/DepsInstall支持范围保持，未迁移变更早拒绝；旧间接调用不能绕过；单context/原deadline不重置。 |
+| 5. 集成与资源复核 | 执行下方行为矩阵及相关F/S回归，测同binary/图大图、FD、并发及失败清理。 | 真实通过/失败/未测证据，资源计数防回退，保留600秒边界；不将小fixture当完整ISAT验收。 |
+| 6. 局部退役与交接 | 确认生产消费者和测试已迁移后退出重复正文；同步最小帮助/effect说明和文档，不批量删除模块或生成资源。 | 一个可追踪的Python生产入口图、P1验收记录与P2输入；P1通过不自动启动P2。 |
+
+接口交接使用现有数据类型优先，以下为职责描述而非已存在API：查询只交事实/描述；安装交同次观察、完整直接根和冻结上下文；runtime适配返回真实受保护对象；目录关联应用消费观察和候选后重取保护；CLI准入消费解析后的目标/操作，不持有文件写权。重复观测/新context不得在每个入口重建请求期限。
+
+### P1.4 验收标准
+
+下表本机适用产品合同已由用户确认通过；自动多进程运行器禁用不构成额外门槛，既有证据和未测边界见[TESTS A01–A15](TESTS.md)。所有触及三库的场景使用owned隔离根；真实本地归档、真实公网源码和确定性资源fixture分别记录。未修改用户库、ISAT配置或实际4-pyc实例。
+
+| ID | 实际行为 | 必须观察到的结果 |
+| --- | --- | --- |
+| A01 | 仅语言项目、带wheel项目和已有纯Python源码项目显式install/deps install | 真实解释器/导入/console脚本可用；语言/包身份与原source/build/output证据保留；无pip/uv委托，不写项目声明或锁。 |
+| A02 | 同项目再次安装、第二项目同图、第三项目不同图 | 同身份语言不重复；同图复用，异图不污染；匹配已有内容时零额外获取，关联仍由同catalog提交。 |
+| A03 | 同次配置下where/which/bin-paths/env/current/project status | where为语言payload根，which与env/hook为实际有效入口，bin目录包含对应入口；普通Python和包console脚本均验证，不要求不同命令打印同一路径。 |
+| A04 | cwd为Y，显式查询X；无项目显式目标；无Python声明 | 只按目标合同处理X，绝不偷用Y；不改声明/关联；非适用与未选择清楚区分。 |
+| A05 | 缺语言、语言有但缺包、缺命令、无效声明/pin、多build/layout、坏payload/catalog、超时 | 类型/诊断保真；语言Ready不冒称完整环境Ready；有旧Python可运行也不回退；单路径歧义列候选。 |
+| A06 | 查询空库/未登记项目，打开auto-update/lazy/自动清理等设置，使用可计数来源和旧目录哨兵 | 无HTTP获取/凭证刷新/插件安装，无自动迁移/删除；三库、catalog、配置/锁、Tracker、保护文件前后无变化，空库零初始化。不能只靠环境禁网或禁维护掩盖路径。 |
+| A07 | 显式非Python、Python/非Python混合、共享库为空或损坏、特殊ls flags与补全 | 独立非Python正常；混合无旧Python重复/隐式获取；不支持组合明确诊断，不按空结果回退；输出JSON仍可解析、字段含义保持。 |
+| A08 | A→B→离开→缺失/失败项目；配置在查询后变化或commit失败 | PATH和自有字节码变量恢复；未成功提交不输出新选择，退出目录不释放持久引用；保留原观察当前性和项目→对象→catalog顺序。 |
+| A09 | use/upgrade/unuse/deps add/remove/旧deps install支路/prune触及未迁移Python；所有工具的install-into | 从run_inner起，第一项获取、初始化、配置/锁/跟踪写、mkdir、provider/postinstall执行或清理之前拒绝，不能只验证handler；混合批次无半成功。除已取消的install-into外，显式非Python且不附带Python保持原能力。 |
+| A10 | toolset/backend直接进入、force/postinstall/rollback/purge/system/延迟清理 | 真实生产consumer被拦，不仅枚举单测；新F/S受控安装与F4指定删除不误禁；失败暂存只清本次所有。 |
+| A11 | 已有bytecode恢复分类、dry-run/quiet与隔离真实归档回归 | 原早分流和精确4项边界保持，其余inventory及项目引用不变；普通查询/安装不误入恢复，不操作用户真实实例。 |
+| A12 | 同项目竞争选择、A/B共享、查询/新引用与指定删除交错 | 过期观察拒绝、旧引用保留或新提交一致，无锁顺序倒置；查询不自动恢复，不把路径描述冒充进程租约。 |
+| A13 | 64真实包layout获取/释放、soft256/hard4096子进程及既有manifest/namespace篡改 | 原容量/释放、hard不变、高soft不降、父进程不变保持；重复操作无FD累积，完整inventory次数不因多输出字段重复增长，篡改仍拒绝。不是hard256支持或常数FD声明。 |
+| A14 | 固定大图、冷进程/重复进程、只读选择与hook应用分别量测 | 记录总耗时、观察/匹配/核验/提交分段、包数/文件数/字节、FD初始/峰值/释放、inventory次数及请求数；与同配置基线对照，新增扫描/资源增长须解释并消除非必要重复。 |
+| A15 | 相关F1–F4/S回归和CLI注册/非测试构建 | 用例实际执行非零，区分ignored/helper/编译成功；已完成源码/native/字节码/删除不退化；未覆盖平台和完整ISAT自动组继续单列。 |
+
+A14首先交付可复现基线，不承诺未经测量的固定秒数或新复杂度。历史32.71秒只是本机一次60包只读选择；P1不能以提高300秒/4096、降低hash/namespace校验或跨操作缓存换取通过。生产完整性检查保持，计时/计数仅使用测试观察或无敏感数据的已有输出。
+
+### P1.5 验证执行与退出条件
+
+代码实施获授权后，按实际变化选择最小有意义检查：纯合同/选择测试→真实CLI副作用与输出→相关F/S集成→资源/并发。先列出具体注册名再执行，0 tests/全部ignored/假fixture不计通过；文档中的拟新增脚本在实际创建注册前不是可运行命令。每组保持共同600秒墙钟、完整日志与同一target/profile，不通过拆分/重试绕过超时；超时如实保留未完成。
+
+P1完成要求A01–A15中适用的必需行为均有实际通过证据；失败或未测不计完成，非适用项注明原因。已支持主线不回退，真实CLI无隐式Python副作用，重复编排已收敛或有明确唯一委托，资源基线可复现。尚未支持的声明变更、Locked包恢复与prune给准确能力诊断，不因此勾成已实现。不得以全仓编译成功替代这些行为，也不无故重跑未变化的所有历史用例。
+
+P1实际交付：FILES消费者表、TESTS验收日志索引、资源基线及前后对照JSON/driver。查询只交描述，apply按原项目→对象→catalog重获复核；P2可沿python生产门面接统一锁及严格恢复。**本阶段按“P1本机macOS arm64产品验收通过、自动多进程运行器禁用”收尾并提交Git**；长测试由用户终端执行。完整ISAT自动组/业务、未测平台与外部进程生命周期仍后置，不能据此视为Python整体完成，不自动开始P2。
+
+## 历史F1–F4与S实施记录（已截止，仅供追溯）
+
+以下保留2026-10-20至24的实施、授权及过程事实；其中“当前/最新/下一步”只适用于当时。新任务以本文前部P1–P9为准，历史固定TDD/双轴流程不再强制，不将旧暂停、后移或提交授权重新应用到今天。
+
+### S：Python源码包构建与安装（本轮实现与ISAT启动验收已截止）
 
 **2026-10-24截止：用户已确认ISAT在Pakro环境中成功运行，并要求提交Git。** 实际24项直接依赖已安装选择，项目登记revision3、关联60个包、使用原Python3.11.17+20261013；本轮以安装→环境选用→ISAT基础启动的用户手动验收通过收尾。
 
@@ -15,7 +242,7 @@
 
 **提交收尾：** 仅纳入本轮相关源码、回归和开发记录；Cargo发行清单补齐实际include_bytes依赖的hook.py并以cargo package --list验证。禁止编译产物、缓存、发行归档和测试临时文件入Git；不推送。
 
-### 本轮过程记录（保留追溯，截止状态以上为准）
+#### 本轮过程记录（保留追溯，截止状态以上为准）
 
 2026-10-24环境选择现场修复：用户完整依赖已提交revision3/60包，但hook-env --force报store deadline，guard阻止旧mise Python启动。具体接缝限定`programs/directory.rs`的两入口一次冻结总期限、`libraries/package/lease.rs`及新`lease/tests.rs`、源阶段清单/脚本必要注册。原5秒对全包图字节校验不足；改为统一有界300秒总预算（正常慢路径亦覆盖，不在中途重置，原same-env CLI快路保留）。不新增跨操作hash缓存或削弱普通read API。Object full前后保存完整store/namespace/Ready manifest核对，walk只借私有held view保持FD/SH/lock/allocation/owner和完整member no-follow/SHA；局部layout pin阶段收束同一held批次早期扫描，所有内容在组末完整校验后才能交出可用lease，独立包获取保持full，不跨query释放→project锁重获边界。先实际只读env失败及确定性计数/篡改RED，再实现与相邻GREEN；实际选择只用env只读查询，用户仍手动hook/启动，不代修改实际库/关联。
 
@@ -105,7 +332,7 @@ S4等待定位续接（2026-10-23用户再次授权）：继续每组600秒。�
 
 **本次细化方式：** 恢复原详案的逐文件清单、接口交接、实施顺序、边界和验收合同，仍只有F1–F4四个交付阶段。下文行号为2026-10-18工作树的定位锚点，实施前按函数名重新定位；包含已有未提交/未跟踪实现，不以HEAD替代当前文件。
 
-## 为什么缩减
+### 为什么缩减
 
 本轮必要共享接缝追加：`packages/src/python_resolution/lock_session.rs` 的原解码/同文件比较纯核供已观测锁pin复核；`packages/src/python_environment/model/codec/graph.rs` 复用有界codec保存完整图及来源pin；`runtimes/src/plugins/core/python/native/transport.rs` 的无日志纯路由供公开Simple来源使用；`native/pipeline.rs` 与 `libraries/language/lease.rs` 提取同一真实目标身份。均服务F1–F4现有合同，不增加产品功能。
 
@@ -126,7 +353,7 @@ F2真实联网接缝补充：`runtimes/src/plugins/core/python/native/catalog.rs
 
 新的实施单位是“用户能完成一件事”，而不是“又完成一个内部模块”。四个阶段分别交付选择、安装、包使用、查询与指定删除；不把原详案全部工作藏进几个标题，首版之后的能力仍明确后移。
 
-## 第一版边界
+### 第一版边界
 
 - 先验收用户当前的macOS arm64机器和官方PBS预编译CPython；Linux/PyPy完整矩阵放到后续验证，不声称首版已经覆盖。
 - 用户沿用已有项目配置，不自动编辑声明；项目成功选用的语言/包及依赖关联必须有可复核的持久记录，供F4查询与删除检查。纯查询不登记项目，内部关联维护不增加用户操作步骤。
@@ -136,7 +363,7 @@ F2真实联网接缝补充：`runtimes/src/plugins/core/python/native/catalog.rs
 - F4开放明确指定的语言/包删除：有项目或依赖引用就列出并拒绝，确认无引用才可删除。自动批量prune、强制覆盖、原位修复及自定义postinstall仍后移；旧无许可删写旁路须在副作用前拒绝。
 - 原有其他功能不因此被删除；只说明这一条新共享路径的首版支持范围。Python→Java→Node的长期顺序和既定最终能力仍保留。
 
-## 贯穿F1–F4：完整精确版本与真实关联
+### 贯穿F1–F4：完整精确版本与真实关联
 
 - 用户下载请求及项目直接清单必须写完整精确发行版本。Python例如`3.11.14`；`3.11`、`3`、`3.11.xx`、通配、范围、`latest`/浮动别名均不得自动补全。`xx`只是用户举例的占位，实际填写时须是真实补丁号。
 - 安装命令可读取配置中已明确的完整版本，但参数和配置都没有完整版本就报错；拒绝发生在远端获取/下载及业务写入之前。包按其生态的真实完整发行号表达，不随意补零造版本；查询可列候选，但不会自动把候选变成下载目标。
@@ -144,7 +371,7 @@ F2真实联网接缝补充：`runtimes/src/plugins/core/python/native/catalog.rs
 - F1–F3逐步维护项目→精确语言/包、包→实际依赖及适配→语言的关联。退出目录只撤当前终端选择，不释放项目持久引用；新选择成功后才更新关联，失败、配置损坏或项目暂不可访问不把已有引用当作零。
 - 完整可移植锁与复杂事务矩阵可以后移；实际版本和最低关联记录、其真实写入保护不能后移，否则F4不得开放删除。关联更新与查询职责分开，不让只读查询隐式写库。
 
-## 文件落位、读写权限与执行纪律
+### 文件落位、读写权限与执行纪律
 
 所有路径相对仓库根目录；`{a,b}.rs`表示明确列举的两个文件，不是任意目录授权。每阶段分别列现有修改、新增和默认只复用文件。未列文件若成为真实必要接缝，应先把具体路径、调用理由和影响补入本计划及日志；不借“相关文件”扩大范围，不以机械照旧详案为由创建所有模块。
 
@@ -164,7 +391,7 @@ F2真实联网接缝补充：`runtimes/src/plugins/core/python/native/catalog.rs
 - 新文件须在表内父mod注册。CLI在独立binary crate，公开最小程序入口/请求/报告；库IO/owner保持私有。删除默认是**无**，只有对应旧调用确已替代且用户验收后才局部退役。
 - 本轮按用户授权完成F1–F4，自行编译/测试/格式检查，每组600秒；只清理已确认归属且无用的本轮产物，不动用户库或原输入，不自动提交。首版以外工作仍须新的用户指令。
 
-## F1：进目录就选中库里已有的 Python
+### F1：进目录就选中库里已有的 Python
 
 **状态：** ☑ 测试先行/实际RED；☑ 实现与旁路补漏；☑ 本轮授权的Agent实测验收；☑ Spec/Standards审查。12项核心、目录CLI与命令查找CLI均通过（f-core-final、f1-cli-accepted、f1-cli-command-accepted-20261020.log）。覆盖优先级、完整版本/来源pin、缺项零获取、实际包选择、跨target旧引用退出与命令缺失不隐式安装。历史2026-10-19人工验收保持原日志，不冒充本轮人工确认。
 
@@ -231,7 +458,7 @@ F2真实联网接缝补充：`runtimes/src/plugins/core/python/native/catalog.rs
 
 **阶段边界/退役条件：** 不下载、不处理包布局、不编辑配置/项目锁，不接所有查询或外部进程生命周期。`env`查询不写关联；只有目录选择应用动作写关联。仅退役已被新Python分支替代的旧调用；不整删activate/deactivate/hook_env/toolset。若本分支能触达旧清理/安装，须当场切断，不能借F2后置放行。
 
-## F2 现场回归：ISAT 精确安装准备超时（2026-10-20）
+### F2 现场回归：ISAT 精确安装准备超时（2026-10-20）
 
 用户按教程手动安装 `3.11.17+20261013`，触发 `language preparation timed out`。只读定位：新 `programs/python.rs::capture_install_context` 固定600秒，覆盖原 `settings.http_download_timeout()`；`PythonPlugin` 显式入口强制QuietReport，使原阶段提示不可见。实际用户cache只有精确catalog元数据、无已验证artifact，语言payload为空且无Ready；不能据此伪称已确定具体网络故障。
 
@@ -241,7 +468,7 @@ F2真实联网接缝补充：`runtimes/src/plugins/core/python/native/catalog.rs
 
 现场人工续接前提：D/languages/language-670a04e9cf8e3636a5fd4a9fcfcd15e2d2153f1b1acb7be6e0ebd66e9018244e 及其payload已只读核验为UID501、0700、非symlink，外层只有payload、内层空，Catalog无Ready。旧期限过期使原owner按既定规则保留分配，后续reserve会明确要求recovery。通用恢复仍按计划后移；不给自动覆盖/清单删改旁路。拟交用户在无并发安装时只用rmdir处理这两个已确认空目录（非空自动拒绝），保留稳定锁/注册/清单；任一错误则停下，不能扩大清理范围。
 
-## F1 现场回归：普通 Python 启动改写共享字节码（2026-10-21）
+### F1 现场回归：普通 Python 启动改写共享字节码（2026-10-21）
 
 用户真实安装并启用无包Python后运行普通`python -c`，继而追加PyYAML声明时出现`published language inventory changed`。只读全量核对确认2244项中仅4个发行归档已有pyc被正常启动重新编译（inode/size/SHA改变）；其余2240项一致，原4项bytes与已验证缓存归档吻合。安装内探针带-B，有包wrapper已有PYTHONDONTWRITEBYTECODE=1，唯独无包hook/env只接PATH漏掉同一保护。不能通过忽略pyc、放宽库存或改采现有文件清单解决。
 
@@ -267,7 +494,7 @@ CLI独立binary的必要只读接缝：`cli/src/args/backend_arg.rs::has_explici
 
 预防修复本轮验收：主CLI18.0秒；3条CLI组171.0秒；项目与wrapper空env真实PBS回归84.5秒；同源缓存lib binary的51项完整性/查询/删除保护回归8.3秒（3显式ignored）；格式/shell/diff检查通过。真实普通启动不手写-B，对初始manifest和完整payload库存前后核对并能复用。实际用户3.11对象未恢复。全部组低于600秒，target约6.0GiB，临时根清理，未自动提交。
 
-## F2：用户决定安装缺少的 Python，装好就能选用
+### F2：用户决定安装缺少的 Python，装好就能选用
 
 **状态：** ☑ 测试先行/实际RED；☑ 精确安装、来源/build pin及旧写入口拒绝；☑ 本轮授权的Agent实测验收；☑ Spec/Standards审查。19项核心、原catalog26项、官方完整网络CLI均通过。真实下载Python 3.13.16+20261013、A/B同payload、重装仅一个实例、模糊请求零安装，证据target/f2-cli-socks-accepted-20261020.log（300.9秒）。HTTP代理实测native TLS -9806连接关闭，正式验收采用机器已启用的SOCKS协议；没有修改来源、摘要、版本、期限或加入生产自动重试，失败日志与网络诊断保留。
 
@@ -314,7 +541,7 @@ CLI独立binary的必要只读接缝：`cli/src/args/backend_arg.rs::has_explici
 
 **阶段边界/退役条件：** 不支持的源码安装/包安装/配置编辑明确返回能力诊断，不回退python-build/pip/旧venv；不删除那些仍有其他消费者的整模块。F4前新共享对象所有物理删除拒绝，F4后只有其持有删除许可的入口放行；旧uninstall后补判断不能算完成。
 
-## F3：配置里的一个真实 Python 包能导入
+### F3：配置里的一个真实 Python 包能导入
 
 **状态：** ☑ 测试先行/实际RED；☑ 原生闭包、共享包树/轻量布局、同catalog精确图与提交；☑ 本轮授权的Agent实测验收；☑ Spec/Standards审查。21个不同核心用例均已有GREEN：f3-accepted组20通过，唯一旧fixture任意摘要改为真实fingerprint后于f-core-final组通过。三个真实PBS+wheel CLI均通过（88.1/121.1/120.3秒）；实际公开PyPI idna==3.10安装、中文域名编码及查询通过（f3-live-pypi-20261020.log，64.5秒）。不调用外部pip/uv，不写项目声明或锁，不复制项目runtime。
 
@@ -375,7 +602,7 @@ CLI独立binary的必要只读接缝：`cli/src/args/backend_arg.rs::has_explici
 
 **阶段边界/退役条件：** 不创建`package/builds.rs`或源码构建协调器；sdist/URL/Git/local/editable/Conda、deps add声明编辑、升级、完整可移植锁/冷恢复、多文档事务和完整平台矩阵后移。现有完整pin必须遵守，不支持的锁模式拒绝，不能降级重求解。只有这条真实新链接通并由用户验收后，才删除其重复旧正文；`runtime_snapshot.rs`和旧store尚有消费者时不整删。
 
-## F4：查看库内容及关联，删除明确指定的语言和包
+### F4：查看库内容及关联，删除明确指定的语言和包
 
 最终只读接线补充：`src/core/programs/library.rs` 复用同次 `ObservedProjectInputs` 报告项目根、有效包声明、当前Python与是否存在旧生态声明；`cli/src/commands/{ls,current,project}.rs` 的共享Python分支移除多余旧 `Config::get()`，避免Tracker/monorepo marker写入。非Python原视图仍用原入口；不重写旧配置parser。独立 `tests/e2e/cli/test_f4_python_queries_are_readonly` 验证完整但缺项的Python查询不会初始化三库、写追踪或项目元数据，加入F4清单与原runner。
 
@@ -434,7 +661,7 @@ CLI独立binary的必要只读接缝：`cli/src/args/backend_arg.rs::has_explici
 
 **阶段边界/退役条件：** 不创建uninstall/project_edit.rs、全库prune、强制删除、自动递归依赖回收、项目源码/配置清理或完整恢复矩阵；失败对象必须停止作为Ready暴露，但不扩为全库修复。已完成的历史安装记录不永久保活；仍有实际项目/包依赖或在途恢复保护才阻止。旧CLI删除正文只在对应消费者真正替换且验收通过后退出，不批量删其他生态实现。
 
-## 第一版之后再按使用反馈推进
+### 第一版之后再按使用反馈推进
 
 以下是后移，不是永久删除；恢复相应功能时，同时补它真正需要的保护和测试。
 
@@ -443,12 +670,12 @@ CLI独立binary的必要只读接缝：`cli/src/args/backend_arg.rs::has_explici
 | 自动编辑声明、完整可移植锁/恢复、通用多文件事务及崩溃恢复矩阵 | R09/R14/R15、R17/R22–R24的扩展部分 | 最低精确版本/项目依赖关联和实际写入保护已纳入F1–F4，后移的是其余完整变更能力。 |
 | 批量prune、复杂回收、强制变更及完整中断恢复矩阵 | R21/R25及完整R07的其余部分 | F4已包含受引用保护的指定删除；首版不自动GC、不连带清其他对象。 |
 | 其余查询输出、远端比较、诊断与所有辅助命令接线 | R18/R19/R26/R43的其余部分 | 库内项目/语言/包及关联查询已纳入F4，其他扩展按使用补接，不合并原职责。 |
-| URL/Git/本地源码、源码构建、editable、Conda、语言源码安装 | R27–R34 | 第一版仅承诺指定来源的兼容wheel和预编译Python；不支持的输入明确诊断，不偷偷调用外部管理器。 |
+| URL/Git/本地源码、完整源码构建、editable、Conda、语言源码安装 | R27–R34的剩余范围 | F首版仅承诺指定来源的兼容wheel和预编译Python；后续S阶段已补registry纯Python `.tar.gz` 的PEP517/legacy构建，解除该有限部分后移。编译器源码后端及其他来源/生命周期仍未完成，不偷偷调用外部管理器。 |
 | 多私有源/认证组合与完整跨平台矩阵 | R10及各生态矩阵的扩展部分 | 单一已支持来源仍保留凭证与来源检查，未覆盖组合不伪称支持。 |
 | 全仓旧链退役、工程入口拆分、生成资源与依赖大清理 | R39–R44 | 不为清理而先重构半个仓库；当前消费者确已替换时才做局部退役。旧数据清理另需用户授权范围。 |
 | Java、Node、IDE/外部进程全生命周期 | 原M-PY/M-JAVA、R38/R35、R20 | 先完成可用Python，再按既定生态顺序扩展；首版不是整个Python阶段或产品最终验收。 |
 
-## 缩减测试与防护工作的方法
+### 缩减测试与防护工作的方法
 
 - 已实现的摘要/来源校验、受控解包、锁/租约和发布内核直接复用，不拆掉后再等事故重写。
 - 当前确实会执行的写入不能覆盖用户文件、修改其他项目共享内容，半成品不能报成功；不支持的修改/删除入口直接拒绝，不先实现全套恢复能力。
@@ -457,7 +684,7 @@ CLI独立binary的必要只读接缝：`cli/src/args/backend_arg.rs::has_explici
 - 本轮编译、测试与格式检查由Agent按600秒上限自行执行并保存真实日志；0 tests、全ignored或仅编译成功不算功能交付。
 - 保持同一构建配置，继续采用已有关闭增量缓存/调试信息的手动方案，不无故生成多套产物；不自动清理用户数据或提交Git。
 
-## 各阶段的验收与复跑入口
+### 各阶段的验收与复跑入口
 
 同一 `tests/scripts/f-manual-check.sh` 已支持F1–F4、`--list`、`--format-only`与第二参数`--lib-only`，四份用例清单及8条CLI脚本均已注册，实际`--list`通过。F4另运行pakro-store初始化资格用例，不混算pakro测试数。复用原cargo/`tests/e2e/run_test`，没有新测试框架。Agent执行时另加600秒进程组上限及独立ASCII TMPDIR；用户仍可用下表入口复跑，不要求用户代替本轮测试。
 
@@ -476,7 +703,7 @@ CLI独立binary的必要只读接缝：`cli/src/args/backend_arg.rs::has_explici
 
 复跑时使用带`cd '/Users/fuxinao/文件/project/pakro'`、真实输入前提的完整可复制命令，并依据当时已实现接口核实清单；当前入口已实际运行和核对。
 
-## 已完成基础与证据
+### 已完成基础与证据
 
 | 已完成 | 可复用成果 |
 | --- | --- |

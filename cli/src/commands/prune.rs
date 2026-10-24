@@ -65,11 +65,30 @@ pub(crate) struct Prune {
 }
 
 impl Prune {
+    pub(super) async fn preflight(&self) -> Result<()> {
+        if self.configs && !self.tools {
+            return Ok(());
+        }
+        let config = super::read_config_for_admission().await?;
+        let tools = self
+            .installed_tool
+            .as_ref()
+            .map(|tools| {
+                tools
+                    .iter()
+                    .map(|tool| tool.ba.as_ref())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        reject_python_prune(&config, &tools).await
+    }
+
     pub(super) fn is_dry_run(&self) -> bool {
         self.dry_run || self.dry_run_code
     }
 
     pub(crate) async fn run(self) -> Result<()> {
+        self.preflight().await?;
         if self.monorepo {
             unimplemented!("pakro prune --monorepo is not implemented yet");
         }
@@ -130,6 +149,7 @@ pub(super) async fn prune(
     tools: Vec<&BackendArg>,
     dry_run: bool,
 ) -> Result<()> {
+    reject_python_prune(config, &tools).await?;
     let to_delete = prunable_tools(config, tools).await?;
     delete(
         config,
@@ -139,6 +159,27 @@ pub(super) async fn prune(
         UnavailableConfirmation::Decline,
     )
     .await
+}
+
+async fn reject_python_prune(config: &Arc<Config>, tools: &[&BackendArg]) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use crate::programs::python::{PythonWriteOperation, reject_python_write};
+        if tools.is_empty() {
+            // An unrestricted prune includes both the configured targets and
+            // installed legacy tools. Shared Python bulk reclamation is P4.
+            let configured = crate::toolset::ToolsetBuilder::new().build_unresolved(config)?;
+            for backend in configured.versions.keys() {
+                reject_python_write(PythonWriteOperation::Prune, backend)?;
+            }
+            crate::programs::python::preflight_legacy_python_inventory()?;
+        } else {
+            for backend in tools {
+                reject_python_write(PythonWriteOperation::Prune, backend)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// How a caller wants to handle a confirmation prompt that nobody can answer.

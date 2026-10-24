@@ -13,6 +13,20 @@ pub(crate) fn observed_runtime_pin(
     use eyre::{ContextCompat, ensure};
     observed.recheck()?;
     let platform = crate::backend::platform_target::PlatformTarget::from_current().to_key();
+    let active_names = observed
+        .declarations()
+        .find_map(|(_, declarations)| {
+            let names: Vec<_> = declarations
+                .tools
+                .iter()
+                .filter(|tool| {
+                    crate::programs::query::snapshot::python_tool_name(observed, &tool.name)
+                })
+                .map(|tool| tool.name.as_str())
+                .collect();
+            (!names.is_empty()).then_some(names)
+        })
+        .unwrap_or_default();
     let mut selected: Option<PlatformInfo> = None;
     for path in observed
         .paths()
@@ -25,9 +39,15 @@ pub(crate) fn observed_runtime_pin(
         // language acquisition can become a side effect of package intent.
         crate::packages::python_resolution::lock_session::decode_root(bytes, Default::default())?;
         let lockfile = Lockfile::parse_observed(bytes)?;
-        let Some(entries) = lockfile.tools().get("python") else {
-            continue;
-        };
+        let entries = lockfile
+            .tools()
+            .iter()
+            .filter(|(name, _)| {
+                (name.as_str() == "python" || active_names.contains(&name.as_str()))
+                    && crate::programs::query::snapshot::python_tool_name(observed, name)
+            })
+            .flat_map(|(_, entries)| entries)
+            .collect::<Vec<_>>();
         ensure!(
             entries.len() <= 4096,
             "observed Python runtime pin limit exceeded"

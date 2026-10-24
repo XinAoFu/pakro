@@ -29,7 +29,8 @@ impl HookNotFound {
         let mut ts = ToolsetBuilder::new().build_unresolved(&config)?;
         #[cfg(unix)]
         {
-            ts.versions.retain(|backend, _| backend.short != "python");
+            ts.versions
+                .retain(|backend, _| !crate::programs::python::is_python_backend(backend));
             match crate::shims::select_shared_python_command(&ts, &self.bin) {
                 Ok(Some(_)) => return Ok(()),
                 Ok(None) => {}
@@ -39,6 +40,9 @@ impl HookNotFound {
                 }
             }
         }
+        // A shared Python command has already succeeded or failed above;
+        // the remaining branch belongs to the non-Python provider path.
+        crate::config::set_readonly_invocation(false);
         if settings.not_found_auto_install {
             ts.resolve(&config).await?;
             if ts

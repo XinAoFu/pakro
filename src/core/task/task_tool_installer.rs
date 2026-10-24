@@ -83,7 +83,23 @@ impl<'a> TaskToolInstaller<'a> {
         trace!("Collecting tools from {} tasks", tasks.len());
 
         for task in tasks {
-            requests.extend(task.tool_args()?.into_iter().filter_map(|tool| tool.tvr));
+            if crate::config::readonly_invocation() {
+                eyre::ensure!(
+                    !task.file.as_ref().is_some_and(|file| {
+                        let source = file.to_string_lossy();
+                        crate::task::task_fetcher::TaskFetcher::is_remote_source(&source)
+                            || source.starts_with("oci::")
+                            || crate::tera::contains_template_syntax(&source)
+                    }),
+                    "remote task metadata is unavailable during read-only installation admission"
+                );
+                for tool in task.tool_args()? {
+                    requests.push(tool.tvr.ok_or_else(|| eyre::eyre!(
+                        "task {} has an undetermined tool version during installation admission", task.name))?);
+                }
+            } else {
+                requests.extend(task.tool_args()?.into_iter().filter_map(|tool| tool.tvr));
+            }
 
             // Task execution combines task-level tools with the config hierarchy
             // that owns the task. Keep pre-installation consistent with that
@@ -154,6 +170,9 @@ impl<'a> TaskToolInstaller<'a> {
                         trs
                     }
                     Err(e) => {
+                        if crate::config::readonly_invocation() {
+                            return Err(e);
+                        }
                         warn!(
                             "Failed to parse tools from {} for task {}: {}",
                             source.display(),

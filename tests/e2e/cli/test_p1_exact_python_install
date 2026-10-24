@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# A genuinely cold CLI install: no ignored test or fixture helper publishes
+# the runtime. Only fixed release metadata and verified archive bytes are served.
+[[ $(uname -s) == Darwin && $(uname -m) == arm64 ]] || fail 'this verified PBS fixture requires macOS arm64'
+[[ -n ${PAKRO_TEST_PYTHON_ARCHIVE:-} ]] || fail 'set PAKRO_TEST_PYTHON_ARCHIVE to the verified original Python 3.13.16 stripped archive'
+python3 "$TEST_DIR/p1_exact_python_fixture.py" "$PAKRO_TEST_PYTHON_ARCHIVE"
+unset GITHUB_TOKEN PAKRO_GITHUB_TOKEN
+export PAKRO_OFFLINE=0 PAKRO_AUTO_UPDATE=0 PAKRO_CACHE_PRUNE_AGE=0 PAKRO_REGISTRY_FLOATING=0
+export PAKRO_PYTHON_GITHUB_ATTESTATIONS=0 PAKRO_PYTHON_COMPILE=0
+export NO_PROXY=127.0.0.1,localhost,::1
+export no_proxy="$NO_PROXY"
+p1_requests="$TMPDIR/p1-exact-install-requests"
+mkdir -p "$p1_requests"
+start_http_server --headers-log "$p1_requests" --handler "$TEST_DIR/p1_exact_python_fixture.py" "$PAKRO_TEST_PYTHON_ARCHIVE"
+export PAKRO_URL_REPLACEMENTS="{\"https://api.github.com\":\"http://127.0.0.1:$HTTP_PORT\",\"https://github.com\":\"http://127.0.0.1:$HTTP_PORT\"}"
+mkdir p1-exact-install
+cd p1-exact-install
+cat >pakro.toml <<'TOML'
+[tools]
+python = "3.13.16+20261013"
+[settings.python]
+precompiled_flavor = "install_only_stripped"
+github_attestations = false
+compile = false
+TOML
+printf 'lockfile_version = 3\n' >pakro.lock
+p1_config_before="$(cksum pakro.toml)"
+p1_lock_before="$(cksum pakro.lock)"
+for library in languages packages projects; do
+  [[ ! -e "$PAKRO_DATA_DIR/$library" ]] || fail "cold fixture unexpectedly already has $library"
+done
+[[ ! -e "$PAKRO_CACHE_DIR/python/native-v1" ]] || fail 'cold fixture already has native acquisition cache'
+assert_succeed 'pakro install python 3.13.16+20261013'
+[[ $(cksum pakro.toml) == "$p1_config_before" && $(cksum pakro.lock) == "$p1_lock_before" ]] || fail 'explicit install changed the project declaration or lock'
+[[ ! -e "$PAKRO_DATA_DIR/installs/python" ]] || fail 'explicit install used the legacy Python directory'
+
+python3 - "$p1_requests" "$PAKRO_DATA_DIR" <<'PY'
+import json
+import sys
+from pathlib import Path
+from urllib.parse import unquote, urlsplit
+request_root, data = map(Path, sys.argv[1:])
+requests = [json.loads(path.read_text()) for path in sorted(request_root.glob('request_*.json'))]
+paths = [unquote(urlsplit(request['path']).path) for request in requests]
+base = '/astral-sh/python-build-standalone/releases/download/20261013/'
+filename = 'cpython-3.13.16+20261013-aarch64-apple-darwin-install_only_stripped.tar.gz'
+expected = {'/repositories/162334160/releases/tags/20261013', base+'SHA256SUMS', base+filename}
+assert set(paths) == expected, paths
+for wanted in expected:
+    assert sum(request['method']=='GET' and path==wanted for request,path in zip(requests,paths)) == 1, requests
+instances = [path for path in (data/'languages').glob('language-*') if path.is_dir()]
+manifests = list((data/'languages/.control/catalog').glob('language-*.json'))
+assert len(instances) == len(manifests) == 1, (instances, manifests)
+manifest = json.loads(manifests[0].read_text())
+assert manifest['filename'] == filename
+assert manifest['artifact'] == 'sha256-16a5332fb0dcb77f163fc8f8cbccd95be1644cc53e68e5d2a79f50afd6680a0e'
+assert unquote(manifest['source']) == 'https://github.com'+base+filename
+assert (instances[0]/'payload'/manifest['entrypoint']).is_file()
+print('P1 cold exact CLI used tag, SHA256SUMS, and original archive; one canonical Ready instance')
+PY
+p1_request_count="$(find "$p1_requests" -type f -name 'request_*.json' | wc -l | tr -d ' ')"
+export P1_COLD_ROOT="$(pakro where python@3.13.16+20261013)"
+export P1_COLD_PYTHON="$(pakro which python --tool=python@3.13.16+20261013)"
+assert "PYTHONDONTWRITEBYTECODE=1 \"$P1_COLD_PYTHON\" --version" 'Python 3.13.16'
+PYTHONDONTWRITEBYTECODE=1 "$P1_COLD_PYTHON" - <<'PY'
+import os
+import sys
+from pathlib import Path
+assert sys.version_info[:3] == (3,13,16)
+assert Path(sys.executable).resolve() == Path(os.environ['P1_COLD_PYTHON']).resolve()
+assert Path(sys.executable).resolve().is_relative_to(Path(os.environ['P1_COLD_ROOT']).resolve())
+assert Path(sys.prefix).resolve() == Path(os.environ['P1_COLD_ROOT']).resolve()
+print('P1 original interpreter version, executable and shared prefix verified')
+PY
+p1_manifest="$(find "$PAKRO_DATA_DIR/languages/.control/catalog" -name 'language-*.json' -type f)"
+p1_manifest_before="$(cksum "$p1_manifest")"
+# The second spelling reaches the same production facade, preserving its exact
+# source and existing instance without consulting the server again.
+assert_succeed 'pakro install python@3.13.16+20261013'
+[[ $(find "$p1_requests" -type f -name 'request_*.json' | wc -l | tr -d ' ') == "$p1_request_count" ]] || fail 'repeat exact install acquired additional source inputs'
+[[ $(find "$PAKRO_DATA_DIR/languages" -mindepth 1 -maxdepth 1 -type d -name 'language-*' | wc -l | tr -d ' ') == 1 ]] || fail 'repeat exact install created a second runtime instance'
+[[ $(cksum "$p1_manifest") == "$p1_manifest_before" ]] || fail 'repeat exact install changed the language manifest'
+[[ $(cksum pakro.toml) == "$p1_config_before" && $(cksum pakro.lock) == "$p1_lock_before" ]] || fail 'repeat exact install changed declarations or lock'
+[[ ! -e "$PAKRO_DATA_DIR/packages" ]] || fail 'language-only install initialized the package library'
+printf 'P1_EXACT_PYTHON_COLD_AND_REUSE_PASSED\n'

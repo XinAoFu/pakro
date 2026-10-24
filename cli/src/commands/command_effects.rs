@@ -14,15 +14,11 @@
 //! - `destructive` — removes something the user installed or configured, where
 //!   getting it back means redoing work. Deserves a confirmation prompt.
 //!
-//! **Installing a declared tool version is not an effect.** Almost anything
-//! that resolves a toolset — `env`, `activate`, `exec`, `hook-env` — may
-//! install a version the config already asks for. That is pakro doing its job:
-//! it is idempotent, pakro recreates it on demand, and it changes nothing the
-//! user authored. Counting it would make nearly every command `write` and
-//! leave the field with no signal at all. What counts is a change to something
-//! the user manages — their config, their files, their installed toolset as a
-//! deliberate act. `install` and `use` are `write` because installing is the
-//! point, not a precondition.
+//! Installing a declared version is a write, including implicit acquisition.
+//! Shared Python local queries prohibit that write in startup and handlers.
+//! `hook-env` can commit an association to existing verified content, so it is
+//! a write even though it cannot acquire missing Python content. Legacy
+//! non-Python environment/shell commands may install requested tools too.
 //!
 //! The same reasoning covers the cache: `cache clear` is `write` rather than
 //! `destructive` because pakro refills it without the user doing anything.
@@ -182,8 +178,7 @@ pub(super) const EFFECTS: &[(&str, SpecCommandEffect)] = &[
     ("direnv", Read),
     ("direnv activate", Read),
     // Writing the file *is* the command — `File::create` under PAKRO_TMP_DIR.
-    // The temp location does not make it a read: unlike `env`, where an
-    // install is incidental to printing, producing a file is the whole job.
+    // The temp location does not make it a read.
     ("direnv envrc", Write),
     ("doctor", Read),
     ("doctor path", Read),
@@ -214,7 +209,7 @@ pub(super) const EFFECTS: &[(&str, SpecCommandEffect)] = &[
     ("dotfiles undo", Destructive),
     ("dotfiles untrack", Write),
     ("dotfiles watch", Write),
-    ("env", Read),
+    ("env", Write),
     ("fmt", Write),
     ("generate", Read),
     // Deprecated spelling of `generate install-script`.
@@ -232,7 +227,7 @@ pub(super) const EFFECTS: &[(&str, SpecCommandEffect)] = &[
     ("github token", Read),
     // Writes the global config after setting the version.
     ("global", Write),
-    ("hook-env", Read),
+    ("hook-env", Write),
     // Unlike `env` or `activate`, this installs a tool that no config asked
     // for: with not_found_auto_install set it resolves an unknown command name
     // against the registry and installs it. That is a new tool on disk from a
@@ -293,9 +288,8 @@ pub(super) const EFFECTS: &[(&str, SpecCommandEffect)] = &[
     ("settings ls", Read),
     ("settings set", Write),
     ("settings unset", Write),
-    // Emits shell code; the session change is ephemeral, and installing the
-    // requested version is the same incidental install as `env` or `activate`.
-    ("shell", Read),
+    // Emits shell code and may install requested legacy tools.
+    ("shell", Write),
     ("shell-alias", Read),
     ("shell-alias get", Read),
     ("shell-alias ls", Read),

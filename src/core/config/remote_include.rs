@@ -45,6 +45,10 @@ pub(crate) async fn apply(cf: Arc<dyn ConfigFile>) -> Result<Arc<dyn ConfigFile>
     if references.is_empty() {
         return Ok(cf);
     }
+    eyre::ensure!(
+        !crate::config::readonly_invocation(),
+        "remote configuration includes are unavailable during read-only target admission or local queries"
+    );
     let mut fragments = Vec::with_capacity(references.len());
     for reference in references {
         let fragment = load(cf.get_path(), &reference)

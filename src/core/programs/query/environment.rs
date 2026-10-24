@@ -1,0 +1,250 @@
+//! Language and environment facts from one observation and deadline. This
+//! module only describes existing objects; all guards end before application.
+use super::{
+    paths::selection_paths,
+    snapshot::{
+        LanguageCandidate, SelectionReport, open_query_context, select_target,
+        validate_layout_graph,
+    },
+};
+use crate::libraries::project::{
+    identity::ProjectIdentity, package_graph::CommittedGraph, repository::ProjectRepository,
+    snapshot::ObservedProjectInputs,
+};
+use crate::programs::{
+    OperationContext,
+    directory::{DirectoryPython, PythonQueryReport, PythonQueryRequest, PythonQueryScope},
+};
+use eyre::{ContextCompat, Result, ensure};
+
+#[derive(Debug)]
+pub(crate) struct ObservedSelection {
+    pub(crate) report: PythonQueryReport,
+    pub(crate) candidate: Option<LanguageCandidate>,
+    pub(crate) graph: Option<CommittedGraph>,
+    pub(crate) already_applied: bool,
+}
+impl ObservedSelection {
+    fn report(report: PythonQueryReport) -> Self {
+        Self {
+            report,
+            candidate: None,
+            graph: None,
+            already_applied: false,
+        }
+    }
+}
+
+pub(crate) fn query_observed(
+    context: &OperationContext,
+    observed: &ObservedProjectInputs,
+    request: &PythonQueryRequest,
+) -> Result<ObservedSelection> {
+    let result = query_observed_inner(context, observed, request)?;
+    context.checkpoint()?;
+    observed.recheck()?;
+    Ok(result)
+}
+
+fn query_observed_inner(
+    context: &OperationContext,
+    observed: &ObservedProjectInputs,
+    request: &PythonQueryRequest,
+) -> Result<ObservedSelection> {
+    let query = open_query_context(context, observed)?;
+    let candidate = match select_target(&query, request.target.as_deref())? {
+        SelectionReport::Selected(candidate) => candidate,
+        SelectionReport::NoLanguageRequest => {
+            return Ok(ObservedSelection::report(PythonQueryReport::NoDeclaration));
+        }
+        SelectionReport::InvalidDeclaration { requested } => {
+            return Ok(ObservedSelection::report(
+                PythonQueryReport::InvalidDeclaration { requested },
+            ));
+        }
+        SelectionReport::Missing { requested } => {
+            return Ok(ObservedSelection::report(
+                PythonQueryReport::MissingLanguage { requested },
+            ));
+        }
+        SelectionReport::Ambiguous {
+            requested,
+            candidates,
+        } => {
+            return Ok(ObservedSelection::report(PythonQueryReport::Ambiguous {
+                requested,
+                candidates: candidates
+                    .iter()
+                    .map(|candidate| candidate.key().filename())
+                    .collect(),
+            }));
+        }
+        SelectionReport::Corrupt { detail } => {
+            return Ok(ObservedSelection::report(PythonQueryReport::Corrupt {
+                detail,
+            }));
+        }
+    };
+    let languages =
+        crate::libraries::language::repository::LanguageRepository::open_readonly(context)?;
+    let language = languages
+        .acquire_by_key(candidate.key())?
+        .context("selected Python is no longer Ready")?;
+    language.check_binding()?;
+    let paths = selection_paths(&candidate);
+    let mut selected = DirectoryPython {
+        root: paths.root().to_owned(),
+        instance: candidate.key().filename(),
+        bin_dir: paths.bin_dir().to_owned(),
+        bin_dirs: vec![paths.bin_dir().to_owned()],
+        executable: paths.executable().to_owned(),
+        version: candidate.version().to_owned(),
+    };
+    if request.scope == PythonQueryScope::Language {
+        observed.recheck()?;
+        context.checkpoint()?;
+        return Ok(ObservedSelection {
+            report: PythonQueryReport::Ready(selected),
+            candidate: Some(candidate),
+            graph: None,
+            already_applied: false,
+        });
+    }
+    if let Err(error) = crate::programs::python::check_requires_python(observed, &language) {
+        if request.target.is_some() {
+            return Ok(ObservedSelection {
+                report: PythonQueryReport::IncompatibleTarget {
+                    requested: candidate.exact_version().to_owned(),
+                    detail: format!("{error:#}"),
+                },
+                candidate: Some(candidate),
+                graph: None,
+                already_applied: false,
+            });
+        }
+        return Err(error);
+    }
+    let roots =
+        match crate::programs::python::project_roots(observed, candidate.exact_version(), &[]) {
+            Ok(roots) => roots,
+            Err(error) if request.target.is_some() => {
+                return Ok(ObservedSelection {
+                    report: PythonQueryReport::IncompatibleTarget {
+                        requested: candidate.exact_version().to_owned(),
+                        detail: format!("{error:#}"),
+                    },
+                    candidate: Some(candidate),
+                    graph: None,
+                    already_applied: false,
+                });
+            }
+            Err(error) => return Err(error),
+        };
+    let mut repository = ProjectRepository::open_readonly(context)?;
+    let identity = ProjectIdentity::from_observation(observed)?;
+    let declaration = crate::programs::shared::commit::declaration_digest(observed);
+    let mut chosen_graph = None;
+    if !roots.is_empty() {
+        let sources = context.python_sources()?;
+        ensure!(
+            sources.registries.len() == 1,
+            "shared package selection requires one fixed registry source"
+        );
+        let allowed: Vec<_> = sources.registries.iter().map(|registry| (
+            registry.id().as_str(), crate::packages::python_resolution::lock_model::canonical_registry_base_fingerprint(registry.canonical_base())
+        )).collect();
+        let requested: Vec<_> = roots
+            .iter()
+            .map(|(name, version)| (name.as_str(), version.as_str()))
+            .collect();
+        let graphs = repository
+            .read_views()
+            .matching_package_graphs(candidate.key().fingerprint(), &requested)?;
+        let mut ready = Vec::new();
+        for graph in graphs {
+            context.checkpoint()?;
+            if let Err(error) = graph.validate_observed_pins(observed, &allowed) {
+                if error
+                    .downcast_ref::<crate::libraries::project::package_graph::GraphPinMismatch>()
+                    .is_some()
+                {
+                    continue;
+                }
+                return Err(error);
+            }
+            let Some(layout) =
+                crate::libraries::package::lease::acquire_layout(context, *graph.layout())?
+            else {
+                continue;
+            };
+            validate_layout_graph(&graph, &layout)?;
+            crate::programs::python::check_requires_python(observed, layout.language_lease())?;
+            ready.push((graph, layout.bin(), layout.bin().join("python")));
+            drop(layout);
+        }
+        if ready.is_empty() {
+            return Ok(ObservedSelection {
+                report: PythonQueryReport::MissingPackages {
+                    requested: candidate.exact_version().to_owned(),
+                    packages: roots
+                        .iter()
+                        .map(|(name, version)| format!("{name}=={version}"))
+                        .collect(),
+                },
+                candidate: Some(candidate),
+                graph: None,
+                already_applied: false,
+            });
+        }
+        if ready.len() > 1 {
+            return Ok(ObservedSelection {
+                report: PythonQueryReport::Ambiguous {
+                    requested: candidate.exact_version().to_owned(),
+                    candidates: ready
+                        .iter()
+                        .map(|(graph, _, _)| format!("layout-{}", hex::encode(graph.layout())))
+                        .collect(),
+                },
+                candidate: Some(candidate),
+                graph: None,
+                already_applied: false,
+            });
+        }
+        let (graph, bin, executable) = ready.pop().expect("one Ready graph");
+        selected.bin_dirs = vec![bin.clone()];
+        selected.bin_dir = bin;
+        selected.executable = executable;
+        chosen_graph = Some(graph);
+    }
+    observed.recheck()?;
+    context.checkpoint()?;
+    repository.reload()?;
+    let same_observation = repository
+        .model()
+        .project_registration(identity.as_uuid())
+        .is_some_and(|registered| registered.declaration() == declaration);
+    let current = repository.read_views().language_selection(&identity);
+    let current_graph = repository.read_views().package_graph(&identity)?;
+    let already_applied = same_observation
+        && current.as_ref().is_some_and(|selection| {
+            selection.language() == &candidate.key().fingerprint()
+                && match &chosen_graph {
+                    Some(graph) => current_graph
+                        .as_ref()
+                        .is_some_and(|current| current.layout() == graph.layout()),
+                    None => {
+                        selection.generation_allocation().is_none()
+                            && selection.package_references().is_empty()
+                    }
+                }
+        });
+    // Description only. No object SH guard crosses the project-lock boundary.
+    drop(language);
+    drop(repository);
+    Ok(ObservedSelection {
+        report: PythonQueryReport::Ready(selected),
+        candidate: Some(candidate),
+        graph: chosen_graph,
+        already_applied,
+    })
+}

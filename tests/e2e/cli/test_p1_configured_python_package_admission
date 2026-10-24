@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# Configured package groups belong to the actual trailing package-install plan,
+# even when every explicit tool is non-Python. Reject the entire legacy batch.
+export PAKRO_AUTO_UPDATE=1 PAKRO_AUTO_UPDATE_CHECK_DURATION=0s PAKRO_OFFLINE=0
+export PAKRO_CACHE_PRUNE_AGE=1ns PAKRO_UPGRADE_AUTO_PRUNE=1
+export NO_PROXY=127.0.0.1,localhost,::1
+export no_proxy="$NO_PROXY"
+p1_requests="$TMPDIR/p1-configured-package-requests"
+mkdir -p "$p1_requests"
+start_http_server --headers-log "$p1_requests"
+export PAKRO_URL_REPLACEMENTS="{\"https://pypi.org\":\"http://127.0.0.1:$HTTP_PORT\",\"https://files.pythonhosted.org\":\"http://127.0.0.1:$HTTP_PORT\",\"https://github.com\":\"http://127.0.0.1:$HTTP_PORT\",\"https://api.github.com\":\"http://127.0.0.1:$HTTP_PORT\",\"https://mise-versions.jdx.dev\":\"http://127.0.0.1:$HTTP_PORT\",\"https://mise.jdx.dev\":\"http://127.0.0.1:$HTTP_PORT\"}"
+mkdir p1-configured-packages
+cd p1-configured-packages
+p1_project="$PWD"
+cat >pakro.toml <<'TOML'
+[tools]
+python = "3.13.99"
+[packages."python@3.13.99"]
+p1-native-bare-package = "1.0"
+TOML
+printf 'old cache must survive rejection\n' >"$PAKRO_CACHE_DIR/p1-configured-package-sentinel"
+touch -t 200001010000 "$PAKRO_CACHE_DIR/p1-configured-package-sentinel"
+cat >"$PAKRO_STATE_DIR/tool-purgatory.json" <<JSON
+{"schema_version":1,"entries":{"p1-due":{"install_path":"$PAKRO_DATA_DIR/installs/dummy/0","display":"dummy@0","remove_after":0}}}
+JSON
+p1_snapshot() {
+  find "$PAKRO_DATA_DIR" "$PAKRO_STATE_DIR" "$PAKRO_CACHE_DIR" "$PAKRO_CONFIG_DIR" "$p1_project" \
+    -type f -exec cksum {} \; | LC_ALL=C sort
+  find "$PAKRO_DATA_DIR" "$PAKRO_STATE_DIR" "$PAKRO_CACHE_DIR" "$PAKRO_CONFIG_DIR" "$p1_project" \
+    -print | LC_ALL=C sort
+}
+p1_reject() {
+  local before after output
+  before="$(p1_snapshot)"
+  if output="$(pakro "$@" 2>&1)"; then fail "unsupported package batch succeeded: $*"; fi
+  [[ $output == *Python* ]] || fail "wrong package admission diagnosis for '$*': $output"
+  after="$(p1_snapshot)"
+  if [[ $before != "$after" ]]; then
+    diff -u <(printf '%s\n' "$before") <(printf '%s\n' "$after") >&2 || true
+    fail "package admission changed state before refusing '$*': $output"
+  fi
+  [[ -z $(find "$p1_requests" -type f -print -quit) ]] || fail "package admission fetched for '$*'"
+}
+p1_reject install dummy@2.0.0
+p1_reject use dummy@3.0.0
+p1_reject use --remove dummy
+p1_reject use --global dummy@4.0.0
+p1_reject install dummy@2.0.0 python@3.13.99
+p1_reject install python@3.13.99 python@3.13.98
+p1_reject install python@3.13.99 p1-native-bare-package@1.0
+p1_reject use 'python@3.13.99+p1-native-bare-package@1.0'
+[[ ! -e "$PAKRO_DATA_DIR/installs/dummy" ]] || fail 'a rejected batch installed dummy first'
+
+# Neither a profile target nor an explicit file outside cwd discovery may add
+# a Python group only after use has already installed or saved a tool.
+printf '[tools]\npython = "3.13.99"\n' >pakro.toml
+mkdir outside
+cat >outside/pakro.toml <<'TOML'
+[tools]
+python = "3.13.99"
+[packages."python@3.13.99"]
+p1-native-bare-package = "1.0"
+TOML
+p1_reject use --path "$PWD/outside/pakro.toml" dummy@2.0.0
+cp outside/pakro.toml pakro.p1-review.toml
+p1_reject use --env p1-review dummy@2.0.0
+cp outside/pakro.toml "$PAKRO_CONFIG_DIR/config.toml"
+p1_reject use --global dummy@2.0.0
+rm "$PAKRO_CONFIG_DIR/config.toml" pakro.p1-review.toml
+
+# Existing supported F/S argument shapes remain accepted. Dry-run validates
+# their real bound/bare inputs without obtaining a missing runtime.
+export PAKRO_AUTO_UPDATE=0 PAKRO_CACHE_PRUNE_AGE=0 PAKRO_UPGRADE_AUTO_PRUNE=0
+cp outside/pakro.toml pakro.toml
+assert_contains 'pakro install python@3.13.99 --dry-run' 'Would install Python 3.13.99'
+assert_contains "pakro install 'python@3.13.99+p1-native-bare-package@1.0' --dry-run" 'Would install Python 3.13.99'
+assert_contains 'pakro install p1-native-bare-package@1.0 --dry-run' 'Would install the declared Python 3.13.99'
+# A dry-run never reaches the trailing package installer, so independent
+# non-Python use remains a valid preview even while package groups exist.
+p1_declaration_before="$(cksum pakro.toml)"
+assert_succeed 'pakro use --dry-run dummy@1.0.0'
+[[ $(cksum pakro.toml) == "$p1_declaration_before" ]] || fail 'dry-run changed declarations'
+[[ ! -e "$PAKRO_DATA_DIR/installs/dummy" ]] || fail 'dry-run installed a tool'
+
+# The positional exact spelling remains a standalone install request, even
+# with no current project declaration.
+mkdir "$TMPDIR/p1-no-project"
+(
+  cd "$TMPDIR/p1-no-project"
+  assert_contains 'pakro install python 3.13.99 --dry-run' 'Would install Python 3.13.99'
+)
+
+# With no Python package work attached, actual independent non-Python install
+# and use keep their capability, without resolving/installing the missing Python.
+printf '[tools]\npython = "3.13.99"\n' >pakro.toml
+assert_succeed 'pakro install dummy@1.0.0'
+assert_succeed 'pakro use dummy@1.1.0'
+assert_contains 'cat pakro.toml' 'python = "3.13.99"'
+[[ -x "$PAKRO_DATA_DIR/installs/dummy/1.0.0/bin/dummy" && -x "$PAKRO_DATA_DIR/installs/dummy/1.1.0/bin/dummy" ]] || fail 'independent dummy tools were not installed'
+for library in languages packages projects; do
+  [[ ! -e "$PAKRO_DATA_DIR/$library" ]] || fail "independent non-Python operation initialized $library"
+done
+[[ ! -e "$PAKRO_DATA_DIR/installs/python" ]] || fail 'independent operation installed legacy Python'

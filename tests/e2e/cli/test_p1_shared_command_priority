@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Real Python package and installed non-Python tool expose the same command.
+# Default lookup must agree with the shared-first environment, while explicit
+# --tool remains a directed lookup and a missing Python keeps companions usable.
+source "$TEST_ROOT/packages/f3_shared_wheel_helpers.sh"
+p1_priority_test_dir="$TEST_DIR"
+TEST_DIR="$TEST_ROOT/packages"
+f3_setup
+TEST_DIR="$p1_priority_test_dir"
+pakro install dummy@1.0.0
+p1_dummy_bin="$PAKRO_DATA_DIR/installs/dummy/1.0.0/bin"
+cat >"$p1_dummy_bin/z-root-cli" <<'COMMAND'
+#!/bin/sh
+printf 'non-python collision\n'
+COMMAND
+chmod +x "$p1_dummy_bin/z-root-cli"
+f3_declare ready z-root
+(cd ready && pakro install)
+cat >ready/pakro.toml <<'TOML'
+[tools]
+python = "3.13.16"
+dummy = "1.0.0"
+[packages."python@3.13.16"]
+z-root = "1.0"
+TOML
+cd ready
+p1_shared_bin="$(pakro bin-paths python)"
+p1_shared_command="$p1_shared_bin/z-root-cli"
+p1_priority_requests="$(f3_request_count)"
+p1_priority_catalog="$(cksum "$PAKRO_DATA_DIR/projects/.control/catalog/projects")"
+p1_priority_snapshot() {
+  find "$PAKRO_DATA_DIR" "$PAKRO_CACHE_DIR" "$PAKRO_STATE_DIR" "$PAKRO_CONFIG_DIR" "$PWD" \
+    -type f -exec cksum {} \; | LC_ALL=C sort
+  find "$PAKRO_DATA_DIR" "$PAKRO_CACHE_DIR" "$PAKRO_STATE_DIR" "$PAKRO_CONFIG_DIR" "$PWD" \
+    -print | LC_ALL=C sort
+}
+p1_priority_before="$(p1_priority_snapshot)"
+pakro env --json >"$TMPDIR/p1-priority-env.json"
+p1_environment_path="$(jq -r '.PATH' "$TMPDIR/p1-priority-env.json")"
+p1_environment_command="$(PATH="$p1_environment_path" /bin/sh -c 'command -v z-root-cli')"
+[[ "$p1_environment_command" == "$p1_shared_command" ]] || fail 'fixture environment does not prefer the Python package command'
+assert 'pakro which z-root-cli' "$p1_environment_command"
+assert 'pakro which z-root-cli --plugin' 'python'
+assert 'pakro which z-root-cli --version' '3.13.16'
+assert 'pakro which z-root-cli --tool=python@3.13.16' "$p1_shared_command"
+assert 'pakro which dummy-exec-tiny' "$p1_dummy_bin/dummy-exec-tiny"
+[[ "$(p1_priority_snapshot)" == "$p1_priority_before" ]] || fail 'default priority query changed persisted state'
+[[ "$(cksum "$PAKRO_DATA_DIR/projects/.control/catalog/projects")" == "$p1_priority_catalog" ]] || fail 'which registered or changed the project'
+[[ $(f3_request_count) == "$p1_priority_requests" ]] || fail 'priority query fetched source inputs'
+# Directed lookup is intentional even though the default environment prefers Py.
+assert 'pakro which z-root-cli --tool=dummy@1.0.0' "$p1_dummy_bin/z-root-cli"
+assert 'pakro which z-root-cli --tool=dummy@1.0.0 --plugin' 'dummy'
+assert 'pakro which z-root-cli --tool=dummy@1.0.0 --version' '1.0.0'
+assert "\"$p1_dummy_bin/z-root-cli\"" 'non-python collision'
+# Actual hook application selects the same first command as env and which.
+eval "$(pakro activate bash)"
+eval "$(pakro hook-env --shell bash --force)"
+assert 'command -v z-root-cli' "$p1_shared_command"
+assert 'pakro which z-root-cli' "$(command -v z-root-cli)"
+assert 'z-root-cli' 'shared-dependency:pth-visible'
+# Keep the previous companion fix: an unrelated missing Python cannot hide a
+# real installed command, and explicit Python cannot silently use that command.
+cat >pakro.toml <<'TOML'
+[tools]
+python = "3.13.99"
+dummy = "1.0.0"
+TOML
+p1_priority_before="$(p1_priority_snapshot)"
+assert 'pakro which dummy-exec-tiny' "$p1_dummy_bin/dummy-exec-tiny"
+assert 'pakro which z-root-cli' "$p1_dummy_bin/z-root-cli"
+assert 'pakro which z-root-cli --plugin' 'dummy'
+assert_fail_contains 'pakro which z-root-cli --tool=python@3.13.99 2>&1' '3.13.99'
+[[ "$(p1_priority_snapshot)" == "$p1_priority_before" ]] || fail 'missing-Python companion lookup changed state'
+[[ $(f3_request_count) == "$p1_priority_requests" ]] || fail 'missing-Python lookup fetched source inputs'
+f3_assert_no_manager

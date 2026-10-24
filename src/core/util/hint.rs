@@ -9,7 +9,9 @@ use std::sync::Mutex;
 macro_rules! hint {
     ($id:expr, $message:expr, $example_cmd:expr) => {{
         if $crate::hint::should_display_hint($id) {
-            let _ = $crate::file::touch_file(&$crate::hint::HINTS_DIR.join($id));
+            if !$crate::config::readonly_invocation() {
+                let _ = $crate::file::touch_file(&$crate::hint::HINTS_DIR.join($id));
+            }
             let prefix = console::style("hint")
                 .dim()
                 .yellow()

@@ -1,0 +1,36 @@
+# P1 actual registrations are checked by p1-check.sh before execution.
+# Helpers and compilation alone are not acceptance.
+e2e tests/e2e/cli/test_p1_shared_python_queries
+e2e tests/e2e/cli/test_p1_shared_python_empty_queries
+e2e tests/e2e/cli/test_p1_python_write_admission
+e2e tests/e2e/cli/test_p1_readonly_initialization
+pakro lib programs::directory::tests::p1_explicit_targets_and_language_only_do_not_borrow_current_packages
+pakro lib programs::directory::tests::p1_stale_and_expired_observation_errors_are_not_empty_selections
+pakro lib programs::directory::tests::resource_baseline::p1_resource_sixty_four_package_query_and_apply_baseline
+pakro lib programs::query::paths::tests::p1_frozen_environment_and_backend_aliases_share_declaration_selection
+pakro lib programs::query::paths::tests::p1_local_prefix_ambiguity_and_invalid_filters_never_choose_a_build
+pakro lib programs::shared::python_entry::tests::p1_decoded_backend_identity_controls_admission
+pakro lib programs::shared::python_entry::tests::p1_provider_ids_cover_python_adapters_without_scanning_scripts
+pakro bin cli::tests::p1_local_query_startup_is_selected_from_parsed_commands
+pakro bin cli::tests::p1_install_into_admission_rejects_every_decoded_backend
+pakro lib toolset::toolset_install::tests::p1_unknown_dependency_metadata_refuses_the_batch_before_plugin_setup
+pakro lib backend::tests::p1_direct_python_force_stops_before_backend_preparation
+pakro lib backend::tests::p1_direct_python_postinstall_stops_before_environment_or_script
+e2e tests/e2e/cli/test_p1_non_python_command_dispatch
+e2e tests/e2e/cli/test_p1_query_option_admission
+pakro lib config::r03_discovery_tests::p1_discovery_literal_global_and_system_files_escape_glob_syntax
+pakro lib config::r03_discovery_tests::p1_discovery_external_profiles_escape_glob_syntax
+pakro lib programs::directory::tests::p1_already_applied_selection_rechecks_inputs_and_cancellation
+pakro lib config::r03_discovery_tests::p1_frozen_alias_backends_match_existing_cross_file_override_order
+pakro lib config::r03_discovery_tests::p1_config_read_receipt_rejects_changed_source_before_shared_observation
+pakro lib config::r03_discovery_tests::p1_config_read_receipt_rejects_new_higher_priority_files
+pakro lib config::r03_discovery_tests::p1_config_read_receipt_keeps_legacy_inputs_without_python_parsing
+pakro lib programs::shared::commit::tests::p1_same_project_competing_commits_keep_one_winner_and_other_project
+e2e tests/e2e/cli/test_p1_configured_python_package_admission
+e2e tests/e2e/cli/test_p1_appended_env_and_companion_queries
+e2e tests/e2e/cli/test_p1_mixed_env_is_readonly
+e2e tests/e2e/cli/test_p1_exact_python_install
+pakro lib programs::query::paths::tests::p1_backend_option_alias_remains_python_and_is_rejected_without_inventory
+# explicit comparison: programs::directory::tests::resource_comparison::p1_resource_same_configuration_entrypoints (ignored; frozen port)
+e2e tests/e2e/cli/test_p1_expanded_python_admission
+e2e tests/e2e/cli/test_p1_shared_command_priority

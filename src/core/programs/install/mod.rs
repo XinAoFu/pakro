@@ -1,5 +1,6 @@
 //! Install request normalization; actual preparation and commit come later.
 
+#[cfg(test)]
 pub(crate) mod apply;
 #[cfg(unix)]
 pub(crate) mod build;

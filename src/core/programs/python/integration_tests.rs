@@ -234,7 +234,10 @@ async fn f3_e2e_stage_real_language() {
     })
     .unwrap();
     let filename = "cpython-3.13.16+20261013-aarch64-apple-darwin-install_only_stripped.tar.gz";
-    let archive = std::path::Path::new("/Users/fuxinao/文件/project/pakro_test").join(filename);
+    let archive = std::path::PathBuf::from(
+        std::env::var_os("PAKRO_TEST_PYTHON_ARCHIVE")
+            .expect("set PAKRO_TEST_PYTHON_ARCHIVE to the verified local Python 3.13.16 archive"),
+    );
     let digest: pakro_store::Digest =
         "sha256-16a5332fb0dcb77f163fc8f8cbccd95be1644cc53e68e5d2a79f50afd6680a0e"
             .parse()

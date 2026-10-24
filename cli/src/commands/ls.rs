@@ -149,7 +149,24 @@ pub(crate) struct Ls {
 }
 
 impl Ls {
+    pub(super) fn explicitly_non_python(&self) -> bool {
+        self.installed_tool.as_ref().is_some_and(|tools| {
+            !tools.is_empty()
+                && tools
+                    .iter()
+                    .all(|tool| !crate::programs::python::is_python_backend(tool))
+        })
+    }
+
     pub(crate) async fn run(mut self) -> Result<()> {
+        for tool in self
+            .installed_tool
+            .iter()
+            .flatten()
+            .chain(self.tool_flag.iter())
+        {
+            crate::programs::python::validate_python_query_options(tool)?;
+        }
         self.installed_tool = self
             .installed_tool
             .or_else(|| self.tool_flag.clone().map(|tool| vec![tool]));
@@ -215,7 +232,10 @@ impl Ls {
     async fn shared_library_query(&self) -> Result<bool> {
         let requested = self.installed_tool.as_ref();
         let python_only = requested.is_some_and(|tools| {
-            !tools.is_empty() && tools.iter().all(|tool| tool.short == "python")
+            !tools.is_empty()
+                && tools
+                    .iter()
+                    .all(|tool| crate::programs::python::is_python_backend(tool))
         });
         if requested.is_some_and(|tools| {
             !tools.is_empty()
@@ -233,9 +253,6 @@ impl Ls {
             || self.outdated
             || self.all_sources
             || self.monorepo;
-        if special && !python_only {
-            return Ok(false);
-        }
         ensure!(
             !special,
             "this shared-library query does not support legacy grouping, global/local, remote comparison or prune filters"
@@ -246,10 +263,13 @@ impl Ls {
             !python_only && (report.has_legacy_tools || report.legacy_installs_present);
         let current = report.current;
         if let Some(tools) = requested {
-            entries.retain(|entry| tools.iter().any(|tool| tool.short == entry.name));
-            if entries.is_empty() && !tools.iter().any(|tool| tool.short == "python") {
-                return Ok(false);
-            }
+            entries.retain(|entry| {
+                tools.iter().any(|tool| {
+                    tool.short == entry.name
+                        || (entry.name == "python"
+                            && crate::programs::python::is_python_backend(tool))
+                })
+            });
         }
         if self.current {
             entries.retain(|entry| {
@@ -278,7 +298,7 @@ impl Ls {
         if let Some(config) = &config {
             legacy = self.get_runtime_list(config, true).await?;
             legacy.retain(|(_, backend, version, source)| {
-                backend.ba().short != "python"
+                !crate::programs::python::is_python_backend(backend.ba())
                     && (!self.current || !source.is_unknown())
                     && (!self.installed || backend.is_version_installed(config, version, true))
                     && (!self.missing || !backend.is_version_installed(config, version, true))
@@ -564,8 +584,13 @@ impl Ls {
         }
 
         let mut ts = Toolset::from(trs);
+        if let Some(requested) = &self.installed_tool {
+            ts.versions
+                .retain(|backend, _| matches_requested_tool(requested, backend));
+        }
         if exclude_python {
-            ts.versions.retain(|backend, _| backend.short != "python");
+            ts.versions
+                .retain(|backend, _| !crate::programs::python::is_python_backend(backend));
             ts.resolve_with_opts(
                 config,
                 &crate::toolset::ResolveOptions {
@@ -582,7 +607,9 @@ impl Ls {
             .list_all_versions(config)
             .await?
             .into_iter()
-            .filter(|(backend, _)| !exclude_python || backend.ba().short != "python")
+            .filter(|(backend, _)| {
+                !exclude_python || !crate::programs::python::is_python_backend(backend.ba())
+            })
             .map(|(b, tv)| ((b, tv.version.clone()), tv))
             .filter(|((b, _), _)| match &self.installed_tool {
                 Some(p) => matches_requested_tool(p, b.ba()),

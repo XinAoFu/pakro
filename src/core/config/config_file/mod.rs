@@ -894,7 +894,9 @@ pub(crate) fn trust_check(path: &Path) -> eyre::Result<()> {
     {
         let config_root = config_trust_root(path);
         if is_path_trusted(path) || (!is_ignored(&config_root) && !is_ignored(path)) {
-            trust(&config_root)?;
+            if !config::readonly_invocation() {
+                trust(&config_root)?;
+            }
             return Ok(());
         }
     }
@@ -906,6 +908,9 @@ pub(crate) fn trust_check(path: &Path) -> eyre::Result<()> {
     let cmd = args.get(1).unwrap_or(&default_cmd).as_str();
     if is_path_trusted(path) || cmd == "trust" || pakro_util::testing::in_tests() {
         return Ok(());
+    }
+    if config::readonly_invocation() {
+        return Err(UntrustedConfig(path.into()).into());
     }
     if cmd != "hook-env" && !is_ignored(&config_root) && !is_ignored(path) {
         let ans = if settings::is_loaded()

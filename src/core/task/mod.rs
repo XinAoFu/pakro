@@ -2920,6 +2920,16 @@ impl Task {
             return Ok(());
         }
 
+        if config::readonly_invocation() {
+            // Installation admission needs tool targets, not the task's command,
+            // description, outputs, usage or runtime environment. Resolving those
+            // templates would build/resolve a toolset before admission completes.
+            eyre::ensure!(
+                !self.tools.values().any(TaskToolValue::has_template),
+                "dynamic task metadata cannot be resolved during read-only installation admission"
+            );
+            return Ok(());
+        }
         let mut tera = get_tera(Some(config_root));
         let tera_ctx = self.tera_ctx(config).await?;
         self.store_raw_render_inputs();

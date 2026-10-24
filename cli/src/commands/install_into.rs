@@ -38,7 +38,14 @@ pub(crate) struct InstallInto {
 }
 
 impl InstallInto {
+    pub(super) fn preflight(&self) -> Result<()> {
+        bail!(
+            "install-into has been removed by the shared library architecture (D01); use pakro install"
+        )
+    }
+
     pub(crate) async fn run(self) -> Result<()> {
+        self.preflight()?;
         let install_path = self.path.absolutize()?.into_owned();
         let config = Config::get().await?;
         let ts = Arc::new(

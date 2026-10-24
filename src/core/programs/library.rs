@@ -18,7 +18,7 @@ pub struct LibraryEntry {
 }
 
 pub fn inventory() -> Result<Vec<LibraryEntry>> {
-    crate::programs::query::inventory::inventory(&context(false)?)
+    crate::programs::query::inventory::inventory(&crate::programs::directory::query_context()?)
 }
 
 /// This exception is bound to the exact PBS artifact and instance approved
@@ -117,35 +117,43 @@ pub struct ProjectEntry {
 }
 
 pub fn projects() -> Result<Vec<ProjectEntry>> {
-    crate::programs::query::projects::projects(&context(false)?)
+    crate::programs::query::projects::projects(&crate::programs::directory::query_context()?)
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CurrentPython {
     pub requested: String,
+    /// Interpreter version of the verified language, without an implicit build suffix.
+    pub resolved_version: Option<String>,
     pub status: String,
     pub instance: Option<String>,
     pub path: Option<PathBuf>,
     pub detail: Option<String>,
 }
 
-fn observe_current_project(
+pub(crate) fn observe_current_project(
     context: &crate::programs::OperationContext,
 ) -> Result<crate::libraries::project::snapshot::ObservedProjectInputs> {
     use crate::libraries::project::snapshot::{ReadPolicy, observe_project};
-    let mut discovery = crate::config::FrozenConfigDiscovery::new(vec![
-        "pakro.toml".into(),
-        "pakro.local.toml".into(),
-    ]);
-    discovery.ceiling_paths = vec![PathBuf::from("/")];
-    Ok(observe_project(
-        &std::env::current_dir()?,
-        ReadPolicy::new(discovery, context.policy().deadline),
-    )?)
+    let loaded = crate::config::Config::maybe_get();
+    if let Some(config) = &loaded {
+        config.recheck_readonly_inputs(context.policy().deadline)?;
+    }
+    let discovery = crate::config::FrozenConfigDiscovery::from_process();
+    let mut policy = ReadPolicy::new(discovery, context.policy().deadline);
+    policy.cancellation = context.cancellation_token();
+    policy.environment = crate::env::vars_safe()
+        .filter(|(key, _)| crate::toolset::tool_from_env_var_name(key).is_some())
+        .collect();
+    let observed = observe_project(&std::env::current_dir()?, policy)?;
+    if let Some(config) = &loaded {
+        config.recheck_readonly_inputs(context.policy().deadline)?;
+    }
+    Ok(observed)
 }
 
 pub fn current_python() -> Result<Option<CurrentPython>> {
-    let context = context(false)?;
+    let context = crate::programs::directory::query_context()?;
     let observed = observe_current_project(&context)?;
     current_observed(&context, &observed)
 }
@@ -162,7 +170,7 @@ pub struct LocalProjectReport {
 }
 
 pub fn local_project() -> Result<LocalProjectReport> {
-    let context = context(false)?;
+    let context = crate::programs::directory::query_context()?;
     let observed = observe_current_project(&context)?;
     let root = observed.root().to_owned();
     let packages: Vec<_> = observed
@@ -173,9 +181,11 @@ pub fn local_project() -> Result<LocalProjectReport> {
     let has_legacy_tools = packages
         .iter()
         .any(|request| request.runtime_name != "python")
-        || observed
-            .declarations()
-            .any(|(_, declarations)| declarations.tools.iter().any(|tool| tool.name != "python"));
+        || observed.declarations().any(|(_, declarations)| {
+            declarations.tools.iter().any(|tool| {
+                !crate::programs::query::snapshot::python_tool_name(&observed, &tool.name)
+            })
+        });
     let mut legacy_installs_present = false;
     match std::fs::read_dir(*crate::dirs::INSTALLS) {
         Ok(entries) => {
@@ -211,55 +221,50 @@ pub(crate) fn current_observed(
     context: &crate::programs::OperationContext,
     observed: &crate::libraries::project::snapshot::ObservedProjectInputs,
 ) -> Result<Option<CurrentPython>> {
-    use crate::programs::query::snapshot::{SelectionReport, open_query_context, select_existing};
-    let query = open_query_context(context, observed)?;
-    let (requested, status, instance, path, detail) = match select_existing(&query)? {
-        SelectionReport::NoLanguageRequest => return Ok(None),
-        SelectionReport::Selected(candidate) => {
-            use eyre::ContextCompat;
-            let lease =
-                crate::libraries::language::repository::LanguageRepository::open_readonly(context)?
-                    .acquire_by_key(candidate.key())?
-                    .context("current Python publication disappeared during query")?;
-            lease.check_binding()?;
-            (
-                candidate.version().to_owned(),
-                "ready",
-                Some(candidate.key().filename()),
-                Some(candidate.root().to_owned()),
-                None,
-            )
+    use crate::programs::directory::{PythonQueryReport, PythonQueryRequest, PythonQueryScope};
+    let selection = crate::programs::query::environment::query_observed(
+        context,
+        observed,
+        &PythonQueryRequest {
+            target: None,
+            scope: PythonQueryScope::Environment,
+        },
+    )?;
+    let language = selection.candidate.as_ref();
+    let instance = language.map(|candidate| candidate.key().filename());
+    let resolved_version = language.map(|candidate| candidate.version().to_owned());
+    let path = language.map(|candidate| candidate.root().to_owned());
+    let (requested, status, detail) = match selection.report {
+        PythonQueryReport::NoDeclaration => return Ok(None),
+        PythonQueryReport::Ready(selected) => (selected.version, "ready", None),
+        PythonQueryReport::MissingLanguage { requested } => (requested, "missing", None),
+        PythonQueryReport::MissingPackages {
+            requested,
+            packages,
+        } => (
+            requested,
+            "missing-packages",
+            Some(format!("missing shared packages: {}", packages.join(", "))),
+        ),
+        PythonQueryReport::IncompatibleTarget { requested, detail } => {
+            (requested, "incompatible", Some(detail))
         }
-        SelectionReport::Missing { requested } => {
-            (requested.as_str().to_owned(), "missing", None, None, None)
-        }
-        SelectionReport::InvalidDeclaration { requested } => (
+        PythonQueryReport::InvalidDeclaration { requested } => (
             requested,
             "invalid",
-            None,
-            None,
             Some("write a complete exact Python version".to_owned()),
         ),
-        SelectionReport::Ambiguous {
+        PythonQueryReport::Ambiguous {
             requested,
             candidates,
-        } => (
-            requested.as_str().to_owned(),
-            "ambiguous",
-            None,
-            None,
-            Some(
-                candidates
-                    .iter()
-                    .map(|candidate| candidate.key().filename())
-                    .collect::<Vec<_>>()
-                    .join(", "),
-            ),
-        ),
-        SelectionReport::Corrupt { detail } => (String::new(), "corrupt", None, None, Some(detail)),
+        } => (requested, "ambiguous", Some(candidates.join(", "))),
+        PythonQueryReport::Corrupt { detail } => (String::new(), "corrupt", Some(detail)),
     };
+    let requested = crate::programs::query::snapshot::effective_python_declaration(observed)
+        .unwrap_or(requested);
     Ok(Some(CurrentPython {
         requested,
+        resolved_version,
         status: status.into(),
         instance,
         path,
@@ -283,7 +288,8 @@ pub fn uninstall_package(
 
 /// Pure CLI classification without exposing the registry or backend owners.
 pub fn is_known_legacy_tool(tool: &crate::args::BackendArg) -> bool {
-    tool.short != "python"
+    !crate::programs::python::is_python_backend(tool)
         && (tool.has_explicit_backend()
+            || crate::toolset::install_state::get_plugin_type(&tool.short).is_some()
             || crate::registry::REGISTRY.contains_key(tool.short.as_str()))
 }

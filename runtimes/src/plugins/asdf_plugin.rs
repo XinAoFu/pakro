@@ -106,7 +106,7 @@ impl AsdfPlugin {
         script_man: &ScriptManager,
     ) -> eyre::Result<Vec<String>> {
         Settings::ensure_not_safe("executing asdf plugin scripts")?;
-        let cmd = script_man.cmd(&Script::ListAll);
+        let cmd = script_man.cmd(&Script::ListAll)?;
         let result = run_with_timeout(
             move || {
                 let result = cmd.stdout_capture().stderr_capture().unchecked().run()?;
@@ -489,7 +489,7 @@ impl Plugin for AsdfPlugin {
             args,
         );
         Settings::ensure_not_safe("executing asdf plugin scripts")?;
-        let result = self.script_man.cmd(&script).unchecked().run()?;
+        let result = self.script_man.cmd(&script)?.unchecked().run()?;
         Err(crate::request_exit(result.status.code().unwrap_or(-1)))
     }
 }

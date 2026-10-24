@@ -195,6 +195,9 @@ async fn command_wrapper_for(
         }
         return Ok(Some((wrapper, true)));
     }
+    // Shared lookup has either selected Python or refused it above. Only the
+    // remaining command-dispatch branch may execute legacy provider scripts.
+    crate::config::set_readonly_invocation(false);
     if install_command {
         install_missing_wrapper_command(config, ts, wrapper.command()).await?;
     }
@@ -241,7 +244,8 @@ async fn which_shim(
         .with_args(&task_tools)
         .build_unresolved(config)?;
     #[cfg(unix)]
-    ts.versions.retain(|backend, _| backend.short != "python");
+    ts.versions
+        .retain(|backend, _| !crate::programs::python::is_python_backend(backend));
     // Inspect wrapper declarations before any legacy version resolution.
     if let Some((wrapper, shared)) = command_wrapper_for(config, &mut ts, shim_name, false).await? {
         if shared {
@@ -263,6 +267,9 @@ async fn which_shim(
     if let Some(path) = select_shared_python_command(&ts, shim_name)? {
         return Ok((path, Toolset::default(), None, true));
     }
+    // Python Missing/error returned before this point. The remaining legacy
+    // dispatch can now use its established plugin and lazy-install behavior.
+    crate::config::set_readonly_invocation(false);
     ts.resolve_with_opts(config, &resolve_options).await?;
     // A configured tool may intentionally override an executable bundled by another installed
     // tool (for example, a pinned npm overrides Node's npm). Install a missing provider declared

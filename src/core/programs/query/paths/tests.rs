@@ -215,4 +215,187 @@ async fn f1_observed_runtime_pin_selects_only_the_committed_artifact() {
         select_existing(&query).unwrap(),
         SelectionReport::Missing { .. }
     ));
+    drop(query);
+    drop(observed);
+    // Current tool_alias overrides deprecated alias and keeps the exact pin
+    // under its logical lock key rather than ignoring the alias commitment.
+    std::fs::write(
+        project.join("pakro.toml"),
+        "[alias.py]\nbackend='asdf:other'\n[tool_alias.py]\nbackend='core:python'\n[tools]\npy='3.15.0'\n",
+    )
+    .unwrap();
+    let alias_lock = lock(first.plan().source().digest()).replace("tools.python", "tools.py");
+    std::fs::write(project.join("pakro.lock"), &alias_lock).unwrap();
+    let observed = observe_project(&project, read_policy(&project)).unwrap();
+    let query = open_query_context(&context, &observed).unwrap();
+    assert!(
+        matches!(select_existing(&query).unwrap(), SelectionReport::Selected(candidate) if *candidate.key() == first.key())
+    );
+    drop(query);
+    drop(observed);
+    let conflicting = lock(second.plan().source().digest()).replacen("lockfile_version=3\n", "", 1);
+    std::fs::write(
+        project.join("pakro.lock"),
+        format!("{alias_lock}\n{conflicting}"),
+    )
+    .unwrap();
+    let observed = observe_project(&project, read_policy(&project)).unwrap();
+    let query = open_query_context(&context, &observed).unwrap();
+    assert!(
+        select_existing(&query).is_err(),
+        "conflicting applicable alias pins must fail explicitly"
+    );
+}
+
+#[test]
+fn p1_frozen_environment_and_backend_aliases_share_declaration_selection() {
+    use crate::libraries::project::snapshot::ReadScope;
+    use crate::programs::query::snapshot::effective_python_declaration;
+    let workspace = Workspace::new();
+    let project = workspace.project("alias");
+    std::fs::write(
+        project.join("pakro.toml"),
+        "[alias.py]\nbackend='core:python'\n[tools]\npy='3.15.0'\n",
+    )
+    .unwrap();
+    let observed = observe_project(&project, read_policy(&project)).unwrap();
+    assert_eq!(
+        effective_python_declaration(&observed).as_deref(),
+        Some("3.15.0")
+    );
+    drop(observed);
+    let mut policy = read_policy(&project);
+    policy
+        .environment
+        .insert("PAKRO_PYTHON_VERSION".into(), "3.14.0".into());
+    let observed = observe_project(&project, policy.clone()).unwrap();
+    assert_eq!(
+        effective_python_declaration(&observed).as_deref(),
+        Some("3.14.0")
+    );
+    drop(observed);
+    policy.scope = ReadScope::LocalOnly;
+    let observed = observe_project(&project, policy).unwrap();
+    assert_eq!(
+        effective_python_declaration(&observed).as_deref(),
+        Some("3.15.0")
+    );
+    drop(observed);
+    std::fs::write(
+        project.join("pakro.toml"),
+        "[alias.python]\nbackend='asdf:other'\n[tools]\npython='3.15.0'\n",
+    )
+    .unwrap();
+    let observed = observe_project(&project, read_policy(&project)).unwrap();
+    assert!(effective_python_declaration(&observed).is_none());
+    drop(observed);
+    for (aliases, expected) in [
+        (
+            "[alias.py]\nbackend='asdf:other'\n[tool_alias.py]\nbackend='core:python'\n",
+            Some("3.15.0"),
+        ),
+        (
+            "[alias.py]\nbackend='core:python'\n[tool_alias.py]\nbackend='asdf:other'\n",
+            None,
+        ),
+        // Current entries replace the whole deprecated entry; a missing
+        // backend must not recover the old Python backend from that entry.
+        (
+            "[alias.py]\nbackend='core:python'\n[tool_alias.py.versions]\nstable='3.15.0'\n",
+            None,
+        ),
+    ] {
+        std::fs::write(
+            project.join("pakro.toml"),
+            format!("{aliases}[tools]\npy='3.15.0'\n"),
+        )
+        .unwrap();
+        let observed = observe_project(&project, read_policy(&project)).unwrap();
+        assert_eq!(effective_python_declaration(&observed).as_deref(), expected);
+    }
+}
+
+#[tokio::test]
+async fn p1_local_prefix_ambiguity_and_invalid_filters_never_choose_a_build() {
+    use crate::programs::query::snapshot::select_target;
+    let workspace = Workspace::new();
+    let stage = workspace.stage();
+    let context = operation_context(&stage, true, Duration::from_secs(60));
+    let target = crate::plugins::core::python::native::RuntimeArchiveTarget::new(
+        "aarch64",
+        crate::plugins::core::python::native::RuntimePlatform::Macos,
+    )
+    .unwrap();
+    for (build, marker) in [("20261013", "first"), ("20261014", "second")] {
+        let bytes = archive_for("3.15.0", &target, marker);
+        let spec = install_spec_for("3.15.0", &bytes, &target, build);
+        drop(prepare(&spec, &context, &bytes).await.unwrap());
+    }
+    let project = workspace.project("no-declaration");
+    let observed = observe_project(&project, read_policy(&project)).unwrap();
+    let query = open_query_context(&context, &observed).unwrap();
+    for prefix in ["3", "3.15", "3.15.0"] {
+        assert!(
+            matches!(select_target(&query, Some(prefix)).unwrap(), SelectionReport::Ambiguous { candidates, .. } if candidates.len() == 2)
+        );
+    }
+    for invalid in ["latest", "03", "3.", "3.15.*", "prefix:3.15"] {
+        assert!(matches!(
+            select_target(&query, Some(invalid)).unwrap(),
+            SelectionReport::InvalidDeclaration { .. }
+        ));
+    }
+    assert!(matches!(
+        select_target(&query, Some("3.15.0+20261013")).unwrap(),
+        SelectionReport::Selected(_)
+    ));
+}
+
+#[test]
+fn p1_backend_option_alias_remains_python_and_is_rejected_without_inventory() {
+    use crate::programs::query::snapshot::{
+        QueryError, effective_python_declaration, python_tool_name,
+    };
+    let workspace = Workspace::new();
+    let stage = workspace.stage();
+    let context = operation_context(&stage, false, Duration::from_secs(30));
+    let project = workspace.project("alias-options");
+    for section in ["alias", "tool_alias"] {
+        std::fs::write(
+            project.join("pakro.toml"),
+            format!("[{section}.py]\nbackend='core:python[compile=true]'\n[tools]\npy='3.15.0'\n"),
+        )
+        .unwrap();
+        let observed = observe_project(&project, read_policy(&project)).unwrap();
+        assert!(python_tool_name(&observed, "py"));
+        assert!(
+            effective_python_declaration(&observed).is_some(),
+            "unsupported options must not erase the Python declaration"
+        );
+        let query = open_query_context(&context, &observed).unwrap();
+        assert!(matches!(
+            select_existing(&query),
+            Err(QueryError::UnsupportedBackendOptions(_))
+        ));
+        let mut policy = read_policy(&project);
+        policy
+            .environment
+            .insert("PAKRO_PY_VERSION".into(), "3.15.0".into());
+        let overridden = observe_project(&project, policy).unwrap();
+        let declaration = effective_python_declaration(&overridden).unwrap();
+        assert!(
+            crate::programs::shared::exact_version::exact_python_request(&declaration).is_err(),
+            "installation preparation must reject option-bearing environment aliases before runtime acquisition"
+        );
+        assert!(declaration.contains("unsupported Python backend options"));
+        let query = open_query_context(&context, &overridden).unwrap();
+        assert!(matches!(
+            select_existing(&query),
+            Err(QueryError::UnsupportedBackendOptions(_))
+        ));
+    }
+    assert!(
+        !context.requested_data_root().exists(),
+        "option rejection must precede library access or initialization"
+    );
 }

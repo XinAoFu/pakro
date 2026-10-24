@@ -767,6 +767,27 @@ impl Toolset {
         None
     }
 
+    /// Existing command ownership for local queries. Keep the original
+    /// override order and the actual path, and do not turn an unreadable or
+    /// unsupported provider into a missing command.
+    pub async fn which_for_query(
+        &self,
+        config: &Arc<Config>,
+        bin_name: &str,
+    ) -> Result<Option<(Arc<dyn Backend>, ToolVersion, PathBuf)>> {
+        let mut installed = self.list_current_installed_versions(config);
+        Self::sort_by_overrides(&mut installed)?;
+        for (backend, version) in installed {
+            match backend.which(config, &version, bin_name).await {
+                Ok(Some(path)) => return Ok(Some((backend, version, path))),
+                Ok(None) => {}
+                Err(error) if crate::config::readonly_invocation() => return Err(error),
+                Err(error) => debug!("Error running which: {error:#}"),
+            }
+        }
+        Ok(None)
+    }
+
     pub(crate) async fn which_bin(&self, config: &Arc<Config>, bin_name: &str) -> Option<PathBuf> {
         let mut installed = self.list_current_installed_versions(config);
         Self::sort_by_overrides(&mut installed).unwrap();

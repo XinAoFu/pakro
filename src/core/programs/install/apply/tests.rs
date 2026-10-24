@@ -1,12 +1,12 @@
-use super::*;
+use crate::artifact_snapshot::VerifiedArtifact;
 use crate::artifact_snapshot::spool_verified_reader;
 use crate::config::{FrozenConfigDiscovery, Settings};
 use crate::libraries::language::repository::tests::{archive, install_spec};
 use crate::libraries::language::repository::{LanguageRepository, LanguageState};
 use crate::libraries::project::repository::ProjectRepository;
-use crate::libraries::project::snapshot::{ReadPolicy, observe_project};
-use crate::programs::shared::exact_version::exact_python_request;
-use crate::programs::shared::report::OperationState;
+use crate::libraries::project::snapshot::{ObservedProjectInputs, ReadPolicy, observe_project};
+use crate::programs::install::runtime::prepare_language;
+use eyre::Result;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -111,7 +111,6 @@ impl AcquireCounter {
 async fn f2_exact_install_reuses_and_records_only_real_projects() {
     let workspace = Workspace::new();
     let context = workspace.context();
-    let request = exact_python_request("3.15.0").unwrap();
     let counter = AcquireCounter {
         bytes: archive("3.15.0"),
         calls: RefCell::new(0),
@@ -121,12 +120,19 @@ async fn f2_exact_install_reuses_and_records_only_real_projects() {
     // A project install fetches once, publishes Ready, and links the project.
     let project = workspace.project("project-a", "3.15.0");
     let observed = observe(&project);
-    let report = install_exact_python(&context, &request, Some(&observed), || async {
-        counter.acquire(&context)
-    })
-    .await
-    .unwrap();
-    assert_eq!(report.state(), OperationState::Committed);
+    let spec = install_spec(&counter.bytes);
+    drop(
+        prepare_language(&spec, &context, || async { counter.acquire(&context) })
+            .await
+            .unwrap(),
+    );
+    let config = crate::config::Config::get().await.unwrap();
+    crate::programs::python::project_plan(context.clone(), observed, &[])
+        .unwrap()
+        .unwrap()
+        .install(config.clone())
+        .await
+        .unwrap();
     assert_eq!(*counter.calls.borrow(), 1);
 
     let spec = install_spec(&counter.bytes);
@@ -143,11 +149,17 @@ async fn f2_exact_install_reuses_and_records_only_real_projects() {
 
     // A second install of the same exact request reuses without fetching.
     let observed = observe(&project);
-    install_exact_python(&context, &request, Some(&observed), || async {
-        counter.acquire(&context)
-    })
-    .await
-    .unwrap();
+    crate::programs::python::project_plan(context.clone(), observed, &[])
+        .unwrap()
+        .unwrap()
+        .install(config.clone())
+        .await
+        .unwrap();
+    drop(
+        prepare_language(&spec, &context, || async { counter.acquire(&context) })
+            .await
+            .unwrap(),
+    );
     assert_eq!(
         *counter.calls.borrow(),
         1,
@@ -155,11 +167,10 @@ async fn f2_exact_install_reuses_and_records_only_real_projects() {
     );
 
     // A global install publishes no project facts.
-    install_exact_python(&context, &request, None, || async {
-        counter.acquire(&context)
-    })
-    .await
-    .unwrap();
+    crate::plugins::core::python::PythonPlugin::new()
+        .install_shared_exact_in_context(&context, "3.15.0", config, None)
+        .await
+        .unwrap();
     let registered = ProjectRepository::open_readonly(&context)
         .unwrap()
         .read_views()
@@ -175,19 +186,15 @@ async fn f2_exact_install_reuses_and_records_only_real_projects() {
 async fn f2_failed_acquire_keeps_published_state() {
     let workspace = Workspace::new();
     let context = workspace.context();
-    let request = exact_python_request("3.15.0").unwrap();
     let counter = AcquireCounter {
         bytes: archive("3.15.0"),
         calls: RefCell::new(0),
         fail: true,
     };
     let project = workspace.project("project-a", "3.15.0");
-    let observed = observe(&project);
-
-    let failed = install_exact_python(&context, &request, Some(&observed), || async {
-        counter.acquire(&context)
-    })
-    .await;
+    let _observed = observe(&project);
+    let spec = install_spec(&counter.bytes);
+    let failed = prepare_language(&spec, &context, || async { counter.acquire(&context) }).await;
     assert!(
         failed.is_err(),
         "a failed acquisition must not report success"

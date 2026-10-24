@@ -27,7 +27,7 @@ fn store_binding_checks() -> usize {
     STORE_BINDING_CHECKS.with(|value| value.get())
 }
 #[cfg(test)]
-fn full_inventory_checks(key: [u8; 32]) -> usize {
+pub(crate) fn full_inventory_checks(key: [u8; 32]) -> usize {
     FULL_INVENTORY_CHECKS.with(|value| value.borrow().get(&key).copied().unwrap_or(0))
 }
 

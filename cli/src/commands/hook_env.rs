@@ -48,7 +48,30 @@ pub(crate) struct HookEnv {
 }
 
 impl HookEnv {
+    /// Withdraw only the previous managed environment when config discovery
+    /// fails. Shell detection uses parsed flags/environment, never Settings.
+    pub(super) fn withdraw_previous_environment(&self) -> Result<()> {
+        let shell = require_shell(
+            self.shell,
+            &format!("Name the shell: `pakro hook-env --shell {EXAMPLE_SHELL}`."),
+        )?;
+        let patches = hook_env::clear_old_env_patches(&*shell);
+        pakroprint!("{}", hook_env::build_env_commands(&*shell, &patches))?;
+        Ok(())
+    }
+
     pub(crate) async fn run(self) -> Result<()> {
+        let mut previous_withdrawn = false;
+        let result = self.run_inner(&mut previous_withdrawn).await;
+        if result.is_err() && !previous_withdrawn {
+            if let Err(error) = self.withdraw_previous_environment() {
+                warn!("could not withdraw the previous managed environment: {error:#}");
+            }
+        }
+        result
+    }
+
+    async fn run_inner(&self, previous_withdrawn: &mut bool) -> Result<()> {
         let shell = require_shell(
             self.shell,
             &format!("Name the shell: `pakro hook-env --shell {EXAMPLE_SHELL}`."),
@@ -62,7 +85,8 @@ impl HookEnv {
         // handled by the normal install paths instead of hook-env.
         let mut ts = ToolsetBuilder::new().build_unresolved(&config)?;
         #[cfg(unix)]
-        ts.versions.retain(|backend, _| backend.short != "python");
+        ts.versions
+            .retain(|backend, _| !crate::programs::python::is_python_backend(backend));
         if let Err(error) = ts
             .resolve_with_opts(
                 &config,
@@ -121,6 +145,7 @@ impl HookEnv {
             })
             .collect();
         pakroprint!("{}", hook_env::build_env_commands(&*shell, &old_patches))?;
+        *previous_withdrawn = true;
 
         // Use env_with_path_and_split which handles caching internally
         let (mut pakro_env, env_remove, user_paths, tool_paths, env_watch_files) =
@@ -132,13 +157,25 @@ impl HookEnv {
         #[cfg(unix)]
         let mut tool_paths = tool_paths;
         #[cfg(unix)]
-        if let Some(shared) = crate::programs::directory::select_directory_python(true)? {
+        let shared_python = match crate::programs::directory::apply_directory_python()
+            .and_then(|report| report.into_ready())
+        {
+            Ok(selected) => selected,
+            Err(error) => {
+                warn!("pakro: could not select the shared Python environment: {error:#}");
+                None
+            }
+        };
+        #[cfg(unix)]
+        if let Some(shared) = shared_python {
             // Normal interpreter startup must not replace bytecode in the
             // immutable shared payload. EnvDiff restores the prior value when
             // this directory's selection is withdrawn.
             pakro_env.insert("PYTHONDONTWRITEBYTECODE".into(), "1".into());
-            if !tool_paths.iter().any(|path| *path == shared.bin_dir) {
-                tool_paths.insert(0, shared.bin_dir);
+            for bin in shared.bin_dirs.into_iter().rev() {
+                if !tool_paths.iter().any(|path| *path == bin) {
+                    tool_paths.insert(0, bin);
+                }
             }
         }
         let daemon_commands = match crate::daemons::hook_env::emit(

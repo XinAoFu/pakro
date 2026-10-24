@@ -38,7 +38,18 @@ pub(super) struct InstallsLs {
 }
 
 impl InstallsLs {
+    pub(super) fn explicitly_non_python(&self) -> bool {
+        !self.tool.is_empty()
+            && self
+                .tool
+                .iter()
+                .all(|tool| !crate::programs::python::is_python_backend(tool))
+    }
+
     pub(super) async fn run(self) -> Result<()> {
+        for tool in &self.tool {
+            crate::programs::python::validate_python_query_options(tool)?;
+        }
         // Explicit legacy tools retain their existing query even when a
         // shared Python library also exists (or is currently damaged).
         if !self.tool.is_empty()
@@ -50,16 +61,6 @@ impl InstallsLs {
             return self.legacy().await;
         }
         let mut entries = crate::programs::library::inventory()?;
-        let shared_names: std::collections::BTreeSet<_> =
-            entries.iter().map(|entry| entry.name.clone()).collect();
-        if !self.tool.is_empty()
-            && self
-                .tool
-                .iter()
-                .all(|tool| !shared_names.contains(&tool.short))
-        {
-            return self.legacy().await;
-        }
         let mut legacy = resolver::installations();
         legacy.retain(|installation| {
             installation.backend != "python"
@@ -70,7 +71,13 @@ impl InstallsLs {
                         .any(|tool| resolver::installation_belongs_to(tool, installation)))
         });
         if !self.tool.is_empty() {
-            entries.retain(|entry| self.tool.iter().any(|tool| tool.short == entry.name));
+            entries.retain(|entry| {
+                self.tool.iter().any(|tool| {
+                    tool.short == entry.name
+                        || (entry.name == "python"
+                            && crate::programs::python::is_python_backend(tool))
+                })
+            });
         }
         if self.json {
             let mut rows: Vec<_> = entries

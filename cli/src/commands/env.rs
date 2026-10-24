@@ -61,7 +61,60 @@ pub(crate) struct Env {
 }
 
 impl Env {
+    pub(super) fn explicitly_non_python(&self) -> bool {
+        !self.tool.is_empty()
+            && self
+                .tool
+                .iter()
+                .all(|tool| !crate::programs::python::is_python_backend(&tool.ba))
+    }
+
+    /// Positional tools augment configuration. A non-Python argument alone
+    /// cannot make this an independent non-Python environment query.
+    pub(super) async fn requires_shared_python(&self) -> Result<bool> {
+        let config = Config::get().await?;
+        let effective = ToolsetBuilder::new()
+            .with_args(&self.tool)
+            .build_unresolved(&config)?;
+        Ok(effective.versions.is_empty()
+            || effective
+                .versions
+                .keys()
+                .any(|backend| crate::programs::python::is_python_backend(backend)))
+    }
+
     pub(crate) async fn run(self) -> Result<()> {
+        for tool in &self.tool {
+            crate::programs::python::validate_python_query_options(&tool.ba)?;
+        }
+        let requires_shared_python = self.requires_shared_python().await?;
+        #[cfg(unix)]
+        let shared_python = {
+            use crate::programs::directory::{PythonQueryRequest, PythonQueryScope, query_python};
+            let targets: Vec<_> = self
+                .tool
+                .iter()
+                .filter(|tool| crate::programs::python::is_python_backend(&tool.ba))
+                .collect();
+            eyre::ensure!(
+                targets.len() <= 1,
+                "env supports one explicit Python target per query"
+            );
+            if requires_shared_python {
+                let selected = query_python(PythonQueryRequest {
+                    target: targets.first().and_then(|tool| tool.version.clone()),
+                    scope: PythonQueryScope::Environment,
+                })?
+                .into_ready()?;
+                eyre::ensure!(
+                    targets.is_empty() || selected.is_some(),
+                    "no current Python declaration; name an installed Python version explicitly"
+                );
+                selected
+            } else {
+                None
+            }
+        };
         let config = Config::get().await?;
         let mut ts = ToolsetBuilder::new()
             .with_args(&self.tool)
@@ -69,7 +122,8 @@ impl Env {
         // Exclude Python before legacy resolution, including missing or invalid
         // declarations. A read-only env query cannot authorize a download.
         #[cfg(unix)]
-        ts.versions.retain(|backend, _| backend.short != "python");
+        ts.versions
+            .retain(|backend, _| !crate::programs::python::is_python_backend(backend));
         if let Err(error) = ts
             .resolve_with_opts(
                 &config,
@@ -85,14 +139,12 @@ impl Env {
         // Shared library python (D07/D08): the declared exact version comes
         // from the shared library when published; this command is read-only
         // and python never auto-installs through the legacy pipeline here.
-        #[cfg(unix)]
-        let shared_python = crate::programs::directory::select_directory_python(false)?;
-        let shared_bin: Option<&std::path::Path> = {
+        let shared_bin: Option<&[std::path::PathBuf]> = {
             #[cfg(unix)]
             {
                 shared_python
                     .as_ref()
-                    .map(|shared| shared.bin_dir.as_path())
+                    .map(|shared| shared.bin_dirs.as_slice())
             }
             #[cfg(not(unix))]
             {
@@ -147,7 +199,7 @@ impl Env {
         config: &Arc<Config>,
         ts: Toolset,
         redacted_keys: &Option<IndexSet<String>>,
-        shared_bin: Option<&std::path::Path>,
+        shared_bin: Option<&[std::path::PathBuf]>,
     ) -> Result<()> {
         let mut env = ts.env_with_path(config).await?;
         Self::prepend_shared_path(&mut env, shared_bin)?;
@@ -165,7 +217,7 @@ impl Env {
         config: &Arc<Config>,
         ts: Toolset,
         redacted_keys: &Option<IndexSet<String>>,
-        shared_bin: Option<&std::path::Path>,
+        shared_bin: Option<&[std::path::PathBuf]>,
     ) -> Result<()> {
         let mut res = BTreeMap::new();
 
@@ -174,6 +226,7 @@ impl Env {
         let shared_bytecode = shared_bin
             .and_then(|_| env.get("PYTHONDONTWRITEBYTECODE"))
             .cloned();
+        let shared_path = shared_bin.and_then(|_| env.get(&*PATH_KEY)).cloned();
         env.iter().for_each(|(k, v)| {
             res.insert(k.to_string(), BTreeMap::from([("value", v.to_string())]));
         });
@@ -205,7 +258,7 @@ impl Env {
             .collect();
 
         ts.env_from_tools(config)
-            .await
+            .await?
             .iter()
             .for_each(|(name, value, tool_id)| {
                 res.insert(
@@ -226,6 +279,11 @@ impl Env {
 
         // Source annotations must not replace the effective shared-runtime
         // policy with the user's original environment value.
+        if let Some(value) = shared_path {
+            res.entry((*PATH_KEY).clone())
+                .or_default()
+                .insert("value", value);
+        }
         if let Some(value) = shared_bytecode {
             res.insert(
                 "PYTHONDONTWRITEBYTECODE".into(),
@@ -245,7 +303,7 @@ impl Env {
         config: &Arc<Config>,
         ts: Toolset,
         redacted_keys: &Option<IndexSet<String>>,
-        shared_bin: Option<&std::path::Path>,
+        shared_bin: Option<&[std::path::PathBuf]>,
     ) -> Result<()> {
         let default_shell = get_shell(Some(fallback_shell())).unwrap();
         let shell = get_shell(self.shell).unwrap_or(default_shell);
@@ -272,7 +330,7 @@ impl Env {
         &self,
         mut env: EnvMap,
         redacted_keys: &Option<IndexSet<String>>,
-        shared_bin: Option<&std::path::Path>,
+        shared_bin: Option<&[std::path::PathBuf]>,
     ) -> Result<()> {
         Self::prepend_shared_path(&mut env, shared_bin)?;
         if let Some(keys) = redacted_keys {
@@ -292,7 +350,7 @@ impl Env {
         config: &Arc<Config>,
         ts: Toolset,
         redacted_keys: &Option<IndexSet<String>>,
-        shared_bin: Option<&std::path::Path>,
+        shared_bin: Option<&[std::path::PathBuf]>,
     ) -> Result<()> {
         let mut env = ts.env_with_path(config).await?;
         Self::prepend_shared_path(&mut env, shared_bin)?;
@@ -315,22 +373,22 @@ impl Env {
 
     /// Selects the shared interpreter and prevents normal startup from
     /// replacing bytecode in its immutable payload, for every output format.
-    fn prepend_shared_path(env: &mut EnvMap, shared_bin: Option<&std::path::Path>) -> Result<()> {
-        let Some(bin) = shared_bin else { return Ok(()) };
+    fn prepend_shared_path(
+        env: &mut EnvMap,
+        shared_bin: Option<&[std::path::PathBuf]>,
+    ) -> Result<()> {
+        let Some(bins) = shared_bin else {
+            return Ok(());
+        };
         env.insert("PYTHONDONTWRITEBYTECODE".into(), "1".into());
-        match env.get_mut(&*PATH_KEY) {
-            Some(current) => {
-                let mut parts: Vec<std::path::PathBuf> = split_paths(current).collect();
-                if parts.first().is_some_and(|first| first == bin) {
-                    return Ok(());
-                }
-                parts.insert(0, bin.to_path_buf());
-                *current = join_paths(&parts)?.to_string_lossy().into_owned();
-            }
-            None => {
-                env.insert((*PATH_KEY).clone(), bin.to_string_lossy().into_owned());
-            }
+        let mut parts = bins.to_vec();
+        if let Some(current) = env.get(&*PATH_KEY) {
+            parts.extend(split_paths(current).filter(|path| !bins.contains(path)));
         }
+        env.insert(
+            (*PATH_KEY).clone(),
+            join_paths(&parts)?.to_string_lossy().into_owned(),
+        );
         Ok(())
     }
 }
