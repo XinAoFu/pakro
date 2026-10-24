@@ -10,10 +10,14 @@ pub(super) mod build_fixture;
 mod caller_deadline;
 #[path = "tests/closed.rs"]
 mod closed;
+#[path = "tests/diagnostics.rs"]
+mod diagnostics;
 #[path = "tests/preflight.rs"]
 mod preflight;
 #[path = "tests/project_fixture.rs"]
 pub(super) mod project_fixture;
+#[path = "tests/source_build.rs"]
+mod source_build;
 use crate::packages::python_resolution::candidate_policy::{Prereleases, Sdists, Yanked};
 use crate::packages::python_wheel::{WheelExpectation, inspect_wheel};
 use base64::Engine;
@@ -180,17 +184,28 @@ fn wire_file(filename: &str) -> serde_json::Value {
     serde_json::json!({"filename":filename,"url":format!("/files/{filename}"),"hashes":{},"requires-python":">=3"})
 }
 fn wheel(name: &str, version: &str, declarations: &[&str], other: &str) -> Vec<u8> {
+    wheel_with_build(name, version, declarations, other, None)
+}
+fn wheel_with_build(
+    name: &str,
+    version: &str,
+    declarations: &[&str],
+    other: &str,
+    build: Option<&str>,
+) -> Vec<u8> {
     let info = format!("{name}-{version}.dist-info");
     let mut metadata = format!("Metadata-Version: 2.6\nName: {name}\nVersion: {version}\n{other}");
     for declaration in declarations {
         metadata.push_str(&format!("Requires-Dist: {declaration}\n"));
     }
+    let mut wheel_headers =
+        "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n".to_owned();
+    if let Some(build) = build {
+        wheel_headers.push_str(&format!("Build: {build}\n"));
+    }
     let mut entries = vec![
         (format!("{name}/__init__.py"), b"VALUE=42\n".to_vec()),
-        (
-            format!("{info}/WHEEL"),
-            b"Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n".to_vec(),
-        ),
+        (format!("{info}/WHEEL"), wheel_headers.into_bytes()),
         (format!("{info}/METADATA"), metadata.into_bytes()),
     ];
     let mut record = String::new();
@@ -216,7 +231,8 @@ fn wheel(name: &str, version: &str, declarations: &[&str], other: &str) -> Vec<u
     let bytes = zip.finish().unwrap().into_inner();
     // Independent real A parser proves each wheel fixture is structurally valid.
     let tags = tags();
-    let filename = format!("{name}-{version}-py3-none-any.whl");
+    let build = build.map(|build| format!("-{build}")).unwrap_or_default();
+    let filename = format!("{name}-{version}{build}-py3-none-any.whl");
     inspect_wheel(
         Cursor::new(&bytes),
         &WheelExpectation {

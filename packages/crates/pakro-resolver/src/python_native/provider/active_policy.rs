@@ -185,7 +185,8 @@ pub(super) fn run(
     let mut usage = PolicyUsage::default();
     loop {
         charge(&mut usage.rounds, 1, limits.max_rounds).map_err(|_| NativeSolveError::Limit)?;
-        let assignment = match pubgrub::resolve(&provider, Package::Root, 0usize) {
+        let resolved = pubgrub::resolve(&provider, Package::Root, 0usize);
+        let assignment = match resolved {
             Ok(assignment) => assignment,
             Err(PubGrubError::NoSolution(_)) => return Err(NativeSolveError::NoSolution),
             Err(
@@ -205,8 +206,9 @@ pub(super) fn run(
             Ok(graph) => graph,
             Err(stop) => return stopped(stop),
         };
-        let mut rejected = false;
-        for (name, node) in &graph.nodes {
+        let mut rejected = None;
+        let mut retry_preference = None;
+        for (position, (name, node)) in graph.nodes.iter().enumerate() {
             if let Err(stop) = provider.tick() {
                 return stopped(stop);
             }
@@ -251,7 +253,28 @@ pub(super) fn run(
             }) {
                 Ok(ActivePolicyDecision::Allow) => {}
                 Ok(ActivePolicyDecision::Reject) => {
-                    rejected = true;
+                    rejected = Some(position);
+                    break;
+                }
+                Ok(ActivePolicyDecision::RejectWithAlternative(key)) => {
+                    if key == selected {
+                        return Err(NativeSolveError::InvalidInput);
+                    }
+                    let mut alternative = None;
+                    for (index, candidate) in candidates.iter().enumerate() {
+                        provider.tick().map_err(|_| NativeSolveError::Limit)?;
+                        if candidate.candidate.key == key {
+                            if candidate.metadata.is_none_or(|data| data.rejection.is_some()) {
+                                return Err(NativeSolveError::InvalidInput);
+                            }
+                            alternative = Some(index);
+                            break;
+                        }
+                    }
+                    let alternative = alternative.ok_or(NativeSolveError::InvalidInput)?;
+                    provider.text(name).map_err(|_| NativeSolveError::Limit)?;
+                    retry_preference = Some((name.clone(), alternative));
+                    rejected = Some(position);
                     break;
                 }
                 Ok(ActivePolicyDecision::NeedMetadata(key)) => {
@@ -266,7 +289,7 @@ pub(super) fn run(
                 Err(ActivePolicyError::Limit) => return Err(NativeSolveError::Limit),
             }
         }
-        if rejected {
+        if let Some(rejected_position) = rejected {
             charge(&mut usage.terms, graph.nodes.len(), limits.max_nogood_terms)
                 .map_err(|_| NativeSolveError::Limit)?;
             let mut terms = Vec::new();
@@ -277,6 +300,12 @@ pub(super) fn run(
                 provider.text(&name).map_err(|_| NativeSolveError::Limit)?;
                 terms.push((name, node.index));
             }
+            // A witness may change any node: a different parent can make the
+            // rejected candidate legal. Try the actual rejected node first so
+            // transitive, unrelated file alternatives do not trigger builds
+            // before the policy offender is repaired. The complete disjunction
+            // and every fallback witness remain unchanged.
+            terms[..=rejected_position].rotate_right(1);
             if terms.is_empty() || provider.nogoods.borrow().contains(&terms) {
                 return Err(NativeSolveError::InvalidInput);
             }
@@ -285,6 +314,14 @@ pub(super) fn run(
                 .borrow_mut()
                 .try_reserve(1)
                 .map_err(|_| NativeSolveError::Limit)?;
+            // Advice for other projects remains useful while this immutable
+            // input snapshot retries another policy rejection. It never
+            // changes a range, and every assignment is evaluated again.
+            if let Some((name, index)) = retry_preference {
+                let _ = provider.retry_preferences.borrow_mut().insert(name, index);
+            } else {
+                let _ = provider.retry_preferences.borrow_mut().remove(&terms[0].0);
+            }
             provider.nogoods.borrow_mut().push(terms);
             continue;
         }

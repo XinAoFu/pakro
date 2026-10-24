@@ -26,6 +26,11 @@ use crate::programs::query::snapshot::{
 use crate::programs::shared::context::{OperationContext, OperationContextInputs};
 use crate::programs::shared::policy::{AllowedWrites, OperationPolicy, RequestBudget};
 
+// Selection verifies the complete installed package graph locally. A large
+// graph can exceed the old five-second allowance even without network IO.
+// Freeze one bounded deadline at the entry, shared by observation and apply.
+const DIRECTORY_SELECTION_TIMEOUT: Duration = Duration::from_secs(300);
+
 /// The selected shared interpreter of the current directory, described by its
 /// real payload facts. Carrying this value grants no lease.
 pub struct DirectoryPython {
@@ -47,7 +52,7 @@ pub fn is_exact_python_version(raw: &str) -> bool {
 /// Failures of the selection itself degrade to `None` with a warning so the
 /// shell hook stays fast and non-fatal.
 pub fn select_directory_python(commit: bool) -> Result<Option<DirectoryPython>> {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + DIRECTORY_SELECTION_TIMEOUT;
     let observed = match observe_current(deadline) {
         Ok(observed) => observed,
         Err(error) => {
@@ -87,7 +92,7 @@ pub enum DirectoryCommandSelection {
 }
 
 pub fn select_directory_command(command: &str) -> Result<DirectoryCommandSelection> {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + DIRECTORY_SELECTION_TIMEOUT;
     let observed = observe_current(deadline)?;
     select_observed_command(&capture_context(deadline, false)?, &observed, command)
 }

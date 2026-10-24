@@ -72,6 +72,14 @@ pub(crate) struct Install {
     #[usage(long, short = 'n', verbatim_doc_comment)]
     dry_run: bool,
 
+    /// Restore only the four known changed Python 3.11.17+20261013 bytecode files
+    ///
+    /// Requires an explicit full Python version and the exact shared-language
+    /// instance. Uses the verified local archive, without installing packages.
+    /// Combine with --dry-run to check and preview without changing files.
+    #[usage(long, value_name = "INSTANCE", verbatim_doc_comment)]
+    restore_bytecode: Option<String>,
+
     /// Show installation output
     ///
     /// This argument will print backend output such as download, configuration, and compilation output.
@@ -152,12 +160,34 @@ impl Install {
         self.yes |= yes;
     }
 
+    pub(super) fn is_bytecode_recovery(&self) -> bool {
+        self.restore_bytecode.is_some()
+    }
+
+    pub(super) fn inherit_recovery_flags(
+        &mut self,
+        dry_run: bool,
+        force: bool,
+        raw: bool,
+        jobs: Option<usize>,
+    ) {
+        self.dry_run |= dry_run;
+        self.force |= force;
+        self.raw |= raw;
+        self.jobs = self.jobs.or(jobs);
+    }
+
     pub(super) fn is_dry_run(&self) -> bool {
         self.dry_run || self.dry_run_code
     }
 
     #[async_backtrace::framed]
     pub async fn run(mut self) -> Result<()> {
+        // Recovery is deliberately independent of project discovery, legacy
+        // migration, remote resolution, and install/package expansion.
+        if let Some(instance) = &self.restore_bytecode {
+            return self.run_bytecode_recovery(instance);
+        }
         // F2 exact-Python fast path (D10): one explicit python request with a
         // complete version enters before the legacy migration, task-tool
         // collection or any remote resolution; incomplete versions are
@@ -241,6 +271,89 @@ impl Install {
         self.install_config_packages(&config, bare_pins, &runtime_bindings)
             .await?;
         self.hint_missing_system_packages().await;
+        Ok(())
+    }
+
+    fn run_bytecode_recovery(&self, instance: &str) -> Result<()> {
+        eyre::ensure!(
+            !self.force
+                && !self.system
+                && self.shared.is_none()
+                && !self.monorepo
+                && !self.include_task_tools
+                && !self.include_lazy
+                && !self.raw
+                && !self.dry_run_code
+                && self.jobs.is_none()
+                && self.minimum_release_age.is_none()
+                && crate::packages::request::CLI_PACKAGE_ARGS
+                    .get()
+                    .is_none_or(Vec::is_empty),
+            "bytecode recovery does not support installation options or package requests"
+        );
+        let version = match self.tool.as_deref().unwrap_or(&[]) {
+            [single]
+                if single.short == "python"
+                    && !single.ba.has_explicit_backend()
+                    && single.ba.opts.is_none() =>
+            {
+                single.version.as_deref()
+            }
+            [first, second]
+                if first.short == "python"
+                    && !first.ba.has_explicit_backend()
+                    && first.ba.opts.is_none()
+                    && first.version.is_none()
+                    && !second.ba.has_explicit_backend()
+                    && second.ba.opts.is_none()
+                    && second.version.is_none() =>
+            {
+                Some(second.short.as_str())
+            }
+            _ => None,
+        };
+        let version = version.filter(|version| {
+            version
+                .split_once('+')
+                .is_some_and(|(_, build)| !build.is_empty())
+                && crate::programs::directory::is_exact_python_version(version)
+        });
+        eyre::ensure!(
+            version.is_some(),
+            "bytecode recovery requires one complete explicit Python version including its build"
+        );
+        let report = crate::programs::library::restore_python_bytecode(
+            version.expect("validated exact Python recovery request"),
+            instance,
+            self.dry_run,
+        )?;
+        if Settings::get().quiet {
+            return Ok(());
+        }
+        if report.already_healthy {
+            pakroprintln!(
+                "Shared Python {} is already healthy; no files changed",
+                report.instance
+            );
+        } else {
+            pakroprintln!(
+                "{} {} bytecode files in {}",
+                if report.restored {
+                    "Restored"
+                } else {
+                    "Would restore"
+                },
+                report.paths.len(),
+                report.instance
+            );
+            for path in &report.paths {
+                pakroprintln!("  {}", path.display());
+            }
+        }
+        pakroprintln!(
+            "Verified {} unchanged inventory entries",
+            report.unchanged_entries
+        );
         Ok(())
     }
 

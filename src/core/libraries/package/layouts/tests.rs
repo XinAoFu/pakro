@@ -620,3 +620,11 @@ fn f3_failure_after_ready_cas_never_deletes_its_published_tree() {
 }
 
 include!("facts_tests.rs");
+
+mod language_batch;
+
+#[cfg(unix)]
+mod file_descriptors;
+
+#[cfg(target_os = "macos")]
+mod native_link;

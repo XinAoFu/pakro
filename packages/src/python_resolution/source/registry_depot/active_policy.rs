@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::packages::python_resolution::candidate_policy::{
-    ActiveCandidateAssessment, ActiveCandidateContext, CandidateKnowledge, CandidatePolicyError,
-    CandidatePolicyUsage, PolicyNotice, assess_active_candidate,
+    ActiveCandidateAssessment, CandidateKnowledge, CandidatePolicyError, CandidatePolicyUsage,
+    PolicyNotice, assess_cached_candidate,
 };
 use pakro_resolver::python_native::policy::{
     ActiveCandidatePolicy, ActivePolicyDecision, ActivePolicyError, ActivePolicyQuery,
@@ -36,19 +36,23 @@ impl ActiveCandidatePolicy for RegistryActivePolicy<'_, '_, '_> {
         if query.candidates.len() != entry.candidates.len() {
             return Err(ActivePolicyError::InvalidInput);
         }
+        let universe = entry
+            .universe
+            .as_ref()
+            .ok_or(ActivePolicyError::InvalidInput)?;
+        if universe.len() != entry.candidates.len() {
+            return Err(ActivePolicyError::InvalidInput);
+        }
         if project.data.project.files().len() > self.depot.context.limits.candidates.max_files {
             return Err(ActivePolicyError::Limit);
         }
         let mut knowledge = Vec::new();
         knowledge
-            .try_reserve_exact(project.data.project.files().len())
+            .try_reserve_exact(entry.candidates.len())
             .map_err(|_| ActivePolicyError::Limit)?;
-        knowledge.resize(
-            project.data.project.files().len(),
-            CandidateKnowledge::Unknown,
-        );
         let mut selected = None;
-        for (view, actual) in query.candidates.iter().zip(&entry.candidates) {
+        for (position, (view, actual)) in query.candidates.iter().zip(&entry.candidates).enumerate()
+        {
             if !std::ptr::eq(view.candidate, actual) {
                 return Err(ActivePolicyError::InvalidInput);
             }
@@ -58,7 +62,7 @@ impl ActiveCandidatePolicy for RegistryActivePolicy<'_, '_, '_> {
                 .get(&actual.key)
                 .filter(|file| file.project == query.name)
                 .ok_or(ActivePolicyError::InvalidInput)?;
-            if file.file_index >= knowledge.len() {
+            if universe.file_index(position) != Some(file.file_index) {
                 return Err(ActivePolicyError::InvalidInput);
             }
             let expected = self
@@ -77,17 +81,12 @@ impl ActiveCandidatePolicy for RegistryActivePolicy<'_, '_, '_> {
                 }
                 _ => return Err(ActivePolicyError::InvalidInput),
             };
-            knowledge[file.file_index] = value;
+            knowledge.push(value);
             if actual.key == query.selected {
-                selected = Some(file.file_index);
+                selected = Some(position);
             }
         }
         let selected = selected.ok_or(ActivePolicyError::InvalidInput)?;
-        let python = checked_metadata_context(
-            self.depot.environment.view(),
-            self.depot.context.limits.markers,
-        )
-        .map_err(|_| ActivePolicyError::InvalidInput)?;
         let mut constraints = Vec::new();
         if query.constraints.len() > self.depot.context.limits.candidates.max_constraints {
             return Err(ActivePolicyError::Limit);
@@ -96,17 +95,12 @@ impl ActiveCandidatePolicy for RegistryActivePolicy<'_, '_, '_> {
             .try_reserve_exact(query.constraints.len())
             .map_err(|_| ActivePolicyError::Limit)?;
         constraints.extend(query.constraints.iter().map(|constraint| constraint.raw));
-        let assessment = assess_active_candidate(
-            ActiveCandidateContext {
-                project: &project.data.project,
-                supported: self.depot.context.supported,
-                python: &python,
-                policy: self.depot.context.candidate_policy,
-                limits: self.depot.context.limits.candidates,
-            },
+        let assessment = assess_cached_candidate(
+            universe,
             selected,
             &constraints,
             &knowledge,
+            self.depot.context.limits.candidates,
             &mut self.usage.borrow_mut(),
         )
         .map_err(|error| match error {
@@ -120,6 +114,27 @@ impl ActiveCandidatePolicy for RegistryActivePolicy<'_, '_, '_> {
                 Ok(ActivePolicyDecision::Allow)
             }
             ActiveCandidateAssessment::Reject => Ok(ActivePolicyDecision::Reject),
+            ActiveCandidateAssessment::RejectWithAlternative(index) => {
+                let alternative = query
+                    .candidates
+                    .iter()
+                    .enumerate()
+                    .find(|(position, candidate)| {
+                        universe.file_index(*position) == Some(index)
+                            && knowledge[*position] == CandidateKnowledge::Compatible
+                            && candidate.candidate.key != query.selected
+                            && self.depot.files.get(&candidate.candidate.key).is_some_and(|file| {
+                                file.project == query.name && file.file_index == index
+                            })
+                    })
+                    .map(|(_, candidate)| candidate)
+                    .ok_or(ActivePolicyError::InvalidInput)?;
+                // The complete loop above already bound the candidate and
+                // metadata pointers to this project's actual retained owner.
+                Ok(ActivePolicyDecision::RejectWithAlternative(
+                    alternative.candidate.key,
+                ))
+            }
             ActiveCandidateAssessment::NeedMetadata(index) => {
                 let unknown =
                     query

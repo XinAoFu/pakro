@@ -1,61 +1,36 @@
-# F1–F4 完成交接 — 2026-10-20 19:19（Asia/Shanghai）
+# 本轮进度截止：ISAT已在Pakro环境成功运行 — 2026-10-24
 
-## 当前结果
+## 截止与下一步
 
-F1–F4已按2026-10-20用户授权完成本机macOS arm64首版实现、Agent自测与Spec/Standards审查。用户已明确要求提交本轮改动；本次提交仅包含源码、测试源码和开发记录，提交号以git log -1为准，未授权push。工作树最初干净于70f7fbfc7，不reset/stash。原架构D07–D10及PLAN首版边界不变，不自动开始后移任务。
+用户按force hook、sys.executable guard及python main.py命令操作后确认“成功运行了”，明确要求提交Git并在此截止。真实项目完整依赖安装、环境选择和ISAT基础启动的人工验收已通过；本轮不再继续性能调查、自动冷组或其他生态开发。后续任务等待用户新的明确指令。
 
-- F1：目录按真实有效配置、完整版本/来源pin选择已有Python或包布局；缺项只提示，command-not-found/wrapper不隐式补装；成功选择通过同catalog维护关联。
-- F2：显式完整版本/build安装；真实来源/摘要与已有锁pin一致；同版本多build拒绝自动选择；旧force/repair/postinstall/uninstall/purge/rollback/system publication等无许可旁路在副作用前拒绝。
-- F3：原solver/wheel/来源证据核形成真实闭包；包树共享、轻量启动适配，import/console/-m/.pth/原生扩展与循环依赖可用；同权威catalog保存完整精确图及项目选择，不写项目声明或锁、不委托pip/uv。
-- F4：真实内容/当前选择/项目/引用链查询；指定语言/包instance受真实EX和最新引用检查保护；损坏/丢失权威不能当空、活租约/引用拒绝、部分删除撤销Ready；纯Python查询避开旧Tracker写路径。
+本轮提交纳入原F1–F4提交77d5969a8之后的相关源码、测试、开发记录，用户已授权本地Git提交，不push。当前提交号以git log -1为准。真实ISAT目录不在本Git仓库内，不擅自git init或另建仓库。
 
-## 验证证据
+## 实际用户环境
 
-64个不同核心用例全部有GREEN：F1 12、F2 19、F3 21、F4 12。`target/f-core-final-20261020.log`44/44（F1/F2/F4及F3目录，53.6秒）；`f3-accepted-20261020.log`20/21，唯一旧目录fixture使用任意graph常量被强校验拒绝，改为真实fingerprint后已在上述44项GREEN。生产校验未放宽。3条ignored staging助手不计功能数。
+- 项目：`/Users/fuxinao/Projects/ISAT`；pakro.toml已按原mise固定版本补齐24项直接依赖，Python为`3.11.17+20261013`。原源码、mise配置及模型保留。
+- 登记identity：`a4044bf3-f9a8-5f6d-ac3a-b13ccd73ba24`，revision3，关联60个包。
+- 共享语言：`language-670a04e9cf8e3636a5fd4a9fcfcd15e2d2153f1b1acb7be6e0ebd66e9018244e`。用户此前已恢复实际4个发行pyc并保持其余2240项，不重复要求恢复。
+- 受控恢复仍仅限原官方归档SHA `d81d757a9785850393cd695a9a686c765a6370fbdc83738589ef2ecd3e5c44b3` 与该实例，不开放通用repair/force。正常启动保持PYTHONDONTWRITEBYTECODE。
 
-底层/相邻回归：`f-store-final-20261020.log`54/54；`f-final-model-prefix-pipeline-regression-20261020.log`62/62；`f-final-codec-regression-20261020.log`12/12；`f2-native-catalog-regression-20261020.log`26/26。完整性4项均真实RED→GREEN：锁entry build矛盾、图roots/edge摘要、已提交catalog丢失、C4完成后同inode正文篡改。各批存在重叠，不相加冒称全部不同测试。
+## 已完成实现与证据
 
-八条CLI全部通过：
+- registry纯Python.tar.gz的PEP517/legacy构建：初始/动态build requires递归、真实worker隔离、同solver续传、原源码与实际wheel双证据、共享发布与同catalog提交；不委托pip/uv。实际iopath0.1.10、Hydra1.3.7/ANTLR4.9.3核心安装/使用/跨项目复用173.9秒通过。
+- 来源代理/期限、PyYAML多Generator兼容、Simple顶层versions与文件facts兼容、候选成本及回溯修复；resolver72、candidate_policy20、registry55相关147项通过。多项目排序建议仅同一输入快照内保留，完整候选、nogood、预算与每轮策略保留。
+- 原生相邻加载COW布局；逐包重复语言全量检查收束为纯物化批次前后，独立入口和发布前/后保护保留。
+- EMFILE现场修复：用户soft256/hard unlimited，Pakro仅把自身soft准备至min(hard,4096)，hard/父shell不变，高soft不降；64真包完整布局、canonical获取和Drop后FD恢复及真正CLI继承均通过。不是17N FD池优化或硬256图支持。
+- 环境选择现场修复：包full walk用私有held FD视图、前后完整store/manifest核对，组内pending捕获后一次full再交出lease；独立获取及跨commit重获保留。选择入口一次冻结300秒协作式总期限，原offline/write/guard与CLI快路保留，无跨操作hash缓存。
+- 最后相关组：包库44通过/1辅助ignored、directory3通过，main all-features成功，整组409.5秒；真实只读环境选择32.71秒通过，之后用户实际启动成功。未重跑未变化的长测试。Cargo发行清单漏hook.py已实际list RED→GREEN补齐，未改变已启动成功的业务逻辑。
 
-| 用例 | target日志 | 秒 |
-| --- | --- | --- |
-| F1目录选择 | f1-cli-accepted-20261020.log | 10.7 |
-| F1命令查找零补装 | f1-cli-command-accepted-20261020.log | 60.9 |
-| F2官方真实下载/运行/双项目共享/重装复用 | f2-cli-socks-accepted-20261020.log | 300.9 |
-| F3共享wheel/脚本/.pth/组件复用 | f3-cli-shared-accepted-20261020.log | 88.1 |
-| F3 deps不改声明/锁 | f3-cli-deps-preserve-accepted-20261020.log | 121.1 |
-| F3不调用外部manager | f3-cli-no-manager-accepted-20261020.log | 120.3 |
-| F4查询/引用拒删/明确instance实际删除 | f4-cli-accepted-20261020.log | 53.9 |
-| F4纯Python查询不初始化/登记/写元数据 | f4-query-cli-green-20261020.log | 7.8 |
+## 明确未覆盖与后续边界
 
-额外实际公开PyPI `idna==3.10` 安装、中文域名编码及项目/包查询通过64.5秒（`target/f3-live-pypi-20261020.log`）。包真实联网获取，未做本地Simple替换；运行时复用已授权原PBS通过原内核暂存。
-
-主CLI编译 `f-cli-final-build-20261020.log`通过72.9秒；测试编译 `f-final-lib-build-20261020.log`通过69.6秒；注册检查 `f-final-registered-20261020.log`通过；格式 `f-final-format-green-20261020.log`通过，git diff--check、全部变更shell语法及fixture Python AST均通过。最后仅query/mod.rs声明排序，无行为变更，未为此重复重编。原有dead_code/linker/future warnings保留，不代表全仓无warning。
-
-## 网络与边界
-
-HTTP代理正式组曾在catalog send失败；独立同native client诊断捕获macOS native TLS -9806连接关闭（timeout=false），随后同配置200。一次协议对照官方tag两协议均200，checksum HTTP握手失败、SOCKS200；不据此声称所有历史失败同因或长期网络稳定。完整官方CLI通过机器已有SOCKS接入，未改来源、版本、摘要、期限或加入生产重试策略。需复跑该机器网络用例时可用：
-
-```bash
-cd '/Users/fuxinao/文件/project/pakro'
-HTTPS_PROXY=socks5h://127.0.0.1:7892 HTTP_PROXY=socks5h://127.0.0.1:7892 tests/e2e/run_test tests/e2e/cli/test_f2_exact_python_install
-```
-
-仅验本机macOS arm64、官方PBS CPython、单公开Simple兼容wheel首版。Linux/PyPy完整矩阵、源码/URL/Git/editable/Conda、多私有源、完整锁改写/恢复、prune及外部进程全生命周期按PLAN后移；现有wheel核的ASCII数据根约束保留。此首版完成不等于长期架构全部完成。
+- 先前完整自动冷组达到600秒已停，仍未完成；不能回写为自动全套通过。
+- 用户“成功运行”只确认基础启动，不证明模型推理、NMS/标注格式导出全套自动断言、完整ISAT图重复/跨项目零获取均已通过。S4按手动安装/选择/启动目标收尾，这些单列为未覆盖项。
+- worker仍denyfork，C/C++/Rust编译器源码后端未开放；本次ISAT两个必要源码包为纯Python，其余使用匹配平台wheel。
+- 完整选择仍约33秒；FD锚/重复持有进一步优化、下载性能后移，不自动继续。验收driver有本机测试binary哈希/归档/ISAT/代理路径，不能称跨机器直接可跑。
 
 ## 执行与存储
 
-本轮全部命令组少于600秒，未触发用户要求的10分钟停机交接。Agent未来仍遵守用户最新授权和600秒墙钟上限；用独立ASCII TMPDIR和进程组控制，只停止自己启动的进程，不拆分绕过长测试。统一构建配置：
+所有Agent执行组仍≤600秒，超时停止并联系用户；单Cargo、同target、CARGO_INCREMENTAL=0、DEV/TEST_DEBUG=0。完成组owned临时树已清理，无后台Agent安装/编译/下载。target、有效原发行输入、用户库和临时测试输出不入Git；保留有效main/测试缓存，incremental为空，不清用户数据。
 
-```bash
-export CARGO_TARGET_DIR='/Users/fuxinao/文件/project/pakro/target'
-export CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
-```
-
-`tests/scripts/f-manual-check.sh`支持f1–f4、--list、--format-only与第二参数--lib-only；F4另外运行pakro-store用例，不混入pakro数量。Agent本轮以 `/usr/bin/python3 /tmp/pakro-f-bounded-20261020.py LOG COMMAND...`加600秒上限；不要使用可能被用户shim改写的裸python3运行该编排器。
-
-最终target约6.0GiB；已精确清重复profile4426.7MiB、旧测试临时库356.8MiB（合计约4.67GiB），另清确认归属的诊断可执行约36.96MiB。报告在target/*cleanup-20261020.json及f2-diagnostic-cleanup-20261020.log。所有本轮bounded-check临时根剩余0，未留测试/编译进程。保留可用main/test缓存和日志，没有清用户库。
-
-原输入保留：`/Users/fuxinao/文件/project/pakro_test/cpython-3.13.16+20261013-aarch64-apple-darwin-install_only_stripped.tar.gz`，25268458字节，SHA256 `16a5332fb0dcb77f163fc8f8cbccd95be1644cc53e68e5d2a79f50afd6680a0e`。
-
-主日志 `log/2026-10-20-1-F1至F4接续.md`；包库/依赖图/F4各有当日日志。当前没有首版待完成事项，后续按用户新指令安排。
+恢复读取：本文件 → PLAN S当前截止 → log/2026-10-24-4-ISAT验收截止与提交.md；详细修复见同日1/2/3日志，前轮字节码/来源/S1–S3见2026-10-20至23按时间追加日志。历史log/ADR只追加不改写。

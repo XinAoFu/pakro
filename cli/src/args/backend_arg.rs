@@ -828,7 +828,8 @@ impl BackendArg {
     /// When false and the tool is not plugin-based, it may resolve to the current
     /// registry backend on next operation, allowing automatic backend migration
     /// when registry/ is updated.
-    pub(crate) fn has_explicit_backend(&self) -> bool {
+    #[doc(hidden)]
+    pub fn has_explicit_backend(&self) -> bool {
         self.resolution.explicit
     }
 

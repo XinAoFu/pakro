@@ -177,16 +177,30 @@ pub fn prepare_current_project(
 }
 
 fn capture_install_context() -> Result<OperationContext> {
-    use crate::config::{Settings, SettingsExt};
+    let settings = crate::config::Settings::get();
+    capture_install_context_using(
+        &settings,
+        crate::dirs::DATA.to_path_buf(),
+        crate::dirs::CACHE.to_path_buf(),
+    )
+}
+
+fn capture_install_context_using(
+    settings: &crate::config::Settings,
+    data_root: std::path::PathBuf,
+    cache_root: std::path::PathBuf,
+) -> Result<OperationContext> {
+    use crate::config::SettingsExt;
     use crate::programs::{
         AllowedWrites, OperationContextInputs, OperationPolicy, RequestBudget,
         capture_operation_context,
     };
-    use std::time::{Duration, Instant};
-    let deadline = Instant::now() + Duration::from_secs(600);
-    let settings = Settings::get();
+    use std::time::Instant;
+    let deadline = Instant::now()
+        .checked_add(settings.http_download_timeout())
+        .context("shared Python installation deadline overflow")?;
     Ok(capture_operation_context(OperationContextInputs {
-        settings: &settings,
+        settings,
         policy: OperationPolicy {
             locked: settings.locked,
             offline: settings.offline(),
@@ -205,8 +219,8 @@ fn capture_install_context() -> Result<OperationContext> {
             },
         },
         cancellation: tokio_util::sync::CancellationToken::new(),
-        data_root: crate::dirs::DATA.to_path_buf(),
-        cache_root: crate::dirs::CACHE.to_path_buf(),
+        data_root,
+        cache_root,
         python_sources: Some(public_sources()?),
         python_target_description: None,
     })?)
@@ -402,13 +416,16 @@ async fn resolve_and_commit(
     use pakro_index::artifact::NetworkPolicy;
     use pakro_index::python_source::AuthScopeKey;
     use pakro_index::simple::{
-        AuthOriginGrants, PythonSourceSession, SimpleFetchPolicy, SimpleHttpConfig,
-        SimpleIndexClient, SourceFileSession,
+        AuthOriginGrants, PythonSourceSession, SimpleFetchPolicy, SimpleIndexClient,
+        SourceFileSession,
     };
     observed.recheck()?;
     let cache = context.requested_cache_root().join("shared-python");
     let scratch = cache.join("scratch");
-    let client = SimpleIndexClient::new(cache.join("simple"), SimpleHttpConfig::default())?;
+    let client = SimpleIndexClient::new(
+        cache.join("simple"),
+        shared_registry_http_config(context.settings()),
+    )?;
     let sources = context.python_sources()?;
     ensure!(
         sources.registries.len() == 1,
@@ -444,7 +461,7 @@ async fn resolve_and_commit(
         candidate_policy: CandidatePolicy {
             prereleases: Prereleases::IfNoMatchingFinal,
             yanked: Yanked::Disallow,
-            sdists: Sdists::Exclude,
+            sdists: Sdists::Include,
             installed_version: None,
         },
         supported: language.target().supported(),
@@ -580,12 +597,134 @@ impl pakro_index::simple::SourceRequestRouter for FrozenRouter<'_> {
     }
 }
 
+fn shared_registry_http_config(
+    settings: &crate::config::Settings,
+) -> pakro_index::simple::SimpleHttpConfig {
+    use crate::config::SettingsExt;
+
+    pakro_index::simple::SimpleHttpConfig {
+        connect_timeout: settings.http_timeout(),
+        read_timeout: Some(settings.http_timeout()),
+        request_timeout: settings.http_download_timeout(),
+        use_system_proxy: true,
+        ..pakro_index::simple::SimpleHttpConfig::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::FrozenConfigDiscovery;
     use crate::libraries::project::snapshot::{ReadPolicy, observe_project};
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn f3_registry_transport_uses_frozen_application_timeouts() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        let mut settings = crate::config::Settings::default();
+        settings.http_timeout = "2m".into();
+        settings.http_download_timeout = "11m".into();
+        let context =
+            capture_install_context_using(&settings, root.join("data"), root.join("cache"))
+                .unwrap();
+        settings.http_timeout = "1s".into();
+        settings.http_download_timeout = "1s".into();
+        let config = shared_registry_http_config(context.settings());
+        assert_eq!(config.connect_timeout, Duration::from_secs(120));
+        assert_eq!(config.read_timeout, Some(Duration::from_secs(120)));
+        assert_eq!(config.request_timeout, Duration::from_secs(660));
+        assert!(config.use_system_proxy);
+        assert!(!root.join("data").exists());
+        assert!(!root.join("cache").exists());
+    }
+
+    #[cfg(all(unix, feature = "self_update"))]
+    #[tokio::test]
+    async fn f2_install_context_configured_deadline_stops_acquire_before_ready() {
+        use crate::artifact_snapshot::spool_verified_reader;
+        use crate::libraries::language::repository::LanguageRepository;
+        use crate::libraries::language::repository::tests::{archive, install_spec};
+        use crate::programs::install::runtime::prepare_language;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        let mut settings = crate::config::Settings::default();
+        settings.http_download_timeout = "1s".into();
+        let context =
+            capture_install_context_using(&settings, root.join("data"), root.join("cache"))
+                .unwrap();
+        let bytes = archive("3.15.0");
+        let spec = install_spec(&bytes);
+        let entered = AtomicBool::new(false);
+        let result = prepare_language(&spec, &context, || async {
+            entered.store(true, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_millis(1500)).await;
+            spool_verified_reader(
+                bytes.as_slice(),
+                spec.plan().source().filename(),
+                spec.plan().source().digest(),
+                1024 * 1024,
+                context.requested_cache_root(),
+            )
+        })
+        .await;
+        // Drop a mistakenly successful lease before independently reopening
+        // the authoritative store, so this checks real publication state.
+        let failure = result.err();
+        assert!(
+            entered.load(Ordering::SeqCst),
+            "the real acquire closure must run"
+        );
+        settings.http_download_timeout = "10s".into();
+        let inspection =
+            capture_install_context_using(&settings, root.join("data"), root.join("cache"))
+                .unwrap();
+        let published = LanguageRepository::open_readonly(&inspection)
+            .unwrap()
+            .enumerate_published()
+            .unwrap();
+        assert!(
+            published.is_empty(),
+            "an acquire that exceeds the configured deadline must not publish Ready"
+        );
+        let error = failure.expect("the configured deadline must stop delayed acquisition");
+        assert!(
+            format!("{error:#}").contains("language preparation timed out"),
+            "the real language preparation deadline must fail: {error:#}"
+        );
+    }
+
+    #[test]
+    fn f2_install_context_preserves_longer_configured_deadline_and_frozen_settings() {
+        use crate::config::SettingsExt;
+
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        let mut settings = crate::config::Settings::default();
+        settings.http_download_timeout = "11m".into();
+        let configured = settings.http_download_timeout();
+        let before = Instant::now();
+        let context =
+            capture_install_context_using(&settings, root.join("data"), root.join("cache"))
+                .unwrap();
+        let after = Instant::now();
+        assert!(
+            context.policy().deadline >= before.checked_add(configured).unwrap()
+                && context.policy().deadline <= after.checked_add(configured).unwrap(),
+            "the configured invocation budget must not be replaced by a 600-second cap"
+        );
+        settings.http_download_timeout = "1s".into();
+        assert_eq!(context.settings().http_download_timeout(), configured);
+        let cloned = context.clone();
+        assert!(context.same_invocation(&cloned));
+        assert_eq!(cloned.policy().deadline, context.policy().deadline);
+        context.cancellation_token().cancel();
+        assert!(cloned.checkpoint().is_err());
+        assert!(!root.join("data").exists());
+        assert!(!root.join("cache").exists());
+    }
 
     #[test]
     fn f3_project_inputs_are_exact_before_any_library_write() {

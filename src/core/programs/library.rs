@@ -1,4 +1,4 @@
-//! Public reports for local library queries and explicitly targeted removal.
+//! Public reports for local queries, targeted removal and approved recovery.
 use eyre::Result;
 use serde::Serialize;
 use std::path::PathBuf;
@@ -19,6 +19,62 @@ pub struct LibraryEntry {
 
 pub fn inventory() -> Result<Vec<LibraryEntry>> {
     crate::programs::query::inventory::inventory(&context(false)?)
+}
+
+/// This exception is bound to the exact PBS artifact and instance approved
+/// for the four-file ISAT recovery. It is not a general repair capability.
+#[derive(Debug, Serialize)]
+pub struct BytecodeRecoveryReport {
+    pub instance: String,
+    pub paths: Vec<PathBuf>,
+    pub unchanged_entries: usize,
+    pub restored: bool,
+    pub already_healthy: bool,
+    pub resumed: bool,
+}
+
+pub fn restore_python_bytecode(
+    version: &str,
+    instance: &str,
+    dry_run: bool,
+) -> Result<BytecodeRecoveryReport> {
+    use crate::libraries::language::repository::LanguageRepository;
+    eyre::ensure!(
+        version == "3.11.17+20261013",
+        "bytecode recovery supports only the approved Python 3.11.17+20261013"
+    );
+    eyre::ensure!(
+        instance == "language-670a04e9cf8e3636a5fd4a9fcfcd15e2d2153f1b1acb7be6e0ebd66e9018244e",
+        "bytecode recovery requires the exact approved shared Python instance"
+    );
+    let context = context(!dry_run)?;
+    let repository = LanguageRepository::open_readonly(&context)?;
+    let target = repository
+        .enumerate_published()
+        .map_err(|error| eyre::eyre!("cannot inspect the recovery target: {error:?}"))?
+        .into_iter()
+        .find(|target| target.key().filename() == instance)
+        .ok_or_else(|| eyre::eyre!("the approved Python instance is not published locally"))?;
+    eyre::ensure!(
+        target.version() == "3.11.17"
+            && target.build() == Some("20261013")
+            && target.matches_host_platform()
+            && target.spec().plan().source().filename()
+                == "cpython-3.11.17+20261013-aarch64-apple-darwin-install_only.tar.gz"
+            && target.spec().plan().source().digest().to_string()
+                == "sha256-d81d757a9785850393cd695a9a686c765a6370fbdc83738589ef2ecd3e5c44b3",
+        "the local runtime does not match the approved bytecode recovery artifact"
+    );
+    let report =
+        crate::libraries::language::recovery::restore_bytecode(&context, &target, dry_run)?;
+    Ok(BytecodeRecoveryReport {
+        instance: report.instance,
+        paths: report.paths,
+        unchanged_entries: report.unchanged_entries,
+        restored: report.restored,
+        already_healthy: report.already_healthy,
+        resumed: report.resumed,
+    })
 }
 
 fn context(write: bool) -> Result<crate::programs::OperationContext> {

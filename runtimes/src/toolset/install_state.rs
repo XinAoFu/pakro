@@ -260,6 +260,19 @@ async fn init_plugins() -> MutexResult<InstallStatePlugins> {
 }
 
 fn load_plugins() -> MutexResult<InstallStatePlugins> {
+    load_plugins_with_cleanup(true)
+}
+
+/// Populate only the local plugin types needed while decoding arguments.
+/// Explicit local operations must not scan installations, migrate metadata,
+/// execute plugin scripts or remove plugin directories during parsing.
+#[doc(hidden)]
+pub fn init_readonly_plugin_metadata() -> Result<()> {
+    load_plugins_with_cleanup(false)?;
+    Ok(())
+}
+
+fn load_plugins_with_cleanup(remove_banned: bool) -> MutexResult<InstallStatePlugins> {
     if let Some(plugins) = INSTALL_STATE_PLUGINS
         .lock()
         .expect("INSTALL_STATE_PLUGINS lock failed")
@@ -273,7 +286,7 @@ fn load_plugins() -> MutexResult<InstallStatePlugins> {
         .filter_map(|d| {
             time!("init_plugins {d}");
             let path = dirs::PLUGINS.join(&d);
-            if is_banned_plugin(&path) {
+            if remove_banned && is_banned_plugin(&path) {
                 info!("removing banned plugin {d}");
                 let _ = file::remove_all(&path);
                 None

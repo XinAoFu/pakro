@@ -611,6 +611,69 @@ fn sessions_retain_both_validated_comment_footer_boundaries() {
     }
 }
 
+#[test]
+fn s3_inspected_wheel_duplicate_preserves_actual_comment_and_footer_bytes() {
+    for self_sized in [false, true] {
+        let bytes = comment_decoy(wheel(base()), self_sized);
+        let expected_digest = Digest::from_sha256_bytes(&bytes);
+        let (root, archive) = inspected(&bytes);
+        let (mut retained, mut copy) = archive
+            .duplicate_for_attempt(
+                &tags(),
+                WheelLimits::default(),
+                root.path(),
+                std::time::Instant::now() + std::time::Duration::from_secs(5),
+                bytes.len() as u64,
+            )
+            .unwrap();
+        for archive in [&mut retained, &mut copy] {
+            assert_eq!(archive.digest(), expected_digest);
+            assert_eq!(archive.size(), bytes.len() as u64);
+            let module = index(archive, MODULE);
+            assert_eq!(
+                archive
+                    .with_members(|session| session.read_member(module, 64))
+                    .unwrap(),
+                PAYLOAD
+            );
+        }
+    }
+}
+
+#[test]
+fn s3_inspected_wheel_duplicate_refuses_budget_and_deadline_before_writing() {
+    let bytes = wheel(base());
+    for expired in [false, true] {
+        let (root, archive) = inspected(&bytes);
+        let absent = root.path().join("absent");
+        let deadline = if expired {
+            std::time::Instant::now() - std::time::Duration::from_secs(1)
+        } else {
+            std::time::Instant::now() + std::time::Duration::from_secs(5)
+        };
+        let error = archive
+            .duplicate_for_attempt(
+                &tags(),
+                WheelLimits::default(),
+                &absent,
+                deadline,
+                if expired {
+                    bytes.len() as u64
+                } else {
+                    bytes.len() as u64 - 1
+                },
+            )
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains(if expired { "deadline" } else { "byte limit" }),
+            "{error}"
+        );
+        assert!(!absent.exists());
+    }
+}
+
 fn zip64(mut bytes: Vec<u8>) -> Vec<u8> {
     let start = bytes.len() - 22;
     let mut end = bytes[start..].to_vec();

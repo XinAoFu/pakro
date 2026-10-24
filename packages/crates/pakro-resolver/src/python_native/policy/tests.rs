@@ -108,6 +108,419 @@ fn policy_rejection_chooses_a_final_without_changing_the_candidate_universe() {
 }
 
 #[test]
+fn policy_rejection_does_not_request_an_unrelated_same_version_source_alternative() {
+    for policy_name in ["a-policy", "z-policy"] {
+        let mut d = Depot::default();
+        // File identities remain distinct even when their distribution versions
+        // match: the preferred wheel is known, while the source alternative would
+        // require the caller to fetch and build it for metadata.
+        d.candidate("anyio", "4.15.1", 1, Some(vec![]));
+        d.candidate("anyio", "4.15.1", 2, None);
+        d.candidate(policy_name, "2.0rc1", 3, Some(vec![]));
+        d.candidate(policy_name, "1.0", 4, Some(vec![]));
+        d.candidate(
+            "app",
+            "1.0",
+            5,
+            Some(vec![req("anyio", "==4.15.1"), req(policy_name, ">=1")]),
+        );
+        // Both competing distributions must be transitive: on a policy retry,
+        // PubGrub discovers their IDs after the root's nogood witness package.
+        let roots = [req("app", "==1.0")];
+        let p = Policy(|q: ActivePolicyQuery<'_>| {
+            Ok(if q.name == policy_name && q.selected == key(3) {
+                ActivePolicyDecision::Reject
+            } else {
+                ActivePolicyDecision::Allow
+            })
+        });
+
+        let step = solve(&roots, &d, &p).unwrap();
+        let SolveStep::Complete(selected) = step else {
+            panic!("repairing {policy_name} must not request unrelated source metadata: {step:?}")
+        };
+        assert_eq!(selected.selected.len(), 3);
+        assert_eq!(
+            selected
+                .selected
+                .iter()
+                .find(|node| node.name == "anyio")
+                .unwrap()
+                .key,
+            key(1),
+            "unrelated wheel changed while repairing {policy_name}"
+        );
+        assert_eq!(
+            selected
+                .selected
+                .iter()
+                .find(|node| node.name == policy_name)
+                .unwrap()
+                .key,
+            key(4)
+        );
+    }
+}
+
+#[test]
+fn policy_rejection_repairs_the_rejected_node_within_two_rounds() {
+    for policy_name in ["a-policy", "z-policy"] {
+        let mut d = Depot::default();
+        d.candidate("anyio", "4.15.1", 1, Some(vec![]));
+        d.candidate("anyio", "4.15.1", 2, Some(vec![]));
+        d.candidate(policy_name, "2.0rc1", 3, Some(vec![]));
+        d.candidate(policy_name, "1.0", 4, Some(vec![]));
+        d.candidate(
+            "app",
+            "1.0",
+            5,
+            Some(vec![req("anyio", "==4.15.1"), req(policy_name, ">=1")]),
+        );
+        let roots = [req("app", "==1.0")];
+        let p = Policy(|q: ActivePolicyQuery<'_>| {
+            Ok(if q.name == policy_name && q.selected == key(3) {
+                ActivePolicyDecision::Reject
+            } else {
+                ActivePolicyDecision::Allow
+            })
+        });
+
+        let step = solve_step_with_policy(
+            &roots,
+            &d,
+            &p,
+            Default::default(),
+            NativePolicyLimits {
+                max_rounds: 2,
+                ..Default::default()
+            },
+        )
+        .unwrap_or_else(|error| {
+            panic!("one rejection of {policy_name} must be repaired within two rounds: {error:?}")
+        });
+        let SolveStep::Complete(selected) = step else {
+            panic!("all candidate metadata is already known: {step:?}")
+        };
+        assert_eq!(selected.selected.len(), 3);
+        assert_eq!(
+            selected
+                .selected
+                .iter()
+                .find(|node| node.name == "anyio")
+                .unwrap()
+                .key,
+            key(1),
+            "unrelated wheel changed while repairing {policy_name}"
+        );
+        assert_eq!(
+            selected
+                .selected
+                .iter()
+                .find(|node| node.name == policy_name)
+                .unwrap()
+                .key,
+            key(4)
+        );
+    }
+}
+
+#[test]
+fn s4_policy_alternative_prefers_known_final_before_unknown_same_version_source() {
+    for with_extra in [false, true] {
+        let mut d = Depot::default();
+        d.candidate("demo", "2.0rc1", 1, Some(vec![]));
+        d.candidate("demo", "2.0rc1", 2, None);
+        d.candidate("demo", "1.0", 3, Some(vec![]));
+        let roots = [Requirement {
+            requested_extras: if with_extra { vec!["fast".into()] } else { vec![] },
+            ..req("demo", ">=1")
+        }];
+        let p = Policy(|q: ActivePolicyQuery<'_>| {
+            Ok(if q.selected == key(1) {
+                ActivePolicyDecision::RejectWithAlternative(key(3))
+            } else {
+                ActivePolicyDecision::Allow
+            })
+        });
+        let step = solve(&roots, &d, &p).unwrap();
+        let SolveStep::Complete(selected) = step else {
+            panic!("known eligible final must precede unknown same-version source: {step:?}")
+        };
+        assert_eq!(selected.selected.len(), 1);
+        assert_eq!(selected.selected[0].key, key(3));
+        assert_eq!(selected.selected[0].requested_extras, roots[0].requested_extras);
+        assert_eq!(d.projects["demo"].len(), 3, "a preference must not remove candidates");
+        assert!(!d.metadata.contains_key(&key(2)));
+    }
+}
+
+#[test]
+fn s4_policy_alternative_keeps_independent_project_advice_across_retries() {
+    let mut d = Depot::default();
+    d.candidate("a-policy", "2.0rc1", 1, Some(vec![]));
+    d.candidate("a-policy", "2.0rc1", 2, None);
+    d.candidate("a-policy", "1.0", 3, Some(vec![]));
+    d.candidate("z-policy", "2.0rc1", 4, Some(vec![]));
+    d.candidate("z-policy", "2.0rc1", 5, None);
+    d.candidate("z-policy", "1.0", 6, Some(vec![]));
+    d.candidate(
+        "app",
+        "1.0",
+        7,
+        Some(vec![req("a-policy", ">=1"), req("z-policy", ">=1")]),
+    );
+    let advised = RefCell::new(Vec::new());
+    let p = Policy(|q: ActivePolicyQuery<'_>| {
+        let alternative = match (q.name, q.selected) {
+            ("a-policy", selected) if selected == key(1) => Some(key(3)),
+            ("z-policy", selected) if selected == key(4) => Some(key(6)),
+            _ => None,
+        };
+        Ok(if let Some(alternative) = alternative {
+            advised.borrow_mut().push(q.selected);
+            ActivePolicyDecision::RejectWithAlternative(alternative)
+        } else {
+            ActivePolicyDecision::Allow
+        })
+    });
+    let step = solve(&[req("app", "==1.0")], &d, &p).unwrap();
+    let SolveStep::Complete(selected) = step else {
+        panic!("repairing another project must not forget the earlier known final: {step:?}")
+    };
+    assert!(advised.borrow().contains(&key(1)));
+    assert!(advised.borrow().contains(&key(4)));
+    assert_eq!(selected.selected.len(), 3);
+    for (name, expected) in [("a-policy", key(3)), ("z-policy", key(6))] {
+        assert_eq!(
+            selected.selected.iter().find(|node| node.name == name).unwrap().key,
+            expected
+        );
+    }
+    assert!(!d.metadata.contains_key(&key(2)));
+    assert!(!d.metadata.contains_key(&key(5)));
+}
+
+#[test]
+fn s4_policy_alternative_does_not_escape_its_input_snapshot() {
+    let mut d = Depot::default();
+    d.candidate("demo", "2.0rc1", 1, Some(vec![]));
+    d.candidate("demo", "2.0rc1", 2, None);
+    d.candidate("demo", "1.0", 3, Some(vec![]));
+    let roots = [req("demo", ">=1")];
+    let p = Policy(|q: ActivePolicyQuery<'_>| {
+        Ok(if q.selected == key(1) {
+            ActivePolicyDecision::RejectWithAlternative(key(3))
+        } else {
+            ActivePolicyDecision::Allow
+        })
+    });
+    assert_eq!(plan(&roots, &d, &p).selected[0].key, key(3));
+    // A second solve step gets its own provider even when roots and metadata
+    // are identical. The former advice is neither candidate order nor truth.
+    assert_eq!(plan(&roots, &d, &allow()).selected[0].key, key(1));
+}
+
+#[test]
+fn s4_policy_generic_rejection_preserves_other_project_advice_and_source_fallback() {
+    let mut d = Depot::default();
+    d.candidate("a-policy", "2.0rc1", 1, Some(vec![]));
+    d.candidate("a-policy", "2.0rc1", 2, None);
+    d.candidate("a-policy", "1.0", 3, Some(vec![]));
+    d.candidate("z-policy", "2.0rc1", 4, Some(vec![]));
+    d.candidate("z-policy", "2.0rc1", 5, None);
+    d.candidate("z-policy", "1.0", 6, Some(vec![]));
+    d.candidate(
+        "app",
+        "1.0",
+        7,
+        Some(vec![req("a-policy", ">=1"), req("z-policy", ">=1")]),
+    );
+    let generic_rejection = RefCell::new(false);
+    let p = Policy(|q: ActivePolicyQuery<'_>| {
+        Ok(match q.selected {
+            selected if selected == key(1) => ActivePolicyDecision::RejectWithAlternative(key(3)),
+            selected if selected == key(4) => ActivePolicyDecision::RejectWithAlternative(key(6)),
+            selected if selected == key(6) => {
+                *generic_rejection.borrow_mut() = true;
+                ActivePolicyDecision::Reject
+            }
+            _ => ActivePolicyDecision::Allow,
+        })
+    });
+    assert_eq!(
+        solve(&[req("app", "==1.0")], &d, &p).unwrap(),
+        SolveStep::NeedMetadata(key(5)),
+        "revoking z-policy advice must not fetch a-policy's unrelated source"
+    );
+    assert!(*generic_rejection.borrow());
+}
+
+#[test]
+fn s4_policy_replacing_alternative_preserves_other_project_advice_and_rechecks_policy() {
+    let mut d = Depot::default();
+    d.candidate("a-policy", "2.0rc1", 1, Some(vec![]));
+    d.candidate("a-policy", "2.0rc1", 2, None);
+    d.candidate("a-policy", "1.0", 3, Some(vec![]));
+    d.candidate("z-policy", "2.0rc1", 4, Some(vec![]));
+    d.candidate("z-policy", "2.0rc1", 5, None);
+    d.candidate("z-policy", "1.0", 6, Some(vec![]));
+    d.candidate("z-policy", "0.9", 8, Some(vec![]));
+    d.candidate(
+        "app",
+        "1.0",
+        7,
+        Some(vec![req("a-policy", ">=1"), req("z-policy", ">=0.9")]),
+    );
+    let replaced = RefCell::new(false);
+    let p = Policy(|q: ActivePolicyQuery<'_>| {
+        Ok(match q.selected {
+            selected if selected == key(1) => ActivePolicyDecision::RejectWithAlternative(key(3)),
+            selected if selected == key(4) => ActivePolicyDecision::RejectWithAlternative(key(6)),
+            selected if selected == key(6) => {
+                *replaced.borrow_mut() = true;
+                ActivePolicyDecision::RejectWithAlternative(key(8))
+            }
+            _ => ActivePolicyDecision::Allow,
+        })
+    });
+    let selected = plan(&[req("app", "==1.0")], &d, &p);
+    assert!(*replaced.borrow(), "advice must not bypass the next policy assessment");
+    for (name, expected) in [("a-policy", key(3)), ("z-policy", key(8))] {
+        assert_eq!(
+            selected.selected.iter().find(|node| node.name == name).unwrap().key,
+            expected
+        );
+    }
+    assert!(!d.metadata.contains_key(&key(2)));
+    assert!(!d.metadata.contains_key(&key(5)));
+}
+
+#[test]
+fn s4_policy_alternative_rejects_foreign_selected_unknown_or_incompatible_hints() {
+    let mut d = Depot::default();
+    d.candidate("demo", "2.0rc1", 1, Some(vec![]));
+    d.candidate("demo", "2.0rc1", 2, None);
+    d.candidate("demo", "1.0", 3, Some(vec![]));
+    d.candidate("demo", "0.9", 4, Some(vec![]));
+    d.metadata.get_mut(&key(3)).unwrap().rejection = Some(CandidateRejection::RequiresPython);
+    d.candidate("other", "1.0", 5, Some(vec![]));
+    let roots = [req("demo", ">=1")];
+    for hint in [key(99), key(5), key(1), key(2), key(3)] {
+        let p = Policy(move |q: ActivePolicyQuery<'_>| {
+            Ok(if q.name == "demo" && q.selected == key(1) {
+                ActivePolicyDecision::RejectWithAlternative(hint)
+            } else {
+                ActivePolicyDecision::Allow
+            })
+        });
+        assert_eq!(
+            solve(&roots, &d, &p).unwrap_err(),
+            NativeSolveError::InvalidInput,
+            "invalid alternative must not become an implicit selection"
+        );
+    }
+}
+
+#[test]
+fn s4_policy_alternative_attempts_final_but_keeps_source_when_final_is_unsatisfiable() {
+    struct TracedDepot<'a> {
+        inner: &'a Depot,
+        project_reads: RefCell<Vec<String>>,
+    }
+    impl MetadataDepot for TracedDepot<'_> {
+        fn project(&self, name: &str) -> Option<&[CandidateVersion]> {
+            self.project_reads.borrow_mut().push(name.into());
+            self.inner.project(name)
+        }
+        fn metadata(&self, candidate: CandidateKey) -> Option<&CandidateMetadata> {
+            self.inner.metadata(candidate)
+        }
+    }
+    let mut d = Depot::default();
+    d.candidate("demo", "2.0rc1", 1, Some(vec![]));
+    d.candidate("demo", "2.0rc1", 2, None);
+    d.candidate("demo", "1.0", 3, Some(vec![req("impossible", ">=1")]));
+    d.projects.insert("impossible".into(), vec![]);
+    let traced = TracedDepot {
+        inner: &d,
+        project_reads: RefCell::new(vec![]),
+    };
+    let p = Policy(|q: ActivePolicyQuery<'_>| {
+        Ok(if q.selected == key(1) {
+            ActivePolicyDecision::RejectWithAlternative(key(3))
+        } else {
+            ActivePolicyDecision::Allow
+        })
+    });
+    let step = solve_step_with_policy(
+        &[req("demo", ">=1")],
+        &traced,
+        &p,
+        Default::default(),
+        Default::default(),
+    )
+    .unwrap();
+    assert_eq!(step, SolveStep::NeedMetadata(key(2)));
+    assert!(
+        traced.project_reads.borrow().iter().any(|name| name == "impossible"),
+        "the observed final must be tried before the still-available source"
+    );
+}
+
+#[test]
+fn s4_policy_alternative_outside_current_range_keeps_original_range_fallback() {
+    let mut d = Depot::default();
+    d.candidate("demo", "2.0rc1", 1, Some(vec![]));
+    d.candidate("demo", "2.0rc1", 2, None);
+    d.candidate("demo", "1.0", 3, Some(vec![]));
+    let roots = [req("demo", ">=2.0rc1")];
+    let p = Policy(|q: ActivePolicyQuery<'_>| {
+        Ok(if q.selected == key(1) {
+            ActivePolicyDecision::RejectWithAlternative(key(3))
+        } else {
+            ActivePolicyDecision::Allow
+        })
+    });
+    // The known candidate's identity is valid, but the actual solve range
+    // excludes its version. Advice must not override that range or hide the
+    // still-unobserved same-version source alternative.
+    assert_eq!(
+        solve(&roots, &d, &p).unwrap(),
+        SolveStep::NeedMetadata(key(2))
+    );
+    assert!(!d.metadata.contains_key(&key(2)));
+}
+
+#[test]
+fn s4_policy_alternative_keeps_parent_branch_that_legalizes_the_original_prerelease() {
+    let mut d = basic();
+    d.candidate("app", "2", 3, Some(vec![req("demo", ">=1")]));
+    d.candidate("app", "1", 4, Some(vec![req("demo", ">=2.0rc1")]));
+    d.metadata.get_mut(&key(2)).unwrap().dependencies =
+        vec![Dependency::unconditional(req("impossible", ">=1"))];
+    d.projects.insert("impossible".into(), vec![]);
+    let p = Policy(|q: ActivePolicyQuery<'_>| {
+        Ok(if q.name == "demo"
+            && q.selected == key(1)
+            && !q.constraints.iter().any(|constraint| constraint.raw == ">=2.0rc1")
+        {
+            ActivePolicyDecision::RejectWithAlternative(key(2))
+        } else {
+            ActivePolicyDecision::Allow
+        })
+    });
+    let selected = plan(&[req("app", ">=1")], &d, &p);
+    assert_eq!(
+        selected.selected.iter().find(|node| node.name == "app").unwrap().key,
+        key(4)
+    );
+    assert_eq!(
+        selected.selected.iter().find(|node| node.name == "demo").unwrap().key,
+        key(1)
+    );
+}
+
+#[test]
 fn complete_original_root_constraints_and_duplicate_origins_reach_the_callback() {
     let d = basic();
     let roots = [
@@ -210,6 +623,85 @@ fn rejected_wide_parent_branch_does_not_permanently_ban_a_legal_prerelease() {
             .selected
             .iter()
             .find(|n| n.name == "demo")
+            .unwrap()
+            .key,
+        key(1)
+    );
+}
+
+#[test]
+fn a_previously_unrelated_branch_can_introduce_a_prerelease_constraint() {
+    let mut d = basic();
+    d.candidate("branch", "2", 3, Some(vec![]));
+    d.candidate("branch", "1", 4, Some(vec![req("demo", ">=2.0rc1")]));
+    d.candidate(
+        "app",
+        "1",
+        5,
+        Some(vec![req("demo", ">=1"), req("branch", ">=1")]),
+    );
+    d.metadata.get_mut(&key(2)).unwrap().dependencies =
+        vec![Dependency::unconditional(req("impossible", ">=1"))];
+    d.projects.insert("impossible".into(), vec![]);
+    let roots = [req("app", "==1")];
+    let initial = complete(&roots, &d);
+    assert_eq!(
+        initial
+            .selected
+            .iter()
+            .find(|node| node.name == "branch")
+            .unwrap()
+            .key,
+        key(3)
+    );
+
+    let seen = RefCell::new((false, false));
+    let p = Policy(|q: ActivePolicyQuery<'_>| {
+        if q.name != "demo" || q.selected != key(1) {
+            return Ok(ActivePolicyDecision::Allow);
+        }
+        let explicit = q.constraints.iter().any(|constraint| {
+            constraint.raw == ">=2.0rc1"
+                && constraint.origin
+                    == (ActiveRequirementOrigin::Dependency {
+                        parent: key(4),
+                        declaration: 0,
+                    })
+        });
+        if explicit {
+            seen.borrow_mut().1 = true;
+            Ok(ActivePolicyDecision::Allow)
+        } else {
+            // The current branch is absent from demo's constraint origins.
+            // Its alternative must remain a legal nogood witness because it
+            // can add an explicit constraint that legalizes this prerelease.
+            assert!(q.constraints.iter().all(|constraint| {
+                !matches!(
+                    constraint.origin,
+                    ActiveRequirementOrigin::Dependency { parent, .. }
+                        if parent == key(3) || parent == key(4)
+                )
+            }));
+            seen.borrow_mut().0 = true;
+            Ok(ActivePolicyDecision::Reject)
+        }
+    });
+    let selected = plan(&roots, &d, &p);
+    assert_eq!(*seen.borrow(), (true, true));
+    assert_eq!(
+        selected
+            .selected
+            .iter()
+            .find(|node| node.name == "branch")
+            .unwrap()
+            .key,
+        key(4)
+    );
+    assert_eq!(
+        selected
+            .selected
+            .iter()
+            .find(|node| node.name == "demo")
             .unwrap()
             .key,
         key(1)

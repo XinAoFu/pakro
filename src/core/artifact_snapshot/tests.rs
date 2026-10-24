@@ -17,6 +17,72 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
+#[test]
+fn s3_verified_artifact_duplicate_preserves_bytes_and_original_cursor() {
+    let payload = b"owned bytes retained after the original input disappeared";
+    for digest in [
+        Digest::from_sha256_bytes(payload),
+        Digest::from_sha512_bytes(payload),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let mut original = spool_verified_reader(
+            &payload[..],
+            "source.tar.gz",
+            digest,
+            payload.len() as u64,
+            root.path(),
+        )
+        .unwrap();
+        original.seek(SeekFrom::Start(7)).unwrap();
+        let mut copy = clone_verified_artifact(
+            &mut original,
+            root.path(),
+            std::time::Instant::now() + Duration::from_secs(5),
+            payload.len() as u64,
+        )
+        .unwrap();
+        assert_eq!(original.stream_position().unwrap(), 7);
+        assert_eq!(copy.filename(), "source.tar.gz");
+        assert_eq!(copy.digest(), digest);
+        assert_eq!(copy.size(), payload.len() as u64);
+        drop(original);
+        assert_eq!(contents(&mut copy), payload);
+    }
+}
+
+#[test]
+fn s3_verified_artifact_duplicate_refuses_budget_and_deadline_before_writing() {
+    let payload = b"fixed source";
+    let root = tempfile::tempdir().unwrap();
+    let mut original = spool_verified_reader(
+        &payload[..],
+        "source.tar.gz",
+        Digest::from_sha256_bytes(payload),
+        payload.len() as u64,
+        root.path(),
+    )
+    .unwrap();
+    let absent = root.path().join("absent");
+    let error = clone_verified_artifact(
+        &mut original,
+        &absent,
+        std::time::Instant::now() + Duration::from_secs(5),
+        payload.len() as u64 - 1,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("byte limit"), "{error}");
+    assert!(!absent.exists());
+    let error = clone_verified_artifact(
+        &mut original,
+        &absent,
+        std::time::Instant::now() - Duration::from_secs(1),
+        payload.len() as u64,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("deadline"), "{error}");
+    assert!(!absent.exists());
+}
+
 fn transport() -> ArtifactTransport {
     ArtifactTransport::new(
         reqwest::Client::builder()

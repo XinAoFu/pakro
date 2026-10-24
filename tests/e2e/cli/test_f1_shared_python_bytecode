@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+# Ordinary startup must preserve an immutable shared runtime. Stage the
+# existing local real PBS archive once; every operation stays in run_test's
+# isolated HOME, with no package server, download, or external manager.
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
+export CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
+export CARGO_NET_OFFLINE=true PAKRO_OFFLINE=1
+export PAKRO_PYTHON_GITHUB_ATTESTATIONS=0 PAKRO_PYTHON_COMPILE=0
+stage_log="$TMPDIR/f1-bytecode-stage.log"
+(
+  cd "$ROOT"
+  PAKRO_F3_STAGE_DATA_ROOT="$PAKRO_DATA_DIR" cargo test -p pakro --lib --all-features \
+    programs::python::integration_tests::f3_e2e_stage_real_language \
+    -- --exact --ignored --nocapture
+) >"$stage_log" 2>&1 || { cat "$stage_log"; fail 'real shared runtime staging failed'; }
+shared_python="$(sed -n 's/.*F3_STAGED_PYTHON=//p' "$stage_log" | tail -1)"
+[[ -x $shared_python ]] || fail 'real staging helper returned no interpreter'
+shared_root="$(cd "$(dirname "$shared_python")/.." && pwd -P)"
+manifest="$(find "$PAKRO_DATA_DIR/languages/.control/catalog" -type f -name 'language-*.json')"
+[[ -f $manifest ]] || fail 'expected exactly one original language manifest'
+manifest_before="$(/usr/bin/shasum -a 256 "$manifest")"
+
+# This inspector is the system Python, never the selected interpreter. Hash
+# every payload path, mode, owner, inode, symlink target and regular-file byte;
+# ignore access times because importing modules is allowed to read files.
+payload_inventory() {
+  /usr/bin/python3 -I -B - "$shared_root" <<'PY'
+import hashlib
+import json
+import os
+import stat
+import sys
+
+root = sys.argv[1]
+paths = [root]
+for directory, subdirectories, files in os.walk(root, followlinks=False):
+    paths.extend(os.path.join(directory, name) for name in subdirectories + files)
+inventory = hashlib.sha256()
+for path in sorted(paths):
+    info = os.lstat(path)
+    item = [os.path.relpath(path, root), info.st_dev, info.st_ino,
+            info.st_mode, info.st_uid, info.st_gid]
+    if stat.S_ISREG(info.st_mode):
+        digest = hashlib.sha256()
+        with open(path, "rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+        item.extend([info.st_size, digest.hexdigest()])
+    elif stat.S_ISLNK(info.st_mode):
+        item.append(os.readlink(path))
+    elif not stat.S_ISDIR(info.st_mode):
+        raise SystemExit("unexpected payload entry: " + path)
+    inventory.update(json.dumps(item, ensure_ascii=True).encode() + b"\n")
+print(inventory.hexdigest())
+PY
+}
+inventory_before="$(payload_inventory)"
+assert_payload_unchanged() {
+  [[ $(/usr/bin/shasum -a 256 "$manifest") == "$manifest_before" ]] || fail 'ordinary Python startup changed the original Ready manifest'
+  [[ $(payload_inventory) == "$inventory_before" ]] || fail 'ordinary Python startup changed the complete shared payload inventory'
+}
+probe='import sys, json, encodings, os; print(int(sys.dont_write_bytecode)); print(sys.executable); print(os.path.samefile(sys.executable, sys.argv[1]))'
+run_probe() {
+  local output
+  output="$("$1" -c "$probe" "$shared_python")"
+  printf '%s\n' "$output"
+  [[ ${output%%$'\n'*} == 1 ]] || fail "ordinary Python startup did not suppress bytecode: $output"
+  [[ ${output##*$'\n'} == True ]] || fail "startup did not use the selected shared interpreter: $output"
+  assert_payload_unchanged
+}
+assert_reusable() {
+  local output
+  output="$(pakro current python 2>&1)"
+  [[ $output == 3.13.16 ]] || fail "current could not read the unchanged shared runtime: $output"
+  output="$(pakro install python 3.13.16+20261013 2>&1)"
+  [[ $output == *'reuse shared Python'* ]] || fail "the unchanged runtime was not reusable: $output"
+  [[ $output != *'inventory changed'* ]] || fail "runtime reuse rejected its inventory: $output"
+  assert_payload_unchanged
+}
+
+test_root="$PWD"
+mkdir project shims
+cat >project/pakro.toml <<'TOML'
+[tools]
+python = "3.13.16+20261013"
+
+# An empty value permits ordinary bytecode writes. Both project environment
+# and wrapper environment must yield to the selected shared-runtime policy.
+[env]
+PYTHONDONTWRITEBYTECODE = ""
+
+[wrappers.bytecode-wrapper]
+command = "python3.13"
+env = { PYTHONDONTWRITEBYTECODE = "" }
+TOML
+pakro_binary="$(command -v pakro)"
+ln -s "$pakro_binary" shims/python3.13
+ln -s "$pakro_binary" shims/bytecode-wrapper
+cd project
+
+# A pure-language shim and a configured wrapper work before activation;
+# protecting only hook-env would leave these two normal launch paths unsafe.
+unset PYTHONDONTWRITEBYTECODE
+run_probe "$test_root/shims/python3.13"
+assert_reusable
+run_probe "$test_root/shims/bytecode-wrapper"
+assert_reusable
+[[ ! ${PYTHONDONTWRITEBYTECODE+x} ]] || fail 'a child shim changed its parent environment'
+
+for initial in unset zero; do
+  (
+    if [[ $initial == unset ]]; then unset PYTHONDONTWRITEBYTECODE; else export PYTHONDONTWRITEBYTECODE=0; fi
+    eval "$(pakro activate bash)"
+    [[ $PYTHONDONTWRITEBYTECODE == 1 ]] || fail 'activation did not protect the selected shared runtime'
+    run_probe python
+    assert_reusable
+    cd "$test_root"
+    eval "$(pakro hook-env -s bash --force)"
+    if [[ $initial == unset ]]; then
+      [[ ! ${PYTHONDONTWRITEBYTECODE+x} ]] || fail 'leaving the project did not restore the unset bytecode variable'
+    else
+      [[ $PYTHONDONTWRITEBYTECODE == 0 ]] || fail 'leaving the project did not restore the inherited bytecode value'
+    fi
+    assert_payload_unchanged
+  )
+  (
+    if [[ $initial == unset ]]; then unset PYTHONDONTWRITEBYTECODE; else export PYTHONDONTWRITEBYTECODE=0; fi
+    eval "$(pakro env --shell bash)"
+    [[ $PYTHONDONTWRITEBYTECODE == 1 ]] || fail 'one-shot env output did not protect the selected shared runtime'
+    run_probe python
+    assert_reusable
+  )
+done
+assert_payload_unchanged
+[[ ! ${PYTHONDONTWRITEBYTECODE+x} ]] || fail 'activation/env subshells changed the parent environment'

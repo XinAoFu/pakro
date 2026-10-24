@@ -26,6 +26,7 @@ impl RetainedRegistryOwner<'_> {
         match self {
             Self::Fresh(owner) => owner.facts(),
             Self::Locked(owner) => owner.facts(),
+            Self::Built(owner) => owner.facts(),
         }
     }
 }

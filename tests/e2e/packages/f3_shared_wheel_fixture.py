@@ -3,9 +3,11 @@ import base64
 import hashlib
 import io
 import json
+import os
 import sys
 import zipfile
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 def wheel(name, dependencies, members, entry=None):
@@ -51,17 +53,35 @@ if "TestHandler" in globals():
     class Handler(TestHandler):
         def do_GET(self):
             self.log_headers()
-            if self.path in ("/simple/z-root/", "/simple/a-dep/"):
-                name = self.path.split("/")[2]
+            # Keep the raw request target in the harness log. An HTTP proxy
+            # receives an absolute-form target for the same canonical page.
+            path = urlsplit(self.path).path
+            if path in ("/simple/z-root/", "/simple/a-dep/"):
+                name = path.split("/")[2]
                 filename = name.replace("-", "_") + "-1.0-py3-none-any.whl"
                 wheel_body = (fixture_root / filename).read_bytes()
-                body = json.dumps({"meta": {"api-version": "1.0"}, "name": name, "files": [{
+                file = {
                     "filename": filename, "url": f"/files/{filename}",
                     "hashes": {"sha256": hashlib.sha256(wheel_body).hexdigest()}, "requires-python": ">=3.13",
-                }]}).encode()
+                }
+                if os.environ.get("PAKRO_F3_TEST_SIDECARS") == "1":
+                    with zipfile.ZipFile(io.BytesIO(wheel_body)) as archive:
+                        metadata = archive.read(f"{name.replace('-', '_')}-1.0.dist-info/METADATA")
+                    file["core-metadata"] = {"sha256": hashlib.sha256(metadata).hexdigest()}
+                body = json.dumps({"meta": {"api-version": "1.0"}, "name": name, "files": [file]}).encode()
                 media = "application/vnd.pypi.simple.v1+json"
-            elif self.path.startswith("/files/") and (fixture_root / self.path.split("/")[-1]).is_file():
-                body = (fixture_root / self.path.split("/")[-1]).read_bytes()
+            elif path.startswith("/files/") and path.endswith(".whl.metadata"):
+                filename = path.split("/")[-1].removesuffix(".metadata")
+                wheel_path = fixture_root / filename
+                if not wheel_path.is_file():
+                    self.send_error(404)
+                    return
+                with zipfile.ZipFile(wheel_path) as archive:
+                    metadata_path = next(name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
+                    body = archive.read(metadata_path)
+                media = "application/octet-stream"
+            elif path.startswith("/files/") and (fixture_root / path.split("/")[-1]).is_file():
+                body = (fixture_root / path.split("/")[-1]).read_bytes()
                 media = "application/octet-stream"
             else:
                 self.send_error(404)

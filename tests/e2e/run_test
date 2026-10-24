@@ -124,6 +124,7 @@ within_isolated_env() {
         LLVM_PROFILE_FILE="${LLVM_PROFILE_FILE:-}" \
         ${proxy_vars[@]+"${proxy_vars[@]}"} \
         PAKRO_CACHE_DIR="$PAKRO_CACHE_DIR" \
+        PAKRO_BYTECODE_RECOVERY_ARCHIVE="${PAKRO_BYTECODE_RECOVERY_ARCHIVE:-}" \
         PAKRO_HISTORY_NOTIFY=0 \
         PAKRO_URL_REPLACEMENTS="${PAKRO_URL_REPLACEMENTS:-}" \
         PAKRO_CACHE_PRUNE_AGE="0" \

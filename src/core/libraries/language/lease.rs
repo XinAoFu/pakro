@@ -19,6 +19,15 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+#[cfg(test)]
+thread_local! {
+    static FULL_INVENTORY_CHECKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+#[cfg(test)]
+pub(in crate::libraries) fn full_inventory_checks() -> usize {
+    FULL_INVENTORY_CHECKS.with(|count| count.get())
+}
+
 #[derive(Clone)]
 pub(crate) struct LanguageLease {
     pub(super) inner: Arc<LeaseInner>,
@@ -121,6 +130,8 @@ impl LeaseInner {
 
     fn check_full_with_after_walk(&self, after_walk: impl FnOnce() -> Result<()>) -> Result<()> {
         self.check_manifest()?;
+        #[cfg(test)]
+        FULL_INVENTORY_CHECKS.with(|count| count.set(count.get() + 1));
         ensure!(
             observe_tree_inventory(&HeldTreeRoot(self), PrefixInventoryLimits::default())?
                 == self.manifest.inventory,
@@ -175,7 +186,37 @@ impl RuntimeProtection for LeaseInner {
         self.check_full()
     }
 }
+
+/// Borrowed only by a synchronous, private package materialization batch.
+/// The enclosing helper verifies complete contents before exposing this view
+/// and again before returning any prepared objects to their publisher.
+pub(in crate::libraries) struct LanguageMaterialization<'a> {
+    language: &'a LanguageLease,
+}
+impl LanguageMaterialization<'_> {
+    pub(in crate::libraries) fn language(&self) -> &LanguageLease {
+        self.language
+    }
+    pub(in crate::libraries) fn check_binding(&self) -> Result<()> {
+        self.language.inner.check_manifest()
+    }
+}
+
 impl LanguageLease {
+    /// The callback only materializes inspected wheels into private prefixes;
+    /// it must not execute an interpreter or build backend, or publish them.
+    /// On either failure its prepared values drop before becoming available.
+    pub(in crate::libraries) fn with_package_materialization<T>(
+        &self,
+        prepare: impl FnOnce(&LanguageMaterialization<'_>) -> Result<T>,
+    ) -> Result<T> {
+        self.check_binding()?;
+        let scope = LanguageMaterialization { language: self };
+        let prepared = prepare(&scope)?;
+        self.check_binding()?;
+        Ok(prepared)
+    }
+
     pub(crate) fn key(&self) -> super::identity::LanguageKey {
         self.inner.spec.key()
     }

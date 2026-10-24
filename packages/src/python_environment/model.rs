@@ -151,7 +151,46 @@ pub(crate) struct PackageSourcePin {
     pub filename: String,
     pub size: u64,
     pub advertised: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<SourceBuildRecord>,
 }
+
+/// Portable descriptions of actual fixed build inputs, never fetch/IO authority.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SourceBuildInput {
+    pub name: String,
+    pub version: String,
+    pub source_pin: String,
+    pub registry: String,
+    pub base: [u8; 32],
+    pub source_filename: String,
+    pub source_digest: String,
+    pub source_size: u64,
+    pub source_is_sdist: bool,
+    pub advertised: bool,
+    pub output_filename: String,
+    pub output_digest: String,
+    pub output_size: u64,
+}
+
+/// A source pin and a built output are separate facts, including when the
+/// resulting wheel has the same distribution name/version as its source.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SourceBuildRecord {
+    pub source_digest: String,
+    pub request_id: [u8; 32],
+    pub recipe: u32,
+    pub backend: String,
+    pub inputs: Vec<SourceBuildInput>,
+    pub output_filename: String,
+    pub output_digest: String,
+    pub output_size: u64,
+    pub metadata_sha256: [u8; 32],
+}
+#[path = "model/source_build.rs"]
+mod source_build;
 /// Exact source-backed dependency facts, stored with their shared layout.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -171,6 +210,13 @@ impl PackageGraphNode {
             ContentPin, LockModelLimits, PinEvidence, RegistryArtifactKind, RegistryFileRef,
             RegistryFileRefInput,
         };
+        let (kind, digest) = match &self.pin.build {
+            Some(build) => {
+                build.validate_for_node(&self.name, &self.version, &self.artifact)?;
+                (RegistryArtifactKind::Sdist, build.source_digest.as_str())
+            }
+            None => (RegistryArtifactKind::Wheel, self.artifact.as_str()),
+        };
         let file = RegistryFileRef::new(
             RegistryFileRefInput {
                 registry_id: &self.pin.registry,
@@ -178,13 +224,13 @@ impl PackageGraphNode {
                 project: &self.name,
                 version: &self.version,
                 filename: &self.pin.filename,
-                kind: RegistryArtifactKind::Wheel,
+                kind,
             },
             LockModelLimits::default(),
         )?;
         let pin = ContentPin::new(
             &file,
-            self.artifact.parse()?,
+            digest.parse()?,
             self.pin.size,
             if self.pin.advertised {
                 PinEvidence::Advertised
@@ -198,6 +244,31 @@ impl PackageGraphNode {
             "package source facts disagree with their pin identity"
         );
         Ok(pin)
+    }
+    pub(crate) fn source_build_input(&self) -> Result<SourceBuildInput> {
+        let pin = self.content_pin()?;
+        let (output_filename, output_size) = self
+            .pin
+            .build
+            .as_ref()
+            .map_or((self.pin.filename.as_str(), self.pin.size), |build| {
+                (build.output_filename.as_str(), build.output_size)
+            });
+        Ok(SourceBuildInput {
+            name: self.name.clone(),
+            version: self.version.clone(),
+            source_pin: self.source_pin.clone(),
+            registry: self.pin.registry.clone(),
+            base: self.pin.base,
+            source_filename: self.pin.filename.clone(),
+            source_digest: pin.digest().to_string(),
+            source_size: pin.size(),
+            source_is_sdist: self.pin.build.is_some(),
+            advertised: self.pin.advertised,
+            output_filename: output_filename.to_owned(),
+            output_digest: self.artifact.clone(),
+            output_size,
+        })
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -223,6 +294,9 @@ impl PackageGraphRecord {
         for node in &mut projection.nodes {
             node.instance = [0; 32];
             node.pin.advertised = false;
+            if let Some(build) = &mut node.pin.build {
+                build.normalize();
+            }
         }
         let mut hash = Sha256::new();
         hash.update(b"pakro.closed-shared-package-graph/v1\0");

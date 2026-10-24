@@ -64,6 +64,10 @@ fn main() -> ExitCode {
     if let Some(code) = pakro_util::cmd::ctrl_c_group::try_run() {
         pakro::exit::exit_with_windows_status(code as u32);
     }
+    if let Err(error) = pakro_util::process_limits::ensure_file_descriptor_capacity() {
+        eprintln!("Error: could not prepare process file-descriptor capacity: {error}");
+        return exit::status(1);
+    }
     let early_args = env::args_safe();
     if cli::Cli::exit_early_for_unchanged_hook_env(&early_args) {
         return ExitCode::SUCCESS;

@@ -201,12 +201,9 @@ pub(super) fn parse_wheel(
         build.as_ref() == filename_build,
         "WHEEL Build disagrees with filename"
     );
-    if fields
-        .get("generator")
-        .is_some_and(|values| values.len() != 1)
-    {
-        return Err(eyre!("WHEEL duplicate Generator"));
-    }
+    // Repair tools can append their own informational Generator header. It
+    // confers no installation authority; all header budgets and the original
+    // WHEEL bytes' RECORD verification still apply.
     Ok(WheelHeaders {
         root_scheme,
         tags,

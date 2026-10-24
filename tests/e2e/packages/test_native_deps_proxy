@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+source "$TEST_DIR/f3_shared_wheel_helpers.sh"
+export PAKRO_F3_TEST_SIDECARS=1
+f3_setup
+f3_declare project z-root
+cd project
+before="$(cksum pakro.toml)"
+export PAKRO_HTTP_TIMEOUT=2s PAKRO_HTTP_DOWNLOAD_TIMEOUT=20s
+export PAKRO_URL_REPLACEMENTS='{"https://pypi.org":"http://f3-proxy-only.invalid"}'
+export HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1:9
+export http_proxy="$HTTP_PROXY" https_proxy="$HTTPS_PROXY" all_proxy="$ALL_PROXY"
+export NO_PROXY= no_proxy=
+
+if pakro deps install python >"$TMPDIR/bad-proxy.log" 2>&1; then
+  fail "an unavailable requested proxy unexpectedly installed the project"
+fi
+[[ $(f3_request_count) == 0 ]] || fail "failed proxy fell back to another source"
+[[ $(cksum pakro.toml) == "$before" && ! -e pakro.lock ]] || fail "failed proxy changed project declarations"
+if [[ -d "$PAKRO_DATA_DIR/packages/.control/catalog" ]]; then
+  [[ $(f3_package_count) == 0 ]] || fail "failed acquisition published a package"
+fi
+
+export HTTP_PROXY="http://127.0.0.1:$HTTP_PORT" HTTPS_PROXY="http://127.0.0.1:$HTTP_PORT" ALL_PROXY="http://127.0.0.1:$HTTP_PORT"
+export http_proxy="$HTTP_PROXY" https_proxy="$HTTPS_PROXY" all_proxy="$ALL_PROXY"
+pakro deps install python
+python3 - "$F3_REQUEST_LOG" <<'PY'
+import json
+import sys
+from pathlib import Path
+paths = [json.loads(path.read_text())["path"] for path in sorted(Path(sys.argv[1]).glob("request_*.json"))]
+prefix = "http://f3-proxy-only.invalid"
+expected = {prefix + path for path in (
+    "/simple/z-root/", "/simple/a-dep/",
+    "/files/z_root-1.0-py3-none-any.whl", "/files/a_dep-1.0-py3-none-any.whl",
+    "/files/z_root-1.0-py3-none-any.whl.metadata", "/files/a_dep-1.0-py3-none-any.whl.metadata",
+)}
+assert len(paths) == 6 and set(paths) == expected, paths
+PY
+[[ $(cksum pakro.toml) == "$before" && ! -e pakro.lock ]] || fail "proxy install changed project declarations"
+[[ $(f3_package_count) == 2 ]] || fail "proxy install did not publish the actual closure"
+requests_before="$(f3_request_count)"
+eval "$(pakro activate bash)"
+eval "$(pakro hook-env -s bash --force)"
+assert "python -m z_root" 'shared-dependency:pth-visible'
+
+# Once complete, the same closure needs no network even if its proxy is down.
+export HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1:9
+export http_proxy="$HTTP_PROXY" https_proxy="$HTTPS_PROXY" all_proxy="$ALL_PROXY"
+pakro deps install python
+[[ $(f3_request_count) == "$requests_before" ]] || fail "ready closure fetched again"
+
+# NO_PROXY must bypass an unavailable proxy for an explicitly routed origin.
+# An unavailable exact version exercises a fresh page without publishing data.
+export PAKRO_URL_REPLACEMENTS="{\"https://pypi.org\":\"http://127.0.0.1:$HTTP_PORT\"}"
+export NO_PROXY=127.0.0.1 no_proxy=127.0.0.1
+cd ..
+f3_declare bypass z-root
+sed 's/"1.0"/"2.0"/' bypass/pakro.toml >bypass/pakro.new
+mv bypass/pakro.new bypass/pakro.toml
+cd bypass
+if pakro deps install python >"$TMPDIR/bypass.log" 2>&1; then
+  fail "fixture unexpectedly supplied an undeclared version"
+fi
+python3 - "$F3_REQUEST_LOG" "$requests_before" <<'PY'
+import json
+import sys
+from pathlib import Path
+paths = [json.loads(path.read_text())["path"] for path in sorted(Path(sys.argv[1]).glob("request_*.json"))]
+assert len(paths) == int(sys.argv[2]) + 1 and paths[-1] == "/simple/z-root/", paths
+PY
+grep -q 'constraints have no solution' "$TMPDIR/bypass.log" || { cat "$TMPDIR/bypass.log"; fail "NO_PROXY did not reach the declared origin"; }
+[[ $(f3_package_count) == 2 ]] || fail "failed bypass query changed published packages"
+f3_assert_no_manager

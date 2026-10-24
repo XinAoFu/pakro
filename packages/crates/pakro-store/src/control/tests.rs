@@ -171,6 +171,149 @@ fn r05_compare_swap_rejects_stale_snapshot() {
 }
 
 #[test]
+fn f1_recovery_prepared_cas_publishes_the_predeclared_inode() {
+    let (_temp, path) = fixture();
+    let store = writer(&path);
+    let mut control = store.control(ControlLimits::default()).unwrap();
+    let old = control
+        .replace(ControlNamespace::Catalog, "ready", None, b"old")
+        .unwrap();
+    let staged = control
+        .replace(ControlNamespace::Journals, "prepared", None, b"restored")
+        .unwrap();
+    let published = control
+        .replace_from_journal("ready", &old, &staged)
+        .unwrap();
+    assert_eq!(published.file_identity(), staged.file_identity());
+    assert_eq!(published.bytes(), b"restored");
+    assert!(
+        control
+            .read(ControlNamespace::Journals, "prepared")
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        control
+            .replace_from_journal("ready", &old, &staged)
+            .is_err()
+    );
+    assert_eq!(
+        control
+            .read(ControlNamespace::Catalog, "ready")
+            .unwrap()
+            .unwrap()
+            .bytes(),
+        b"restored"
+    );
+}
+
+#[test]
+fn f1_recovery_prepared_cas_rejects_same_bytes_target_replacement() {
+    let (_temp, path) = fixture();
+    let store = writer(&path);
+    let mut control = store.control(ControlLimits::default()).unwrap();
+    let old = control
+        .replace(ControlNamespace::Catalog, "ready", None, b"old")
+        .unwrap();
+    let staged = control
+        .replace(ControlNamespace::Journals, "prepared", None, b"restored")
+        .unwrap();
+    let foreign = path.join(".control/catalog/foreign");
+    fs::write(&foreign, b"old").unwrap();
+    fs::set_permissions(&foreign, fs::Permissions::from_mode(0o600)).unwrap();
+    fs::rename(&foreign, path.join(".control/catalog/ready")).unwrap();
+    assert!(
+        control
+            .replace_from_journal("ready", &old, &staged)
+            .is_err()
+    );
+    assert_eq!(
+        control
+            .read(ControlNamespace::Journals, "prepared")
+            .unwrap()
+            .unwrap()
+            .file_identity(),
+        staged.file_identity()
+    );
+    assert_eq!(
+        fs::read(path.join(".control/catalog/ready")).unwrap(),
+        b"old"
+    );
+}
+
+#[test]
+fn f1_recovery_prepared_cas_rejects_same_bytes_source_replacement() {
+    let (_temp, path) = fixture();
+    let store = writer(&path);
+    let mut control = store.control(ControlLimits::default()).unwrap();
+    let old = control
+        .replace(ControlNamespace::Catalog, "ready", None, b"old")
+        .unwrap();
+    let staged = control
+        .replace(ControlNamespace::Journals, "prepared", None, b"restored")
+        .unwrap();
+    let foreign = path.join(".control/journals/foreign");
+    fs::write(&foreign, b"restored").unwrap();
+    fs::set_permissions(&foreign, fs::Permissions::from_mode(0o600)).unwrap();
+    fs::rename(&foreign, path.join(".control/journals/prepared")).unwrap();
+    assert!(
+        control
+            .replace_from_journal("ready", &old, &staged)
+            .is_err()
+    );
+    assert_eq!(
+        control
+            .read(ControlNamespace::Catalog, "ready")
+            .unwrap()
+            .unwrap()
+            .file_identity(),
+        old.file_identity()
+    );
+    assert_eq!(
+        fs::read(path.join(".control/journals/prepared")).unwrap(),
+        b"restored"
+    );
+}
+
+#[test]
+fn f1_recovery_prepared_cas_rejects_foreign_namespace_and_store() {
+    let (_first, first) = fixture();
+    let (_second, second) = fixture();
+    let a = writer(&first);
+    let b = writer(&second);
+    let mut control = a.control(ControlLimits::default()).unwrap();
+    let old = control
+        .replace(ControlNamespace::Catalog, "ready", None, b"old")
+        .unwrap();
+    let wrong_namespace = control
+        .replace(ControlNamespace::Ownership, "prepared", None, b"new")
+        .unwrap();
+    assert!(
+        control
+            .replace_from_journal("ready", &old, &wrong_namespace)
+            .is_err()
+    );
+    let foreign = b
+        .control(ControlLimits::default())
+        .unwrap()
+        .replace(ControlNamespace::Journals, "prepared", None, b"new")
+        .unwrap();
+    assert!(
+        control
+            .replace_from_journal("ready", &old, &foreign)
+            .is_err()
+    );
+    assert_eq!(
+        control
+            .read(ControlNamespace::Catalog, "ready")
+            .unwrap()
+            .unwrap()
+            .file_identity(),
+        old.file_identity()
+    );
+}
+
+#[test]
 fn r05_metadata_rejects_symlink_hardlink_fifo_and_public_mode() {
     for kind in ["symlink", "hardlink", "fifo", "mode"] {
         let (_temp, path) = fixture();

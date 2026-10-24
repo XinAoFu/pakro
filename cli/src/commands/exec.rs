@@ -201,13 +201,14 @@ impl Exec {
         self,
         config: Arc<Config>,
         ts: Toolset,
+        command_env: BTreeMap<String, String>,
     ) -> eyre::Result<()> {
         self.run_with_context(
             config,
             ts,
             ResolveOptions::default(),
             false,
-            BTreeMap::new(),
+            command_env,
             false,
         )
         .await
@@ -398,6 +399,8 @@ impl Exec {
             &Settings::get().sandbox,
             self.deny_all,
             SandboxConfig {
+                build_worker: false,
+                allow_process: Vec::new(),
                 deny_read: self.deny_read,
                 deny_write: self.deny_write,
                 deny_net: self.deny_net,

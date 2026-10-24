@@ -33,3 +33,29 @@ tests/e2e/packages/test_native_deps_no_manager
 libraries::package::layouts::tests::f3_valid_json_package_facts_must_match_the_published_tree
 libraries::package::layouts::tests::f3_wheel_payload_cannot_occupy_the_reserved_package_facts_file
 programs::install::resolve::tests::f3_catalog_rejects_changed_graph_roots_and_edge_declarations
+
+# Registry transport wiring and sanitized stage diagnostics, 2026-10-22.
+programs::python::tests::f3_registry_transport_uses_frozen_application_timeouts
+pakro-index lib simple::client::proxy_tests::f3_registry_transport_system_proxy_is_opt_in_and_respects_no_proxy
+pakro-index lib simple::client::proxy_tests::f3_registry_transport_idle_timeout_bounds_a_slow_body_before_total_timeout
+pakro-index lib simple::client::proxy_tests::f3_registry_transport_rejects_zero_idle_and_conflicting_proxy_configuration
+packages::python_resolution::source::registry_depot::tests::diagnostics::f3_registry_diagnostics_preserve_http_status_without_locators
+packages::python_resolution::source::registry_depot::tests::diagnostics::f3_registry_diagnostics_preserve_project_http_status_without_locators
+packages::python_resolution::source::registry_depot::tests::diagnostics::f3_registry_diagnostics_preserve_advertised_digest_failure
+packages::python_resolution::source::registry_depot::tests::diagnostics::f3_registry_diagnostics_preserve_wheel_inspection_failure
+packages::python_resolution::source::registry_depot::tests::diagnostics::f3_registry_diagnostics_preserve_sidecar_mismatch
+packages::python_resolution::source::registry_depot::tests::diagnostics::f3_registry_diagnostics_preserve_metadata_input_failure
+packages::python_resolution::source::registry_depot::tests::diagnostics::f3_registry_diagnostics_keep_original_deadline_priority
+tests/e2e/packages/test_native_deps_proxy
+packages::python_wheel::tests::f3_multiple_generators_preserve_required_singletons_and_record_verification
+packages::python_wheel::tests::f3_inspects_real_pyyaml_release_wheel [ignored: explicit verified release input]
+
+# Source-build acceptance exposed cross-wheel native loader adjacency.
+libraries::package::layouts::tests::native_link::f3_native_dependency_keeps_cross_wheel_loader_adjacency
+libraries::package::layouts::projection::tests::f3_native_projection_mapping_survives_reopen_and_rejects_forged_owner
+libraries::package::layouts::projection::tests::f3_native_projection_rejects_file_directory_collisions
+libraries::package::layouts::projection::tests::f3_native_projection_changed_same_inode_is_not_blessed_ready
+libraries::package::layouts::projection::tests::f3_layout_legacy_recipe_roundtrips_and_keeps_original_key
+packages::python_environment::prefix::clone::tests::f3_cow_clone_has_independent_inode_and_writes_do_not_pollute_source
+packages::python_environment::prefix::clone::tests::f3_cow_clone_rejects_wrong_hash_existing_leaf_and_symlink_parent
+packages::python_environment::prefix::clone::tests::f3_cow_clone_records_ownership_and_discards_only_its_clone

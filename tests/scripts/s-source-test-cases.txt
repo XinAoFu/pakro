@@ -1,0 +1,37 @@
+# Python registry source builds: actual backend execution and retained evidence.
+# Unit filters are listed with --list before execution; zero matches are errors.
+pakro lib s1_source_build_
+pakro lib s2_
+pakro lib s3_
+pakro-index lib s3_legacy_source_filename
+pakro-index lib s4_version_listing_mismatch_preserves_original_artifact_identity
+pakro-index lib s4_isat_simple_probe [ignored: explicit public response input directory]
+pakro lib s4_cached_active_
+pakro lib s4_isat_candidate_policy_probe [ignored: explicit public responses and observed descriptor]
+# Ordered target rank semantics, compact lookup and bounded fallback.
+pakro-index test wheel_rank s4_rank_plan
+pakro lib f3_cow_clone_
+pakro lib f3_native_
+pakro lib f3_layout_legacy_recipe_
+# Isolated actual original Python 3.11 + iopath/Hydra/ANTLR source builds.
+tests/e2e/packages/test_native_source_isat
+# Full 24 direct pins; own 600-second group, no model downloads or real project writes.
+tests/e2e/packages/test_native_source_isat_full [network: separate bounded cold acceptance]
+
+# Active-policy retries repair the rejected transitive candidate before unrelated source files.
+pakro-resolver lib python_native::policy::tests::
+pakro lib s4_policy_rejection_keeps_unrelated_transitive_wheel_without_source_fetch
+pakro-index lib s4_registry_http_protocol_probe [ignored: absolute public torch page, explicit proxy, bounded 8MiB per control]
+# Complete functional acceptance with original verified release inputs (separate from live cold-network acceptance).
+/usr/bin/python3 tests/e2e/packages/isat_release_fixture.py --self-test
+tests/scripts/s-source-check.sh --full-isat-fixture ABS_PATH [prepared original corpus; whole clean environment; 600s]
+# Policy-provided alternatives within one immutable input snapshot preserve full backtracking.
+pakro-resolver lib s4_policy_alternative_
+pakro lib s4_reject_alternative_
+# Pure wheel materialization batches retain full language boundary checks.
+pakro lib s4_language_batch_
+# Process-local descriptor preparation; never changes parent/hard limits.
+pakro-util lib process_limits::tests::
+pakro lib s4_file_descriptor_capacity_allows_sixty_four_real_package_trees
+# Anchored package checks keep full content/manifest guards with bounded repeated work.
+pakro lib s4_package_inventory_

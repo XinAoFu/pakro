@@ -2085,6 +2085,8 @@ impl<'a> CmdLineRunner<'a> {
         let Some(sandbox) = self.sandbox.take() else {
             return Ok(());
         };
+        let initial_program = std::path::PathBuf::from(self.cmd.as_std().get_program());
+        sandbox.validate_build_worker(Some(&initial_program))?;
         if !sandbox.is_active() {
             return Ok(());
         }
@@ -2134,11 +2136,15 @@ impl<'a> CmdLineRunner<'a> {
                             .map_err(|e| std::io::Error::other(e.to_string()))?;
                     }
                     if sandbox.effective_deny_net() || sandbox.deny_process {
-                        crate::sandbox::seccomp_apply(
-                            sandbox.effective_deny_net(),
-                            sandbox.deny_process,
-                        )
-                        .map_err(|e| std::io::Error::other(e.to_string()))?;
+                        let result = if sandbox.build_worker {
+                            crate::sandbox::worker_seccomp_apply(sandbox.deny_process)
+                        } else {
+                            crate::sandbox::seccomp_apply(
+                                sandbox.effective_deny_net(),
+                                sandbox.deny_process,
+                            )
+                        };
+                        result.map_err(|e| std::io::Error::other(e.to_string()))?;
                     }
                     Ok(())
                 });
@@ -2161,7 +2167,11 @@ impl<'a> CmdLineRunner<'a> {
                 crate::sandbox::macos_generate_profile(&sandbox, std::path::Path::new(&program))
                     .await;
 
-            let mut new_cmd = Command::new("sandbox-exec");
+            let mut new_cmd = Command::new(if sandbox.build_worker {
+                "/usr/bin/sandbox-exec"
+            } else {
+                "sandbox-exec"
+            });
             new_cmd.arg("-p").arg(&profile).arg("--").arg(&program);
             for arg in &args {
                 new_cmd.arg(arg);
@@ -2189,6 +2199,10 @@ impl<'a> CmdLineRunner<'a> {
 
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         {
+            eyre::ensure!(
+                !sandbox.build_worker,
+                "source-build worker isolation is unavailable on this platform"
+            );
             let _ = sandbox;
             warn!("sandbox is not supported on this platform, running unsandboxed");
         }

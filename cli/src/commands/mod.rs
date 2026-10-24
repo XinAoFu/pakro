@@ -891,6 +891,62 @@ fn is_packages_where_query(args: &[String]) -> bool {
     false
 }
 
+/// Select recovery isolation before normal startup can migrate, prune, or
+/// contact a registry. An install-only flag after `--` belongs to a positional
+/// argument, and the same token in an exec/task payload must never opt in.
+fn bytecode_recovery_command_index(args: &[String]) -> Option<usize> {
+    let mut remaining = args
+        .iter()
+        .enumerate()
+        .skip(1)
+        .map(|(index, argument)| (index, std::ffi::OsStr::new(argument)))
+        .collect::<Vec<_>>();
+    loop {
+        let argv = remaining
+            .iter()
+            .map(|(_, argument)| *argument)
+            .collect::<Vec<_>>();
+        let mut parser = usage_rs::Parser::new(Cli::command(), &argv);
+        let mut install = None;
+        let mut unknown = None;
+        while let Some(event) = parser.next_event() {
+            if parser.double_dash_seen() {
+                return None;
+            }
+            match event {
+                Ok(usage_rs::Event::Command(command)) if command.name == "install" => {
+                    install = Some(remaining[parser.command_start().checked_sub(1)?].0);
+                }
+                Ok(usage_rs::Event::Flag { flag, .. })
+                | Err(usage_rs::Error::MissingFlagValue { flag })
+                    if install.is_some() && flag.longs.contains(&"restore-bytecode") =>
+                {
+                    return install;
+                }
+                // Unknown flags terminate Parser. For recognition only, remove
+                // exactly that borrowed token and restart the original grammar.
+                // Full parsing still uses every original argument and rejects it.
+                Err(usage_rs::Error::UnknownFlag { token }) => {
+                    unknown =
+                        Some(argv.iter().position(|argument| {
+                            std::ptr::eq(argument.as_encoded_bytes(), token)
+                        })?);
+                    break;
+                }
+                Ok(usage_rs::Event::Flag { .. }) => {}
+                Ok(usage_rs::Event::Arg { .. }) if install.is_some() => {}
+                _ => return None,
+            }
+        }
+        remaining.remove(unknown?);
+    }
+}
+
+#[cfg(test)]
+fn is_bytecode_recovery_invocation(args: &[String]) -> bool {
+    bytecode_recovery_command_index(args).is_some()
+}
+
 /// The fast path reads no settings, so unless something loaded them there is
 /// nothing to report; setting up the logger would load them.
 fn finish_hook_env_fast_exit() {
@@ -1033,6 +1089,37 @@ impl Cli {
                 unreachable!("package query variant was checked");
             };
             return command.run().await;
+        }
+        if let Some(command) = bytecode_recovery_command_index(args) {
+            // Reuse the existing environment-only settings source: neither
+            // malformed project TOML nor project hooks may interfere with a
+            // fully explicit local recovery request.
+            Settings::select_package_query_sources();
+            crate::toolset::install_state::init_readonly_plugin_metadata()?;
+            let mut recovery_args = args.clone();
+            crate::packages::extract_bound_package_args(&mut recovery_args[command + 1..]);
+            let argv = recovery_args
+                .iter()
+                .map(std::ffi::OsStr::new)
+                .collect::<Vec<_>>();
+            let mut cli =
+                Cli::parse_from_argv(&argv).map_err(|err| usage_error(&argv[1..], err))?;
+            if !matches!(&cli.command, Some(Commands::Install(install)) if install.is_bytecode_recovery())
+            {
+                bail!("internal error: recognized bytecode recovery parsed as another command");
+            }
+            validate_cd_path(&cli.cd)?;
+            Settings::init_package_query(cli.settings_layer(SettingsPartial::empty()))?;
+            logger::init();
+            eyre::ensure!(
+                cli.tool.is_empty(),
+                "bytecode recovery does not support installation options or package requests"
+            );
+            let Some(Commands::Install(mut install)) = cli.command.take() else {
+                unreachable!("bytecode recovery variant was checked");
+            };
+            install.inherit_recovery_flags(cli.dry_run, cli.force, cli.raw, cli.jobs);
+            return install.run().await;
         }
         crate::env::ARGS.write().unwrap().clone_from(args);
         let original_cwd = std::env::current_dir().ok();
@@ -1397,6 +1484,130 @@ mod tests {
     fn help_colour_follows_pakro_rather_than_the_terminal() {
         assert_eq!(help_style_for(true), usage_rs::help::Style::COLOURED);
         assert_eq!(help_style_for(false), usage_rs::help::Style::PLAIN);
+    }
+
+    #[test]
+    fn f1_bytecode_recovery_classifier_selects_explicit_install_even_if_incomplete() {
+        let cases: &[&[&str]] = &[
+            &[
+                "pakro",
+                "install",
+                "python@3.11.17+20261013",
+                "--restore-bytecode",
+                "instance",
+            ],
+            &[
+                "pakro",
+                "--quiet",
+                "--cd",
+                ".",
+                "install",
+                "python",
+                "3.11.17+20261013",
+                "--restore-bytecode=instance",
+                "--dry-run",
+            ],
+            &["pakro", "--dry-run", "i", "--restore-bytecode", "instance"],
+            &["pakro", "install", "--restore-bytecode"],
+            &[
+                "pakro",
+                "-qC",
+                ".",
+                "install",
+                "--restore-bytecode",
+                "instance",
+            ],
+            &[
+                "pakro",
+                "--unknown-recovery-option",
+                "install",
+                "--restore-bytecode",
+                "instance",
+            ],
+            &[
+                "pakro",
+                "install",
+                "--unknown-recovery-option",
+                "--restore-bytecode",
+                "instance",
+            ],
+            &[
+                "pakro",
+                "--cd",
+                "install",
+                "install",
+                "--restore-bytecode",
+                "instance",
+            ],
+            &[
+                "pakro",
+                "install",
+                "--shared=--restore-bytecode",
+                "--restore-bytecode",
+                "instance",
+            ],
+        ];
+        for args in cases {
+            let argv = args.iter().map(ToString::to_string).collect::<Vec<_>>();
+            assert!(is_bytecode_recovery_invocation(&argv), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn f1_bytecode_recovery_classifier_preserves_other_commands_values_and_double_dash() {
+        let cases: &[&[&str]] = &[
+            &[
+                "pakro",
+                "exec",
+                "python",
+                "--",
+                "--restore-bytecode",
+                "instance",
+            ],
+            &["pakro", "run", "install", "--restore-bytecode", "instance"],
+            &["pakro", "task", "--restore-bytecode", "instance"],
+            &["pakro", "install", "--", "--restore-bytecode", "instance"],
+            &[
+                "pakro",
+                "-qC",
+                "install",
+                "exec",
+                "--restore-bytecode",
+                "instance",
+            ],
+            &[
+                "pakro",
+                "--cd",
+                "install",
+                "exec",
+                "--restore-bytecode",
+                "instance",
+            ],
+            &[
+                "pakro",
+                "--env",
+                "--restore-bytecode",
+                "install",
+                "python@3.11.17+20261013",
+            ],
+            &[
+                "pakro",
+                "install",
+                "--shared=--restore-bytecode",
+                "python@3.11.17+20261013",
+            ],
+            &[
+                "pakro",
+                "install",
+                "python",
+                "--shared",
+                "--restore-bytecode",
+            ],
+        ];
+        for args in cases {
+            let argv = args.iter().map(ToString::to_string).collect::<Vec<_>>();
+            assert!(!is_bytecode_recovery_invocation(&argv), "{args:?}");
+        }
     }
 
     #[test]

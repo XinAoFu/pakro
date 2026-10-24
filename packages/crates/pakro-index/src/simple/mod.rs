@@ -125,9 +125,15 @@ impl SimpleApiVersion {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SimpleWarning {
-    NewerApiMinor { major: u32, minor: u32 },
+    NewerApiMinor {
+        major: u32,
+        minor: u32,
+    },
     UnknownProjectStatus,
     HistoricalDistribution,
+    /// Advertised release labels and filename-derived versions differ. Both
+    /// observations remain intact; selected artifact identity is checked later.
+    VersionListingMismatch,
 }
 
 /// A request locator, not a promise that its query is safe for a portable lock.

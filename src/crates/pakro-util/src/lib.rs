@@ -76,6 +76,7 @@ pub mod parallel;
 pub mod path;
 pub mod path_env;
 pub mod platform;
+pub mod process_limits;
 pub mod progress;
 pub mod rand;
 pub mod redactions;

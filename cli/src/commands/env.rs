@@ -171,6 +171,9 @@ impl Env {
 
         let mut env = ts.env_with_path(config).await?;
         Self::prepend_shared_path(&mut env, shared_bin)?;
+        let shared_bytecode = shared_bin
+            .and_then(|_| env.get("PYTHONDONTWRITEBYTECODE"))
+            .cloned();
         env.iter().for_each(|(k, v)| {
             res.insert(k.to_string(), BTreeMap::from([("value", v.to_string())]));
         });
@@ -221,6 +224,14 @@ impl Env {
                 );
             });
 
+        // Source annotations must not replace the effective shared-runtime
+        // policy with the user's original environment value.
+        if let Some(value) = shared_bytecode {
+            res.insert(
+                "PYTHONDONTWRITEBYTECODE".into(),
+                BTreeMap::from([("value".into(), value)]),
+            );
+        }
         if let Some(keys) = redacted_keys {
             res.retain(|k, _| self.should_include_key(k, keys));
         }
@@ -302,10 +313,11 @@ impl Env {
             .any(|pattern| wildcard_match(key, pattern))
     }
 
-    /// Puts the shared library's python bin directory in front of PATH so the
-    /// selected shared interpreter takes precedence over any legacy install.
+    /// Selects the shared interpreter and prevents normal startup from
+    /// replacing bytecode in its immutable payload, for every output format.
     fn prepend_shared_path(env: &mut EnvMap, shared_bin: Option<&std::path::Path>) -> Result<()> {
         let Some(bin) = shared_bin else { return Ok(()) };
+        env.insert("PYTHONDONTWRITEBYTECODE".into(), "1".into());
         match env.get_mut(&*PATH_KEY) {
             Some(current) => {
                 let mut parts: Vec<std::path::PathBuf> = split_paths(current).collect();

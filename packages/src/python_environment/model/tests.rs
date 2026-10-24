@@ -847,6 +847,10 @@ fn package_node(name: &str, version: &str, instance: u8, artifact: u8) -> Packag
             filename,
             size: 100,
             advertised: true,
+            build: None,
         },
     }
 }
+
+#[path = "source_build_tests.rs"]
+mod source_build_tests;

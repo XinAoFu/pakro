@@ -4,6 +4,90 @@ use std::collections::BTreeSet;
 
 use serde_json::{Value, json};
 
+/// Read only explicitly supplied public response captures. No requests, raw
+/// response bodies, locators or credentials are printed by this diagnostic.
+#[test]
+#[ignore = "requires explicit PAKRO_ISAT_SIMPLE_PROBE_DIR with public JSON captures"]
+fn s4_isat_simple_probe() {
+    use std::str::FromStr;
+
+    let directory = std::env::var_os("PAKRO_ISAT_SIMPLE_PROBE_DIR")
+        .expect("set PAKRO_ISAT_SIMPLE_PROBE_DIR to the explicit capture directory");
+    let mut paths = std::fs::read_dir(directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .collect::<Vec<_>>();
+    paths.sort();
+    assert!(!paths.is_empty() && paths.len() <= 128);
+    let mut failures = Vec::new();
+    for path in paths {
+        let requested = path.file_stem().unwrap().to_str().unwrap();
+        let project = NormalizedPythonName::new(requested).unwrap();
+        assert_eq!(project.as_str(), requested);
+        let file = std::fs::File::open(&path).unwrap();
+        assert!(file.metadata().unwrap().len() <= SimpleLimits::default().max_response_bytes);
+        let bytes = std::fs::read(&path).unwrap();
+        let registry = PythonRegistry::new("pypi", "https://pypi.org/simple/", None).unwrap();
+        let document = registry.project_url(&project).unwrap();
+        let parse = |bytes: &[u8]| {
+            parse_simple_json(
+                bytes,
+                SimpleParseContext {
+                    registry: &registry,
+                    project: &project,
+                    canonical_document_url: &document,
+                    limits: SimpleLimits::default(),
+                },
+            )
+        };
+        match parse(&bytes) {
+            Ok(observed) => {
+                eprintln!(
+                    "{requested}: OK files={} versions={} warnings={:?}",
+                    observed.files().len(),
+                    observed.versions().len(),
+                    observed.warnings()
+                );
+                if !observed
+                    .warnings()
+                    .contains(&SimpleWarning::VersionListingMismatch)
+                {
+                    continue;
+                }
+                let declared = observed
+                    .versions()
+                    .iter()
+                    .filter_map(|version| pep440_rs::Version::from_str(version).ok())
+                    .collect::<BTreeSet<_>>();
+                for file in observed.files() {
+                    let Some(version) = file.version() else {
+                        continue;
+                    };
+                    let parsed = pep440_rs::Version::from_str(version).unwrap();
+                    if !declared.contains(&parsed) {
+                        eprintln!(
+                            "{requested}: filename={:?} parsed_version={version:?} declared_member=false",
+                            file.filename()
+                        );
+                    }
+                }
+            }
+            Err(error) => {
+                eprintln!("{requested}: {error}");
+                failures.push(project.as_str().to_owned());
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "public response failures: {failures:?}"
+    );
+}
+
 struct Fixture {
     registry: PythonRegistry,
     project: NormalizedPythonName,
@@ -614,12 +698,20 @@ fn versioned_size_time_and_version_sets_are_consistent() {
         .unwrap()
         .replace("\"size\":123", "\"size\":18446744073709551616");
     invalid_response(fixture.raw(overflowing.as_bytes(), SimpleLimits::default()));
-    for versions in [
-        json!(["2.0"]),
-        json!(["1.0", "1.0"]),
-        json!([1]),
-        Value::Null,
-    ] {
+    let mut mismatch = value.clone();
+    mismatch["versions"] = json!(["2.0"]);
+    let observed = fixture.parse(mismatch).unwrap();
+    assert_eq!(observed.versions(), &["2.0"]);
+    assert_eq!(observed.files()[0].version(), Some("1.0"));
+    assert_eq!(
+        observed.files()[0].filename(),
+        "demo_pkg-1.0-py3-none-any.whl"
+    );
+    assert_eq!(
+        observed.warnings(),
+        &[SimpleWarning::VersionListingMismatch]
+    );
+    for versions in [json!(["1.0", "1.0"]), json!([""]), json!([1]), Value::Null] {
         let mut invalid = value.clone();
         invalid["versions"] = versions;
         invalid_response(fixture.parse(invalid));
@@ -643,6 +735,48 @@ fn versioned_size_time_and_version_sets_are_consistent() {
     ] {
         let mut invalid = value.clone();
         invalid["files"][0]["upload-time"] = json!(timestamp);
+        invalid_response(fixture.parse(invalid));
+    }
+}
+
+#[test]
+fn s4_version_listing_mismatch_preserves_original_artifact_identity() {
+    let fixture = Fixture::new();
+    for (filename, version, is_wheel) in [
+        ("demo_pkg-1.0-py3-none-any.whl", "1.0", true),
+        ("demo_pkg-1.0.post2.tar.gz", "1.0.post2", false),
+    ] {
+        let mut file = wheel("1.0");
+        file["filename"] = json!(filename);
+        let mut value = page("1.1", vec![file]);
+        value["versions"] = json!(["2.0", "opaque-legacy-release"]);
+        let observed = fixture.parse(value.clone()).unwrap();
+        assert_eq!(observed.versions(), &["2.0", "opaque-legacy-release"]);
+        let actual = &observed.files()[0];
+        assert_eq!(actual.filename(), filename);
+        assert_eq!(actual.version(), Some(version));
+        assert_eq!(actual.size(), Some(123));
+        assert_eq!(
+            actual.hashes().preferred_digest(),
+            Some(Digest::Sha256([0xab; 32]))
+        );
+        assert!(if is_wheel {
+            matches!(actual.kind(), PythonDistributionKind::Wheel(_))
+        } else {
+            matches!(actual.kind(), PythonDistributionKind::Sdist)
+        });
+        assert_eq!(
+            observed.warnings(),
+            &[SimpleWarning::VersionListingMismatch]
+        );
+
+        for filename in ["bad.whl", "foreign-1.0-py3-none-any.whl"] {
+            let mut invalid = value.clone();
+            invalid["files"][0]["filename"] = json!(filename);
+            invalid_response(fixture.parse(invalid));
+        }
+        let mut invalid = value.clone();
+        invalid["files"][0]["hashes"]["sha256"] = json!("not-a-valid-digest");
         invalid_response(fixture.parse(invalid));
     }
 }
@@ -792,6 +926,48 @@ fn legacy_hyphenated_sdist_versions_remain_historical_facts() {
         PythonDistributionKind::HistoricalFormat
     ));
     assert_eq!(project.files()[0].filename(), "demo_pkg-1.0-1.tar.gz");
+}
+
+#[test]
+fn s3_legacy_source_filename_known_hyphenated_project_remains_exact() {
+    let registry = PythonRegistry::new("pypi", "https://pypi.org/simple/", None).unwrap();
+    let name = NormalizedPythonName::new("antlr4-python3-runtime").unwrap();
+    let document = registry.project_url(&name).unwrap();
+    let fixture = Fixture {
+        registry,
+        project: name,
+        document,
+    };
+    for filename in [
+        "antlr4-python3-runtime-4.9.3.tar.gz",
+        "antlr4_python3_runtime-4.9.3.tar.gz",
+    ] {
+        let body = json!({
+            "meta":{"api-version":"1.0"},"name":"antlr4-python3-runtime",
+            "files":[{"filename":filename,"url":format!("https://files.example/{filename}"),"hashes":{"sha256":"ab".repeat(32)}}]
+        });
+        let project = fixture.parse(body).unwrap();
+        let file = &project.files()[0];
+        assert!(
+            matches!(file.kind(), PythonDistributionKind::Sdist),
+            "{filename}"
+        );
+        assert_eq!(file.version(), Some("4.9.3"));
+        assert_eq!(file.filename(), filename);
+    }
+    let body = |filename: &str| {
+        json!({"meta":{"api-version":"1.0"},"name":"antlr4-python3-runtime",
+        "files":[{"filename":filename,"url":format!("https://files.example/{filename}"),"hashes":{}}]})
+    };
+    invalid_response(fixture.parse(body("foreign-4.9.3.tar.gz")));
+    let historical = fixture
+        .parse(body("antlr4-python3-runtime-4.9.3-1.tar.gz"))
+        .unwrap();
+    assert!(matches!(
+        historical.files()[0].kind(),
+        PythonDistributionKind::HistoricalFormat
+    ));
+    assert_eq!(historical.files()[0].version(), None);
 }
 
 #[test]

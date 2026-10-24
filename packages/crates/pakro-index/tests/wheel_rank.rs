@@ -115,6 +115,8 @@ fn public_handwritten_wheel_tags_must_be_valid_even_with_empty_support() {
     for tags in malformed {
         assert!(empty.best_rank(&tags).is_err(), "{tags:?}");
         assert!(supported().best_rank(&tags).is_err(), "{tags:?}");
+        assert!(empty.plan_rank(&tags).is_err(), "{tags:?}");
+        assert!(supported().plan_rank(&tags).is_err(), "{tags:?}");
     }
 }
 
@@ -126,6 +128,88 @@ fn manual_set_order_duplicate_and_case_do_not_change_rank() {
         platform: vec!["ANY".into(), "manylinux_2_17_x86_64".into(), "ANY".into()],
     };
     assert_eq!(supported().best_rank(&tags).unwrap(), Some(0));
+}
+
+#[test]
+fn s4_rank_plan_matches_the_ordered_scan_for_all_small_compressed_sets() {
+    let ordered = vec![
+        tag("py3", "none", "any"),
+        tag("cp310", "abi3", "macosx_11_0_arm64"),
+        tag("cp311", "cp311", "macosx_11_0_arm64"),
+        tag("cp311", "none", "linux_x86_64"),
+    ];
+    let target = SupportedWheelTags::new(ordered.clone()).unwrap();
+    let subsets = |values: [&str; 3], mask: usize| {
+        let mut result = values
+            .into_iter()
+            .enumerate()
+            .filter(|(bit, _)| mask & (1usize << *bit) != 0)
+            .map(|(_, value)| value.to_owned())
+            .collect::<Vec<_>>();
+        result.push(result[0].clone());
+        result.reverse();
+        result
+    };
+    for python in 1..8 {
+        for abi in 1..8 {
+            for platform in 1..8 {
+                let tags = WheelTags {
+                    python: subsets(["CP311", "PY3", "cp310"], python),
+                    abi: subsets(["CP311", "NONE", "abi3"], abi),
+                    platform: subsets(["MACOSX_11_0_ARM64", "ANY", "linux_x86_64"], platform),
+                };
+                let contains = |field: &[String], value: &str| {
+                    field.iter().any(|field| field.eq_ignore_ascii_case(value))
+                };
+                let expected = ordered.iter().position(|tag| {
+                    contains(&tags.python, tag.interpreter())
+                        && contains(&tags.abi, tag.abi())
+                        && contains(&tags.platform, tag.platform())
+                });
+                assert_eq!(target.plan_rank(&tags).unwrap().best_rank(), expected);
+                assert_eq!(target.best_rank(&tags).unwrap(), expected);
+            }
+        }
+    }
+    assert_eq!(target.ordered(), ordered);
+}
+
+#[test]
+fn s4_rank_plan_looks_up_a_scalar_tuple_without_scanning_the_target() {
+    let target = SupportedWheelTags::new(
+        (0..2048)
+            .map(|index| tag("cp311", "cp311", &format!("platform_{index}")))
+            .collect(),
+    )
+    .unwrap();
+    let tags = WheelTags {
+        python: vec!["cp311".into()],
+        abi: vec!["cp311".into()],
+        platform: vec!["platform_1337".into()],
+    };
+    let plan = target.plan_rank(&tags).unwrap();
+    assert!(plan.work_bound() < 128);
+    assert_eq!(plan.best_rank(), Some(1337));
+    assert_eq!(target.best_rank(&tags).unwrap(), Some(1337));
+}
+
+#[test]
+fn s4_rank_plan_bounds_huge_compressed_products_by_the_linear_fallback() {
+    let tags = WheelTags {
+        python: (0..1024).map(|index| format!("cp{index}")).collect(),
+        abi: (0..1024).map(|index| format!("abi{index}")).collect(),
+        platform: (0..1024).map(|index| format!("platform{index}")).collect(),
+    };
+    let target = SupportedWheelTags::new(vec![
+        tag("py3", "none", "any"),
+        tag("cp1023", "abi1023", "platform1023"),
+    ])
+    .unwrap();
+    let plan = target.plan_rank(&tags).unwrap();
+    assert!(plan.work_bound() < 100_000);
+    assert_eq!(plan.best_rank(), Some(1));
+    let unsupported = SupportedWheelTags::new(vec![tag("py3", "none", "any")]).unwrap();
+    assert_eq!(unsupported.plan_rank(&tags).unwrap().best_rank(), None);
 }
 
 #[test]

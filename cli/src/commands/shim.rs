@@ -46,7 +46,8 @@ pub(crate) async fn handle_shim() -> Result<()> {
     let mut args = env::ARGS.read().unwrap().clone();
     env::PREFER_OFFLINE.store(true, Ordering::Relaxed);
     trace!("shim[{bin_name}] args: {}", args.join(" "));
-    let (bin, ts, wrapper) = which_shim(&mut config, &env::PAKRO_BIN_NAME, &args).await?;
+    let (bin, ts, wrapper, shared_python) =
+        which_shim(&mut config, &env::PAKRO_BIN_NAME, &args).await?;
     args[0] = bin.to_string_lossy().to_string();
     if let Some(wrapper) = &wrapper {
         args.splice(1..1, wrapper.args().iter().cloned());
@@ -71,19 +72,24 @@ pub(crate) async fn handle_shim() -> Result<()> {
         allow_env: vec![],
     };
     time!("shim exec");
-    if let Some(wrapper) = wrapper {
-        exec.run_with_command_wrapper(
-            config,
-            ts,
+    let mut command_env: BTreeMap<String, String> = wrapper
+        .as_ref()
+        .map(|wrapper| {
             wrapper
                 .env()
                 .iter()
                 .map(|(key, value)| (key.clone(), value.clone()))
-                .collect(),
-        )
-        .await?;
+                .collect()
+        })
+        .unwrap_or_default();
+    if shared_python {
+        command_env.insert("PYTHONDONTWRITEBYTECODE".into(), "1".into());
+    }
+    if wrapper.is_some() {
+        exec.run_with_command_wrapper(config, ts, command_env)
+            .await?;
     } else {
-        exec.run_with_toolset(config, ts).await?;
+        exec.run_with_toolset(config, ts, command_env).await?;
     }
     Err(request_exit(0))
 }
@@ -132,19 +138,22 @@ pub(crate) async fn apply_native_shim_command_wrapper(
     if !same_command_name(shim_name, program) {
         return Ok(None);
     }
-    let Some((wrapper, _shared)) = command_wrapper_for(config, ts, shim_name, true).await? else {
+    let Some((wrapper, shared_python)) = command_wrapper_for(config, ts, shim_name, true).await?
+    else {
         return Ok(None);
     };
     trace!("shim[{shim_name}] WRAPPER command: {}", wrapper.command());
     command[0] = wrapper.command().to_string();
     command.splice(1..1, wrapper.args().iter().cloned());
-    Ok(Some(
-        wrapper
-            .env()
-            .iter()
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect(),
-    ))
+    let mut command_env = wrapper
+        .env()
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect::<BTreeMap<_, _>>();
+    if shared_python {
+        command_env.insert("PYTHONDONTWRITEBYTECODE".into(), "1".into());
+    }
+    Ok(Some(command_env))
 }
 
 /// The command wrapper configured for `shim_name`, with its command installed first when
@@ -206,7 +215,7 @@ async fn which_shim(
     config: &mut Arc<Config>,
     bin_name: &str,
     args: &[String],
-) -> Result<(PathBuf, Toolset, Option<CommandWrapper>)> {
+) -> Result<(PathBuf, Toolset, Option<CommandWrapper>, bool)> {
     // Shell completion invokes `usage complete-word` through the `usage` shim.
     // It should use the installed CLI or fail locally, never resolve a floating
     // tool version or auto-install over the network while the user is pressing
@@ -240,6 +249,7 @@ async fn which_shim(
                 PathBuf::from(wrapper.command()),
                 Toolset::default(),
                 Some(wrapper),
+                true,
             ));
         }
         ts.resolve_with_opts(config, &resolve_options).await?;
@@ -247,11 +257,11 @@ async fn which_shim(
             install_missing_wrapper_command(config, &mut ts, wrapper.command()).await?;
         }
         trace!("shim[{bin_name}] WRAPPER command: {}", wrapper.command());
-        return Ok((PathBuf::from(wrapper.command()), ts, Some(wrapper)));
+        return Ok((PathBuf::from(wrapper.command()), ts, Some(wrapper), false));
     }
     #[cfg(unix)]
     if let Some(path) = select_shared_python_command(&ts, shim_name)? {
-        return Ok((path, Toolset::default(), None));
+        return Ok((path, Toolset::default(), None, true));
     }
     ts.resolve_with_opts(config, &resolve_options).await?;
     // A configured tool may intentionally override an executable bundled by another installed
@@ -276,7 +286,7 @@ async fn which_shim(
                     "shim[{bin_name}] REGISTRY ToolVersion: {tv} bin: {bin}",
                     bin = display_path(&bin)
                 );
-                return Ok((bin, ts, None));
+                return Ok((bin, ts, None, false));
             }
         }
     }
@@ -288,7 +298,7 @@ async fn which_shim(
                 "shim[{bin_name}] ToolVersion: {tv} bin: {bin}",
                 bin = display_path(&bin)
             );
-            return Ok((bin, ts, None));
+            return Ok((bin, ts, None, false));
         }
     }
     // Lazy tools are explicit fallback providers. They install on first shim use even when
@@ -308,7 +318,7 @@ async fn which_shim(
                     "shim[{bin_name}] LAZY ToolVersion: {tv} bin: {bin}",
                     bin = display_path(&bin)
                 );
-                return Ok((bin, ts, None));
+                return Ok((bin, ts, None, false));
             }
         }
     }
@@ -328,7 +338,7 @@ async fn which_shim(
                     "shim[{bin_name}] NOT_FOUND ToolVersion: {tv} bin: {bin}",
                     bin = display_path(&bin)
                 );
-                return Ok((bin, ts, None));
+                return Ok((bin, ts, None, false));
             }
         }
     }
@@ -349,7 +359,7 @@ async fn which_shim(
                     continue;
                 }
                 trace!("shim[{bin_name}] SYSTEM {bin}", bin = display_path(&bin));
-                return Ok((bin, ts, None));
+                return Ok((bin, ts, None, false));
             }
         }
     }

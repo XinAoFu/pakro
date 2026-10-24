@@ -232,6 +232,41 @@ impl WriterControl<'_> {
         }
         result
     }
+    /// Publish the already pinned journal inode as a catalog replacement.
+    /// Callers can durably record its identity before the catalog CAS.
+    pub fn replace_from_journal(
+        &mut self,
+        name: &str,
+        expected: &ControlSnapshot,
+        prepared: &ControlSnapshot,
+    ) -> Result<ControlSnapshot> {
+        self.validate_name(name)?;
+        ensure!(
+            expected.namespace == ControlNamespace::Catalog
+                && expected.name == name
+                && prepared.namespace == ControlNamespace::Journals,
+            "prepared catalog replacement requires catalog and journal snapshots"
+        );
+        self.ensure_catalog()?;
+        self.validate_snapshot(ControlNamespace::Catalog, name, expected)?;
+        self.validate_snapshot(ControlNamespace::Journals, &prepared.name, prepared)?;
+        let catalog = self.namespace_handle(ControlNamespace::Catalog);
+        let journals = self.namespace_handle(ControlNamespace::Journals);
+        nix::fcntl::renameat(journals, prepared.name.as_str(), catalog, name)?;
+        catalog.sync_all()?;
+        journals.sync_all()?;
+        let published = self
+            .read(ControlNamespace::Catalog, name)?
+            .ok_or_else(|| eyre::eyre!("prepared catalog publication disappeared"))?;
+        ensure!(
+            published.file_identity() == prepared.file_identity()
+                && published.sha256() == prepared.sha256()
+                && published.bytes() == prepared.bytes(),
+            "prepared catalog publication identity or bytes changed"
+        );
+        Ok(published)
+    }
+
     pub fn remove(&mut self, expected: &ControlSnapshot) -> Result<()> {
         self.validate_snapshot(expected.namespace, &expected.name, expected)?;
         let parent = &self.read.anchor.namespaces[expected.namespace.index()];

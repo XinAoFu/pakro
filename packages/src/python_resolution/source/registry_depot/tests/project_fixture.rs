@@ -52,6 +52,88 @@ impl ProjectRegistryFixture {
             peer,
         }
     }
+    /// Actual recursive PEP 517 inputs. The counter wheel deliberately changes
+    /// on every real backend build, so a dynamic re-solve must reuse its first
+    /// sealed output instead of quietly building a replacement.
+    pub(crate) fn dynamic_source_dependency() -> (Self, Digest, Digest) {
+        fn source(name: &str, requires: &str, backend: &str) -> Vec<u8> {
+            let project = format!(
+                "[build-system]\nrequires={requires}\nbuild-backend='backend'\nbackend-path=['.']\n"
+            );
+            let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+            let mut archive = tar::Builder::new(encoder);
+            for (member, bytes) in [
+                ("pyproject.toml", project.as_bytes()),
+                ("backend.py", backend.as_bytes()),
+            ] {
+                let mut header = tar::Header::new_gnu();
+                header.set_size(bytes.len() as u64);
+                header.set_mode(0o644);
+                header.set_cksum();
+                archive
+                    .append_data(&mut header, format!("{name}-1.0/{member}"), bytes)
+                    .unwrap();
+            }
+            archive.into_inner().unwrap().finish().unwrap()
+        }
+        const WRITER: &str = r#"
+import base64, hashlib, os, pathlib, zipfile
+def _wheel(directory, name, value):
+    info = name + '-1.0.dist-info'
+    members = {
+        name + '/__init__.py': ('VALUE=' + repr(value) + '\n').encode(),
+        info + '/METADATA': ('Metadata-Version: 2.4\nName: ' + name + '\nVersion: 1.0\n').encode(),
+        info + '/WHEEL': b'Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n',
+    }
+    rows = [path + ',sha256=' + base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b'=').decode() + ',' + str(len(data)) + '\n' for path, data in members.items()]
+    members[info + '/RECORD'] = (''.join(rows) + info + '/RECORD,,\n').encode()
+    filename = name + '-1.0-py3-none-any.whl'
+    with zipfile.ZipFile(pathlib.Path(directory) / filename, 'w') as archive:
+        for path, data in members.items():
+            member = zipfile.ZipInfo(path, (1980, 1, 1, 0, 0, 0))
+            member.external_attr = 0o100644 << 16
+            archive.writestr(member, data)
+    return filename
+"#;
+        let counter_backend = format!(
+            "{WRITER}\ndef get_requires_for_build_wheel(config_settings=None): return []\ndef build_wheel(wheel_directory, config_settings=None, metadata_directory=None):\n    return _wheel(wheel_directory, 'counter_dep', os.urandom(16).hex())\n"
+        );
+        let demo_backend = format!(
+            "{WRITER}\ndef get_requires_for_build_wheel(config_settings=None):\n    import counter_dep\n    pathlib.Path('observed-counter.txt').write_text(counter_dep.VALUE)\n    return ['helper==1.0']\ndef build_wheel(wheel_directory, config_settings=None, metadata_directory=None):\n    import counter_dep, helper\n    assert counter_dep.VALUE == pathlib.Path('observed-counter.txt').read_text(), 'dynamic solve rebuilt the observed source dependency'\n    assert helper.VALUE == 42\n    return _wheel(wheel_directory, 'demo_pkg', counter_dep.VALUE)\n"
+        );
+        let demo = source("demo_pkg", "['counter-dep==1.0']", &demo_backend);
+        let counter = source("counter_dep", "[]", &counter_backend);
+        let helper = wheel("helper", "1.0", &[], "");
+        let counter_digest = Digest::from_sha256_bytes(&counter);
+        let helper_digest = Digest::from_sha256_bytes(&helper);
+        let mut demo_file = wire_file("demo_pkg-1.0.tar.gz");
+        let mut counter_file = wire_file("counter_dep-1.0.tar.gz");
+        let mut helper_file = wire_file("helper-1.0-py3-none-any.whl");
+        for (file, bytes) in [
+            (&mut demo_file, &demo),
+            (&mut counter_file, &counter),
+            (&mut helper_file, &helper),
+        ] {
+            file["hashes"] = serde_json::json!({"sha256":hex::encode(Sha256::digest(bytes))});
+        }
+        let peer = Peer::new(move |target| match target {
+            "/simple/demo-pkg/" => Reply::page("demo-pkg", vec![demo_file.clone()]),
+            "/simple/counter-dep/" => Reply::page("counter-dep", vec![counter_file.clone()]),
+            "/simple/helper/" => Reply::page("helper", vec![helper_file.clone()]),
+            "/files/demo_pkg-1.0.tar.gz" => Reply::file(&demo),
+            "/files/counter_dep-1.0.tar.gz" => Reply::file(&counter),
+            "/files/helper-1.0-py3-none-any.whl" => Reply::file(&helper),
+            _ => Reply::missing(),
+        });
+        (
+            Self {
+                fixture: Fixture::new(&peer),
+                peer,
+            },
+            counter_digest,
+            helper_digest,
+        )
+    }
     pub(crate) fn lock(&self) -> BoundPythonLock {
         self.fixture.lock()
     }

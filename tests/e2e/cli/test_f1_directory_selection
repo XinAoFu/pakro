@@ -5,7 +5,11 @@
 # - a complete declaration without a local instance only warns (no download,
 #   no venv, no new library instance),
 # - leaving the project directory restores the previous PATH,
+# - selecting the shared payload suppresses bytecode writes, overriding an
+#   a distinct inherited value and restoring it when selection is withdrawn,
 # - a second process in the same directory reads the committed selection.
+
+require_cmd jq
 
 # The shared library is staged from the offline fixture archive through the
 # ignored cargo staging helper; F1 itself installs nothing from the network.
@@ -48,6 +52,15 @@ printf '[tools]\npython = "3.11.14"\n' >missing/pakro.toml
 # above only builds the lib test target.
 (cd "$ROOT" && cargo build -p pakro --all-features)
 
+# An unselected directory must not claim ownership of Python's bytecode
+# policy. The inherited value must remain available after leaving a project.
+export PYTHONDONTWRITEBYTECODE=0
+assert "pakro env --json | jq -r 'has(\"PYTHONDONTWRITEBYTECODE\")'" "false"
+assert_not_contains "pakro env --shell bash" "PYTHONDONTWRITEBYTECODE"
+assert_not_contains "pakro env --dotenv" "PYTHONDONTWRITEBYTECODE"
+assert "pakro env --json-extended | jq -r 'has(\"PYTHONDONTWRITEBYTECODE\")'" "false"
+assert "pakro env --values | awk '\$0 == \"1\" { n++ } END { print n+0 }'" "0"
+
 # Real terminal integration: the shell hook applies each directory selection.
 eval "$(pakro activate bash)"
 
@@ -55,6 +68,24 @@ eval "$(pakro activate bash)"
 cd a
 eval "$(pakro hook-env -s bash)"
 assert "command -v python" "$shared_python"
+assert "printf '%s' \"\$PYTHONDONTWRITEBYTECODE\"" "1"
+# Every supported env output must carry the same policy as the interactive
+# hook, including the path whose selected bin directory is already first.
+assert_contains "pakro env --shell bash" "export PYTHONDONTWRITEBYTECODE=1"
+assert "pakro env --json | jq -r '.PYTHONDONTWRITEBYTECODE'" "1"
+assert_contains "pakro env --dotenv" "PYTHONDONTWRITEBYTECODE=1"
+assert "pakro env --json-extended | jq -r '.PYTHONDONTWRITEBYTECODE.value'" "1"
+assert "pakro env --values | awk '\$0 == \"1\" { n++ } END { print n+0 }'" "1"
+# A project env declaration must not replace the selected shared startup
+# value, including extended JSON's source-overlay pass.
+printf '[env]\nPYTHONDONTWRITEBYTECODE = "0"\n' >pakro.local.toml
+eval "$(pakro hook-env -s bash --force)"
+assert "printf '%s' \"\$PYTHONDONTWRITEBYTECODE\"" "1"
+assert_contains "pakro env --shell bash" "export PYTHONDONTWRITEBYTECODE=1"
+assert "pakro env --json | jq -r '.PYTHONDONTWRITEBYTECODE'" "1"
+assert_contains "pakro env --dotenv" "PYTHONDONTWRITEBYTECODE=1"
+assert "pakro env --values | awk '\$0 == \"1\" { n++ } END { print n+0 }'" "1"
+assert "pakro env --json-extended | jq -r '.PYTHONDONTWRITEBYTECODE.value'" "1"
 resolved="$(command -v python)"
 assert "stat -f '%i' "$resolved" 2>/dev/null || stat -c '%i' "$resolved"" "$python_inode"
 
@@ -62,6 +93,7 @@ assert "stat -f '%i' "$resolved" 2>/dev/null || stat -c '%i' "$resolved"" "$pyth
 cd ../b
 eval "$(pakro hook-env -s bash)"
 assert "command -v python" "$shared_python"
+assert "printf '%s' \"\$PYTHONDONTWRITEBYTECODE\"" "1"
 resolved="$(command -v python)"
 resolved_root="${resolved%/bin/python}"
 assert "stat -f '%i' "$resolved" 2>/dev/null || stat -c '%i' "$resolved"" "$python_inode"
@@ -71,6 +103,7 @@ assert "stat -f '%i' "$resolved_root/lib/python3.15/stdlib-marker" 2>/dev/null |
 cd ../missing
 eval "$(pakro hook-env -s bash)"
 assert "command -v python 2>/dev/null | grep -c "$lang_root" || true" "0"
+assert "printf '%s' \"\$PYTHONDONTWRITEBYTECODE\"" "0"
 assert "find "$lang_root" -mindepth 1 -maxdepth 1 -type d ! -name '.*' | wc -l | tr -d ' '" "1"
 assert "ls "$PAKRO_CACHE_DIR/downloads" 2>/dev/null | wc -l | tr -d ' '" "0"
 assert "test -d .venv || echo absent" "absent"
@@ -79,6 +112,8 @@ assert "test -d .venv || echo absent" "absent"
 cd ..
 eval "$(pakro hook-env -s bash)"
 assert "command -v python 2>/dev/null | grep -c "$lang_root" || true" "0"
+assert "printf '%s' \"\$PYTHONDONTWRITEBYTECODE\"" "0"
+assert "pakro env --json | jq -r 'has(\"PYTHONDONTWRITEBYTECODE\")'" "false"
 
 # A new process in the project directory reads the committed selection. The
 # inherited session already matches this directory (the cd hook ran here), so

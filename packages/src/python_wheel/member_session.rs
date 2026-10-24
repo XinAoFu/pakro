@@ -129,3 +129,41 @@ impl<R: Read + Seek> fmt::Debug for WheelDirectoryReceipt<R> {
             .finish_non_exhaustive()
     }
 }
+
+impl WheelDirectoryReceipt<crate::artifact_snapshot::VerifiedArtifact> {
+    /// Keep the raw source confined to the wheel implementation: both results
+    /// are re-inspected owners, never mutable paths or an unchecked reader.
+    pub(crate) fn duplicate_inspected_wheel(
+        self,
+        expected: &super::WheelExpectation<'_>,
+        limits: super::WheelLimits,
+        scratch_root: &std::path::Path,
+        deadline: std::time::Instant,
+        max_archive_bytes: u64,
+    ) -> Result<(
+        crate::packages::python_wheel_source::InspectedWheelArchive,
+        crate::packages::python_wheel_source::InspectedWheelArchive,
+    )> {
+        use crate::artifact_snapshot::clone_verified_artifact;
+        use crate::packages::python_wheel_source::inspect_owned_wheel;
+
+        self.usage.check(limits)?;
+        // The validated ZIP view masks an EOCD comment for Zip8. Copy its
+        // original source, preserving every comment/footer byte in the digest.
+        let mut original = self.archive.into_inner().into_input();
+        let digest = original.digest();
+        let copy =
+            clone_verified_artifact(&mut original, scratch_root, deadline, max_archive_bytes)?;
+        let original = inspect_owned_wheel(original, digest, expected, limits)?;
+        ensure!(
+            std::time::Instant::now() < deadline,
+            "inspected wheel duplication deadline expired"
+        );
+        let copy = inspect_owned_wheel(copy, digest, expected, limits)?;
+        ensure!(
+            std::time::Instant::now() < deadline,
+            "inspected wheel duplication deadline expired"
+        );
+        Ok((original, copy))
+    }
+}

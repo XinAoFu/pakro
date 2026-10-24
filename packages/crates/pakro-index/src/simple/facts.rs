@@ -151,12 +151,16 @@ fn finish_project_for_representation(
         .filter_map(|value| Version::from_str(value).ok())
         .collect();
     let mut files = BTreeMap::new();
+    let mut version_listing_mismatch = false;
     for raw in required(raw.files, "missing files")? {
         let file = finish_file(raw, context, api, base, json_representation)?;
         if declared_versions && let Some(version) = file.version() {
             let parsed = Version::from_str(version).map_err(|_| invalid("invalid file version"))?;
             if !parsed_versions.contains(&parsed) {
-                return Err(invalid("file version is absent from versions"));
+                // Versions lists release labels, including historical labels
+                // that may differ from uploaded filenames. Preserve both
+                // observations without inventing a release/file association.
+                version_listing_mismatch = true;
             }
         }
         if let Some(previous) = files.get(file.filename()) {
@@ -178,6 +182,9 @@ fn finish_project_for_representation(
         .map(|value| relation(&value, context, base))
         .collect::<SimpleResult<Vec<_>>>()?;
     let mut warnings = Vec::new();
+    if version_listing_mismatch {
+        warnings.push(SimpleWarning::VersionListingMismatch);
+    }
     if api.minor > 4 {
         warnings.push(SimpleWarning::NewerApiMinor {
             major: api.major,
@@ -454,6 +461,17 @@ fn distribution(
         return Ok((PythonDistributionKind::Wheel(wheel), Some(version)));
     }
     if let Some(stem) = filename.strip_suffix(".tar.gz") {
+        // A known project's historical unescaped name can contain hyphens
+        // (for example antlr4-python3-runtime). The last separator is accepted
+        // only when its complete left side normalizes to this exact project
+        // and its right side is already a canonical complete version.
+        if let Some((name, version)) = stem.rsplit_once('-')
+            && let Ok(parsed) = Version::from_str(version)
+            && parsed.to_string() == version
+            && NormalizedPythonName::new(name).is_ok_and(|name| &name == project)
+        {
+            return Ok((PythonDistributionKind::Sdist, Some(version.to_owned())));
+        }
         // PEP 625's escaped name and normalized version contain exactly one
         // separator. Other historical spellings require their own metadata
         // adapter; guessing every hyphen can both misidentify and cost O(n²).

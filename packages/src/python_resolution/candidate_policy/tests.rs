@@ -4,6 +4,109 @@ use pakro_index::simple::{SimpleLimits, SimpleParseContext, parse_simple_json};
 use pakro_index::{PythonMarkerContextBuilder, WheelTag};
 use serde_json::{Value, json};
 
+/// Diagnose only explicitly supplied captures/observations. This reads no
+/// executable and grants no runtime, registry or installation authority.
+#[test]
+#[ignore = "requires explicit Simple-page directory and language manifest inputs"]
+fn s4_isat_candidate_policy_probe() {
+    let directory =
+        std::env::var_os("PAKRO_ISAT_SIMPLE_PROBE_DIR").expect("set PAKRO_ISAT_SIMPLE_PROBE_DIR");
+    let manifest =
+        std::env::var_os("PAKRO_ISAT_LANGUAGE_MANIFEST").expect("set PAKRO_ISAT_LANGUAGE_MANIFEST");
+    let manifest: Value = serde_json::from_slice(&std::fs::read(manifest).unwrap()).unwrap();
+    let descriptor: crate::python_runtime::PythonRuntimeDescriptor =
+        serde_json::from_value(manifest["descriptor"].clone()).unwrap();
+    let target = crate::packages::python_target::wheel_target(&descriptor).unwrap();
+    let markers = &descriptor.markers;
+    let python = PythonMarkerContext::new(PythonMarkerContextBuilder {
+        os_name: &markers.os_name,
+        sys_platform: &markers.sys_platform,
+        platform_release: &markers.platform_release,
+        platform_system: &markers.platform_system,
+        platform_version: &markers.platform_version,
+        platform_machine: &markers.platform_machine,
+        platform_python_implementation: &markers.platform_python_implementation,
+        python_version: &markers.python_version,
+        python_full_version: &markers.python_full_version,
+        implementation_name: &markers.implementation_name,
+        implementation_version: &markers.implementation_version,
+    })
+    .unwrap();
+    let mut paths = std::fs::read_dir(directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .collect::<Vec<_>>();
+    paths.sort();
+    assert!(!paths.is_empty() && paths.len() <= 128);
+    let limits = CandidatePolicyLimits::default();
+    let mut usage = CandidatePolicyUsage::default();
+    eprintln!(
+        "actual observed target tags={} work_limit={} text_limit={}",
+        target.supported.ordered().len(),
+        limits.max_work_units,
+        limits.max_total_utf8_bytes
+    );
+    for path in paths {
+        let requested = path.file_stem().unwrap().to_str().unwrap();
+        let name = NormalizedPythonName::new(requested).unwrap();
+        assert_eq!(name.as_str(), requested);
+        let registry = PythonRegistry::new("pypi", "https://pypi.org/simple/", None).unwrap();
+        let document = registry.project_url(&name).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let project = parse_simple_json(
+            &bytes,
+            SimpleParseContext {
+                registry: &registry,
+                project: &name,
+                canonical_document_url: &document,
+                limits: SimpleLimits::default(),
+            },
+        )
+        .unwrap();
+        let before_work = usage.work;
+        let before_utf8 = usage.utf8;
+        let count = project.files().len();
+        let height = if count <= 1 {
+            0
+        } else {
+            (usize::BITS - (count - 1).leading_zeros()) as usize
+        };
+        let prospective_work =
+            before_work + count * (target.supported.ordered().len() + height + 1);
+        let result = order_fresh_candidate_universe(
+            &project,
+            &target.supported,
+            &python,
+            CandidatePolicy {
+                prereleases: Prereleases::IfNoMatchingFinal,
+                yanked: Yanked::Disallow,
+                sdists: Sdists::Include,
+                installed_version: None,
+            },
+            limits,
+            &mut usage,
+        );
+        match result {
+            Ok(candidates) => eprintln!(
+                "{requested}: files={count} candidates={} work={} (+{}) utf8={} (+{})",
+                candidates.candidates().len(),
+                usage.work,
+                usage.work - before_work,
+                usage.utf8,
+                usage.utf8 - before_utf8
+            ),
+            Err(error) => panic!(
+                "{requested}: {error}; files={count}; observed_work={} prospective_work={prospective_work} work_limit={}; utf8={} text_limit={} before_utf8={before_utf8}",
+                usage.work, limits.max_work_units, usage.utf8, limits.max_total_utf8_bytes
+            ),
+        }
+    }
+}
+
 #[test]
 fn universe_and_known_metadata_gateway_do_not_guess_unknown_final_eligibility() {
     let p = project(vec![wheel("2.0rc1"), wheel("1.0")]);
@@ -79,7 +182,7 @@ fn universe_and_known_metadata_gateway_do_not_guess_unknown_final_eligibility() 
             &mut usage
         )
         .unwrap(),
-        ActiveCandidateAssessment::Reject
+        ActiveCandidateAssessment::RejectWithAlternative(index) if index == alternative
     ));
     assert_eq!(
         check(
@@ -91,6 +194,100 @@ fn universe_and_known_metadata_gateway_do_not_guess_unknown_final_eligibility() 
         CandidatePolicyError::InvalidInput
     );
 }
+
+fn assert_known_final_before_unknown_same_version_source(use_cached: bool) {
+    const PRE: &str = "demo_pkg-1.8.0.dev0-py3-none-any.whl";
+    const SOURCE: &str = "demo_pkg-1.8.0.dev0.tar.gz";
+    const FINAL: &str = "demo_pkg-1.7.0-py3-none-any.whl";
+    // Original file indices intentionally differ from policy-order positions.
+    let p = project(vec![file(FINAL), file(SOURCE), file(PRE)]);
+    let supported = target();
+    let python = python();
+    let policy = CandidatePolicy {
+        yanked: Yanked::Disallow,
+        ..policy()
+    };
+    let selected = p
+        .files()
+        .iter()
+        .position(|file| file.filename() == PRE)
+        .unwrap();
+    let source = p
+        .files()
+        .iter()
+        .position(|file| file.filename() == SOURCE)
+        .unwrap();
+    let alternative = p
+        .files()
+        .iter()
+        .position(|file| file.filename() == FINAL)
+        .unwrap();
+    let mut knowledge = vec![CandidateKnowledge::Unknown; p.files().len()];
+    knowledge[selected] = CandidateKnowledge::Compatible;
+    knowledge[alternative] = CandidateKnowledge::Compatible;
+    assert_eq!(knowledge[source], CandidateKnowledge::Unknown);
+
+    let (ordered, cached) = classify_candidate_universe(
+        &p,
+        &supported,
+        &python,
+        policy,
+        Default::default(),
+        &mut CandidatePolicyUsage::default(),
+    )
+    .unwrap();
+    assert_eq!(p.files().len(), 3);
+    assert_eq!(cached.len(), 3);
+    assert_eq!(names(&ordered), [PRE, SOURCE, FINAL]);
+    let selected_position = (0..cached.len())
+        .find(|position| cached.file_index(*position) == Some(selected))
+        .unwrap();
+    let alternative_position = (0..cached.len())
+        .find(|position| cached.file_index(*position) == Some(alternative))
+        .unwrap();
+    assert_ne!(alternative, alternative_position);
+    let cached_knowledge = (0..cached.len())
+        .map(|position| knowledge[cached.file_index(position).unwrap()])
+        .collect::<Vec<_>>();
+
+    let actual = if use_cached {
+        assess_cached_candidate(
+            &cached,
+            selected_position,
+            &[">=1"],
+            &cached_knowledge,
+            Default::default(),
+            &mut CandidatePolicyUsage::default(),
+        )
+    } else {
+        assess_active_candidate(
+            ActiveCandidateContext {
+                project: &p,
+                supported: &supported,
+                python: &python,
+                policy,
+                limits: Default::default(),
+            },
+            selected,
+            &[">=1"],
+            &knowledge,
+            &mut CandidatePolicyUsage::default(),
+        )
+    }
+    .unwrap();
+    assert_eq!(actual, ActiveCandidateAssessment::RejectWithAlternative(alternative));
+}
+
+#[test]
+fn s4_reject_alternative_uncached_suggests_known_final_before_unknown_same_version_source() {
+    assert_known_final_before_unknown_same_version_source(false);
+}
+
+#[test]
+fn s4_reject_alternative_cached_suggests_known_final_before_unknown_same_version_source() {
+    assert_known_final_before_unknown_same_version_source(true);
+}
+
 #[test]
 fn exact_yanked_gateway_emits_notices_only_after_alternative_knowledge_is_complete() {
     let mut yanked = wheel("1.0");
@@ -167,10 +364,10 @@ fn original_parenthesized_literal_constraints_reach_the_shared_matcher() {
     );
 }
 
-fn file(filename: &str) -> Value {
+pub(super) fn file(filename: &str) -> Value {
     json!({"filename":filename,"url":format!("https://files.example/{filename}?token=private-locator"),"hashes":{"sha256":"ab".repeat(32)}})
 }
-fn wheel(version: &str) -> Value {
+pub(super) fn wheel(version: &str) -> Value {
     file(&format!("demo_pkg-{version}-py3-none-any.whl"))
 }
 fn project_from(files: Vec<Value>, source: &str) -> SimpleProject {
@@ -194,17 +391,17 @@ fn project_page(page: Value, source: &str) -> SimpleProject {
     )
     .unwrap()
 }
-fn project(files: Vec<Value>) -> SimpleProject {
+pub(super) fn project(files: Vec<Value>) -> SimpleProject {
     project_from(files, "private")
 }
-fn target() -> SupportedWheelTags {
+pub(super) fn target() -> SupportedWheelTags {
     SupportedWheelTags::new(vec![
         WheelTag::new("cp311", "cp311", "any").unwrap(),
         WheelTag::new("py3", "none", "any").unwrap(),
     ])
     .unwrap()
 }
-fn python() -> PythonMarkerContext {
+pub(super) fn python() -> PythonMarkerContext {
     PythonMarkerContext::new(PythonMarkerContextBuilder {
         os_name: "posix",
         sys_platform: "darwin",
@@ -220,7 +417,7 @@ fn python() -> PythonMarkerContext {
     })
     .unwrap()
 }
-fn policy() -> CandidatePolicy<'static> {
+pub(super) fn policy() -> CandidatePolicy<'static> {
     CandidatePolicy {
         prereleases: Prereleases::IfNoMatchingFinal,
         yanked: Yanked::ExactPinIfNoUnyanked,
@@ -491,6 +688,20 @@ fn all_constraint_inputs_are_checked_before_filtering_and_errors_do_not_echo_pri
 #[test]
 fn budgets_are_explicit_and_results_retain_the_original_project_and_file_indices() {
     let p = project(vec![wheel("1.0"), wheel("2.0")]);
+    let supported = target();
+    // Target validation + one constraint/classification/sort envelope per
+    // file + the very same adaptive rank plan executed by the matcher.
+    let exact_work = supported.ordered().len()
+        + p.files().len() * 3
+        + p.files()
+            .iter()
+            .map(|file| {
+                let PythonDistributionKind::Wheel(wheel) = file.kind() else {
+                    unreachable!()
+                };
+                supported.plan_rank(&wheel.tags).unwrap().work_bound()
+            })
+            .sum::<usize>();
     for zero in [
         CandidatePolicyLimits {
             max_files: 0,
@@ -566,12 +777,11 @@ fn budgets_are_explicit_and_results_retain_the_original_project_and_file_indices
             max_supported_tags: 2,
             max_field_bytes: 29,
             max_total_utf8_bytes: 99,
-            max_work_units: 10,
+            max_work_units: exact_work,
         },
     )
     .unwrap();
-    // Two actual files, two actual target triples, one clause. Fixed numeric
-    // boundaries include all consumed UTF8 and the finite comparison envelope.
+    // Text and work retain exact adjacent successful/failing boundaries.
     for tight in [
         CandidatePolicyLimits {
             max_field_bytes: 28,
@@ -582,7 +792,7 @@ fn budgets_are_explicit_and_results_retain_the_original_project_and_file_indices
             ..Default::default()
         },
         CandidatePolicyLimits {
-            max_work_units: 9,
+            max_work_units: exact_work - 1,
             ..Default::default()
         },
     ] {

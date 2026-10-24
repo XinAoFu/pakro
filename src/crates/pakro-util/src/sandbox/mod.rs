@@ -16,6 +16,11 @@ mod seccomp;
 /// for everything not in the allow list).
 #[derive(Debug, Clone, Default)]
 pub struct SandboxConfig {
+    /// Restrict a source-build worker to explicitly supplied filesystem inputs.
+    /// Existing task/CLI sandbox defaults remain unchanged when false.
+    pub build_worker: bool,
+    /// Additional fixed executables admitted by a source-build worker policy.
+    pub allow_process: Vec<PathBuf>,
     pub deny_read: bool,
     pub deny_write: bool,
     pub deny_net: bool,
@@ -106,6 +111,85 @@ fn env_pattern_matches(pattern: &str, key: &str) -> bool {
 }
 
 impl SandboxConfig {
+    pub(crate) fn validate_build_worker(
+        &self,
+        initial_program: Option<&std::path::Path>,
+    ) -> eyre::Result<()> {
+        use eyre::{Context, ContextCompat, ensure};
+        if !self.build_worker {
+            ensure!(
+                self.allow_process.is_empty(),
+                "an executable allow-list requires the source-build worker policy"
+            );
+            return Ok(());
+        }
+        ensure!(
+            cfg!(any(target_os = "linux", target_os = "macos")),
+            "source-build worker isolation is unavailable on this platform"
+        );
+        ensure!(
+            self.allow_net.is_empty(),
+            "source-build workers cannot grant network access"
+        );
+        let initial = initial_program.context("source-build worker executable is missing")?;
+        let fixed_path = |path: &std::path::Path| -> eyre::Result<()> {
+            ensure!(
+                path.is_absolute()
+                    && path != std::path::Path::new("/")
+                    && path.components().all(|part| matches!(
+                        part,
+                        std::path::Component::RootDir | std::path::Component::Normal(_)
+                    )),
+                "source-build worker input is not a fixed absolute path"
+            );
+            ensure!(
+                path.canonicalize()
+                    .context("source-build worker input is unavailable")?
+                    == path,
+                "source-build worker input is not canonical"
+            );
+            Ok(())
+        };
+        for path in self.allow_read.iter().chain(&self.allow_write) {
+            fixed_path(path)?;
+        }
+        ensure!(
+            !self.allow_write.is_empty() && self.allow_write.iter().all(|path| path.is_dir()),
+            "source-build worker writable roots must be existing private directories"
+        );
+        for path in std::iter::once(initial).chain(self.allow_process.iter().map(PathBuf::as_path))
+        {
+            fixed_path(path)?;
+            let metadata = std::fs::symlink_metadata(path)
+                .context("source-build worker executable is unavailable")?;
+            ensure!(
+                metadata.is_file() && !metadata.file_type().is_symlink(),
+                "source-build worker executable is not a fixed regular file"
+            );
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                ensure!(
+                    metadata.permissions().mode() & 0o111 != 0,
+                    "source-build worker input is not executable"
+                );
+            }
+            ensure!(
+                !self.deny_process || path == initial,
+                "a worker that prohibits child processes cannot grant other executables"
+            );
+        }
+        // Seatbelt has no setsid/setpgid policy hook. A forked child could
+        // leave the owned process group, so do not claim bounded descendants
+        // for a compiler worker until it has an independent supervision owner.
+        #[cfg(target_os = "macos")]
+        ensure!(
+            self.deny_process,
+            "macOS source-build worker subprocesses require a tracked descendant supervisor"
+        );
+        Ok(())
+    }
+
     /// Build sandbox configuration by combining persistent deny settings with CLI options.
     pub fn from_settings_and_cli(
         settings: &pakro_settings::SettingsSandbox,
@@ -121,7 +205,9 @@ impl SandboxConfig {
 
     /// Returns true if any sandbox restriction is configured.
     pub fn is_active(&self) -> bool {
-        self.deny_read
+        self.build_worker
+            || !self.allow_process.is_empty()
+            || self.deny_read
             || self.deny_write
             || self.deny_net
             || self.deny_env
@@ -157,27 +243,28 @@ impl SandboxConfig {
         };
         resolve(&mut self.allow_read);
         resolve(&mut self.allow_write);
+        resolve(&mut self.allow_process);
         self.symlinked_allow_paths = symlinked;
     }
 
     /// Compute effective deny flags, accounting for allow_* implying deny_*.
     #[cfg_attr(windows, allow(dead_code))]
     pub fn effective_deny_read(&self) -> bool {
-        self.deny_read || !self.allow_read.is_empty()
+        self.build_worker || self.deny_read || !self.allow_read.is_empty()
     }
 
     #[cfg_attr(windows, allow(dead_code))]
     pub fn effective_deny_write(&self) -> bool {
-        self.deny_write || !self.allow_write.is_empty()
+        self.build_worker || self.deny_write || !self.allow_write.is_empty()
     }
 
     #[cfg_attr(windows, allow(dead_code))]
     pub fn effective_deny_net(&self) -> bool {
-        self.deny_net || !self.allow_net.is_empty()
+        self.build_worker || self.deny_net || !self.allow_net.is_empty()
     }
 
     pub fn effective_deny_env(&self) -> bool {
-        self.deny_env || !self.allow_env.is_empty()
+        self.build_worker || self.deny_env || !self.allow_env.is_empty()
     }
 
     /// Allow-list paths that do not exist, in declaration order and listed once
@@ -254,6 +341,11 @@ impl SandboxConfig {
             .filter(|(k, _)| DEFAULT_ENV_KEYS.contains(&k.as_str()) || env_matches(k))
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
+        if self.build_worker {
+            // Worker inputs come from the coordinator's explicit map only.
+            // Never refill missing entries from the interactive shell.
+            return filtered;
+        }
         // Pull in allowed vars from parent env that might not be in pakro's env map.
         // For wildcard patterns, check all parent env vars; for exact names, check directly.
         for pattern in self.allow_env.iter().chain(&self.pass_through_env) {
@@ -298,6 +390,7 @@ impl SandboxConfig {
         program: &str,
         args: &[String],
     ) -> eyre::Result<Option<SandboxedCommand>> {
+        self.validate_build_worker(Some(std::path::Path::new(program)))?;
         if !self.is_active() {
             return Ok(None);
         }
@@ -316,6 +409,10 @@ impl SandboxConfig {
 
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         {
+            eyre::ensure!(
+                !self.build_worker,
+                "source-build worker isolation is unavailable on this platform"
+            );
             warn!("sandbox is not supported on this platform, running unsandboxed");
             Ok(None)
         }
@@ -333,7 +430,11 @@ impl SandboxConfig {
                      Use --deny-net to block all network, or remove --allow-net."
                 );
             }
-            seccomp::apply_seccomp_filter(self.effective_deny_net(), self.deny_process)?;
+            if self.build_worker {
+                seccomp::apply_worker_filter(self.deny_process)?;
+            } else {
+                seccomp::apply_seccomp_filter(self.effective_deny_net(), self.deny_process)?;
+            }
         }
         Ok(())
     }
@@ -354,7 +455,11 @@ impl SandboxConfig {
         ];
         sandbox_args.extend(args.iter().cloned());
         Ok(Some(SandboxedCommand {
-            program: "sandbox-exec".to_string(),
+            program: if self.build_worker {
+                "/usr/bin/sandbox-exec".to_owned()
+            } else {
+                "sandbox-exec".to_owned()
+            },
             args: sandbox_args,
         }))
     }
@@ -384,6 +489,12 @@ pub fn seccomp_apply(deny_net: bool, deny_process: bool) -> eyre::Result<()> {
     seccomp::apply_seccomp_filter(deny_net, deny_process)
 }
 
+/// Apply the source-build worker's complete network and group-control filter.
+#[cfg(target_os = "linux")]
+pub fn worker_seccomp_apply(deny_process: bool) -> eyre::Result<()> {
+    seccomp::apply_worker_filter(deny_process)
+}
+
 /// Generate a macOS Seatbelt profile string (macOS only).
 #[cfg(target_os = "macos")]
 pub async fn macos_generate_profile(config: &SandboxConfig, program: &std::path::Path) -> String {
@@ -395,6 +506,68 @@ mod tests {
     use super::*;
     use pakro_settings::SettingsSandbox;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn s1_build_worker_implies_complete_restriction_policy() {
+        let config = SandboxConfig {
+            build_worker: true,
+            ..Default::default()
+        };
+        assert!(config.is_active());
+        assert!(config.effective_deny_read());
+        assert!(config.effective_deny_write());
+        assert!(config.effective_deny_net());
+        assert!(config.effective_deny_env());
+    }
+
+    #[test]
+    fn s1_build_worker_environment_does_not_import_parent_values() {
+        assert!(std::env::var_os("PATH").is_some());
+        let config = SandboxConfig {
+            build_worker: true,
+            allow_env: vec!["PATH".into()],
+            ..Default::default()
+        };
+        assert!(config.filter_env(&BTreeMap::new()).is_empty());
+        let supplied = BTreeMap::from([("PATH".into(), "/fixed/toolchain".into())]);
+        assert_eq!(config.filter_env(&supplied), supplied);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn s1_build_worker_requires_existing_fixed_inputs_and_no_network_grants() {
+        let root = tempfile::tempdir().unwrap();
+        let stage = root.path().canonicalize().unwrap();
+        let program = std::fs::canonicalize("/bin/sh").unwrap();
+        let valid = SandboxConfig {
+            build_worker: true,
+            deny_process: true,
+            allow_read: vec![program.parent().unwrap().to_owned()],
+            allow_write: vec![stage.clone()],
+            ..Default::default()
+        };
+        valid.validate_build_worker(Some(&program)).unwrap();
+        for invalid in [
+            SandboxConfig {
+                allow_net: vec!["127.0.0.1".into()],
+                ..valid.clone()
+            },
+            SandboxConfig {
+                allow_read: vec![stage.join("missing-input")],
+                ..valid.clone()
+            },
+            SandboxConfig {
+                allow_write: vec![PathBuf::from("/")],
+                ..valid.clone()
+            },
+            SandboxConfig {
+                allow_process: vec![stage.join("missing-tool")],
+                ..valid.clone()
+            },
+        ] {
+            assert!(invalid.validate_build_worker(Some(&program)).is_err());
+        }
+    }
 
     /// Fixture paths that cannot collide with a previous run or a concurrent one.
     fn missing_fixture(name: &str) -> PathBuf {

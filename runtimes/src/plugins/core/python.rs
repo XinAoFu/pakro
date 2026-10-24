@@ -592,6 +592,40 @@ impl PythonPlugin {
         runtime_pin: Option<&PlatformInfo>,
     ) -> Result<()> {
         let requested = crate::programs::shared::exact_version::exact_python_request(version)?;
+        let progress: Arc<dyn SingleReport> = Arc::from(
+            crate::ui::multi_progress_report::MultiProgressReport::get()
+                .add_pre_backend(&format!("python@{}", requested.as_str())),
+        );
+        let result = self
+            .install_shared_exact_with_report(
+                operation,
+                requested.as_str(),
+                config,
+                runtime_pin,
+                progress.clone(),
+            )
+            .await;
+        if result.is_ok() {
+            progress.finish_with_message("ready".into());
+        } else {
+            progress.finish_with_icon(
+                "failed".into(),
+                crate::ui::progress_report::ProgressIcon::Error,
+            );
+        }
+        result
+    }
+
+    #[cfg(unix)]
+    async fn install_shared_exact_with_report(
+        &self,
+        operation: &crate::programs::OperationContext,
+        version: &str,
+        config: Arc<Config>,
+        runtime_pin: Option<&PlatformInfo>,
+        progress: Arc<dyn SingleReport>,
+    ) -> Result<()> {
+        let requested = crate::programs::shared::exact_version::exact_python_request(version)?;
         operation.checkpoint()?;
         eyre::ensure!(
             operation.settings().python_compile(CompilePurpose::Install) != Some(true),
@@ -675,6 +709,7 @@ impl PythonPlugin {
         if let Some(existing) = matching.first()
             && !operation.settings().force_provenance_verify()
         {
+            progress.set_message(format!("reuse shared Python {}", requested.as_str()));
             let lease = repository
                 .acquire_by_key(&existing.key())?
                 .ok_or_else(|| eyre!("the selected shared language is no longer Ready"))?;
@@ -707,7 +742,7 @@ impl PythonPlugin {
         let install = InstallContext {
             config,
             ts: Arc::new(Toolset::default()),
-            pr: Arc::new(crate::ui::progress_report::QuietReport::new()),
+            pr: progress,
             force: false,
             dry_run: false,
             explicit_yes: true,
@@ -1062,6 +1097,7 @@ impl PythonPlugin {
         existing_recipe: Option<bool>,
     ) -> Result<()> {
         let deadline = operation.policy().deadline;
+        ctx.pr.set_message("select runtime source".into());
         let plan = tokio::time::timeout_at(
             tokio::time::Instant::from_std(deadline),
             self.native_plan_in_context(tv, &PlatformTarget::from_current(), &operation),
@@ -1084,15 +1120,22 @@ impl PythonPlugin {
         let has_integrity = Self::has_precompiled_lockfile_integrity(tv, &platform_key);
         let attestations = Self::github_attestations_enabled_using(operation.settings());
         let force_proof = operation.settings().force_provenance_verify();
+        ctx.pr.set_message(format!(
+            "prepare shared runtime {}",
+            plan.source().filename()
+        ));
+        let revalidating = std::sync::atomic::AtomicBool::new(false);
         let lease=crate::programs::install::runtime::prepare_language_with_revalidation(
             &spec,&operation,
             || {
+                revalidating.store(true, std::sync::atomic::Ordering::Relaxed);
                 if plan.distribution()!=native::RuntimeDistribution::Pbs || !attestations { return Ok(false); }
                 Ok(force_proof || (!has_integrity && !native::provenance::cached(&operation,plan.source())?))
             },
             || async {
-                ctx.pr.set_message(format!("verify {}",plan.source().filename()));
+                ctx.pr.set_message(format!("acquire {}",plan.source().filename()));
                 let archive=self.native_archive_in_context(&plan,&operation).await?;
+                ctx.pr.set_message(format!("verify checksum {}",plan.source().filename()));
                 let hashing=operation.clone();let source=plan.source().clone();
                 let (artifact,sha256)=tokio::task::spawn_blocking(move|| {
                     let mut archive=archive;
@@ -1103,9 +1146,11 @@ impl PythonPlugin {
                 operation.checkpoint()?;
                 if plan.distribution()==native::RuntimeDistribution::Pbs {
                     if !force_proof && (has_integrity || (attestations && native::provenance::cached(&operation,plan.source())?)) {
+                        ctx.pr.set_message(format!("provenance from verified {} {}",if has_integrity {"lock"} else {"cache"},plan.source().filename()));
                         tv.lock_platforms.entry(platform_key.clone()).or_default().provenance=Some(ProvenanceType::GithubAttestations);
                         native::provenance::record(&operation,plan.source())?;
                     } else {
+                        ctx.pr.set_message(if attestations {format!("verify provenance {}",plan.source().filename())} else {format!("provenance disabled by settings {}",plan.source().filename())});
                         eyre::ensure!(!operation.policy().offline || !attestations,"offline Python runtime is missing cached provenance; use a verified runtime lock");
                         self.verify_precompiled_provenance_digest_using(ctx,tv,&platform_key,sha256,operation.settings()).await?;
                         if tv.lock_platforms.get(&platform_key).is_some_and(|info|info.provenance==Some(ProvenanceType::GithubAttestations)) {
@@ -1114,12 +1159,18 @@ impl PythonPlugin {
                     }
                 }
                 operation.checkpoint()?;
+                if revalidating.load(std::sync::atomic::Ordering::Relaxed) {
+                    ctx.pr.set_message("revalidate existing shared runtime".into());
+                } else {
+                    ctx.pr.set_message(format!("unpack {}",plan.source().filename()));
+                }
                 Ok(artifact)
             },
         ).await?;
         if let Some(path) = compatibility {
             publish_native_compatibility(&lease, path, operation)?;
         }
+        ctx.pr.set_message("verify shared runtime".into());
         lease.check_binding()
     }
 
@@ -3596,6 +3647,126 @@ mod f2_shared_program_tests {
         archive, archive_for, install_spec, install_spec_for, operation_context, prepare,
     };
     use std::time::Duration;
+
+    #[derive(Debug, Default)]
+    struct RecordedNativeProgress(std::sync::Mutex<Vec<String>>);
+    impl SingleReport for RecordedNativeProgress {
+        fn set_message(&self, message: String) {
+            self.0.lock().unwrap().push(message);
+        }
+    }
+
+    #[tokio::test]
+    async fn f2_shared_native_body_reports_acquire_digest_provenance_and_unpack_in_order() {
+        let owner = tempfile::tempdir().unwrap();
+        let root = owner.path().canonicalize().unwrap();
+        let base = operation_context(&root, true, Duration::from_secs(120));
+        let mut settings = base.settings().clone();
+        settings.python.github_attestations = Some(true);
+        settings.http_timeout = "30s".into();
+        settings.http_download_timeout = "30m".into();
+        let operation =
+            crate::programs::capture_operation_context(crate::programs::OperationContextInputs {
+                settings: &settings,
+                policy: *base.policy(),
+                cancellation: base.cancellation_token(),
+                data_root: base.requested_data_root().into(),
+                cache_root: base.requested_cache_root().into(),
+                python_sources: None,
+                python_target_description: None,
+            })
+            .unwrap();
+        let plugin = PythonPlugin::new();
+        let target = PythonPlugin::native_target_using(
+            &PlatformTarget::from_current(),
+            operation.settings(),
+        )
+        .unwrap();
+        let bytes = archive_for("3.15.0", &target, "progress");
+        let spec = install_spec_for("3.15.0", &bytes, &target, "20261013");
+        let source = spec.plan().source();
+        let cache = operation.requested_cache_root().join("python/native-v1");
+        std::fs::create_dir_all(&cache).unwrap();
+        let mut artifact = crate::artifact_snapshot::spool_verified_reader(
+            std::io::Cursor::new(&bytes),
+            source.filename(),
+            source.digest(),
+            bytes.len() as u64,
+            &cache,
+        )
+        .unwrap();
+        crate::artifact_snapshot::publish_verified_artifact(
+            &mut artifact,
+            &cache,
+            bytes.len() as u64,
+        )
+        .unwrap();
+        let request = ToolRequest::new(
+            plugin.ba.clone(),
+            "3.15.0+20261013",
+            crate::toolset::ToolSource::Argument,
+        )
+        .unwrap();
+        let mut version = ToolVersion::new(request, "3.15.0".into());
+        version.lock_platforms.insert(
+            PlatformTarget::from_current().to_key(),
+            PlatformInfo {
+                url: Some(source.url().to_string()),
+                checksum: Some(source.digest().to_string().replacen('-', ":", 1)),
+                provenance: Some(ProvenanceType::GithubAttestations),
+                ..Default::default()
+            },
+        );
+        let progress = Arc::new(RecordedNativeProgress::default());
+        let install = InstallContext {
+            config: Config::load_from_config_files(Default::default(), false)
+                .await
+                .unwrap(),
+            ts: Arc::new(Toolset::default()),
+            pr: progress.clone(),
+            force: false,
+            dry_run: false,
+            explicit_yes: true,
+            locked: false,
+            before_date: None,
+            dependency_context: tokio::sync::OnceCell::new(),
+        };
+        plugin
+            .install_native_body(&operation, &install, &mut version, None, Some(false))
+            .await
+            .unwrap();
+        let messages = progress.0.lock().unwrap().clone();
+        let mut previous = None;
+        for phase in [
+            "select runtime source",
+            "acquire ",
+            "verify checksum ",
+            "provenance",
+            "unpack ",
+        ] {
+            let position = messages
+                .iter()
+                .position(|message| message.contains(phase))
+                .unwrap_or_else(|| panic!("missing native install phase {phase:?}: {messages:?}"));
+            assert!(
+                previous.is_none_or(|before| before < position),
+                "native phases must follow the actual install order: {messages:?}"
+            );
+            previous = Some(position);
+        }
+        assert!(
+            messages.iter().all(|message| !message.contains("https://")),
+            "phase reports must identify the validated filename without source locators"
+        );
+        assert!(
+            crate::libraries::language::repository::LanguageRepository::open_readonly(&operation)
+                .unwrap()
+                .acquire_existing(&spec)
+                .unwrap()
+                .is_some(),
+            "the progress regression must traverse the real native body and publication"
+        );
+    }
 
     #[tokio::test]
     async fn f2_shared_exact_adapter_reuses_existing_without_source_resolution() {

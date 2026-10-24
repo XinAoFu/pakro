@@ -28,6 +28,9 @@ pub(crate) mod control;
 pub(crate) mod verify;
 
 #[cfg(unix)]
+mod clone;
+
+#[cfg(unix)]
 mod observer;
 #[cfg(unix)]
 pub(crate) use observer::OwnershipObserverLimits;

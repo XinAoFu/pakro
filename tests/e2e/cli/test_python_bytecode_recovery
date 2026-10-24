@@ -1,0 +1,275 @@
+#!/usr/bin/env bash
+# Recovery is explicit and must reject malformed/mixed requests before loading
+# a project, migrating legacy state, contacting a server, or installing packages.
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
+export CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
+export CARGO_NET_OFFLINE=true PAKRO_OFFLINE=1
+recovery_instance=language-670a04e9cf8e3636a5fd4a9fcfcd15e2d2153f1b1acb7be6e0ebd66e9018244e
+recovery_version=3.11.17+20261013
+help_out="$(pakro install --help 2>&1)"
+[[ $help_out == *--restore-bytecode* ]] || fail 'install does not expose the explicit bytecode recovery option'
+
+# Argument decoding may inspect plugin types, but must not execute or remove
+# even a plugin normal startup would clean up.
+banned_plugin="$PAKRO_DATA_DIR/plugins/gradle"
+mkdir -p "$banned_plugin/bin"
+/usr/bin/git init --quiet "$banned_plugin"
+/usr/bin/git -C "$banned_plugin" config remote.origin.url https://github.com/rfrancis/asdf-gradle.git
+cat >"$banned_plugin/bin/list-all" <<'SH'
+#!/bin/sh
+touch "$HOME/recovery-plugin-was-executed"
+exit 91
+SH
+chmod +x "$banned_plugin/bin/list-all"
+plugin_before="$(/usr/bin/shasum -a 256 "$banned_plugin/.git/config" "$banned_plugin/bin/list-all")"
+
+mkdir invalid-project
+printf 'this is deliberately invalid TOML [\n' >invalid-project/pakro.toml
+cd invalid-project
+expect_recovery_rejection() {
+  local expected="$1" output
+  shift
+  if output="$(pakro install "$@" 2>&1)"; then
+    fail "unsafe recovery request succeeded: $*"
+  fi
+  [[ $output == *"$expected"* ]] || fail "recovery expected '$expected' for '$*', received: $output"
+  [[ $output != *'parsing TOML'* && $output != *'download'* ]] || fail "recovery entered an unrelated path: $output"
+}
+exact_error='bytecode recovery requires one complete explicit Python version including its build'
+expect_recovery_rejection "$exact_error" --restore-bytecode "$recovery_instance"
+expect_recovery_rejection "$exact_error" python --restore-bytecode "$recovery_instance"
+expect_recovery_rejection "$exact_error" python 3.11 --restore-bytecode "$recovery_instance"
+expect_recovery_rejection "$exact_error" python 3.11.17 --restore-bytecode "$recovery_instance"
+expect_recovery_rejection "$exact_error" node 3.11.17+20261013 --restore-bytecode "$recovery_instance"
+expect_recovery_rejection "$exact_error" python@3.11.17+20261013 node@22 --restore-bytecode "$recovery_instance"
+expect_recovery_rejection "$exact_error" 'python[path=/tmp/other]@3.11.17+20261013' --restore-bytecode "$recovery_instance"
+expect_recovery_rejection "$exact_error" 'python[path=/tmp/other]' "$recovery_version" --restore-bytecode "$recovery_instance"
+mixed_error='bytecode recovery does not support installation options or package requests'
+for option in --force --system --monorepo --include-task-tools --include-lazy --raw --dry-run-code; do
+  expect_recovery_rejection "$mixed_error" python "$recovery_version" --restore-bytecode "$recovery_instance" "$option"
+done
+expect_recovery_rejection "$mixed_error" python "$recovery_version" --restore-bytecode "$recovery_instance" --shared "$TMPDIR/alternate"
+expect_recovery_rejection "$mixed_error" python "$recovery_version" --restore-bytecode "$recovery_instance" --minimum-release-age 1d
+expect_recovery_rejection "$mixed_error" python "$recovery_version" --restore-bytecode "$recovery_instance" --jobs 1
+expect_recovery_rejection "$mixed_error" 'python@3.11.17+pyyaml@6.0.3' --restore-bytecode "$recovery_instance"
+# The legacy binding parser does not accept build+package concatenation;
+# that spelling is rejected as an invalid complete runtime before any IO.
+expect_recovery_rejection "$exact_error" "python@$recovery_version+pyyaml@6.0.3" --restore-bytecode "$recovery_instance"
+expect_recovery_rejection 'bytecode recovery supports only the approved Python' python 3.13.16+20261013 --restore-bytecode "$recovery_instance"
+expect_recovery_rejection 'bytecode recovery requires the exact approved shared Python instance' python "$recovery_version" --restore-bytecode language-unapproved
+expect_recovery_rejection 'unknown-recovery-option' --unknown-recovery-option python "$recovery_version" --restore-bytecode "$recovery_instance"
+[[ ! -e $PAKRO_DATA_DIR/languages ]] || fail 'invalid recovery requests initialized the language library'
+[[ -d $banned_plugin && ! -e $HOME/recovery-plugin-was-executed ]] || fail 'recovery parsing removed or executed a plugin'
+[[ $(/usr/bin/shasum -a 256 "$banned_plugin/.git/config" "$banned_plugin/bin/list-all") == "$plugin_before" ]] || fail 'recovery parsing changed plugin metadata'
+cd ..
+
+# The input archive is opened read-only by the helper. Every publication and
+# test mutation below belongs to run_test's isolated HOME, never the live
+# Python instance or the caller's cache.
+[[ -n ${PAKRO_BYTECODE_RECOVERY_ARCHIVE:-} ]] || fail 'set PAKRO_BYTECODE_RECOVERY_ARCHIVE to the verified original local 3.11.17 archive'
+# The harness has already populated its data/plugins and ordinary help may
+# have filled its cache. Keep the recovery producer's empty-root requirement.
+recovery_data="$TMPDIR/bytecode-recovery-data"
+recovery_cache="$TMPDIR/bytecode-recovery-cache"
+export HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9
+export http_proxy="$HTTP_PROXY" https_proxy="$HTTPS_PROXY"
+export PAKRO_PYTHON_GITHUB_ATTESTATIONS=0 PAKRO_PYTHON_COMPILE=0
+export PAKRO_URL_REPLACEMENTS='{"https://github.com":"http://127.0.0.1:9","https://api.github.com":"http://127.0.0.1:9","https://pypi.org":"http://127.0.0.1:9","https://files.pythonhosted.org":"http://127.0.0.1:9"}'
+stage_log="$TMPDIR/bytecode-recovery-stage.log"
+(
+  cd "$ROOT"
+  PAKRO_BYTECODE_RECOVERY_STAGE_DATA_ROOT="$recovery_data" \
+    PAKRO_BYTECODE_RECOVERY_STAGE_CACHE_ROOT="$recovery_cache" \
+    cargo test -p pakro --lib --all-features \
+    libraries::language::recovery::tests::stage_real_bytecode_recovery \
+    -- --exact --ignored --nocapture
+) >"$stage_log" 2>&1 || { cat "$stage_log"; fail 'real bytecode recovery fixture staging failed'; }
+export PAKRO_DATA_DIR="$recovery_data"
+export PAKRO_CACHE_DIR="$recovery_cache"
+shared_python="$(sed -n 's/.*RECOVERY_STAGED_PYTHON=//p' "$stage_log" | tail -1)"
+cached_archive="$(sed -n 's/.*RECOVERY_STAGED_ARCHIVE=//p' "$stage_log" | tail -1)"
+[[ -x $shared_python && -f $cached_archive ]] || fail 'staging did not return its isolated interpreter and verified archive'
+[[ $shared_python == "$PAKRO_DATA_DIR/languages/$recovery_instance/payload/bin/"* ]] || fail 'staging returned a Python outside the expected isolated instance'
+[[ $cached_archive == "$PAKRO_CACHE_DIR/"* ]] || fail 'staging returned a cache outside the isolated HOME'
+shared_root="$(cd "$(dirname "$shared_python")/.." && pwd -P)"
+manifest="$(find "$PAKRO_DATA_DIR/languages/.control/catalog" -type f -name 'language-*.json')"
+[[ -f $manifest ]] || fail 'expected exactly one original language manifest'
+mkdir project
+cd project
+printf '[tools]\npython = "%s"\n' "$recovery_version" >pakro.toml
+eval "$(pakro hook-env --shell bash --force)"
+[[ $PYTHONDONTWRITEBYTECODE == 1 ]] || fail 'healthy language-only selection did not protect bytecode'
+[[ -d $PAKRO_DATA_DIR/projects/.control/catalog ]] || fail 'healthy selection did not establish a project reference'
+cp "$manifest" "$TMPDIR/manifest-before.json"
+
+cat >"$TMPDIR/recovery-inspect.py" <<'PY'
+import hashlib
+import json
+import os
+import stat
+import sys
+
+mode, payload, data, manifest, saved = sys.argv[1:]
+allowed = {
+    "lib/python3.11/encodings/__pycache__/__init__.cpython-311.pyc",
+    "lib/python3.11/encodings/__pycache__/aliases.cpython-311.pyc",
+    "lib/python3.11/encodings/__pycache__/utf_8.cpython-311.pyc",
+    "lib/python3.11/site-packages/_distutils_hack/__pycache__/__init__.cpython-311.pyc",
+}
+def snapshot(root):
+    result = {}
+    if not os.path.lexists(root):
+        return result
+    paths = [root]
+    for directory, directories, files in os.walk(root, followlinks=False):
+        paths.extend(os.path.join(directory, name) for name in directories + files)
+    for path in sorted(paths):
+        entry = os.lstat(path)
+        value = [entry.st_dev, entry.st_ino, entry.st_mode, entry.st_uid, entry.st_gid]
+        if stat.S_ISREG(entry.st_mode):
+            digest = hashlib.sha256()
+            with open(path, "rb") as source:
+                for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            value += [entry.st_size, digest.hexdigest()]
+        elif stat.S_ISLNK(entry.st_mode):
+            value.append(os.readlink(path))
+        elif not stat.S_ISDIR(entry.st_mode):
+            raise AssertionError("unexpected entry: " + path)
+        result[os.path.relpath(path, root)] = value
+    return result
+state = {"payload": snapshot(payload),
+         "control": snapshot(os.path.join(data, "languages/.control")),
+         "projects": snapshot(os.path.join(data, "projects"))}
+if mode == "save":
+    with open(saved, "w") as output:
+        json.dump(state, output, sort_keys=True)
+elif mode == "same":
+    with open(saved) as source:
+        assert state == json.load(source), "rejected/dry-run/no-op recovery mutated persisted state"
+elif mode == "damaged":
+    with open(saved) as source:
+        before = json.load(source)
+    changed = {path for path in state["payload"] if state["payload"][path] != before["payload"].get(path)}
+    assert changed == allowed, ("ordinary Python changed unexpected paths", changed)
+    assert state["payload"].keys() == before["payload"].keys(), "ordinary Python added or lost paths"
+    assert state["control"] == before["control"], "Python startup changed language control state"
+    assert state["projects"] == before["projects"], "Python startup changed project references"
+elif mode == "recovered":
+    with open(saved) as source:
+        before = json.load(source)
+    assert state["projects"] == before["projects"], "recovery changed project references"
+    assert state["payload"].keys() == before["payload"].keys(), "recovery added or lost paths"
+    for path, prior in before["payload"].items():
+        actual = state["payload"][path]
+        if path in allowed:
+            assert actual[:1] == prior[:1] and actual[2:] == prior[2:], ("original bytecode facts not restored", path)
+        else:
+            assert actual == prior, ("recovery changed another payload entry", path)
+    with open(manifest) as source:
+        current = json.load(source)
+    with open(os.path.join(os.path.dirname(saved), "manifest-before.json")) as source:
+        original = json.load(source)
+    for field in original.keys() - {"inventory"}:
+        assert current[field] == original[field], ("recovery changed manifest identity", field)
+    old_entries = {entry["relative"]: entry for entry in original["inventory"]["entries"]}
+    new_entries = {entry["relative"]: entry for entry in current["inventory"]["entries"]}
+    assert len(old_entries) == 2244 and old_entries.keys() == new_entries.keys()
+    for path, prior in old_entries.items():
+        actual = new_entries[path]
+        if path in allowed:
+            assert {k: v for k, v in actual.items() if k != "identity"} == {k: v for k, v in prior.items() if k != "identity"}
+        else:
+            assert actual == prior, ("recovery changed another inventory entry", path)
+    print("Verified four original bytecode files, 2240 unchanged entries, and unchanged project references")
+else:
+    raise AssertionError("unknown inspector mode")
+PY
+inspect_recovery() {
+  /usr/bin/python3 -I -B "$TMPDIR/recovery-inspect.py" "$1" "$shared_root" "$PAKRO_DATA_DIR" "$manifest" "$2"
+}
+inspect_recovery save "$TMPDIR/healthy.json"
+
+# Deliberately bypass Pakro's new environment protection inside this fixture
+# to reproduce the original ordinary-startup failure with the real interpreter.
+env -u PYTHONDONTWRITEBYTECODE -u PYTHONPYCACHEPREFIX "$shared_python" -c 'import sys; print(sys.version.split()[0]); print(sys.executable)'
+inspect_recovery damaged "$TMPDIR/healthy.json"
+cat >>pakro.toml <<'TOML'
+
+[packages."python@3.11.17+20261013"]
+pyyaml = "6.0.3"
+TOML
+config_before="$(/usr/bin/shasum -a 256 pakro.toml)"
+inspect_recovery save "$TMPDIR/damaged.json"
+preview="$(pakro install python "$recovery_version" --restore-bytecode "$recovery_instance" --dry-run 2>&1)"
+printf '%s\n' "$preview"
+[[ $preview == *'Would restore 4 bytecode files'* && $preview == *'2240 unchanged inventory entries'* ]] || fail "incomplete recovery preview: $preview"
+[[ $preview != *'https://'* && $preview != *'http://'* ]] || fail 'recovery preview exposed a source URI'
+inspect_recovery same "$TMPDIR/damaged.json"
+preview_from_invalid="$(pakro --dry-run --cd ../invalid-project i python "$recovery_version" --restore-bytecode "$recovery_instance" 2>&1)"
+[[ $preview_from_invalid == *'Would restore 4 bytecode files'* ]] || fail "global dry-run/--cd recovery read the damaged project TOML: $preview_from_invalid"
+inspect_recovery same "$TMPDIR/damaged.json"
+quiet_preview="$(pakro --quiet install python "$recovery_version" --restore-bytecode "$recovery_instance" --dry-run 2>&1)"
+[[ -z $quiet_preview ]] || fail "quiet recovery preview printed output: $quiet_preview"
+inspect_recovery same "$TMPDIR/damaged.json"
+
+# A foreign extra payload entry and a corrupt verified cache must both reject
+# the operation before any allowed bytecode or published manifest is changed.
+printf 'unexpected entry\n' >"$shared_root/lib/python3.11/recovery-unowned.txt"
+inspect_recovery save "$TMPDIR/extra-entry.json"
+if output="$(pakro install python "$recovery_version" --restore-bytecode "$recovery_instance" 2>&1)"; then
+  fail 'recovery accepted an extra unowned payload entry'
+fi
+inspect_recovery same "$TMPDIR/extra-entry.json"
+rm "$shared_root/lib/python3.11/recovery-unowned.txt"
+inspect_recovery same "$TMPDIR/damaged.json"
+/usr/bin/python3 -I -B - "$cached_archive" <<'PY'
+import os
+import sys
+path = sys.argv[1]
+info = os.stat(path)
+os.chmod(path, info.st_mode | 0o200)
+with open(path, "r+b") as output:
+    value = output.read(1)
+    output.seek(0)
+    output.write(bytes([value[0] ^ 128]))
+os.chmod(path, info.st_mode)
+PY
+if output="$(pakro install python "$recovery_version" --restore-bytecode "$recovery_instance" 2>&1)"; then
+  fail 'recovery accepted corrupt original archive bytes'
+fi
+inspect_recovery same "$TMPDIR/damaged.json"
+/usr/bin/python3 -I -B - "$cached_archive" <<'PY'
+import os
+import sys
+path = sys.argv[1]
+info = os.stat(path)
+os.chmod(path, info.st_mode | 0o200)
+with open(path, "r+b") as output:
+    value = output.read(1)
+    output.seek(0)
+    output.write(bytes([value[0] ^ 128]))
+os.chmod(path, info.st_mode)
+PY
+output="$(pakro install python "$recovery_version" --restore-bytecode "$recovery_instance" 2>&1)"
+printf '%s\n' "$output"
+[[ $output == *'Restored 4 bytecode files'* && $output == *'2240 unchanged inventory entries'* ]] || fail "recovery did not report its exact result: $output"
+[[ $output != *'https://'* && $output != *'http://'* ]] || fail 'recovery output exposed a source URI'
+inspect_recovery recovered "$TMPDIR/healthy.json"
+[[ $(/usr/bin/shasum -a 256 pakro.toml) == "$config_before" ]] || fail 'recovery changed package declarations'
+[[ ! -e $PAKRO_DATA_DIR/packages ]] || fail 'recovery initialized or installed packages'
+inspect_recovery save "$TMPDIR/recovered.json"
+output="$(pakro install python@"$recovery_version" --restore-bytecode "$recovery_instance" 2>&1)"
+[[ $output == *'already healthy; no files changed'* ]] || fail "repeated recovery was not a no-op: $output"
+inspect_recovery same "$TMPDIR/recovered.json"
+
+# Return to language-only selection for a normal protected launch. This is a
+# separate operation after the reference-preservation assertions above.
+printf '[tools]\npython = "%s"\n' "$recovery_version" >pakro.toml
+eval "$(pakro activate bash)"
+probe="$(python -c 'import sys; print(sys.version.split()[0]); print(int(sys.dont_write_bytecode))')"
+[[ $probe == $'3.11.17\n1' ]] || fail "normal activated Python did not work after recovery: $probe"
+payload_before="$(/usr/bin/shasum -a 256 "$manifest")"
+reuse="$(pakro install python "$recovery_version" 2>&1)"
+[[ $reuse == *'reuse shared Python'* && $reuse != *'inventory changed'* ]] || fail "restored runtime was not reusable: $reuse"
+[[ $(/usr/bin/shasum -a 256 "$manifest") == "$payload_before" ]] || fail 'normal protected launch changed the repaired manifest'

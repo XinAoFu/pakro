@@ -7,6 +7,28 @@ use std::io::{Cursor, Write};
 const INFO: &str = "demo-1.0.dist-info";
 const FILE: &str = "demo-1.0-py3-none-any.whl";
 
+#[test]
+#[ignore = "requires an explicit verified local PyYAML 6.0.3 cp311 macOS arm64 wheel"]
+fn f3_inspects_real_pyyaml_release_wheel() {
+    let path =
+        std::env::var_os("PAKRO_PYYAML_RELEASE_WHEEL").expect("explicit release wheel required");
+    let tags = SupportedWheelTags::new(vec![
+        WheelTag::new("cp311", "cp311", "macosx_11_0_arm64").unwrap(),
+    ])
+    .unwrap();
+    inspect_wheel(
+        std::fs::File::open(path).unwrap(),
+        &WheelExpectation {
+            filename: "pyyaml-6.0.3-cp311-cp311-macosx_11_0_arm64.whl",
+            name: "pyyaml",
+            version: "6.0.3",
+            supported: &tags,
+        },
+        Default::default(),
+    )
+    .unwrap_or_else(|error| panic!("actual PyYAML release inspection failed: {error:#}"));
+}
+
 #[derive(Clone)]
 enum Kind {
     File,
@@ -838,6 +860,22 @@ fn wheel_singleton_headers_and_purelib_boolean_are_not_guessed() {
         set(&mut entries, "/WHEEL", wheel);
         rejected(build(INFO, entries, |_| {}), "WHEEL");
     }
+}
+
+#[test]
+fn f3_multiple_generators_preserve_required_singletons_and_record_verification() {
+    let generators = b"Wheel-Version: 1.0\nGenerator: setuptools (80.9.0)\nGenerator: delocate 0.13.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n";
+    let mut entries = base();
+    set(&mut entries, "/WHEEL", generators);
+    accepted(build(INFO, entries.clone(), |_| {}));
+    rejected(
+        build(INFO, entries.clone(), |rows| rows[0][2] = "999".into()),
+        "RECORD size",
+    );
+    let mut duplicate_version = generators.to_vec();
+    duplicate_version.extend_from_slice(b"Wheel-Version: 1.0\n");
+    set(&mut entries, "/WHEEL", duplicate_version);
+    rejected(build(INFO, entries, |_| {}), "Wheel-Version");
 }
 
 #[test]

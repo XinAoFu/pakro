@@ -72,6 +72,7 @@ pub(crate) struct CandidateChoice<'a> {
     file_index: usize,
     file: &'a SimpleFile,
     notices: Vec<PolicyNotice>,
+    version: Version,
 }
 impl CandidateChoice<'_> {
     pub(crate) fn file_index(&self) -> usize {
@@ -88,6 +89,10 @@ impl CandidateChoice<'_> {
 pub(crate) struct OrderedCandidates<'a> {
     project: &'a SimpleProject,
     candidates: Vec<CandidateChoice<'a>>,
+    max_field: usize,
+    // This one assessment's selected file passed static/constraint gates and
+    // was rejected specifically by the conditional prerelease gate.
+    selected_prerelease_rejected: bool,
 }
 impl OrderedCandidates<'_> {
     pub(crate) fn project(&self) -> &SimpleProject {
@@ -112,15 +117,22 @@ pub(crate) struct CandidatePolicyUsage {
     utf8: usize,
     work: usize,
 }
+impl CandidatePolicyUsage {
+    pub(crate) fn usage(&self) -> (usize, usize) {
+        (self.work, self.utf8)
+    }
+}
 struct Budget<'a> {
     usage: &'a mut CandidatePolicyUsage,
     limits: CandidatePolicyLimits,
+    max_field: usize,
 }
 impl Budget<'_> {
     fn text(&mut self, value: &str) -> Result<(), CandidatePolicyError> {
         if value.len() > self.limits.max_field_bytes {
             return Err(CandidatePolicyError::Limit);
         }
+        self.max_field = self.max_field.max(value.len());
         self.usage.utf8 = self
             .usage
             .utf8
@@ -172,53 +184,7 @@ fn raw_constraint_error(error: RawVersionConstraintError) -> CandidatePolicyErro
     }
 }
 
-/// This result is valid only for these explicit constraints. A resolver's
-/// learned conflict range is not an interchangeable constraint snapshot.
-pub(crate) fn order_fresh_candidates<'a>(
-    project: &'a SimpleProject,
-    constraints: &[&str],
-    supported: &SupportedWheelTags,
-    python: &PythonMarkerContext,
-    policy: CandidatePolicy<'_>,
-    limits: CandidatePolicyLimits,
-) -> Result<OrderedCandidates<'a>, CandidatePolicyError> {
-    order_kernel(
-        project,
-        constraints,
-        supported,
-        python,
-        policy,
-        PolicyRun {
-            limits,
-            disabled: &[],
-            defer_conditional: false,
-            usage: &mut CandidatePolicyUsage::default(),
-        },
-    )
-}
-struct PolicyRun<'a> {
-    limits: CandidatePolicyLimits,
-    disabled: &'a [bool],
-    defer_conditional: bool,
-    usage: &'a mut CandidatePolicyUsage,
-}
-fn order_kernel<'a>(
-    project: &'a SimpleProject,
-    constraints: &[&str],
-    supported: &SupportedWheelTags,
-    python: &PythonMarkerContext,
-    policy: CandidatePolicy<'_>,
-    run: PolicyRun<'_>,
-) -> Result<OrderedCandidates<'a>, CandidatePolicyError> {
-    let PolicyRun {
-        limits,
-        disabled,
-        defer_conditional,
-        usage,
-    } = run;
-    if !disabled.is_empty() && disabled.len() != project.files().len() {
-        return Err(CandidatePolicyError::InvalidInput);
-    }
+fn validate_limits(limits: CandidatePolicyLimits) -> Result<(), CandidatePolicyError> {
     if [
         limits.max_files,
         limits.max_constraints,
@@ -231,26 +197,29 @@ fn order_kernel<'a>(
     {
         return Err(CandidatePolicyError::InvalidLimits);
     }
-    if project.files().len() > limits.max_files
-        || constraints.len() > limits.max_constraints
-        || supported.ordered().len() > limits.max_supported_tags
-    {
+    Ok(())
+}
+
+struct ConstraintSnapshot {
+    parsed: Vec<RawVersionConstraint>,
+    effort: usize,
+    explicit_pre: bool,
+    exact_pin: bool,
+}
+fn parse_constraints(
+    constraints: &[&str],
+    budget: &mut Budget<'_>,
+) -> Result<ConstraintSnapshot, CandidatePolicyError> {
+    let limits = budget.limits;
+    if constraints.len() > limits.max_constraints {
         return Err(CandidatePolicyError::Limit);
     }
-    let mut budget = Budget { usage, limits };
-    budget.text(python.python_full_version())?;
-    let installed = policy
-        .installed_version
-        .map(|version| {
-            budget.text(version)?;
-            Version::from_str(version).map_err(|_| CandidatePolicyError::InvalidInput)
-        })
-        .transpose()?;
     let mut parsed = Vec::new();
     parsed
         .try_reserve_exact(constraints.len())
         .map_err(|_| CandidatePolicyError::Limit)?;
     let mut clauses = 0usize;
+    let mut effort = 0usize;
     let mut explicit_pre = false;
     let mut exact_pin = false;
     for constraint in constraints {
@@ -269,6 +238,11 @@ fn order_kernel<'a>(
             .checked_add(spec.clause_count())
             .filter(|count| *count <= limits.max_constraints)
             .ok_or(CandidatePolicyError::Limit)?;
+        // Even an empty AST invokes matches for every candidate. Keep the
+        // actual clause limit separate from this finite work envelope.
+        effort = effort
+            .checked_add(spec.clause_count().max(1))
+            .ok_or(CandidatePolicyError::Limit)?;
         exact_pin |= spec.has_arbitrary_equality();
         explicit_pre |= spec.arbitrary_literals().any(|literal| {
             Version::from_str(literal).is_ok_and(|version| version.any_prerelease())
@@ -282,6 +256,110 @@ fn order_kernel<'a>(
         }
         parsed.push(spec);
     }
+    Ok(ConstraintSnapshot {
+        parsed,
+        effort,
+        explicit_pre,
+        exact_pin,
+    })
+}
+
+/// This result is valid only for these explicit constraints. A resolver's
+/// learned conflict range is not an interchangeable constraint snapshot.
+pub(crate) fn order_fresh_candidates<'a>(
+    project: &'a SimpleProject,
+    constraints: &[&str],
+    supported: &SupportedWheelTags,
+    python: &PythonMarkerContext,
+    policy: CandidatePolicy<'_>,
+    limits: CandidatePolicyLimits,
+) -> Result<OrderedCandidates<'a>, CandidatePolicyError> {
+    order_fresh_candidates_with_usage(
+        project,
+        constraints,
+        supported,
+        python,
+        policy,
+        limits,
+        &mut CandidatePolicyUsage::default(),
+    )
+}
+pub(crate) fn order_fresh_candidates_with_usage<'a>(
+    project: &'a SimpleProject,
+    constraints: &[&str],
+    supported: &SupportedWheelTags,
+    python: &PythonMarkerContext,
+    policy: CandidatePolicy<'_>,
+    limits: CandidatePolicyLimits,
+    usage: &mut CandidatePolicyUsage,
+) -> Result<OrderedCandidates<'a>, CandidatePolicyError> {
+    order_kernel(
+        project,
+        constraints,
+        supported,
+        python,
+        policy,
+        PolicyRun {
+            limits,
+            disabled: &[],
+            defer_conditional: false,
+            assessed_selected: None,
+            usage,
+        },
+    )
+}
+struct PolicyRun<'a> {
+    limits: CandidatePolicyLimits,
+    disabled: &'a [bool],
+    defer_conditional: bool,
+    assessed_selected: Option<usize>,
+    usage: &'a mut CandidatePolicyUsage,
+}
+fn order_kernel<'a>(
+    project: &'a SimpleProject,
+    constraints: &[&str],
+    supported: &SupportedWheelTags,
+    python: &PythonMarkerContext,
+    policy: CandidatePolicy<'_>,
+    run: PolicyRun<'_>,
+) -> Result<OrderedCandidates<'a>, CandidatePolicyError> {
+    let PolicyRun {
+        limits,
+        disabled,
+        defer_conditional,
+        assessed_selected,
+        usage,
+    } = run;
+    if !disabled.is_empty() && disabled.len() != project.files().len() {
+        return Err(CandidatePolicyError::InvalidInput);
+    }
+    validate_limits(limits)?;
+    if project.files().len() > limits.max_files
+        || constraints.len() > limits.max_constraints
+        || supported.ordered().len() > limits.max_supported_tags
+    {
+        return Err(CandidatePolicyError::Limit);
+    }
+    let mut budget = Budget {
+        usage,
+        limits,
+        max_field: 0,
+    };
+    budget.text(python.python_full_version())?;
+    let installed = policy
+        .installed_version
+        .map(|version| {
+            budget.text(version)?;
+            Version::from_str(version).map_err(|_| CandidatePolicyError::InvalidInput)
+        })
+        .transpose()?;
+    let ConstraintSnapshot {
+        parsed,
+        effort,
+        explicit_pre,
+        exact_pin,
+    } = parse_constraints(constraints, &mut budget)?;
+    budget.work(supported.ordered().len())?;
     for tag in supported.ordered() {
         for field in [tag.interpreter(), tag.abi(), tag.platform()] {
             budget.text(field)?;
@@ -293,11 +371,8 @@ fn order_kernel<'a>(
     } else {
         (usize::BITS - (count - 1).leading_zeros()) as usize
     };
-    let per_file = supported
-        .ordered()
-        .len()
-        .checked_add(clauses)
-        .and_then(|cost| cost.checked_add(sort_height))
+    let per_file = effort
+        .checked_add(sort_height)
         .and_then(|cost| cost.checked_add(1))
         .ok_or(CandidatePolicyError::Limit)?;
     budget.work(
@@ -339,10 +414,11 @@ fn order_kernel<'a>(
     {
         let (rank, tags, build) = match file.kind() {
             PythonDistributionKind::Wheel(wheel) => {
-                let Some(rank) = supported
-                    .best_rank(&wheel.tags)
-                    .map_err(|_| CandidatePolicyError::InvalidInput)?
-                else {
+                let rank = supported
+                    .plan_rank(&wheel.tags)
+                    .map_err(|_| CandidatePolicyError::InvalidInput)?;
+                budget.work(rank.work_bound())?;
+                let Some(rank) = rank.best_rank() else {
                     continue;
                 };
                 (Some(rank), Some(&wheel.tags), wheel.build.as_ref())
@@ -377,8 +453,9 @@ fn order_kernel<'a>(
     let has_final = candidates
         .iter()
         .any(|candidate| !candidate.version.any_prerelease());
+    let mut selected_prerelease_rejected = false;
     candidates.retain(|candidate| {
-        !candidate.version.any_prerelease()
+        let allowed = !candidate.version.any_prerelease()
             || match policy.prereleases {
                 Prereleases::Allow => true,
                 Prereleases::Disallow => false,
@@ -388,7 +465,12 @@ fn order_kernel<'a>(
                         || !has_final
                         || installed.as_ref() == Some(&candidate.version)
                 }
-            }
+            };
+        selected_prerelease_rejected |= !allowed
+            && policy.prereleases == Prereleases::IfNoMatchingFinal
+            && !candidate.file.yanked().is_yanked()
+            && assessed_selected == Some(candidate.file_index);
+        allowed
     });
     // Grouping by canonical tags makes build comparison a total order.
     // Comparing build only for equal tags and filenames for other pairs can
@@ -419,11 +501,14 @@ fn order_kernel<'a>(
             file_index: candidate.file_index,
             file: candidate.file,
             notices,
+            version: candidate.version,
         });
     }
     Ok(OrderedCandidates {
         project,
         candidates: choices,
+        max_field: budget.max_field,
+        selected_prerelease_rejected,
     })
 }
 
@@ -433,12 +518,21 @@ pub(crate) enum CandidateKnowledge {
     Compatible,
     Incompatible,
 }
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ActiveCandidateAssessment {
     Eligible(Vec<PolicyNotice>),
     Reject,
+    /// An observed eligible final in this snapshot, identified by the
+    /// original project file index. This is retry advice, never a pin.
+    RejectWithAlternative(usize),
     NeedMetadata(usize),
 }
+
+#[path = "candidate_policy/cached.rs"]
+mod cached;
+pub(crate) use cached::{
+    CachedCandidateUniverse, assess_cached_candidate, classify_candidate_universe,
+};
 pub(crate) struct ActiveCandidateContext<'a> {
     pub project: &'a SimpleProject,
     pub supported: &'a SupportedWheelTags,
@@ -464,6 +558,7 @@ pub(crate) fn order_fresh_candidate_universe<'a>(
             limits,
             disabled: &[],
             defer_conditional: true,
+            assessed_selected: None,
             usage,
         },
     )
@@ -509,9 +604,22 @@ pub(crate) fn assess_active_candidate(
             limits,
             disabled: &disabled,
             defer_conditional: false,
+            assessed_selected: Some(selected),
             usage,
         },
     )?;
+    if optimistic.selected_prerelease_rejected {
+        // The original selected-membership scan would visit every choice on
+        // this rejection path. Use it to advise an already observed eligible
+        // final, without re-running policy or treating the advice as a pin.
+        return Ok(optimistic
+            .candidates
+            .into_iter()
+            .find(|choice| !choice.version.any_prerelease())
+            .map_or(ActiveCandidateAssessment::Reject, |choice| {
+                ActiveCandidateAssessment::RejectWithAlternative(choice.file_index)
+            }));
+    }
     let Some(allowed) = optimistic
         .candidates
         .into_iter()
@@ -535,6 +643,7 @@ pub(crate) fn assess_active_candidate(
             limits,
             disabled: &disabled,
             defer_conditional: false,
+            assessed_selected: None,
             usage,
         },
     )?;

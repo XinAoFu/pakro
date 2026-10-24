@@ -79,6 +79,9 @@ pub(super) fn apply_landlock(
     config: &SandboxConfig,
     initial_program: Option<&std::path::Path>,
 ) -> Result<()> {
+    if config.build_worker {
+        return apply_worker_landlock(config, initial_program);
+    }
     let abi = ABI::V5;
 
     let deny_read = config.effective_deny_read();
@@ -202,5 +205,58 @@ pub(super) fn apply_landlock(
         eyre::bail!("failed to apply landlock restrictions: {status:?}");
     }
 
+    Ok(())
+}
+
+fn apply_worker_landlock(
+    config: &SandboxConfig,
+    initial_program: Option<&std::path::Path>,
+) -> Result<()> {
+    let abi = ABI::V5;
+    let execute: BitFlags<AccessFs> = AccessFs::Execute.into();
+    let mut read = AccessFs::from_read(abi);
+    read.remove(execute);
+    let write = AccessFs::from_write(abi);
+    let mut ruleset = Ruleset::default()
+        .handle_access(read | write | execute)
+        .map_err(|error| eyre!("failed to define source-build filesystem restrictions: {error}"))?
+        .set_compatibility(landlock::CompatLevel::HardRequirement)
+        .create()
+        .map_err(|error| eyre!("source-build filesystem restrictions are unavailable: {error}"))?;
+    for path in &config.allow_read {
+        let fd = PathFd::new(path)
+            .map_err(|error| eyre!("fixed source-build input is unavailable: {error}"))?;
+        let access = if path.is_dir() {
+            read
+        } else {
+            AccessFs::ReadFile.into()
+        };
+        ruleset = ruleset
+            .add_rule(PathBeneath::new(fd, access))
+            .map_err(|error| eyre!("failed to restrict source-build read input: {error}"))?;
+    }
+    for path in &config.allow_write {
+        let fd = PathFd::new(path)
+            .map_err(|error| eyre!("private source-build root is unavailable: {error}"))?;
+        ruleset = ruleset
+            .add_rule(PathBeneath::new(fd, read | write))
+            .map_err(|error| eyre!("failed to restrict source-build writable root: {error}"))?;
+    }
+    for path in initial_program
+        .into_iter()
+        .chain(config.allow_process.iter().map(std::path::PathBuf::as_path))
+    {
+        let fd = PathFd::new(path)
+            .map_err(|error| eyre!("fixed source-build executable is unavailable: {error}"))?;
+        ruleset = ruleset
+            .add_rule(PathBeneath::new(fd, execute))
+            .map_err(|error| eyre!("failed to restrict source-build executable: {error}"))?;
+    }
+    let status = ruleset
+        .restrict_self()
+        .map_err(|error| eyre!("failed to apply source-build filesystem restrictions: {error}"))?;
+    if status.ruleset != RulesetStatus::FullyEnforced || !status.no_new_privs {
+        eyre::bail!("source-build filesystem restrictions were not fully enforced");
+    }
     Ok(())
 }

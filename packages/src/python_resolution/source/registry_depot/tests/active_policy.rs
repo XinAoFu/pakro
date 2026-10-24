@@ -70,6 +70,194 @@ async fn default_active_policy_selects_the_actual_final_after_observing_the_alte
 }
 
 #[tokio::test]
+async fn s4_reject_alternative_keeps_known_final_without_fetching_same_prerelease_source() {
+    const PRE: &str = "demo_pkg-1.8.0.dev0-py3-none-any.whl";
+    const SOURCE: &str = "demo_pkg-1.8.0.dev0.tar.gz";
+    const FINAL: &str = "demo_pkg-1.7.0-py3-none-any.whl";
+    let pre = wheel("demo_pkg", "1.8.0.dev0", &[], "");
+    let final_bytes = wheel("demo_pkg", "1.7.0", &[], "");
+    let peer = Peer::new(move |path| match path {
+        "/simple/demo-pkg/" => Reply::page(
+            "demo-pkg",
+            vec![wire_file(FINAL), wire_file(SOURCE), wire_file(PRE)],
+        ),
+        value if value == format!("/files/{PRE}") => Reply::file(&pre),
+        value if value == format!("/files/{FINAL}") => Reply::file(&final_bytes),
+        // Keep the actual source candidate visible, without supplying invented
+        // source metadata or permitting an unnecessary build continuation.
+        _ => Reply::missing(),
+    });
+    let f = Fixture::new(&peer);
+    let root = f.lock();
+    let endpoints = [f.endpoint()];
+    let p = policy();
+    let mut registry = context(&f, &endpoints, &p);
+    registry.candidate_policy.yanked = Yanked::Disallow;
+    let preparation = ResolveRegistryDepot::new(&root, &["demo-pkg>=1"], registry)
+        .unwrap()
+        .prepare()
+        .await;
+    let requests = peer.requests();
+    assert!(
+        !requests.iter().any(|path| path == &format!("/files/{SOURCE}")),
+        "an already observed eligible final must precede unknown same-prerelease source metadata: {requests:?}"
+    );
+    let result = ready(preparation.unwrap());
+    assert_eq!(selected_file(&result, "demo-pkg"), FINAL);
+    assert_eq!(result.plan().selected.len(), 1);
+    assert_eq!(result.owners.len(), 1);
+    assert_eq!(requests.len(), 3);
+    for filename in [PRE, FINAL] {
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|path| *path == &format!("/files/{filename}"))
+                .count(),
+            1,
+            "the policy must use each wheel's actual observed metadata: {filename}"
+        );
+    }
+    f.no_publish();
+}
+
+#[tokio::test]
+async fn s4_reject_alternative_preserves_two_transitive_final_advice_without_source_fetch() {
+    const APP: &str = "app-1.0-py3-none-any.whl";
+    const A_PRE: &str = "a_policy-1.8.0.dev0-py3-none-any.whl";
+    const A_SOURCE: &str = "a_policy-1.8.0.dev0.tar.gz";
+    const A_FINAL: &str = "a_policy-1.7.0-py3-none-any.whl";
+    const Z_PRE: &str = "z_policy-1.8.0.dev0-py3-none-any.whl";
+    const Z_SOURCE: &str = "z_policy-1.8.0.dev0.tar.gz";
+    const Z_FINAL: &str = "z_policy-1.7.0-py3-none-any.whl";
+    let app = wheel("app", "1.0", &["a-policy>=1", "z-policy>=1"], "");
+    let a_pre = wheel("a_policy", "1.8.0.dev0", &[], "");
+    let a_final = wheel("a_policy", "1.7.0", &[], "");
+    let z_pre = wheel("z_policy", "1.8.0.dev0", &[], "");
+    let z_final = wheel("z_policy", "1.7.0", &[], "");
+    let peer = Peer::new(move |path| match path {
+        "/simple/app/" => Reply::page("app", vec![wire_file(APP)]),
+        "/simple/a-policy/" => Reply::page(
+            "a-policy",
+            vec![wire_file(A_PRE), wire_file(A_SOURCE), wire_file(A_FINAL)],
+        ),
+        "/simple/z-policy/" => Reply::page(
+            "z-policy",
+            vec![wire_file(Z_PRE), wire_file(Z_SOURCE), wire_file(Z_FINAL)],
+        ),
+        value if value == format!("/files/{APP}") => Reply::file(&app),
+        value if value == format!("/files/{A_PRE}") => Reply::file(&a_pre),
+        value if value == format!("/files/{A_FINAL}") => Reply::file(&a_final),
+        value if value == format!("/files/{Z_PRE}") => Reply::file(&z_pre),
+        value if value == format!("/files/{Z_FINAL}") => Reply::file(&z_final),
+        // Both source candidates remain advertised and unknown. Neither may
+        // be fetched while repairing the other project's prerelease choice.
+        _ => Reply::missing(),
+    });
+    let f = Fixture::new(&peer);
+    let root = f.lock();
+    let endpoints = [f.endpoint()];
+    let p = policy();
+    let mut registry = context(&f, &endpoints, &p);
+    registry.candidate_policy.yanked = Yanked::Disallow;
+    // Actual final metadata is acquired independently across solver reentry.
+    // Retrying z-policy must preserve a-policy's already observed advice.
+    let preparation = ResolveRegistryDepot::new(&root, &["app==1.0"], registry)
+        .unwrap()
+        .prepare()
+        .await;
+    let requests = peer.requests();
+    for filename in [A_SOURCE, Z_SOURCE] {
+        assert!(
+            !requests
+                .iter()
+                .any(|path| path == &format!("/files/{filename}")),
+            "both projects' observed eligible finals must precede source builds: {requests:?}"
+        );
+    }
+    let result = ready(preparation.unwrap());
+    assert_eq!(selected_file(&result, "app"), APP);
+    assert_eq!(selected_file(&result, "a-policy"), A_FINAL);
+    assert_eq!(selected_file(&result, "z-policy"), Z_FINAL);
+    assert_eq!(result.plan().selected.len(), 3);
+    assert_eq!(result.owners.len(), 3);
+    assert_eq!(requests.len(), 8);
+    for filename in [APP, A_PRE, A_FINAL, Z_PRE, Z_FINAL] {
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|path| *path == &format!("/files/{filename}"))
+                .count(),
+            1,
+            "each original wheel must supply its own actual metadata once: {filename}"
+        );
+    }
+    f.no_publish();
+}
+
+#[tokio::test]
+async fn s4_policy_rejection_keeps_unrelated_transitive_wheel_without_source_fetch() {
+    const APP: &str = "app-1.0-py3-none-any.whl";
+    const ANYIO_WHEEL: &str = "anyio-4.15.1-py3-none-any.whl";
+    const ANYIO_SOURCE: &str = "anyio-4.15.1.tar.gz";
+    const POLICY_PRE: &str = "z_policy-2.0rc1-py3-none-any.whl";
+    const POLICY_FINAL: &str = "z_policy-1.0-py3-none-any.whl";
+    let app = wheel("app", "1.0", &["anyio==4.15.1", "z-policy>=1"], "");
+    let anyio = wheel("anyio", "4.15.1", &[], "");
+    let pre = wheel("z_policy", "2.0rc1", &[], "");
+    let final_bytes = wheel("z_policy", "1.0", &[], "");
+    let peer = Peer::new(move |path| match path {
+        "/simple/app/" => Reply::page("app", vec![wire_file(APP)]),
+        "/simple/anyio/" => Reply::page(
+            "anyio",
+            vec![wire_file(ANYIO_WHEEL), wire_file(ANYIO_SOURCE)],
+        ),
+        "/simple/z-policy/" => Reply::page(
+            "z-policy",
+            vec![wire_file(POLICY_PRE), wire_file(POLICY_FINAL)],
+        ),
+        value if value == format!("/files/{APP}") => Reply::file(&app),
+        value if value == format!("/files/{ANYIO_WHEEL}") => Reply::file(&anyio),
+        value if value == format!("/files/{POLICY_PRE}") => Reply::file(&pre),
+        value if value == format!("/files/{POLICY_FINAL}") => Reply::file(&final_bytes),
+        // The unrelated source is advertised, but its bytes are never needed.
+        _ => Reply::missing(),
+    });
+    let f = Fixture::new(&peer);
+    let root = f.lock();
+    let endpoints = [f.endpoint()];
+    let p = policy();
+    // Transitive nodes are discovered after the policy retry's synthetic
+    // witness package, unlike distributions declared directly at the root.
+    let preparation = ResolveRegistryDepot::new(&root, &["app==1.0"], context(&f, &endpoints, &p))
+        .unwrap()
+        .prepare()
+        .await;
+    let requests = peer.requests();
+    assert!(
+        !requests
+            .iter()
+            .any(|path| path == &format!("/files/{ANYIO_SOURCE}")),
+        "repairing the prerelease policy must not fetch the unrelated source: {requests:?}"
+    );
+    let result = ready(preparation.unwrap());
+    assert_eq!(selected_file(&result, "app"), APP);
+    assert_eq!(selected_file(&result, "anyio"), ANYIO_WHEEL);
+    assert_eq!(selected_file(&result, "z-policy"), POLICY_FINAL);
+    assert_eq!(result.owners.len(), 3);
+    for filename in [APP, ANYIO_WHEEL, POLICY_PRE, POLICY_FINAL] {
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|path| *path == &format!("/files/{filename}"))
+                .count(),
+            1,
+            "each actual wheel must be observed once: {filename}"
+        );
+    }
+    f.no_publish();
+}
+
+#[tokio::test]
 async fn only_matching_pre_is_retained_in_the_real_universe_until_full_constraints_are_known() {
     let pre = wheel("demo_pkg", "2.0rc1", &[], "");
     let peer = Peer::new(move |path| {
@@ -221,7 +409,7 @@ async fn false_extra_does_not_supply_a_constraint_or_trigger_a_project_lookup() 
 async fn exact_yanked_uses_actual_non_yanked_m1_eligibility_and_keeps_the_file_identity() {
     const YANK: &str = "demo_pkg-1.0-2-py3-none-any.whl";
     for (other_rejected, exact) in [(false, true), (true, true), (true, false)] {
-        let yanked = wheel("demo_pkg", "1.0", &[], "");
+        let yanked = wheel_with_build("demo_pkg", "1.0", &[], "", Some("2"));
         let other = wheel(
             "demo_pkg",
             "1.0",
@@ -319,7 +507,19 @@ async fn an_unknown_final_sdist_produces_the_real_build_continuation() {
 
 #[tokio::test]
 async fn policy_budget_is_shared_across_metadata_reentry_and_exhaustion_never_publishes() {
-    for (budget, success) in [(30, true), (29, false)] {
+    let supported = tags();
+    let wheel_tags = pakro_index::WheelTags {
+        python: vec!["py3".into()],
+        abi: vec!["none".into()],
+        platform: vec!["any".into()],
+    };
+    let rank = supported.plan_rank(&wheel_tags).unwrap().work_bound();
+    // Two static files (sort height 1), two owned cache facts, followed by
+    // the two actual active assessments around the final metadata rejection.
+    let initial = supported.ordered().len() + 2 * (1 + 1 + rank + 1);
+    let active = 2 * (1 + 8) + 1;
+    let complete = initial + 2 * active;
+    for (budget, success) in [(complete, true), (complete - 1, false)] {
         let peer = pair("Requires-Python: >=99\n");
         let f = Fixture::new(&peer);
         let root = f.lock();

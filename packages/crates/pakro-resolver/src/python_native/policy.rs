@@ -30,6 +30,14 @@ pub struct ActivePolicyQuery<'a> {
 pub enum ActivePolicyDecision {
     Allow,
     Reject,
+    /// Reject this assignment while advising a known compatible candidate of
+    /// the same project during retries of this immutable input snapshot. This
+    /// is ordering advice, never a pin, a new constraint, cached policy truth,
+    /// metadata evidence or a selected-candidate fact. Every new assignment is
+    /// evaluated again; advice is discarded when this solve step returns.
+    /// The complete candidate universe and all alternative parent branches
+    /// remain available if the advised candidate cannot satisfy the solve.
+    RejectWithAlternative(CandidateKey),
     NeedMetadata(CandidateKey),
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -2,7 +2,7 @@
 
 use crate::artifact_snapshot::VerifiedArtifact;
 use crate::packages::python_resolution::lock_model::{ContentPin, RegistryArtifactKind};
-use crate::packages::python_wheel::{WheelExpectation, WheelLimits};
+use crate::packages::python_wheel::{WheelExpectation, WheelLimits, WheelManifest};
 use crate::packages::python_wheel_source::{InspectedWheelArchive, inspect_owned_wheel};
 use pakro_index::SupportedWheelTags;
 use pakro_index::python_metadata::{
@@ -81,7 +81,24 @@ pub(super) fn inspect_projected_wheel(
     };
     let archive = inspect_owned_wheel(artifact, pin.digest(), &expected, wheel_limits)
         .map_err(|_| WheelMetadataError::Archive)?;
-    let metadata = archive.manifest().core_metadata();
+    let facts = project_manifest_metadata(
+        archive.manifest(),
+        pin.file().project(),
+        pin.file().version(),
+        metadata_limits,
+    )?;
+    Ok((archive, facts))
+}
+
+/// The actual output wheel uses the same dependency projection without
+/// pretending its generated filename/digest came from a registry wheel pin.
+pub(super) fn project_manifest_metadata(
+    manifest: &WheelManifest,
+    expected_project: &str,
+    expected_version: &str,
+    metadata_limits: PythonMetadataLimits,
+) -> Result<PythonDependencyMetadataFacts> {
+    let metadata = manifest.core_metadata();
     let name = match metadata.values("Name") {
         [value] => value.as_str(),
         _ => return Err(WheelMetadataError::Archive),
@@ -97,8 +114,8 @@ pub(super) fn inspect_projected_wheel(
     };
     // The expected normalized name also obeys the current projection budget
     // before constructing its owned wrapper from an older, wider lock input.
-    if pin.file().project().len() > metadata_limits.max_field_bytes
-        || pin.file().version().len() > metadata_limits.max_field_bytes
+    if expected_project.len() > metadata_limits.max_field_bytes
+        || expected_version.len() > metadata_limits.max_field_bytes
     {
         return Err(WheelMetadataError::Metadata(
             PythonMetadataError::LimitExceeded(
@@ -106,7 +123,7 @@ pub(super) fn inspect_projected_wheel(
             ),
         ));
     }
-    let expected_name = NormalizedPythonName::new(pin.file().project())
+    let expected_name = NormalizedPythonName::new(expected_project)
         .map_err(|_| WheelMetadataError::IdentityMismatch)?;
     let facts = pakro_index::python_metadata::project_python_metadata(
         pakro_index::python_metadata::PythonMetadataFields {
@@ -120,10 +137,10 @@ pub(super) fn inspect_projected_wheel(
         },
         pakro_index::python_metadata::PythonMetadataExpectation {
             name: &expected_name,
-            version: pin.file().version(),
+            version: expected_version,
         },
         metadata_limits,
     )
     .map_err(WheelMetadataError::Metadata)?;
-    Ok((archive, facts))
+    Ok(facts)
 }

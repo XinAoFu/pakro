@@ -82,6 +82,7 @@ struct Provider<'a> {
     calls: Cell<usize>,
     policy_mode: bool,
     nogoods: RefCell<Vec<Vec<(String, usize)>>>,
+    retry_preferences: RefCell<BTreeMap<String, usize>>,
 }
 fn charge(value: &mut usize, count: usize, maximum: usize) -> Result<(), Stop> {
     *value = value
@@ -406,7 +407,17 @@ impl DependencyProvider for Provider<'_> {
         match package {
             Package::Root => Ok(range.contains(&0).then_some(0)),
             Package::Distribution(name) | Package::Feature(name, _) => {
-                for index in 0..self.project(name)?.len() {
+                let project = self.project(name)?;
+                if let Some(index) = self.retry_preferences.borrow().get(name) {
+                    self.tick()?;
+                    if *index >= project.len() {
+                        return Err(Stop::Invalid);
+                    }
+                    if range.contains(index) {
+                        return Ok(Some(*index));
+                    }
+                }
+                for index in 0..project.len() {
                     self.tick()?;
                     if range.contains(&index) {
                         return Ok(Some(index));
@@ -626,6 +637,7 @@ fn make_provider<'a>(
         calls: Cell::new(0),
         policy_mode: false,
         nogoods: RefCell::default(),
+        retry_preferences: RefCell::default(),
     };
     let mut specs = Vec::new();
     specs

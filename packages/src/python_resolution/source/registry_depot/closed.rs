@@ -108,7 +108,11 @@ pub(super) fn close_with_finish<'root>(
             .recheck_for(prepared.root)
             .map_err(|_| RegistryClosureError::Revoked)?;
         let file = owner.pin().file();
-        if file.kind() != RegistryArtifactKind::Wheel
+        let source_kind_matches = match file.kind() {
+            RegistryArtifactKind::Wheel => owner.build_record().is_none(),
+            RegistryArtifactKind::Sdist => owner.build_record().is_some(),
+        };
+        if !source_kind_matches
             || file.project() != selected.name
             || !same_version(file.version(), &selected.version)
             || owner.facts().name().as_str() != selected.name
@@ -184,12 +188,14 @@ pub(crate) struct RetainedGraphEvidence<'root> {
 enum RetainedRegistryOwner<'root> {
     Fresh(RetainedFreshWheel<'root>),
     Locked(RetainedLockedWheel<'root>),
+    Built(RetainedBuiltRegistryWheel<'root>),
 }
 impl RetainedRegistryOwner<'_> {
     fn pin(&self) -> &ContentPin {
         match self {
             Self::Fresh(owner) => owner.pin(),
             Self::Locked(owner) => owner.pin(),
+            Self::Built(owner) => owner.pin(),
         }
     }
     fn recheck_for(&self, root: &BoundPythonLock) -> Result<(), ResolvedBuildError> {
@@ -200,6 +206,27 @@ impl RetainedRegistryOwner<'_> {
             Self::Locked(owner) => owner
                 .recheck_for(root)
                 .map_err(|_| ResolvedBuildError::Revoked),
+            Self::Built(owner) => owner
+                .recheck_for(root)
+                .map_err(|_| ResolvedBuildError::Revoked),
+        }
+    }
+    fn output_filename(&self) -> &str {
+        match self {
+            Self::Built(owner) => &owner.record().output_filename,
+            _ => self.pin().file().filename(),
+        }
+    }
+    fn output_digest(&self) -> Digest {
+        match self {
+            Self::Built(owner) => owner.output_digest(),
+            _ => self.pin().digest(),
+        }
+    }
+    fn output_size(&self) -> u64 {
+        match self {
+            Self::Built(owner) => owner.record().output_size,
+            _ => self.pin().size(),
         }
     }
 }
@@ -271,9 +298,9 @@ impl RetainedGraphEvidence<'_> {
                 return Err(ResolvedBuildError::SourceReceipt);
             };
             if !seen.insert(index)
-                || source.filename() != pin.file().filename()
-                || source.digest() != pin.digest()
-                || source.size() != pin.size()
+                || source.filename() != self.owners[&selected.key].output_filename()
+                || source.digest() != self.owners[&selected.key].output_digest()
+                || source.size() != self.owners[&selected.key].output_size()
             {
                 return Err(ResolvedBuildError::SourceReceipt);
             }
@@ -312,6 +339,7 @@ impl<'root> ClosedRegistryGraph<'root> {
             policy_notices,
             plan,
             owners,
+            usage: _,
         } = prepared;
         let mut archives = Vec::new();
         archives
@@ -330,6 +358,10 @@ impl<'root> ClosedRegistryGraph<'root> {
                 RegistryMetadataOwner::Locked(owner) => {
                     let (archive, retained) = owner.into_build_evidence();
                     (archive, RetainedRegistryOwner::Locked(retained))
+                }
+                RegistryMetadataOwner::Built(owner) => {
+                    let (archive, retained) = owner.into_build_evidence();
+                    (archive, RetainedRegistryOwner::Built(retained))
                 }
             };
             archives.push(archive);

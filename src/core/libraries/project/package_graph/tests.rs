@@ -95,6 +95,7 @@ fn f3_existing_graph_checks_source_and_observed_known_pins() {
                     filename: "demo-1.0-py3-none-any.whl".into(),
                     size: 100,
                     advertised: true,
+                    build: None,
                 },
             }],
             edges: vec![],

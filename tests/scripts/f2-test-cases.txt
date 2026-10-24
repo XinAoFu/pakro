@@ -24,3 +24,7 @@ plugins::core::python::native::catalog::tests::f2_exact_catalog_pin_fetches_only
 plugins::core::python::native::catalog::tests::f2_exact_catalog_bare_request_refuses_two_real_builds_before_checksums
 plugins::core::python::native::catalog::tests::f2_exact_catalog_single_build_proves_final_page_and_skips_unrelated_checksum
 libraries::project::runtime_pin::tests::f2_observed_runtime_entry_build_cannot_disagree_with_frozen_source
+plugins::core::python::f2_shared_program_tests::f2_shared_native_body_reports_acquire_digest_provenance_and_unpack_in_order
+tests/e2e/cli/test_f2_install_progress
+programs::python::tests::f2_install_context_configured_deadline_stops_acquire_before_ready
+programs::python::tests::f2_install_context_preserves_longer_configured_deadline_and_frozen_settings

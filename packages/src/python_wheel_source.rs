@@ -46,6 +46,45 @@ impl InspectedWheelArchive {
         self.receipt.check_limits(limits)
     }
 
+    /// Duplicate this actual inspected archive under one attempt's original
+    /// deadline. No filename, output digest or metadata comes from a caller.
+    pub(crate) fn duplicate_for_attempt(
+        self,
+        supported: &pakro_index::SupportedWheelTags,
+        limits: WheelLimits,
+        scratch_root: &std::path::Path,
+        deadline: std::time::Instant,
+        max_archive_bytes: u64,
+    ) -> Result<(Self, Self)> {
+        ensure!(
+            std::time::Instant::now() < deadline,
+            "inspected wheel duplication deadline expired"
+        );
+        ensure!(
+            max_archive_bytes > 0 && self.size() <= max_archive_bytes,
+            "inspected wheel duplication byte limit exceeded"
+        );
+        self.receipt.check_limits(limits)?;
+        let Self {
+            filename,
+            manifest,
+            receipt,
+            ..
+        } = self;
+        receipt.duplicate_inspected_wheel(
+            &WheelExpectation {
+                filename: &filename,
+                name: manifest.name(),
+                version: manifest.version(),
+                supported,
+            },
+            limits,
+            scratch_root,
+            deadline,
+            max_archive_bytes,
+        )
+    }
+
     pub(crate) fn with_members<T>(
         &mut self,
         inspect: impl FnOnce(&mut WheelMemberSession<'_>) -> Result<T>,

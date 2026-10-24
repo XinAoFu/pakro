@@ -133,6 +133,10 @@ impl HookEnv {
         let mut tool_paths = tool_paths;
         #[cfg(unix)]
         if let Some(shared) = crate::programs::directory::select_directory_python(true)? {
+            // Normal interpreter startup must not replace bytecode in the
+            // immutable shared payload. EnvDiff restores the prior value when
+            // this directory's selection is withdrawn.
+            pakro_env.insert("PYTHONDONTWRITEBYTECODE".into(), "1".into());
             if !tool_paths.iter().any(|path| *path == shared.bin_dir) {
                 tool_paths.insert(0, shared.bin_dir);
             }

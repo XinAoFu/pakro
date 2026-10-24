@@ -71,7 +71,7 @@ impl<'root> ClosedGraph<'root> {
                 version: node.version.clone(),
                 instance: *instance,
                 source_pin: hex::encode(pin.id().as_bytes()),
-                artifact: pin.digest().to_string(),
+                artifact: owner.output_digest().to_string(),
                 pin: PackageSourcePin {
                     registry: pin.file().registry_id().into(),
                     base: *pin.file().canonical_base_fingerprint(),
@@ -81,6 +81,7 @@ impl<'root> ClosedGraph<'root> {
                         pin.evidence(),
                         crate::packages::python_resolution::lock_model::PinEvidence::Advertised
                     ),
+                    build: owner.build_record().cloned(),
                 },
             });
         }
@@ -166,6 +167,17 @@ impl<'root> ClosedGraph<'root> {
             // Installed entry points bind this actual interpreter path.
             hash.update(language.key().fingerprint());
             hash.update(serde_json::to_vec(&facts)?);
+            let mut built_dependencies = BTreeMap::new();
+            for reached in &reached {
+                if let Some(build) = &raw.nodes[*reached].pin.build {
+                    built_dependencies
+                        .insert(raw.nodes[*reached].name.as_str(), build.fingerprint()?);
+                }
+            }
+            if !built_dependencies.is_empty() {
+                hash.update(b"pakro.built-dependency-outputs/v1\0");
+                hash.update(serde_json::to_vec(&built_dependencies)?);
+            }
             let owner = self
                 .graph
                 .owner(node.key)
@@ -238,7 +250,7 @@ pub(crate) async fn resolve_exact_roots<'root, 'config>(
     registry.supported = language.target().supported();
     registry.semantics = language.target().semantics();
     registry.root_scope = RegistryRootScope::Environment;
-    let result = resolve_registry_roots(context, root, roots, registry).await?;
+    let result = resolve_registry_roots(context, root, roots, registry, Some(language)).await?;
     language.check_binding()?;
     Ok(result)
 }
@@ -248,6 +260,7 @@ async fn resolve_registry_roots<'root>(
     root: &'root BoundPythonLock,
     roots: &[(&str, &str)],
     mut registry: RegistryDepotContext<'_>,
+    language: Option<&LanguageLease>,
 ) -> Result<ClosedGraph<'root>> {
     context.checkpoint()?;
     ensure!(
@@ -278,11 +291,23 @@ async fn resolve_registry_roots<'root>(
     registry.deadline = registry.deadline.min(context.policy().deadline);
     root.recheck()?;
     let declarations: Vec<_> = raw.iter().map(String::as_str).collect();
-    let depot = ResolveRegistryDepot::new(root, &declarations, registry)?;
-    let RegistryPreparation::Ready(prepared) = depot.prepare().await? else {
-        eyre::bail!(
-            "this package closure requires unsupported source or build inputs; shared Python currently accepts compatible wheels"
+    let prepared = if let Some(language) = language {
+        super::build::prepare_registry(
+            context,
+            language,
+            root,
+            raw,
+            registry,
+            &mut super::build::BuildBudget::new(),
+            0,
         )
+        .await?
+    } else {
+        let depot = ResolveRegistryDepot::new(root, &declarations, registry)?;
+        let RegistryPreparation::Ready(prepared) = depot.prepare().await? else {
+            eyre::bail!("source builds require an actual shared Python language lease")
+        };
+        prepared
     };
     let graph = close_registry_plan(prepared, Default::default())?;
     context.checkpoint()?;

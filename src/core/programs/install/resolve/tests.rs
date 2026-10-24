@@ -20,7 +20,8 @@ async fn f3_exact_roots_preserve_real_dependency_edges() {
             &context,
             &root,
             &[("demo-pkg", ">=1.0")],
-            fixture.context(&endpoints, &policy)
+            fixture.context(&endpoints, &policy),
+            None,
         )
         .await
         .is_err()
@@ -36,6 +37,7 @@ async fn f3_exact_roots_preserve_real_dependency_edges() {
         &root,
         &[("demo-pkg", "1.0")],
         fixture.context(&endpoints, &policy),
+        None,
     )
     .await
     .unwrap();
@@ -83,6 +85,7 @@ async fn f3_catalog_rejects_changed_graph_roots_and_edge_declarations() {
         &root,
         &[("demo-pkg", "1.0")],
         fixture.context(&endpoints, &policy),
+        None,
     )
     .await
     .unwrap();

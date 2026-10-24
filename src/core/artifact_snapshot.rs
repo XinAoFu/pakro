@@ -239,6 +239,67 @@ pub(crate) fn spool_verified_reader<R: Read>(
     })
 }
 
+/// Copy the exact bytes of an already-owned capability into another private
+/// verified capability, without granting access to a mutable cache pathname.
+pub(crate) fn clone_verified_artifact(
+    artifact: &mut VerifiedArtifact,
+    scratch_root: &Path,
+    deadline: std::time::Instant,
+    max_archive_bytes: u64,
+) -> Result<VerifiedArtifact> {
+    validate_request(artifact.filename(), max_archive_bytes)?;
+    ensure!(
+        std::time::Instant::now() < deadline,
+        "artifact duplication deadline expired"
+    );
+    ensure!(
+        artifact.size() <= max_archive_bytes,
+        "artifact duplication byte limit exceeded"
+    );
+    let filename = artifact.filename().to_owned();
+    let digest = artifact.digest();
+    let size = artifact.size();
+    let position = artifact.stream_position()?;
+    artifact.rewind()?;
+    struct CopyReader<'a> {
+        artifact: &'a mut VerifiedArtifact,
+        deadline: std::time::Instant,
+    }
+    impl Read for CopyReader<'_> {
+        fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+            if std::time::Instant::now() >= self.deadline {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "artifact duplication deadline expired",
+                ));
+            }
+            self.artifact.read(output)
+        }
+    }
+    let copied = spool_verified_reader(
+        CopyReader {
+            artifact: &mut *artifact,
+            deadline,
+        },
+        &filename,
+        digest,
+        max_archive_bytes,
+        scratch_root,
+    );
+    // A failed copy does not silently change the original reader's position.
+    artifact.seek(SeekFrom::Start(position))?;
+    let copied = copied?;
+    ensure!(
+        std::time::Instant::now() < deadline,
+        "artifact duplication deadline expired"
+    );
+    ensure!(
+        copied.size() == size,
+        "artifact duplication differs from original byte size"
+    );
+    Ok(copied)
+}
+
 /// Private bytes shared by the distinct observed and expected-digest wrappers.
 /// Returning this payload internally grants no caller installation authority.
 struct CapturedArtifact {

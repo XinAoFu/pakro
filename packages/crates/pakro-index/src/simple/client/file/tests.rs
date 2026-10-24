@@ -144,6 +144,169 @@ fn authorization(request: &Request) -> Option<&str> {
 }
 
 #[tokio::test]
+#[ignore = "explicit public input and proxy diagnostic"]
+async fn s4_registry_http_protocol_probe() {
+    use std::io::{Seek, Write};
+
+    const FILENAME: &str = "torch-2.14.1-cp311-cp311-macosx_14_0_arm64.whl";
+    const RANGE_BYTES: u64 = 8 * 1024 * 1024;
+    const MAX_PAGE_BYTES: u64 = 64 * 1024 * 1024;
+    let page_path = std::env::var_os("PAKRO_S4_PROTOCOL_PAGE")
+        .expect("set PAKRO_S4_PROTOCOL_PAGE to the captured public torch JSON");
+    let page_size = std::fs::metadata(&page_path)
+        .unwrap_or_else(|_| panic!("captured public page metadata is unavailable"))
+        .len();
+    assert!(
+        page_size <= MAX_PAGE_BYTES,
+        "captured public page is too large"
+    );
+    let page_bytes =
+        std::fs::read(&page_path).unwrap_or_else(|_| panic!("captured public page is unreadable"));
+    assert!(page_bytes.len() as u64 <= MAX_PAGE_BYTES);
+    let page: serde_json::Value = serde_json::from_slice(&page_bytes)
+        .unwrap_or_else(|_| panic!("captured public page is invalid JSON"));
+    let files = page["files"]
+        .as_array()
+        .expect("captured public page must contain files");
+    let mut matches = files
+        .iter()
+        .filter(|file| file["filename"].as_str() == Some(FILENAME));
+    let file = matches.next().expect("fixed public wheel is absent");
+    assert!(matches.next().is_none(), "fixed public wheel is duplicated");
+    let locator = file["url"]
+        .as_str()
+        .expect("fixed public wheel has no locator");
+    let url = Url::parse(locator).unwrap_or_else(|_| panic!("fixed public locator is invalid"));
+    assert!(
+        url.scheme() == "https"
+            && url.host_str() == Some("files.pythonhosted.org")
+            && url.port_or_known_default() == Some(443)
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.query().is_none()
+            && url.fragment().is_none()
+            && url.path_segments().and_then(Iterator::last) == Some(FILENAME),
+        "fixed public locator violates the diagnostic scope"
+    );
+
+    let cache = tempfile::tempdir().expect("create owned protocol diagnostic directory");
+    let config = SimpleHttpConfig {
+        connect_timeout: Duration::from_secs(45),
+        read_timeout: Some(Duration::from_secs(120)),
+        request_timeout: Duration::from_secs(45),
+        max_redirects: 0,
+        use_system_proxy: false,
+        proxies: vec![
+            reqwest::Proxy::all("socks5h://127.0.0.1:7892")
+                .unwrap_or_else(|_| panic!("explicit diagnostic proxy is invalid")),
+        ],
+        root_certificates: vec![],
+    };
+    let simple = SimpleIndexClient::new(cache.path(), config.clone())
+        .unwrap_or_else(|_| panic!("construct actual Simple client"))
+        .client
+        .clone();
+    let controlled_builder = || {
+        reqwest::Client::builder()
+            .no_gzip()
+            .no_brotli()
+            .no_zstd()
+            .no_deflate()
+            .redirect(reqwest::redirect::Policy::none())
+            .default_headers(reqwest::header::HeaderMap::new())
+            .connect_timeout(config.connect_timeout)
+            .read_timeout(config.read_timeout.unwrap())
+            .timeout(config.request_timeout)
+            .http1_max_headers(1024)
+            .no_proxy()
+            .proxy(config.proxies[0].clone())
+    };
+    let http1 = controlled_builder()
+        .http1_only()
+        .build()
+        .unwrap_or_else(|_| panic!("construct controlled HTTP/1 client"));
+    let rustls_auto = controlled_builder()
+        .tls_backend_rustls()
+        .build()
+        .unwrap_or_else(|_| panic!("construct controlled rustls automatic client"));
+    let rustls_http1 = controlled_builder()
+        .tls_backend_rustls()
+        .http1_only()
+        .build()
+        .unwrap_or_else(|_| panic!("construct controlled rustls HTTP/1 client"));
+    let mut output =
+        tempfile::tempfile_in(cache.path()).expect("create owned protocol diagnostic output");
+    let mut clients = [
+        ("simple-default", simple),
+        ("controlled-http1", http1),
+        ("controlled-rustls-auto", rustls_auto),
+        ("controlled-rustls-http1", rustls_http1),
+    ];
+    if std::env::var_os("PAKRO_S4_PROTOCOL_REVERSE").is_some() {
+        clients.reverse();
+    }
+    for (label, client) in clients {
+        output.set_len(0).expect("truncate diagnostic output");
+        output.rewind().expect("rewind diagnostic output");
+        let started = Instant::now();
+        let deadline = started + Duration::from_secs(45);
+        let mut response = client
+            .get(url.clone())
+            .header(reqwest::header::ACCEPT, "*/*")
+            .header(reqwest::header::ACCEPT_ENCODING, "identity")
+            .header(reqwest::header::RANGE, "bytes=0-8388607")
+            .timeout(Duration::from_secs(45))
+            .send()
+            .await
+            .unwrap_or_else(|_| panic!("{label}: diagnostic request failed"));
+        let headers_elapsed = started.elapsed();
+        let version = response.version();
+        assert_eq!(
+            response.status().as_u16(),
+            206,
+            "{label}: expected partial response"
+        );
+        let content_range = response
+            .headers()
+            .get(reqwest::header::CONTENT_RANGE)
+            .and_then(|value| value.to_str().ok())
+            .expect("partial response must identify its range");
+        let total_size = content_range
+            .strip_prefix("bytes 0-8388607/")
+            .and_then(|value| value.parse::<u64>().ok())
+            .expect("partial response must match the requested fixed range");
+        assert!(
+            total_size > RANGE_BYTES,
+            "range must be part of a larger wheel"
+        );
+        assert!(
+            response
+                .content_length()
+                .is_none_or(|size| size == RANGE_BYTES)
+        );
+        http::identity_encoding(response.headers())
+            .unwrap_or_else(|_| panic!("{label}: unexpected content encoding"));
+        let mut first_body_elapsed = None;
+        let bytes = http::copy_response_body(&mut response, deadline, RANGE_BYTES, |chunk| {
+            first_body_elapsed.get_or_insert_with(|| started.elapsed());
+            output.write_all(chunk).map_err(|_| SimpleClientError::Io)
+        })
+        .await
+        .unwrap_or_else(|_| panic!("{label}: bounded diagnostic body copy failed"));
+        output.flush().expect("flush diagnostic output");
+        assert_eq!(bytes, RANGE_BYTES, "{label}: incomplete fixed range");
+        assert_eq!(output.metadata().unwrap().len(), RANGE_BYTES);
+        let ttfb = first_body_elapsed.expect("fixed range must include body bytes");
+        println!(
+            "S4_PROTOCOL probe={label} version={version:?} ttfb_ms={} headers_ms={} total_ms={} bytes={bytes}",
+            ttfb.as_millis(),
+            headers_elapsed.as_millis(),
+            started.elapsed().as_millis()
+        );
+    }
+}
+
+#[tokio::test]
 async fn anonymous_files_never_inherit_the_index_credential_reference() {
     let bytes = b"\x1f\x8b\x00raw-artifact\xff\x00".to_vec();
     let files = Server::new(Reply::page(None, bytes.clone()));

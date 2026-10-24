@@ -1500,6 +1500,8 @@ impl Run {
                 &Settings::get().sandbox,
                 self.deny_all,
                 crate::sandbox::SandboxConfig {
+                    build_worker: false,
+                    allow_process: Vec::new(),
                     deny_read: self.deny_read,
                     deny_write: self.deny_write,
                     deny_net: self.deny_net,

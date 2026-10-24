@@ -11,6 +11,7 @@ pub(crate) mod python_declarations;
 pub(crate) mod python_environment;
 pub(crate) mod python_project;
 pub(crate) mod python_resolution;
+pub(crate) mod python_source_build;
 pub(crate) mod python_target;
 pub(crate) mod python_wheel;
 pub(crate) mod python_wheel_install;

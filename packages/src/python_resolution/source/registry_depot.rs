@@ -6,6 +6,9 @@
 
 #[path = "registry_depot/active_policy.rs"]
 mod active_policy;
+#[path = "built.rs"]
+mod built;
+use built::{BuiltRegistryWheel, RetainedBuiltRegistryWheel};
 
 use super::*;
 pub(crate) mod closed;
@@ -17,8 +20,9 @@ pub(crate) use tests::build_fixture::RegistryBuildFixture;
 pub(crate) use tests::project_fixture::ProjectRegistryFixture;
 
 use crate::packages::python_resolution::candidate_policy::{
-    CandidatePolicy, CandidatePolicyLimits, CandidatePolicyUsage, PolicyNotice, Prereleases,
-    Yanked, order_fresh_candidate_universe, order_fresh_candidates,
+    CachedCandidateUniverse, CandidatePolicy, CandidatePolicyLimits, CandidatePolicyUsage,
+    PolicyNotice, Prereleases, Yanked, classify_candidate_universe,
+    order_fresh_candidates_with_usage,
 };
 use crate::packages::python_resolution::lock_model::{ContentPin, LockModelLimits};
 use crate::packages::python_resolution::lock_session::{
@@ -27,7 +31,8 @@ use crate::packages::python_resolution::lock_session::{
 use crate::packages::python_resolution::marker_truth::ExtraTruthLimits;
 use crate::packages::python_resolution::metadata_input::checked_metadata_context;
 use crate::packages::python_resolution::metadata_input::{
-    DependencyConstraint, MetadataInputLimits, PythonCompatibility, compile_metadata_input,
+    DependencyConstraint, MetadataInputError, MetadataInputLimits, PythonCompatibility,
+    compile_metadata_input,
 };
 use crate::packages::python_wheel::{WheelLimits, WheelManifest};
 use pakro_index::SupportedWheelTags;
@@ -51,13 +56,16 @@ use super::caller_deadline::{
     acquire_fresh_registry_file_at_deadline, fetch_registry_project_at_deadline,
 };
 use super::fresh::wheel::sidecar::{
-    CheckedFreshWheel, SidecarLimits, verify_advertised_core_metadata,
+    CheckedFreshWheel, FreshSidecarError, SidecarLimits, verify_advertised_core_metadata,
 };
-use super::fresh::wheel::{FreshMetadataState, route_fresh_metadata};
-use super::fresh::{FreshPinnedArtifact, selected_file_ref};
-use super::replay::metadata::{LockedMetadataState, LockedWheelCandidate, route_locked_metadata};
+use super::fresh::wheel::{FreshMetadataState, FreshWheelError, route_fresh_metadata};
+use super::fresh::{FreshPinError, FreshPinnedArtifact, selected_file_ref};
+use super::replay::metadata::{
+    LockedMetadataError, LockedMetadataState, LockedWheelCandidate, route_locked_metadata,
+};
 use super::replay::{
-    LockedRegistryArtifact, LockedReplayContext, acquire_selected_existing_registry_file,
+    LockedRegistryArtifact, LockedReplayContext, LockedReplayError,
+    acquire_selected_existing_registry_file,
 };
 
 pub(crate) type RegistryDepotResult<T> = Result<T, RegistryDepotError>;
@@ -80,12 +88,24 @@ pub(crate) enum RegistryDepotError {
     RootMarker,
     #[error("the actual project lock is no longer current")]
     Revoked,
-    #[error("registry project acquisition failed")]
-    Project,
+    #[error("registry project acquisition failed: {0}")]
+    Project(#[source] SourceResolutionError),
     #[error("registry candidate policy failed")]
     CandidatePolicy,
-    #[error("registry file acquisition or metadata verification failed")]
-    Metadata,
+    #[error("registry file acquisition failed: {0}")]
+    FreshAcquisition(#[source] FreshPinError),
+    #[error("registry wheel inspection failed: {0}")]
+    FreshWheel(#[source] FreshWheelError),
+    #[error("registry advertised metadata verification failed: {0}")]
+    Sidecar(#[source] FreshSidecarError),
+    #[error("registry locked file acquisition failed: {0}")]
+    LockedAcquisition(#[source] LockedReplayError),
+    #[error("registry locked wheel inspection failed: {0}")]
+    LockedWheel(#[source] LockedMetadataError),
+    #[error("registry dependency metadata compilation failed: {0}")]
+    MetadataInput(#[source] MetadataInputError),
+    #[error("registry source build preparation or output verification failed")]
+    Build,
     #[error("native Python constraints have no solution")]
     NoSolution,
     #[error("registry candidate identity is inconsistent")]
@@ -262,6 +282,7 @@ impl RegistryDepotLimits {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct RegistryDepotContext<'a> {
     pub(crate) client: &'a SimpleIndexClient,
     pub(crate) endpoints: &'a [RegistryEndpoint<'a>],
@@ -283,6 +304,7 @@ struct ProjectEntry {
     owner: Option<BoundRegistryProject>,
     endpoint: usize,
     candidates: Vec<CandidateVersion>,
+    universe: Option<CachedCandidateUniverse>,
 }
 struct FileEntry {
     project: String,
@@ -296,24 +318,28 @@ struct MetadataEntry<'root> {
 pub(crate) enum RegistryMetadataOwner<'root> {
     Fresh(CheckedFreshWheel<'root>),
     Locked(LockedWheelCandidate<'root>),
+    Built(BuiltRegistryWheel<'root>),
 }
 impl RegistryMetadataOwner<'_> {
     pub(crate) fn pin(&self) -> &ContentPin {
         match self {
             Self::Fresh(value) => value.wheel().pin(),
             Self::Locked(value) => value.pin(),
+            Self::Built(value) => value.pin(),
         }
     }
     pub(crate) fn manifest(&self) -> &WheelManifest {
         match self {
             Self::Fresh(value) => value.wheel().manifest(),
             Self::Locked(value) => value.manifest(),
+            Self::Built(value) => value.manifest(),
         }
     }
     pub(crate) fn facts(&self) -> &PythonDependencyMetadataFacts {
         match self {
             Self::Fresh(value) => value.wheel().facts(),
             Self::Locked(value) => value.facts(),
+            Self::Built(value) => value.facts(),
         }
     }
     pub(crate) fn recheck_for(&self, root: &BoundPythonLock) -> RegistryDepotResult<()> {
@@ -324,6 +350,31 @@ impl RegistryMetadataOwner<'_> {
             Self::Locked(value) => value
                 .recheck_for(root)
                 .map_err(|_| RegistryDepotError::Revoked),
+            Self::Built(value) => value.recheck_for(root),
+        }
+    }
+    pub(crate) fn output_filename(&self) -> &str {
+        self.build_record()
+            .map_or(self.pin().file().filename(), |record| {
+                &record.output_filename
+            })
+    }
+    pub(crate) fn output_digest(&self) -> Digest {
+        match self {
+            Self::Built(value) => value.output_digest(),
+            _ => self.pin().digest(),
+        }
+    }
+    pub(crate) fn output_size(&self) -> u64 {
+        self.build_record()
+            .map_or(self.pin().size(), |record| record.output_size)
+    }
+    pub(crate) fn build_record(
+        &self,
+    ) -> Option<&crate::packages::python_environment::model::SourceBuildRecord> {
+        match self {
+            Self::Built(value) => Some(value.record()),
+            _ => None,
         }
     }
 }
@@ -545,6 +596,10 @@ impl<'root, 'config> ResolveRegistryDepot<'root, 'config> {
                 RegistryPolicyContinuation { depot: self },
             ));
         }
+        self.solve().await
+    }
+
+    async fn solve(mut self) -> RegistryDepotResult<RegistryPreparation<'root, 'config>> {
         loop {
             self.tick()?;
             let mut policy_notices = BTreeMap::new();
@@ -581,66 +636,7 @@ impl<'root, 'config> ResolveRegistryDepot<'root, 'config> {
                 SolveStep::NeedProject(name) => self.observe_project(&name).await?,
                 SolveStep::NeedMetadata(key) => match self.observe_metadata(key).await? {
                     MetadataObservation::Wheel(owner) => {
-                        let input = compile_metadata_input(
-                            owner.facts(),
-                            self.environment.view(),
-                            self.context.semantics,
-                            self.context.limits.markers,
-                            self.context.limits.truth,
-                            self.context.limits.input,
-                        )
-                        .map_err(|_| RegistryDepotError::Metadata)?;
-                        let dependencies: Vec<Dependency> = input
-                            .dependencies
-                            .into_iter()
-                            .map(|dependency| Dependency {
-                                requirement: Requirement {
-                                    name: dependency.name,
-                                    constraint: match dependency.constraint {
-                                        DependencyConstraint::Version(value) => {
-                                            RequirementConstraint::Version(value)
-                                        }
-                                        DependencyConstraint::SourceReference(_) => {
-                                            RequirementConstraint::SourceReference
-                                        }
-                                    },
-                                    requested_extras: dependency.requested_extras,
-                                },
-                                extra_truth: dependency.condition.map(|truth| ExtraTruth {
-                                    extra_names: truth.extra_names().to_vec(),
-                                    enabled_masks: truth.enabled_masks().to_vec(),
-                                }),
-                            })
-                            .collect();
-                        for dependency in &dependencies {
-                            self.charge(dependency.requirement.name.len())?;
-                            if let RequirementConstraint::Version(value) =
-                                &dependency.requirement.constraint
-                            {
-                                self.charge(value.len())?;
-                            }
-                            for extra in &dependency.requirement.requested_extras {
-                                self.charge(extra.len())?;
-                            }
-                            if let Some(truth) = &dependency.extra_truth {
-                                for extra in &truth.extra_names {
-                                    self.charge(extra.len())?;
-                                }
-                            }
-                        }
-                        let rejection = (input.python_compatibility
-                            == PythonCompatibility::RequiresPythonMismatch)
-                            .then_some(CandidateRejection::RequiresPython);
-                        self.metadata.insert(
-                            key,
-                            MetadataEntry {
-                                owner,
-                                input: CandidateMetadata {
-                                    dependencies,
-                                    rejection,
-                                },
-                            },
-                        );
+                        self.insert_metadata(key, owner)?;
                     }
                     MetadataObservation::Build(source) => {
                         return Ok(RegistryPreparation::NeedsBuild(RegistryBuildContinuation {
@@ -687,6 +683,71 @@ impl<'root, 'config> ResolveRegistryDepot<'root, 'config> {
                 }
             }
         }
+    }
+
+    fn insert_metadata(
+        &mut self,
+        key: CandidateKey,
+        owner: RegistryMetadataOwner<'root>,
+    ) -> RegistryDepotResult<()> {
+        let input = compile_metadata_input(
+            owner.facts(),
+            self.environment.view(),
+            self.context.semantics,
+            self.context.limits.markers,
+            self.context.limits.truth,
+            self.context.limits.input,
+        )
+        .map_err(RegistryDepotError::MetadataInput)?;
+        let dependencies: Vec<Dependency> = input
+            .dependencies
+            .into_iter()
+            .map(|dependency| Dependency {
+                requirement: Requirement {
+                    name: dependency.name,
+                    constraint: match dependency.constraint {
+                        DependencyConstraint::Version(value) => {
+                            RequirementConstraint::Version(value)
+                        }
+                        DependencyConstraint::SourceReference(_) => {
+                            RequirementConstraint::SourceReference
+                        }
+                    },
+                    requested_extras: dependency.requested_extras,
+                },
+                extra_truth: dependency.condition.map(|truth| ExtraTruth {
+                    extra_names: truth.extra_names().to_vec(),
+                    enabled_masks: truth.enabled_masks().to_vec(),
+                }),
+            })
+            .collect();
+        for dependency in &dependencies {
+            self.charge(dependency.requirement.name.len())?;
+            if let RequirementConstraint::Version(value) = &dependency.requirement.constraint {
+                self.charge(value.len())?;
+            }
+            for extra in &dependency.requirement.requested_extras {
+                self.charge(extra.len())?;
+            }
+            if let Some(truth) = &dependency.extra_truth {
+                for extra in &truth.extra_names {
+                    self.charge(extra.len())?;
+                }
+            }
+        }
+        let rejection = (input.python_compatibility == PythonCompatibility::RequiresPythonMismatch)
+            .then_some(CandidateRejection::RequiresPython);
+        self.metadata.insert(
+            key,
+            MetadataEntry {
+                owner,
+                input: CandidateMetadata {
+                    dependencies,
+                    rejection,
+                },
+            },
+        );
+        Ok(())
     }
 
     fn uses_active_policy(&self) -> bool {
@@ -737,30 +798,33 @@ impl<'root, 'config> ResolveRegistryDepot<'root, 'config> {
                 self.context.deadline,
             )
             .await
-            .map_err(|_| stage_error(self.context.deadline, RegistryDepotError::Project))?;
+            .map_err(|error| {
+                stage_error(self.context.deadline, RegistryDepotError::Project(error))
+            })?;
             self.check_live()?;
             let RegistryProjectLookup::Present(owner) = lookup else {
                 continue;
             };
             self.charge_project(&owner)?;
-            let ordered = if self.uses_active_policy() {
-                order_fresh_candidate_universe(
+            let (ordered, universe) = if self.uses_active_policy() {
+                classify_candidate_universe(
                     &owner.data.project,
                     self.context.supported,
                     &python,
                     self.context.candidate_policy,
                     self.context.limits.candidates,
                     &mut self.policy_usage,
-                )
+                ).map(|(ordered, universe)| (ordered, Some(universe)))
             } else {
-                order_fresh_candidates(
+                order_fresh_candidates_with_usage(
                     &owner.data.project,
                     &[],
                     self.context.supported,
                     &python,
                     self.context.candidate_policy,
                     self.context.limits.candidates,
-                )
+                    &mut self.policy_usage,
+                ).map(|ordered| (ordered, None))
             }
             .map_err(|error| match error {
                 crate::packages::python_resolution::candidate_policy::CandidatePolicyError::Limit => {
@@ -815,6 +879,7 @@ impl<'root, 'config> ResolveRegistryDepot<'root, 'config> {
                     owner: Some(owner),
                     endpoint: endpoint_index,
                     candidates,
+                    universe,
                 },
             );
             return Ok(());
@@ -825,6 +890,7 @@ impl<'root, 'config> ResolveRegistryDepot<'root, 'config> {
                 owner: None,
                 endpoint: 0,
                 candidates: Vec::new(),
+                universe: None,
             },
         );
         Ok(())
@@ -891,14 +957,19 @@ impl<'root, 'config> ResolveRegistryDepot<'root, 'config> {
                     self.context.deadline,
                 )
                 .await
-                .map_err(|_| stage_error(self.context.deadline, RegistryDepotError::Metadata))?;
+                .map_err(|error| {
+                    stage_error(
+                        self.context.deadline,
+                        RegistryDepotError::FreshAcquisition(error),
+                    )
+                })?;
                 match route_fresh_metadata(
                     source,
                     self.context.supported,
                     limits.wheel,
                     limits.metadata,
                 )
-                .map_err(|_| RegistryDepotError::Metadata)?
+                .map_err(RegistryDepotError::FreshWheel)?
                 {
                     FreshMetadataState::NeedsBuild(source) => {
                         MetadataObservation::Build(BuildOwner::Fresh(source))
@@ -941,7 +1012,9 @@ impl<'root, 'config> ResolveRegistryDepot<'root, 'config> {
                             self.context.scratch_root,
                         )
                         .await
-                        .map_err(|_| RegistryDepotError::Metadata)?;
+                        .map_err(|error| {
+                            stage_error(self.context.deadline, RegistryDepotError::Sidecar(error))
+                        })?;
                         MetadataObservation::Wheel(RegistryMetadataOwner::Fresh(wheel))
                     }
                 }
@@ -964,14 +1037,19 @@ impl<'root, 'config> ResolveRegistryDepot<'root, 'config> {
                     },
                 )
                 .await
-                .map_err(|_| RegistryDepotError::Metadata)?;
+                .map_err(|error| {
+                    stage_error(
+                        self.context.deadline,
+                        RegistryDepotError::LockedAcquisition(error),
+                    )
+                })?;
                 match route_locked_metadata(
                     source,
                     self.context.supported,
                     limits.wheel,
                     limits.metadata,
                 )
-                .map_err(|_| RegistryDepotError::Metadata)?
+                .map_err(RegistryDepotError::LockedWheel)?
                 {
                     LockedMetadataState::NeedsBuild(source) => {
                         MetadataObservation::Build(BuildOwner::Locked(source))
@@ -995,54 +1073,59 @@ impl<'root, 'config> ResolveRegistryDepot<'root, 'config> {
             .filter(|n| *n <= limits.max_retained_bytes)
             .ok_or(RegistryDepotError::Limit)?;
         if let MetadataObservation::Wheel(owner) = &observation {
-            // Count the complete raw observation, including Description. The
-            // existing A limits bound the single-step parse peak; this is a
-            // logical retained-payload budget, not an allocator/RSS claim.
-            self.charge(owner.manifest().core_metadata().raw().len())?;
-            // A retains parsed headers alongside their raw bytes. Reserving
-            // one additional raw extent conservatively covers their text,
-            // including unknown header names and values, without reopening A.
-            self.charge(owner.manifest().core_metadata().raw().len())?;
-            self.charge(owner.manifest().core_metadata().description().len())?;
-            for value in [
-                owner.facts().name().as_str(),
-                owner.facts().version(),
-                owner.facts().requires_python().unwrap_or_default(),
-                owner.pin().file().registry_id(),
-                owner.pin().file().project(),
-                owner.pin().file().version(),
-                owner.pin().file().filename(),
-                owner.manifest().name(),
-                owner.manifest().version(),
-                owner.manifest().dist_info(),
-            ] {
-                self.charge(value.len())?;
-            }
-            for declaration in owner.facts().requirements() {
-                self.charge(declaration.raw_for_semantic_resolution().len())?;
-                self.charge(declaration.name().len())?;
-                for extra in declaration.requested_extras() {
-                    self.charge(extra.len())?;
-                }
-                if let Some(reference) = declaration.unresolved_reference() {
-                    self.charge(reference.raw_for_source_binding().len())?;
-                }
-                if let Some(marker) = declaration.exact_marker() {
-                    self.charge(marker.raw_for_semantic_resolution().len())?;
-                }
-            }
-            for extra in owner.facts().provided_extras() {
-                self.charge(extra.len())?;
-            }
-            for field in owner.facts().dynamic_fields() {
-                self.charge(field.len())?;
-            }
-            for member in owner.manifest().members() {
-                self.charge(member.archive_path().len())?;
-                self.charge(member.relative_path().len())?;
-            }
+            self.charge_metadata(owner)?;
         }
         Ok(observation)
+    }
+
+    fn charge_metadata(&mut self, owner: &RegistryMetadataOwner<'_>) -> RegistryDepotResult<()> {
+        // Count the complete raw observation, including Description. The
+        // existing A limits bound the single-step parse peak; this is a
+        // logical retained-payload budget, not an allocator/RSS claim.
+        self.charge(owner.manifest().core_metadata().raw().len())?;
+        // A retains parsed headers alongside their raw bytes. Reserving
+        // one additional raw extent conservatively covers their text,
+        // including unknown header names and values, without reopening A.
+        self.charge(owner.manifest().core_metadata().raw().len())?;
+        self.charge(owner.manifest().core_metadata().description().len())?;
+        for value in [
+            owner.facts().name().as_str(),
+            owner.facts().version(),
+            owner.facts().requires_python().unwrap_or_default(),
+            owner.pin().file().registry_id(),
+            owner.pin().file().project(),
+            owner.pin().file().version(),
+            owner.pin().file().filename(),
+            owner.manifest().name(),
+            owner.manifest().version(),
+            owner.manifest().dist_info(),
+        ] {
+            self.charge(value.len())?;
+        }
+        for declaration in owner.facts().requirements() {
+            self.charge(declaration.raw_for_semantic_resolution().len())?;
+            self.charge(declaration.name().len())?;
+            for extra in declaration.requested_extras() {
+                self.charge(extra.len())?;
+            }
+            if let Some(reference) = declaration.unresolved_reference() {
+                self.charge(reference.raw_for_source_binding().len())?;
+            }
+            if let Some(marker) = declaration.exact_marker() {
+                self.charge(marker.raw_for_semantic_resolution().len())?;
+            }
+        }
+        for extra in owner.facts().provided_extras() {
+            self.charge(extra.len())?;
+        }
+        for field in owner.facts().dynamic_fields() {
+            self.charge(field.len())?;
+        }
+        for member in owner.manifest().members() {
+            self.charge(member.archive_path().len())?;
+            self.charge(member.relative_path().len())?;
+        }
+        Ok(())
     }
 
     fn charge(&mut self, bytes: usize) -> RegistryDepotResult<()> {
@@ -1142,6 +1225,15 @@ impl<'root, 'config> ResolveRegistryDepot<'root, 'config> {
         policy_notices: BTreeMap<CandidateKey, Vec<PolicyNotice>>,
     ) -> RegistryDepotResult<RegistryPreparation<'root, 'config>> {
         self.check_live()?;
+        let usage = RegistryDepotUsage {
+            retained_bytes: self.retained_bytes,
+            retained_utf8: self.retained_utf8,
+            steps: self.steps,
+            projects: self.projects.len(),
+            metadata: self.metadata.len(),
+            policy_work: self.policy_usage.usage().0,
+            policy_utf8: self.policy_usage.usage().1,
+        };
         let mut owners = BTreeMap::new();
         for selected in &plan.selected {
             let entry = self
@@ -1170,6 +1262,7 @@ impl<'root, 'config> ResolveRegistryDepot<'root, 'config> {
             plan,
             owners,
             policy_notices,
+            usage,
         }))
     }
 }
@@ -1236,6 +1329,7 @@ pub(crate) struct RegistryPreparedPlan<'root> {
     plan: NativePlan,
     owners: BTreeMap<CandidateKey, RegistryMetadataOwner<'root>>,
     policy_notices: BTreeMap<CandidateKey, Vec<PolicyNotice>>,
+    usage: RegistryDepotUsage,
 }
 impl RegistryPreparedPlan<'_> {
     pub(crate) fn policy_notices(&self, key: CandidateKey) -> &[PolicyNotice] {
@@ -1283,6 +1377,9 @@ impl RegistryPreparedPlan<'_> {
     pub(crate) fn plan(&self) -> &NativePlan {
         &self.plan
     }
+    pub(crate) fn usage(&self) -> RegistryDepotUsage {
+        self.usage
+    }
     pub(crate) fn owner(&self, key: CandidateKey) -> Option<&RegistryMetadataOwner<'_>> {
         self.owners.get(&key)
     }
@@ -1320,7 +1417,17 @@ pub(crate) struct RegistryBuildContinuation<'root, 'config> {
     candidate: CandidateKey,
     source: BuildOwner<'root>,
 }
-impl RegistryBuildContinuation<'_, '_> {
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RegistryDepotUsage {
+    pub retained_bytes: u64,
+    pub retained_utf8: usize,
+    pub steps: usize,
+    pub projects: usize,
+    pub metadata: usize,
+    pub policy_work: usize,
+    pub policy_utf8: usize,
+}
+impl<'root, 'config> RegistryBuildContinuation<'root, 'config> {
     pub(crate) fn pin(&self) -> &ContentPin {
         match &self.source {
             BuildOwner::Fresh(value) => value.pin(),
@@ -1329,6 +1436,55 @@ impl RegistryBuildContinuation<'_, '_> {
     }
     pub(crate) fn candidate(&self) -> CandidateKey {
         self.candidate
+    }
+    pub(crate) fn registry_context(&self) -> RegistryDepotContext<'config> {
+        self.depot.context.clone()
+    }
+    pub(crate) fn usage(&self) -> RegistryDepotUsage {
+        RegistryDepotUsage {
+            retained_bytes: self.depot.retained_bytes,
+            retained_utf8: self.depot.retained_utf8,
+            steps: self.depot.steps,
+            projects: self.depot.projects.len(),
+            metadata: self.depot.metadata.len(),
+            policy_work: self.depot.policy_usage.usage().0,
+            policy_utf8: self.depot.policy_usage.usage().1,
+        }
+    }
+    pub(crate) fn source_verified_copy(
+        &mut self,
+        scratch: &Path,
+    ) -> RegistryDepotResult<crate::artifact_snapshot::VerifiedArtifact> {
+        self.depot.check_live()?;
+        self.source.recheck_for(self.depot.root)?;
+        let pin = self.pin().clone();
+        let retained = self
+            .depot
+            .retained_bytes
+            .checked_add(pin.size())
+            .filter(|n| *n <= self.depot.context.limits.max_retained_bytes)
+            .ok_or(RegistryDepotError::Limit)?;
+        self.source
+            .seek(SeekFrom::Start(0))
+            .map_err(|_| RegistryDepotError::Build)?;
+        let copy = crate::artifact_snapshot::spool_verified_reader(
+            super::caller_deadline::Reader::new(
+                &mut self.source,
+                Some(self.depot.context.deadline),
+            ),
+            pin.file().filename(),
+            pin.digest(),
+            self.depot.context.limits.source.transfer.max_wire_bytes,
+            scratch,
+        )
+        .map_err(|_| stage_error(self.depot.context.deadline, RegistryDepotError::Build))?;
+        self.depot.check_live()?;
+        self.source.recheck_for(self.depot.root)?;
+        if copy.size() != pin.size() {
+            return Err(RegistryDepotError::IdentityMismatch);
+        }
+        self.depot.retained_bytes = retained;
+        Ok(copy)
     }
 }
 pub(crate) struct RegistrySourceContinuation<'root, 'config> {

@@ -1,7 +1,7 @@
 //! One install-compatible package tree per exact instance, shared by layouts.
 use super::lease::{PackageLease, acquire_package};
 use super::manifest::{self, PackageFacts, PackageManifest, StorageManifest};
-use crate::libraries::language::lease::LanguageLease;
+use crate::libraries::language::lease::{LanguageLease, LanguageMaterialization};
 use crate::packages::python_environment::prefix::verify::{
     PrefixExpectedDirectory, PrefixExpectedFile, PrefixInventoryLimits, TreeInventory,
     observe_tree_inventory, verify_prefix_inventory,
@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 #[cfg(test)]
 thread_local! {
     // One-shot fault injection in unit builds only; no production callback API.
-    static AFTER_WHEEL_COPY: std::cell::Cell<Option<fn(&UnpublishedPrefix)>> = const { std::cell::Cell::new(None) };
+    pub(super) static AFTER_WHEEL_COPY: std::cell::Cell<Option<fn(&UnpublishedPrefix)>> = const { std::cell::Cell::new(None) };
 }
 
 pub(crate) fn storage_for(prefix: &UnpublishedPrefix, key: [u8; 32]) -> Result<StorageManifest> {
@@ -38,7 +38,7 @@ pub(crate) fn storage_for(prefix: &UnpublishedPrefix, key: [u8; 32]) -> Result<S
         observe_tree_inventory(prefix, PrefixInventoryLimits::default())?,
     )
 }
-fn storage_with_inventory(
+pub(super) fn storage_with_inventory(
     prefix: &UnpublishedPrefix,
     key: [u8; 32],
     inventory: TreeInventory,
@@ -145,8 +145,31 @@ pub(super) fn prepare_package_inputs(
     facts: PackageFacts,
     archive: InspectedWheelArchive,
 ) -> Result<PendingPackageTree> {
+    prepare_package_inputs_checked(context, language, facts, archive, || {
+        language.check_binding()
+    })
+}
+
+pub(super) fn prepare_package_inputs_in_batch(
+    context: &OperationContext,
+    scope: &LanguageMaterialization<'_>,
+    facts: PackageFacts,
+    archive: InspectedWheelArchive,
+) -> Result<PendingPackageTree> {
+    prepare_package_inputs_checked(context, scope.language(), facts, archive, || {
+        scope.check_binding()
+    })
+}
+
+fn prepare_package_inputs_checked(
+    context: &OperationContext,
+    language: &LanguageLease,
+    facts: PackageFacts,
+    archive: InspectedWheelArchive,
+    check_language: impl Fn() -> Result<()>,
+) -> Result<PendingPackageTree> {
     context.checkpoint()?;
-    language.check_binding()?;
+    check_language()?;
     ensure!(
         facts.name == archive.manifest().name()
             && facts.version == archive.manifest().version()
@@ -276,7 +299,7 @@ pub(super) fn prepare_package_inputs(
         filename,
         storage,
     };
-    language.check_binding()?;
+    check_language()?;
     Ok(PendingPackageTree {
         prefix,
         manifest: value,

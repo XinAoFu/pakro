@@ -1,6 +1,99 @@
 # Pakro 首版逐文件实施计划
 
-日期：2026-10-20（Asia/Shanghai）。
+计划创建：2026-10-20；本次进度截止：2026-10-24（Asia/Shanghai）。
+
+## S：Python源码包构建与安装（本轮实现与ISAT启动验收已截止）
+
+**2026-10-24截止：用户已确认ISAT在Pakro环境中成功运行，并要求提交Git。** 实际24项直接依赖已安装选择，项目登记revision3、关联60个包、使用原Python3.11.17+20261013；本轮以安装→环境选用→ISAT基础启动的用户手动验收通过收尾。
+
+1. ☑ S1 受控源码及worker（本机无子进程后端；编译器尚未开放）：实际持有/摘要校验的sdist有界解包，读取已有build-system解析；无pyproject走setuptools.build_meta:__legacy__。复用CmdLineRunner bounded child-tree及现有OS沙箱，固定共享LanguageLease/构建wheel、仅私有工作区可写，禁止联网/依赖管理器委托；真实hook、输出/路径/期限/清理十一项通过。
+2. ☑ S2 构建依赖闭合及求解续传：初始/动态requires交原registry solver，保留精确输入、递归构建和环/累计预算；prepare_metadata可选回退build_wheel，最终metadata比较。恢复原depot而非伪造空依赖或重新追加根。真实nonce源码依赖+非空dynamic helper复用与不同父目录锁已实际通过。
+3. ☑ S3 原源码与输出双重证据：Built owner保留原sdist pin、固定构建输入/recipe和真实输出wheel；沿原wheel检查、真实graph、共享package/layout及同catalog提交。PackageGraphNode不得把本地产物伪装registry wheel；codec有界兼容旧wheel记录，输出与构建输入参与实例区分。原3.11+iopath/ANTLR实际CLI发布、导入和跨项目复用通过173.9秒。
+4. ☑ S4 真实ISAT安装、选择及基础启动（用户手动验收）：用户重试已将实际项目完整依赖选择提交至revision3/60包；EMFILE及选择5秒超时修复后，只读环境查询32.71秒选中共享layout，用户按解释器guard启动命令确认“成功运行了”。此勾选仅指该实际使用目标；先前600秒停止的自动完整组仍未完成，不记作通过。
+
+**截止后单列的未覆盖项：** 完整自动冷组、完整ISAT图的重复/跨项目零获取验证、NMS/标注导出等全套自动业务断言，以及模型推理均未由本次用户反馈证明；C/C++/Rust编译器源码后端仍未开放。源码core跨项目复用的173.9秒既有证据保留，但不替代完整图验收。约33秒完整选择开销、FD锚共享等进一步性能优化留待后续明确任务，本轮不继续推进。
+
+**提交收尾：** 仅纳入本轮相关源码、回归和开发记录；Cargo发行清单补齐实际include_bytes依赖的hook.py并以cargo package --list验证。禁止编译产物、缓存、发行归档和测试临时文件入Git；不推送。
+
+### 本轮过程记录（保留追溯，截止状态以上为准）
+
+2026-10-24环境选择现场修复：用户完整依赖已提交revision3/60包，但hook-env --force报store deadline，guard阻止旧mise Python启动。具体接缝限定`programs/directory.rs`的两入口一次冻结总期限、`libraries/package/lease.rs`及新`lease/tests.rs`、源阶段清单/脚本必要注册。原5秒对全包图字节校验不足；改为统一有界300秒总预算（正常慢路径亦覆盖，不在中途重置，原same-env CLI快路保留）。不新增跨操作hash缓存或削弱普通read API。Object full前后保存完整store/namespace/Ready manifest核对，walk只借私有held view保持FD/SH/lock/allocation/owner和完整member no-follow/SHA；局部layout pin阶段收束同一held批次早期扫描，所有内容在组末完整校验后才能交出可用lease，独立包获取保持full，不跨query释放→project锁重获边界。先实际只读env失败及确定性计数/篡改RED，再实现与相邻GREEN；实际选择只用env只读查询，用户仍手动hook/启动，不代修改实际库/关联。
+
+环境选择修复已当次GREEN：新5项实际RED3失败/2保护后修复，包库44通过/1辅助ignored、directory3通过，main all-features成功，整组409.5秒；同一真实ISAT只读env probe从5.02秒deadline失败变为32.71秒选中Pakro共享layout、无超时警告。完整字节/锁/manifest/namespace保护保留且补齐哈希后manifest核验；不声称选择变为瞬时或GUI已通过。注册/格式/脚本/diff检查通过，全部owned根清理，交用户手动重新hook与启动，不重装依赖。
+
+2026-10-24真实ISAT手动安装新增EMFILE反馈：用户终端soft NOFILE256/hard unlimited，Agent宿主1048575，原自动验收遗漏低soft上限。每包pending/Ready各约17个真实保护FD、canonical重取有两套SH峰值，普通wheel原档则每枚仅1FD且物化后已释放。最小修复接缝限定`src/main.rs`、`pakro-util/src/{lib.rs,process_limits.rs}`新进程资源初始化及`package/layouts/tests.rs`/新`tests/file_descriptors.rs`、本阶段清单与`s-source-check.sh`的utility注册。仅本进程在建Tokio/加载大包图前将soft非递减提升至min(hard,4096)，保留hard、不改shell/系统，不去掉保护或改锁owner结构；硬上限不足时不得越权提高，不宣称支持强制hard256的64包图。先stub+子进程soft256真实64小wheel全布局及资源决策实际RED，再实现、验证hard不变/高soft不降/父进程不变/Drop后FD恢复，编译后交用户手动重试实际安装。原锚共享/整套重取优化作为进一步资源效率问题记录，本次不进行大范围锁模型变更或自动再次完整ISAT冷组。
+
+EMFILE修复现已完成当次验证：资源决策4项、64真实包布局/重取/释放1项、原批次5项共10通过，all-features主程序成功，整组179.9秒；实际CLI从soft256/hard unlimited得到4096/unlimited，父进程不变，固定低hard/高soft保护也通过。最后注册/格式/脚本/diff检查通过，全部owned根清理。实际ISAT仍由用户手动重试，不能将这次隔离FD回归称ISAT运行通过。
+
+最新真实项目证据：用户重试后，Agent仅只读project status（1.5秒exit0）确认ISAT登记revision3、24项声明、选中60个包并绑定原Python3.11.17 ready，完整依赖选择已实际提交。未取得用户安装命令exit码，不把查询成功冒充该exit；尚无本次完整环境的实际ISAT启动、全native导入、重复/跨项目复用结果。下一步由用户force hook、确认Pakro解释器后`python main.py`，Agent不代启动。
+
+2026-10-24最新用户选择手动启动验收，明确授权先补齐真实`/Users/fuxinao/Projects/ISAT/pakro.toml`。现已按原mise24固定直接依赖补齐，保留Python3.11.17+20261013及同build packages作用域；TOML解析、与原pins逐项一致及requirements规范名完整覆盖均通过，独立只读复核无遗漏。此授权仅改变实际声明，不由Agent安装/启动或修改旧环境；间接依赖由安装时求解。后续由用户手动执行安装、确认选用Pakro解释器并启动，S4仍待结果，不继续自动完整组或性能调查。
+
+用户已明确授权实现、Agent自行验收和每组600秒时限，沿主架构5.5的原生PEP517流程，不委托pip/uv。旧F1–F4源码构建后移约束仅对本轮registry sdist解除；其余后移功能不启动。复用同一target、关闭incremental/DEV/TEST_DEBUG，不重复构建profile；实际ISAT配置/旧环境保留，验收在owned临时配置和源码副本完成。
+
+具体文件接缝：`src/core/programs/install/{mod.rs,resolve.rs,build.rs,build/*}`与`programs/python.rs`协调；新增`packages/src/python_source_build.rs`及`python_source_build/*`作为持源码/私有workspace/真实执行产物owner，注册于`packages/src/mod.rs`或原packages父模块；`python_resolution/source/{registry_depot.rs,registry_depot/closed.rs,built.rs}`原续传及保留证据；`python_environment/{model.rs,model/codec/graph.rs}`及`libraries/project/package_graph.rs`保存原source/输出/构建事实；必要lock_model的sdist文件名协议和既有构造测试同步。沙箱必要接缝仅`pakro-util/src/{sandbox/*,cmd.rs,cmd/*}`，worker显式严格配置默认行为保持。测试注册与CLI验收使用现有tests/scripts和tests/e2e；新具体路径在实施时续记。
+
+现状（2026-10-24截止）：S1–S3本机纯Python registry源码构建链路已实现，S4真实ISAT安装、选择和基础启动已由用户手动验收。本轮提交并停止推进；原600秒自动组未完成、完整业务/完整图复用未覆盖和编译器源码后端限制继续如上单列，不因用户成功启动而扩称全部生态完成。
+
+S阶段具体测试接缝：`packages/src/python_source_build/{archive.rs,worker.rs,hook.py,tests.rs}`、`python_environment/model/{source_build.rs,source_build_tests.rs,codec/graph/build.rs}`及原来源source_build测试；`tests/e2e/packages/{source_build_acceptance.py,test_native_source_isat,test_native_source_isat_full}`注册隔离验收。必要F3原生相对loader邻接回归新增`src/core/libraries/package/layouts/tests/native_link.rs`并在原tests.rs注册；待实际RED再更新该处生产布局。当前macOS严格worker还未覆盖带编译器子进程的源码包，不以ISAT纯Python通过冒称全部源码生态覆盖。
+
+已实际确认F3 native adjacency RED（`s2-native-link-behavior-20261022.log`，32.7秒整组；S2九项及ANTLR一项通过，native一项dyld相邻路径缺失）。必要修复接缝明确追加：`libraries/package/{layouts.rs,manifest.rs,lease.rs}`及`layouts/projection.rs`，`packages/src/python_environment/prefix.rs`与必要`prefix/clone.rs`/原prefix测试。仅为跨wheel原生namespace制作独立inode的COW投影，保留原immutable包树与原manifest/lease/CAS；不使用hardlink，不借任意symlink逃逸，不静默退回整树物理复制。无法支持COW时明确报错，纯wheel布局保持轻量；布局配方变更必须进入key并验证映射来源和实际inventory。
+
+必要复用与读取接缝追加：`libraries/package/tree.rs`仅将原storage_with_inventory扩大为同父模块可见，消费同一验证receipt；`src/core/artifact_snapshot.rs`、`packages/src/python_wheel/{zip_directory.rs,member_session.rs}`及`python_wheel_source.rs`只增加consuming真实原字节复制/重新验证产物的接口，供新增`python_source_build/cache.rs`保存本次operation首次实际构建的sealed owner。缓存以原pin、完整语言/target、固定recipe/settings作用域区分，保留BuildRequestId、实际输出及输入pin；不把首次input描述冒充仍持有原临时输入锁，也不要求同源码重新执行得到同digest。输出路径必须从held workspace FD逐组件NOFOLLOW读取，不依赖backend沙箱对rename的隐含假设；PEP517辅助metadata文件保存但不强制出现在最终wheel。
+
+最终注册与功能回归：`tests/scripts/{s-source-check.sh,s-source-test-cases.txt}`逐filter确认非零再运行，core/full ISAT为分开的整组冷验收；`src/core/programs/install/build/tests.rs`加真实nonce源码构建依赖、非空dynamic新增helper的coordinator测试，其真实HTTP/source fixture扩在原`registry_depot/tests/project_fixture.rs`，验证首次实际产物贯穿动态求解，不能靠DTO或假wheel跳过执行。
+
+二进制编译必要兼容接缝：`cli/src/commands/{exec.rs,run.rs}`原SandboxConfig完整literal须同步填写新增worker专用字段`build_worker=false/allow_process=[]`，与原`task_executor.rs`相同，仅保留默认旧任务策略。主程序实际编译先报E0063后修此两处，不恢复旧exec或任务功能。
+
+S4真实完整依赖额外接缝：首次full24冷验收49.2秒在原Simple facts的filename-version与顶层versions交叉要求失败，尚未进入完整安装，不能称通过。对公开24份Simple JSON使用原parser显式ignored probe确认真实数据及最小兼容行为；接缝只限`pakro-index/src/simple/{facts.rs,json_tests.rs}`及原文件身份验证回归，不能因此跳过下载摘要、文件名目标或最终METADATA一致性，也不更换源或旧环境代装。先保存实际RED再决定生产处理。
+
+S4 index最小兼容处理：原parser actual probe已证明numpy/PyQt5/regex旧文件与顶层versions不一致（4.6秒有效RED）。顶层release声明原样保留，不把它强行等同每个filename-derived版本；新增`pakro-index/src/simple/mod.rs`静态warning枚举记录缺少对应声明，不替换文件版本、不降格Historical格式、不伪造归属。保留versions字段存在、集合重复/空元素和所有预算规则；真实选中artifact依然凭其filename、原registry pin、hash、target和实际METADATA验证。旧cross-field拒绝回归改验证warning及保留file identity，原文件拒绝测试继续保留。
+
+S4有界候选成本接缝：索引修复后第二次full24在75.8秒触发原registry budget，尚无完整安装。新增`python_resolution/candidate_policy/tests.rs`显式actual descriptor+24pages纯probe确认到底是何项限制；只读actual language manifest，不执行用户Python。必要优化范围限定`candidate_policy.rs`/新同目录缓存或匹配子模块、`source/registry_depot.rs`与`registry_depot/active_policy.rs`和原对应tests；如初次rank检索确需优化，额外限定`pakro-index/src/wheel.rs`及其原测试，保持tags顺序/结果/作用域和现有总体资源上限。先有真实预算RED及测量，不凭猜测抬limit、丢不兼容项之外的候选或重置Usage。
+
+S4已测量后的具体rank回归路径为`pakro-index/tests/wheel_rank.rs`：压缩标签小矩阵对原有ordered scan oracle等价、大压缩集合选择bounded fallback、同原rank且成本界限、非法标签/重复目标原拒绝保持。纯诊断descriptor快照在target/s-isat-language-observation-20261023.json（来源manifest SHA记录，无运行时权限），后续probe用快照不反复读取实际用户库。
+
+S4分类缓存具体模块：`python_resolution/candidate_policy/cached.rs`的opaque owned静态描述，只保存原file_index/raw version/解析版本/静态兼容与yanked事实，放原ProjectEntry并由原source owner作用域配对；不缓存跨metadata/constraints的Allow/Reject。新cached active与旧pure kernel对3-state knowledge/constraints/预发行/yanked/===做结果和notices等价校验，继续累计Usage，新增活跃约束成本相邻边界测试。注册于原candidate_policy.rs，辅助原test producer只收窄可见性供同父测试复用。
+
+S4回溯修复接缝（2026-10-23用户续接）：先修自有watchdog的超时最终清理并做短进程自检；产品改动限定`packages/crates/pakro-resolver/src/python_native/provider/active_policy.rs`和`python_native/policy/tests.rs`，必要真实请求回归复用`packages/src/python_resolution/source/registry_depot/tests/active_policy.rs`。当前策略Reject后按整个闭合图字母序生成nogood，首先更换无关ANTLR/AnyIO；先用同版本wheel/未知sdist与独立被拒候选离线复现。保留完整nogood的逻辑和预算，只优先重试真正被拒的包，不能全局禁用预发行或删去可能引入新约束的其他图节点。先实际RED再实现，父约束变更可合法化预发行的既有测试继续通过；修复验证后再整组隔离full24 ≤600秒。测试注册同步原`tests/scripts/{s-source-check.sh,s-source-test-cases.txt}`加入resolver policy非零清单与执行。
+
+S4等待定位续接（2026-10-23用户再次授权）：继续每组600秒。先只改`tests/e2e/packages/source_build_acceptance.py`增加显式`--trace-resolution`诊断选项，在最终私有env启用现成PubGrub INFO并给输出单调计时；保留原所有验收断言/空环境，不启用HTTP debug、日志只限有界文本。用原已编译binary重跑一整组带诊断的full24定位停点，不先改产品语义或抬预算。若需要进一步registry项目/metadata边界计时，接缝限原`python_resolution/source/registry_depot.rs`及其`active_policy.rs`/tests，实施前记录实际观察和具体修复合同。
+
+等待取证已确认的UI修复接缝：`src/core/programs/install/build.rs`在实际源码产物已验证/保留后、`continuation.resume_with_built(...).await`前，将进度改成恢复依赖求解。trace第153.79秒已选OpenCV而iopath仍显示build-and-verify，属于真实提示失真；只改阶段文字，不改下载顺序、来源、候选、验证或预算。当前诊断整组继续使用已编译binary，结束后再单独有界编译刷新，避免编译IO影响耗时测量。
+
+短对照接缝：同代理同Torch原地址8MiB Range，curl H1为3.08秒、H2为31.73秒，本地写0.005秒。先在`pakro-index/src/simple/client/file/tests.rs`增加显式ignored `s4_registry_http_protocol_probe`，只读指定公开Simple捕获中的固定Torch文件，比较原SimpleIndexClient真实builder（root同features）与受控HTTP1 builder；每个请求45秒、仅206/精确8MiB、无pin/安装发布。未证实应用协议前不全局禁HTTP2、不改窗口、不新增用户配置。诊断harness日志同时修正按实际输出含前缀计费、限制单行及有界终止等待。
+
+实际Simple短probe已通过，但默认H2为15.144秒、H1为14.551秒，未复现curl差距；不能按curl结果改生产协议。仍仅在该ignored probe追加现有必选rustls backend控制（默认协商/H1），与Cargo feature union下默认TLS比较，排除TLS后端差异；每请求45秒/同一8MiB，不据一次速率推断通用性能。无生产协议/TLS配置修改授权推断。
+
+等待定位当前结论：完整带trace组553.1秒主动结束并清理（非通过/timeout），确认OpenCV整wheel48.3MB及Torch127.3MB串行传输，FD持续增长；Torch局部约235.6KiB/s。四控制组一次Rustls较快，但反序Rustls H1在45秒body期限失败，未形成稳定协议/TLS因果，不改生产网络默认。源码恢复阶段提示已修改并实际编译70.5秒，最终format/diff2秒通过。已联系用户切换更稳定节点或继续查下载调度，S4仍未勾；不能继续盲跑完整冷组、把诊断退出/局部Range通过当完整ISAT验收。
+
+**2026-10-23 22:50用户决定：** “下载速度没关系，以后再说”。速度及协议/TLS/调度性能优化后移，本轮不继续调查、不要求更换节点；现有源码构建核心、回溯与阶段提示修复保留。此决定不代表完整ISAT已验收，也不放宽600秒测试上限；S4仍未勾。
+
+**最新续接：继续完成功能及ISAT验收，下载性能后移。** 将真实发行归档作为测试输入独立准备，原完整24 pin/原生库/Qt/应用与源码构建断言在全新owned data/cache中一次执行≤600秒；不跨组保存solver或安装状态，不称公网全量冷装已通过。使用既有FrozenRouter的私有URL_REPLACEMENTS，仅把公开无凭证pypi/files.pythonhosted原逻辑地址路由到loopback fixture；保留原Simple JSON字节、候选、hash、Requires-Python、yanked、完整wheel/RECORD和sdist构建验证。
+
+具体测试接缝：新增`tests/e2e/packages/isat_release_fixture.py`，只读预先校验的原发行归档和原索引页，缺失输入立即失败，无外网补货/空依赖/旧安装树代用；原`source_build_acceptance.py`加显式`--release-fixture`路径与实际ISAT Annotation保存重载、LabelMe/VOC导出及torchvision NMS小样本。测试输入在ignored `target/s-isat-release-inputs-20261023`，manifest含原page/artifact SHA及大小，完整raw字节须与公开Simple原hash匹配；旧环境METADATA只能提供准备候选提示，不能作闭合图/安装证据。单独的输入准备每组≤600秒，已验证真实归档保留作后续输入，partial清理；功能组始终从零且所有验收断言保持，首次真实网络source-core173.9秒证据保留。
+
+完整功能暴露的候选重试缺口：第二组110.3秒请求hf_xet1.8dev0同版本sdist；原hub metadata无显式pre约束，pre/stable wheels均RP>=3.8、仅非活跃pytest extra，已知final可满足策略。原Reject只排当前file，随即试同版本pre源码而不先使用已观测Eligible final。修复接缝限定`pakro-resolver/src/python_native/{policy.rs,provider.rs,provider/active_policy.rs,policy/tests.rs}`、`python_resolution/candidate_policy.rs`/`candidate_policy/{cached.rs,tests.rs}`、`source/registry_depot/active_policy.rs`及原真实peer tests。新增显式RejectWithAlternative建议，由app同次约束/knowledge推导合法已观测final并映射原file_index到key；core只验证并在紧接retry的range内优先，不硬pin、不删候选、不合并同版metadata、不缓存跨图Allow/Reject，原wholeclosure nogood/预算保持。先API/stub及用例实际RED，再实现；覆盖建议失败回退、父分支合法化原pre、未知/foreign/rejected建议拒绝、原index映射和真实peer零source请求。
+
+多项目实际回归修正建议寿命：单轮版本142项通过但完整图119.2秒仍取hf pre source；新增两个独立pre项目实际RED证明修第二个项目时清掉第一个排序建议。建议改在同一immutable provider输入快照内按name保存有界BTreeMap，generic Reject撤销当前name、withAlternative替换当前name，其他项目排序提示保留；NeedInput/结束provider Drop全部丢弃。仍每轮完整policy复核、range检查和全部原候选，不缓存Allow/Reject/元数据/跨depot结论，旧hint不是selection证据。同步API文档和先前“只活下一轮”实现细节，以multi-project RED及原回退/父分支/预算用例验证。
+
+2026-10-24用户续接授权修复重复语言核验并完成ISAT验收，仍每组600秒。精确接缝限定`libraries/language/lease.rs`、`libraries/package/{tree.rs,layouts.rs}`及`layouts/tests.rs`/新`layouts/tests/language_batch.rs`，测试清单同步`s-source-test-cases.txt`。同一次layout纯wheel物化批次使用借用同一LanguageLease的私有scope：批次开始完整inventory核验，逐包仍核held SH/lock/namespace/manifest当前性，批次结束在首次pending发布前完整核验，原layout末尾full保留。独立tree入口前后完整核验不变；无跨operation hash缓存、mtime替代、可伪造DTO或通用cheap check权限。先用实际inventory walk计数和N=1/N=3完整layout行为证明RED，再实现；同inode同size语言变化、manifest/namespace更换均须拒绝且不发布任何pending，保留原package output核验及失败清理。编译与完整原发行输入ISAT仍分开有界组，功能组从零执行所有原断言。
+
+**2026-10-22 19:42用户后续验收：** 库存与project status确认ISAT revision2关联同一Python及PyYAML实例；用户离开ISAT恢复mise shim，重入后自动导入共享yaml6.0.3。基本声明→安装→导入→关联查询→目录选择已实际通过，不重复测试。当前终端接入已启用，本任务未修改.zshrc；完整ISAT仍缺其余依赖及源码包安装能力，后续范围需用户指示，不自行扩展当前F1–F4。
+
+**2026-10-22 19:30用户现场验收：** 用户自行deps install成功29.41秒，force hook后普通Python确认为原共享language实例，PyYAML6.0.3从共享packages路径导入。实际Python+PyYAML安装/选择/导入已验收；下一步教程为installs ls --json及project status只读查看实例/项目关联。完整ISAT其余依赖及sdist范围限制保持，不将此结果称应用环境就绪；无新代码或构建。
+
+**2026-10-22 14:41当前状态：** 用户已成功恢复实际4项pyc；本轮F3代理/期限接线、7阶段安全错误和多Generator兼容已实现、编译并验收。原来源50项、客户端45项、真实代理CLI通过；wheel检查50通过/1显式ignored，真实PyYAML发行probe另行1通过。最终同一226.7秒组在隔离原3.11.17+20261013安装PyYAML6.0.3、普通导入/CLoader/safe_load及坏代理下再次复用均成功，语言manifest与项目声明不变。下一步交用户在ISAT手动重试deps install，不代其安装。每组低于600秒，原共用target/关闭incremental/debug配置，临时树已清，未提交Git。完整ISAT的sdist范围限制仍保留。
+
+**PyYAML parser具体接缝：** 原发行wheel probe有效RED为`WHEEL duplicate Generator`。官方wheel由setuptools及delocate写入两个构建工具信息；当前规范未明确唯一，原代码也不以Generator作任何安装判定。只在`packages/src/python_wheel/metadata.rs`移除这个描述字段的额外唯一限制；`packages/src/python_wheel/tests.rs`保留显式真实发行验证并新增小型正常/关键单值与RECORD拒绝回归。其余字段、身份、Tag/Build、预算、文件/RECORD和摘要规则原样执行，不新增来源或源码构建。
+
+**2026-10-22 PyYAML真实wheel回归（已完成）：** 初次隔离3.11+实际PyYAML6.0.3在archive检查失败，经显式本地已校验发行wheel probe确认Generator误拒绝，按上方具体接缝修复并完成最终实际安装/导入/复用。所有阶段保留文件、RECORD、身份和目标兼容校验；下一步用户自己重试命令。
+
+**2026-10-22 F3现场接续：** 用户已自行预览并成功恢复4个pyc、核对其余2240项。随后`deps install python`复用语言成功，但5.46秒在registry获取/metadata合并错误处失败。只读审查确认应用以`SimpleHttpConfig::default()`创建客户端，默认显式禁用代理，并未传入已冻结的HTTP期限；底层6处错误映射丢弃安全类型原因。本次仅修复现有F3接线：`src/core/programs/python.rs`传入配置；`packages/crates/pakro-index/src/simple/client.rs`增加默认关闭的环境/系统代理显式选择及可选读取期限，保留构造时快照与默认禁用边界；`packages/src/python_resolution/source/registry_depot.rs`及其测试保留原安全类型阶段原因。测试接缝限定原client测试、`tests/e2e/packages/f3_shared_wheel_fixture.py`和新增`test_native_deps_proxy`，登记至本阶段测试清单与脚本。先实际RED再实现；每组600秒、共用target，无实际用户安装/配置/库修改，不切源或跳过摘要校验。
+
+**2026-10-22恢复验收完成：** 20项恢复含在71项核心/相邻检查GREEN；store58项、install_state18项、bin classifier2项通过；真实3.11原归档隔离E2E通过131.3秒整组（含CLI编译），验证只恢复4个pyc、2240项及项目引用不变、预览/quiet无修改、错误拒绝、重复noop及正常启动复用。用户随后已自行预览并实际恢复成功（Restored 4/Verified 2240）。测试注册、格式/语法/diff检查通过；全部组低于600秒，当时target约6.9GiB，完成组临时根已清，未提交Git。此前状态/证据保持历史，最新交接见HANDOFF。
+
+**2026-10-21现场状态：** F1普通启动改写共享pyc的预防接线修复已通过真实隔离CLI、配置覆盖及底层回归；用户真实3.11对象已失配，本次4项恢复已获用户明确授权，正在实施隔离验证；其余恢复仍受下文后移边界限制，ISAT包安装尚未成功。具体文件与证据见“F1现场回归”及最新HANDOFF，不把预防修复冒称现场恢复完成。
 
 **2026-10-20 当前授权：** 用户要求继续完成 F1–F4，Agent 自行编译、测试和检查；每项测试/命令组墙钟上限 600 秒，超时停止本组及自己启动的子进程并联系用户，不能靠拆分重跑绕过。复用同一 target 和关闭增量/调试信息的构建配置，及时清理无用编译产物，保留日志与真实输入。该指令覆盖下文历史手动执行限制，架构及阶段范围不变；不自动提交 Git。
 
@@ -137,6 +230,42 @@ F2真实联网接缝补充：`runtimes/src/plugins/core/python/native/catalog.rs
 | `tests/e2e/cli/test_f1_directory_selection` | 真正启用原终端接入，进入A/B/缺项项目再退出；解释器/标准库来自同一payload，PATH撤回正确，缺项不下载，不生成完整venv。脚本先用`#[ignore]`暂存助手离线发布夹具语言（同版本主机目标归档，无网络、无安装命令），再走真实activate/hook链；真实PBS归档留给用户手动场景。 |
 
 **阶段边界/退役条件：** 不下载、不处理包布局、不编辑配置/项目锁，不接所有查询或外部进程生命周期。`env`查询不写关联；只有目录选择应用动作写关联。仅退役已被新Python分支替代的旧调用；不整删activate/deactivate/hook_env/toolset。若本分支能触达旧清理/安装，须当场切断，不能借F2后置放行。
+
+## F2 现场回归：ISAT 精确安装准备超时（2026-10-20）
+
+用户按教程手动安装 `3.11.17+20261013`，触发 `language preparation timed out`。只读定位：新 `programs/python.rs::capture_install_context` 固定600秒，覆盖原 `settings.http_download_timeout()`；`PythonPlugin` 显式入口强制QuietReport，使原阶段提示不可见。实际用户cache只有精确catalog元数据、无已验证artifact，语言payload为空且无Ready；不能据此伪称已确定具体网络故障。
+
+本次只修既有合同接线：`src/core/programs/python.rs` 使用同次冻结Settings的原下载总期限（含checked_add），测试复用已有微型真实协议归档及原prepare_language核验证短配置会超时、长配置不被600秒截断、取消/失败不发布；`runtimes/src/plugins/core/python.rs` 复用原MultiProgressReport/SingleReport显示获取、摘要、来源证明、解包验证和成功/失败阶段，保留quiet，日志不输出凭证/URL。必要测试在上述cfg(test)、`tests/e2e/cli/test_f2_install_progress`及清单 `tests/scripts/f2-test-cases.txt`，复用原F1隔离暂存助手和原run_test。若还需其它协议文件，先具体补计划；不改下载/来源/摘要/租约保护核，不关闭校验，不改ISAT配置/版本，不代用户重试安装，不自动提交Git。目录选择5秒与查询期限保持。
+
+先补失败测试→确认RED→最小实现→相邻回归/CLI小夹具验证→编译同一target。Agent每组仍以600秒外部墙钟上限运行，超过即停下联系用户；测试上限与产品按Settings取得的下载期限分开。本次修复已通过22项F2+6项原runtime回归（28/28，78.1秒含编译）、主CLI编译（68.7秒）、真实CLI小夹具（3.7秒，显示复用/失败阶段且quiet无输出）、注册与格式检查。没有替用户重试真实3.11安装；原F1–F4证据保持历史，不冒称现场真实下载已通过。
+
+现场人工续接前提：D/languages/language-670a04e9cf8e3636a5fd4a9fcfcd15e2d2153f1b1acb7be6e0ebd66e9018244e 及其payload已只读核验为UID501、0700、非symlink，外层只有payload、内层空，Catalog无Ready。旧期限过期使原owner按既定规则保留分配，后续reserve会明确要求recovery。通用恢复仍按计划后移；不给自动覆盖/清单删改旁路。拟交用户在无并发安装时只用rmdir处理这两个已确认空目录（非空自动拒绝），保留稳定锁/注册/清单；任一错误则停下，不能扩大清理范围。
+
+## F1 现场回归：普通 Python 启动改写共享字节码（2026-10-21）
+
+用户真实安装并启用无包Python后运行普通`python -c`，继而追加PyYAML声明时出现`published language inventory changed`。只读全量核对确认2244项中仅4个发行归档已有pyc被正常启动重新编译（inode/size/SHA改变）；其余2240项一致，原4项bytes与已验证缓存归档吻合。安装内探针带-B，有包wrapper已有PYTHONDONTWRITEBYTECODE=1，唯独无包hook/env只接PATH漏掉同一保护。不能通过忽略pyc、放宽库存或改采现有文件清单解决。
+
+本轮F1最小修复文件：`cli/src/commands/hook_env.rs`成功选择共享Python后向原EnvDiff输入设置PYTHONDONTWRITEBYTECODE=1，保留退出恢复；`cli/src/commands/env.rs`所有原输出分支通过同一共享路径辅助函数设置该保护，处理PATH已在首位的早返；`tests/e2e/cli/test_f1_directory_selection`补继承0被覆盖、离开/缺项恢复、shell/JSON/dotenv/values/extended一致性。必要真实PBS隔离回归可新增`tests/e2e/cli/test_f1_shared_python_bytecode`，复用原F3暂存助手、本机原始3.13.16归档及run_test，先确认普通启动后仍可复用/选择、再核对完整库存不变；测试来源/输出注册到`tests/scripts/f1-test-cases.txt`及`tests/scripts/f-manual-check.sh`。每组外部600秒、同target及debug0/incremental0；不联网、不操作用户3.11库或ISAT、不自动提交。
+
+同因必要接缝补充：`cli/src/commands/shim.rs::which_shim/handle_shim`保留实际共享选择来源标志，随原子进程环境传递固定保护；`cli/src/commands/exec.rs::run_with_toolset`仅接收上述已经选定命令的环境，不改变普通exec的工具解析/安装行为。wrapper明确返回共享选择时同样覆盖其环境中的0，非共享shim保持原样，不按路径/空Toolset猜身份。独立真实shim回归先RED再改接；env extended输出不得被配置来源展示重新覆盖为0。
+
+现有用户3.11 Ready已经失配，预防修复不能自动恢复。现计划明确将原位修复/强制覆盖后移；本轮先完成上述预防和隔离证据，形成恢复的具体范围后交用户裁决，不偷偷覆盖清单、删除共享目录、切换发行build或重下归档。
+
+**2026-10-21已获授权、待实现/验证的恢复范围：** 只处理本次LanguageKey下4个已与原归档匹配的pyc。须先暂停用户直接运行，取得EX并固定旧manifest/目录身份，完整校验本机缓存归档SHA，要求其余2240项严格一致，再从原归档恢复这4项原始bytes，完整复核后用旧manifest快照CAS仅更新相应inode事实；不采纳现有新缓存、不改项目引用、不删整套目录、不重下载。任一额外损坏、并发变更或身份不符即拒绝，正式入口前须隔离验证中断/重试等行为。普通install/uninstall及旧force当前均不能安全恢复有引用且库存失配的实例，不能用手工JSON修改代替能力实现。
+
+2026-10-21恢复实施文件：新增`src/core/libraries/language/recovery.rs`及`recovery/tests.rs`，在`language/mod.rs`注册；只从本机cache SHA快照恢复固定4项，原EX与Journals记录旧清单和stage/backup固定身份，按no-clobber捕获与安装，旧清单CAS发布并收尾。`packages/src/python_environment/prefix/verify.rs`只增加纯库存根/全集严格比较接缝，不放宽observer；`src/core/programs/library.rs`增加明确版本+实例且固定本次官方制品的应用门面；`cli/src/commands/install.rs`新增显式`--restore-bytecode <INSTANCE>`与dry-run，最早分流、拒绝混用，不安装项目包；必要接缝`cli/src/commands/mod.rs`在正常pakrorc/全局更新/registry/迁移/auto-prune之前识别并分派该显式选项，复用既有本地query的受限Settings初始化及--cd验证，不因此启动其它生命周期。新增`tests/e2e/cli/test_python_bytecode_recovery`，必要只读原归档路径经`tests/e2e/run_test`传入隔离测试，清单/runner注册在现有f1脚本。先行为RED再实现，覆盖逐阶段中断、重试、未知变化、活租约、旧快照冲突及归档不符；真实用户库/ISAT保持只读，之后交其手动执行。每组600秒同target/debug0/incremental0，不自动提交。
+
+额外必要纯事实接缝：`packages/crates/pakro-store/src/control/mod.rs::ControlSnapshot::file_identity()`只返回该真实快照已pin住的inode描述，不发放写权，用于恢复内核在CAS后验证“当前清单确为本次CAS的inode”，拒绝同bytes换inode。CLI同因窄门拒绝inline backend opts，避免静默忽略其它路径/选项。
+
+跨重启的已发布清单身份也必须在CAS之前可持久记录：必要接缝`packages/crates/pakro-store/src/control/write.rs::replace_from_journal`只把同store已pin的Journals元数据inode按旧Catalog快照CAS移动到Catalog，复用原snapshot校验/锁/rename/fsync，不重造新inode；行为测试位于原control/tests.rs。恢复WAL先固定预制final manifest的name/id/sha，再发布；这样CAS前后中断均能严格认领同一个清单，拒绝同bytes不同inode，不留CAS后补记录的未知窗口。先stub RED再实现。
+
+2026-10-22续接：在初始WAL前与4个pyc stage一起预制最终manifest。`verify.rs`复用原digest算法的纯`with_file_identities`只在4个去重已发布regular文件上替换计划身份，最终仍须与真实完整observer结果全等后才CAS；不把计划描述当验证许可。真实CLI测试从原harness的临时根中另分配全空data/cache子根，避免预置plugins影响stage helper；未知flag在真实恢复选项前仍应走受限初始化并由全parser拒绝。
+
+CLI独立binary的必要只读接缝：`cli/src/args/backend_arg.rs::has_explicit_backend`公开既有布尔事实getter（doc hidden），用于明确拒绝显式backend拼写，不发放IO/解析/写权；原pub(crate)在library与binary之间不可访问，不能用猜测full路径替代。
+
+真实CLI验收补充的必要接缝：`runtimes/src/toolset/install_state.rs::init_readonly_plugin_metadata()`仅为ToolArg解析装载本地插件类型，跳过banned插件清理、安装扫描、迁移和脚本执行；普通init保持原逻辑。恢复早入口在解析参数前调用该只读初始化，不能调用带清理的普通init，也不能把未初始化静默当作无插件。隔离E2E保留banned gradle目录及脚本/配置hash，验证无删除/执行/改写。
+
+预防修复本轮验收：主CLI18.0秒；3条CLI组171.0秒；项目与wrapper空env真实PBS回归84.5秒；同源缓存lib binary的51项完整性/查询/删除保护回归8.3秒（3显式ignored）；格式/shell/diff检查通过。真实普通启动不手写-B，对初始manifest和完整payload库存前后核对并能复用。实际用户3.11对象未恢复。全部组低于600秒，target约6.0GiB，临时根清理，未自动提交。
 
 ## F2：用户决定安装缺少的 Python，装好就能选用
 

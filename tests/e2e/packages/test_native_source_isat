@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Original source archives and CLI operate only inside the outer owned root.
+export CARGO_TARGET_DIR="$ROOT/target"
+export CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
+/usr/bin/python3 "$TEST_DIR/source_build_acceptance.py"

@@ -97,6 +97,21 @@ pub(crate) struct LayoutManifest {
     pub graph: [u8; 32],
     pub packages: Vec<[u8; 32]>,
     pub storage: StorageManifest,
+    #[serde(
+        default = "legacy_layout_recipe",
+        skip_serializing_if = "is_legacy_layout_recipe"
+    )]
+    pub(in crate::libraries::package) recipe: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(in crate::libraries::package) projection:
+        Option<super::layouts::projection::NativeProjection>,
+}
+
+fn legacy_layout_recipe() -> u32 {
+    1
+}
+fn is_legacy_layout_recipe(recipe: &u32) -> bool {
+    *recipe == 1
 }
 
 pub(crate) fn store_path(context: &OperationContext) -> std::path::PathBuf {

@@ -22,8 +22,13 @@ fn context(stage: &std::path::Path, fixture: &ProjectRegistryFixture) -> Operati
     use crate::programs::*;
     use pakro_index::python_source::{PythonRegistryId, PythonSourcePolicy};
     let registry = (*fixture.endpoint().project.registry).clone();
+    let settings = crate::config::Settings {
+        http_timeout: "30s".into(),
+        http_download_timeout: "30m".into(),
+        ..Default::default()
+    };
     capture_operation_context(OperationContextInputs {
-        settings: &crate::config::Settings::default(),
+        settings: &settings,
         policy: OperationPolicy {
             locked: false,
             offline: false,
@@ -54,6 +59,36 @@ fn context(stage: &std::path::Path, fixture: &ProjectRegistryFixture) -> Operati
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn f3_project_facade_reuses_real_closure_and_preserves_failure() {
+    const TEST: &str = "programs::python::integration_tests::f3_project_facade_reuses_real_closure_and_preserves_failure";
+    const CHILD: &str = "PAKRO_F3_LOCAL_FACADE_CHILD";
+    if std::env::var(CHILD).ok().as_deref() != Some(TEST) {
+        // Exercise the application's real proxy policy in a child whose
+        // loopback fixtures explicitly bypass inherited/system proxies.
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args(["--exact", TEST, "--nocapture"])
+            .env(CHILD, TEST)
+            .env("NO_PROXY", "127.0.0.1,localhost,::1")
+            .env("no_proxy", "127.0.0.1,localhost,::1");
+        for variable in [
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "all_proxy",
+        ] {
+            command.env_remove(variable);
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "isolated facade fixture failed:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
     let owner = tempfile::tempdir().unwrap();
     let root = owner.path().canonicalize().unwrap();
     let stage = root.join("stage");

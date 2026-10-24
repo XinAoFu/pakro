@@ -135,6 +135,12 @@ impl ControlSnapshot {
     pub fn sha256(&self) -> &[u8; 32] {
         &self.sha256
     }
+    /// The inode pinned by this snapshot, including after a successful CAS.
+    /// This is descriptive identity and does not grant write authority.
+    #[doc(hidden)]
+    pub fn file_identity(&self) -> FileIdentity {
+        self.entry_identity
+    }
 }
 impl std::fmt::Debug for ControlSnapshot {
     fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

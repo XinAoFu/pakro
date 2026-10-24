@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use eyre::{Context, Result, ensure};
+use eyre::{Context, ContextCompat, Result, ensure};
 use serde::{Deserialize, Serialize};
 
 #[cfg(unix)]
@@ -98,6 +98,119 @@ impl TreeInventory {
     }
     pub(crate) fn inventory_sha256(&self) -> &[u8; 32] {
         &self.inventory_sha256
+    }
+
+    /// Describe four replacement file identities without granting any write
+    /// authority. Recovery must still compare this prediction to the complete
+    /// independently observed tree before publishing it.
+    #[cfg(unix)]
+    pub(crate) fn with_file_identities(
+        &self,
+        replacements: &[(PathBuf, [u64; 2])],
+    ) -> Result<Self> {
+        ensure!(
+            replacements.len() == 4,
+            "bytecode inventory prediction requires exactly four files"
+        );
+        let mut predicted = self.clone();
+        let mut seen = std::collections::BTreeSet::new();
+        for (path, identity) in replacements {
+            ensure!(
+                seen.insert(path),
+                "duplicate inventory identity replacement"
+            );
+            let entry = predicted
+                .entries
+                .iter_mut()
+                .find(|entry| entry.relative == *path)
+                .context("inventory identity replacement is not a published file")?;
+            ensure!(
+                matches!(entry.kind, TreeInventoryKind::File { .. }),
+                "inventory identity replacement is not a regular file"
+            );
+            entry.identity = *identity;
+        }
+        predicted.refresh_digest();
+        Ok(predicted)
+    }
+
+    #[cfg(unix)]
+    fn refresh_digest(&mut self) {
+        let mut digest = Sha256::new();
+        digest.update(b"pakro-tree-inventory-v1\0");
+        hash_field(&mut digest, self.root.as_os_str().as_encoded_bytes());
+        hash_field(&mut digest, self.allocation.as_bytes());
+        for identity in self.identity {
+            digest.update(identity.to_le_bytes());
+        }
+        digest.update(self.uid.to_le_bytes());
+        digest.update(self.mode.to_le_bytes());
+        for entry in &self.entries {
+            hash_field(&mut digest, entry.relative.as_os_str().as_encoded_bytes());
+            for identity in entry.identity {
+                digest.update(identity.to_le_bytes());
+            }
+            digest.update(entry.uid.to_le_bytes());
+            digest.update(entry.mode.to_le_bytes());
+            match &entry.kind {
+                TreeInventoryKind::Directory => digest.update(b"d"),
+                TreeInventoryKind::File { size, sha256 } => {
+                    digest.update(b"f");
+                    digest.update(size.to_le_bytes());
+                    digest.update(sha256);
+                }
+                TreeInventoryKind::Symlink { target } => {
+                    digest.update(b"l");
+                    hash_field(&mut digest, target.as_os_str().as_encoded_bytes());
+                }
+            }
+        }
+        self.inventory_sha256 = digest.finalize().into();
+    }
+
+    /// Compare the complete root and every entry outside a small, explicit
+    /// file set. This is a pure comparison, never permission to write or a new
+    /// inventory receipt; the caller must independently validate each exception.
+    pub(crate) fn ensure_same_root_and_unaffected_entries(
+        &self,
+        observed: &Self,
+        except: &[PathBuf],
+    ) -> Result<()> {
+        ensure!(
+            self.root == observed.root
+                && self.allocation == observed.allocation
+                && self.identity == observed.identity
+                && self.uid == observed.uid
+                && self.mode == observed.mode,
+            "published inventory root changed outside bytecode recovery"
+        );
+        let unique: std::collections::BTreeSet<_> = except.iter().map(PathBuf::as_path).collect();
+        ensure!(
+            !unique.is_empty() && unique.len() == except.len(),
+            "inventory exception file set is invalid"
+        );
+        for path in &unique {
+            ensure!(
+                self.entries.iter().any(|entry| entry.relative == *path
+                    && matches!(entry.kind, TreeInventoryKind::File { .. })),
+                "inventory exception is not a published regular file"
+            );
+        }
+        let before: Vec<_> = self
+            .entries
+            .iter()
+            .filter(|entry| !unique.contains(entry.relative.as_path()))
+            .collect();
+        let after: Vec<_> = observed
+            .entries
+            .iter()
+            .filter(|entry| !unique.contains(entry.relative.as_path()))
+            .collect();
+        ensure!(
+            before == after,
+            "published inventory changed outside the four bytecode files"
+        );
+        Ok(())
     }
 }
 
@@ -536,36 +649,7 @@ fn observe_tree_with_hook<'a>(
         total_bytes: observer.total_bytes,
         inventory_sha256: [0; 32],
     };
-    let mut digest = Sha256::new();
-    digest.update(b"pakro-tree-inventory-v1\0");
-    hash_field(&mut digest, inventory.root.as_os_str().as_encoded_bytes());
-    hash_field(&mut digest, inventory.allocation.as_bytes());
-    for identity in inventory.identity {
-        digest.update(identity.to_le_bytes());
-    }
-    digest.update(inventory.uid.to_le_bytes());
-    digest.update(inventory.mode.to_le_bytes());
-    for entry in &inventory.entries {
-        hash_field(&mut digest, entry.relative.as_os_str().as_encoded_bytes());
-        for identity in entry.identity {
-            digest.update(identity.to_le_bytes());
-        }
-        digest.update(entry.uid.to_le_bytes());
-        digest.update(entry.mode.to_le_bytes());
-        match &entry.kind {
-            TreeInventoryKind::Directory => digest.update(b"d"),
-            TreeInventoryKind::File { size, sha256 } => {
-                digest.update(b"f");
-                digest.update(size.to_le_bytes());
-                digest.update(sha256);
-            }
-            TreeInventoryKind::Symlink { target } => {
-                digest.update(b"l");
-                hash_field(&mut digest, target.as_os_str().as_encoded_bytes());
-            }
-        }
-    }
-    inventory.inventory_sha256 = digest.finalize().into();
+    inventory.refresh_digest();
     Ok(inventory)
 }
 

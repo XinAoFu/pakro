@@ -17,6 +17,20 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+#[cfg(test)]
+thread_local! {
+    static STORE_BINDING_CHECKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static FULL_INVENTORY_CHECKS: std::cell::RefCell<std::collections::BTreeMap<[u8; 32], usize>> = const { std::cell::RefCell::new(std::collections::BTreeMap::new()) };
+}
+#[cfg(test)]
+fn store_binding_checks() -> usize {
+    STORE_BINDING_CHECKS.with(|value| value.get())
+}
+#[cfg(test)]
+fn full_inventory_checks(key: [u8; 32]) -> usize {
+    FULL_INVENTORY_CHECKS.with(|value| value.borrow().get(&key).copied().unwrap_or(0))
+}
+
 pub(crate) fn uid() -> u32 {
     nix::unistd::geteuid().as_raw()
 }
@@ -47,7 +61,13 @@ pub(crate) struct ObjectProtection {
 impl ObjectProtection {
     fn shallow(&self) -> Result<()> {
         self.context.checkpoint()?;
+        #[cfg(test)]
+        STORE_BINDING_CHECKS.with(|value| value.set(value.get() + 1));
         self.read.check_binding()?;
+        self.check_held_tree()
+    }
+    fn check_held_tree(&self) -> Result<()> {
+        self.context.checkpoint()?;
         self.held.check_binding()?;
         self.lock
             .check_location(&self.build, &format!("{}.lock", self.storage.allocation))?;
@@ -68,6 +88,23 @@ impl ObjectProtection {
         Ok(())
     }
     pub(crate) fn check_binding(&self) -> Result<()> {
+        self.check_binding_with_after_walk(|| Ok(()))
+    }
+    fn check_binding_with_after_walk(&self, after_walk: impl FnOnce() -> Result<()>) -> Result<()> {
+        self.check_manifest()?;
+        #[cfg(test)]
+        FULL_INVENTORY_CHECKS.with(|value| {
+            *value.borrow_mut().entry(self.storage.key).or_insert(0) += 1;
+        });
+        ensure!(
+            observe_tree_inventory(&HeldObjectTreeRoot(self), PrefixInventoryLimits::default())?
+                == self.storage.inventory,
+            "published package inventory changed"
+        );
+        after_walk()?;
+        self.check_manifest()
+    }
+    fn check_manifest(&self) -> Result<()> {
         self.shallow()?;
         let control = self.read.control(ControlLimits::default())?;
         let current = control
@@ -78,15 +115,32 @@ impl ObjectProtection {
             "package Ready manifest changed"
         );
         drop(control);
-        ensure!(
-            observe_tree_inventory(self, PrefixInventoryLimits::default())?
-                == self.storage.inventory,
-            "published package inventory changed"
-        );
         self.shallow()
     }
     pub(crate) fn root(&self) -> &Path {
         &self.path
+    }
+}
+
+/// The full store and Ready manifest checks bracket this one anchored walk.
+/// Every member still uses the original root FD and actual object SH, without
+/// reopening the complete store namespace for each payload read block.
+struct HeldObjectTreeRoot<'a>(&'a ObjectProtection);
+impl InventoryRoot for HeldObjectTreeRoot<'_> {
+    fn root_file(&self) -> &File {
+        &self.0.root
+    }
+    fn root_path(&self) -> &Path {
+        &self.0.path
+    }
+    fn allocation_id(&self) -> &str {
+        &self.0.storage.allocation
+    }
+    fn expected_uid(&self) -> u32 {
+        uid()
+    }
+    fn check_binding(&self) -> Result<()> {
+        self.0.check_held_tree()
     }
 }
 impl InventoryRoot for ObjectProtection {
@@ -113,6 +167,26 @@ pub(crate) fn acquire_object(
     storage: &StorageManifest,
     expected: &[u8],
 ) -> Result<Arc<ObjectProtection>> {
+    pin_object(context, name, storage, expected)?.verify()
+}
+
+/// A real pinned owner that has not yet completed its full inventory check.
+/// It remains private and cannot expose a usable lease before verification.
+struct PendingObjectProtection {
+    protection: Arc<ObjectProtection>,
+}
+impl PendingObjectProtection {
+    fn verify(self) -> Result<Arc<ObjectProtection>> {
+        self.protection.check_binding()?;
+        Ok(self.protection)
+    }
+}
+fn pin_object(
+    context: &OperationContext,
+    name: &str,
+    storage: &StorageManifest,
+    expected: &[u8],
+) -> Result<PendingObjectProtection> {
     storage.validate()?;
     let read = ReadStore::open_readonly(
         &manifest::store_path(context),
@@ -160,8 +234,8 @@ pub(crate) fn acquire_object(
         name: name.into(),
         bytes: expected.to_vec(),
     });
-    result.check_binding()?;
-    Ok(result)
+    result.shallow()?;
+    Ok(PendingObjectProtection { protection: result })
 }
 /// Read the one reserved facts member through the caller's already pinned
 /// allocation. Callers retain its actual SH/EX, or the catalog scope that
@@ -275,13 +349,38 @@ impl LayoutLease {
         for p in &self.packages {
             p.check_binding()?;
         }
-        self.protection.check_binding()
+        self.protection.check_binding()?;
+        super::layouts::projection::validate(
+            &self.protection.context,
+            &self.manifest,
+            &self.packages,
+        )
     }
 }
 pub(crate) fn acquire_package(
     context: &OperationContext,
     key: [u8; 32],
 ) -> Result<Option<PackageLease>> {
+    pin_package(context, key)?
+        .map(PendingPackage::verify)
+        .transpose()
+}
+
+struct PendingPackage {
+    protection: PendingObjectProtection,
+    manifest: PackageManifest,
+}
+impl PendingPackage {
+    fn verify(self) -> Result<PackageLease> {
+        let protection = self.protection.verify()?;
+        validate_package_facts(&protection.root, &self.manifest)?;
+        Ok(PackageLease {
+            protection,
+            manifest: self.manifest,
+        })
+    }
+}
+fn pin_package(context: &OperationContext, key: [u8; 32]) -> Result<Option<PendingPackage>> {
     let name = manifest::package_name(&key);
     let Some(value): Option<PackageManifest> = manifest::read_json(context, &name)? else {
         return Ok(None);
@@ -307,9 +406,8 @@ pub(crate) fn acquire_package(
         "package dependencies are not canonical"
     );
     let bytes = serde_json::to_vec(&value)?;
-    let protection = acquire_object(context, &name, &value.storage, &bytes)?;
-    validate_package_facts(&protection.root, &value)?;
-    Ok(Some(PackageLease {
+    let protection = pin_object(context, &name, &value.storage, &bytes)?;
+    Ok(Some(PendingPackage {
         protection,
         manifest: value,
     }))
@@ -324,7 +422,7 @@ pub(crate) fn acquire_layout(
     };
     ensure!(value.storage.key == key, "layout manifest key differs");
     ensure!(
-        key == super::layouts::layout_key(value.language, value.graph)
+        key == super::layouts::layout_key_for(value.recipe, value.language, value.graph)?
             && !value.packages.is_empty()
             && value.packages.len() <= 65536
             && value.packages.windows(2).all(|pair| pair[0] < pair[1]),
@@ -342,17 +440,28 @@ pub(crate) fn acquire_layout(
     let language = languages
         .acquire_by_key(&descriptor.key())?
         .context("layout language is not Ready")?;
-    let mut packages = Vec::new();
+    let mut pending = Vec::new();
     for package in &value.packages {
-        packages.push(acquire_package(context, *package)?.context("layout package is missing")?);
+        pending.push(pin_package(context, *package)?.context("layout package is missing")?);
     }
-    let protection = acquire_object(context, &name, &value.storage, &serde_json::to_vec(&value)?)?;
+    let protection = pin_object(context, &name, &value.storage, &serde_json::to_vec(&value)?)?;
+    // Capture the entire group under its real SH guards first. Complete every
+    // inventory and reserved-facts check before exposing any result to callers.
+    language.check_binding()?;
+    let packages = pending
+        .into_iter()
+        .map(PendingPackage::verify)
+        .collect::<Result<Vec<_>>>()?;
+    let protection = protection.verify()?;
+    super::layouts::projection::validate(context, &value, &packages)?;
     let result = LayoutLease {
         protection,
         manifest: value,
         language,
         packages,
     };
-    result.check_binding()?;
     Ok(Some(result))
 }
+
+#[cfg(test)]
+mod tests;

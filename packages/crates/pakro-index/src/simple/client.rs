@@ -77,13 +77,18 @@ pub enum SimpleClientError {
     NotImplemented,
 }
 
-/// All transport settings are passed as values, never a client/builder with
-/// unknown default headers. Proxy/CA counts are finite configuration inputs.
+/// Transport settings are explicit values, never a client/builder with unknown
+/// default headers. The application may opt into the standard proxy snapshot
+/// taken when this client is built; it is disabled for isolated source callers.
 #[derive(Clone)]
 pub struct SimpleHttpConfig {
     pub connect_timeout: Duration,
+    pub read_timeout: Option<Duration>,
     pub request_timeout: Duration,
     pub max_redirects: usize,
+    /// Resolve environment/system proxies once during client construction.
+    /// An explicit proxy list cannot be combined with this option.
+    pub use_system_proxy: bool,
     pub proxies: Vec<reqwest::Proxy>,
     pub root_certificates: Vec<reqwest::Certificate>,
 }
@@ -91,8 +96,10 @@ impl Default for SimpleHttpConfig {
     fn default() -> Self {
         Self {
             connect_timeout: Duration::from_secs(10),
+            read_timeout: None,
             request_timeout: Duration::from_secs(30),
             max_redirects: 10,
+            use_system_proxy: false,
             proxies: Vec::new(),
             root_certificates: Vec::new(),
         }
@@ -103,8 +110,10 @@ impl fmt::Debug for SimpleHttpConfig {
         output
             .debug_struct("SimpleHttpConfig")
             .field("connect_timeout", &self.connect_timeout)
+            .field("read_timeout", &self.read_timeout)
             .field("request_timeout", &self.request_timeout)
             .field("max_redirects", &self.max_redirects)
+            .field("use_system_proxy", &self.use_system_proxy)
             .field("proxy_count", &self.proxies.len())
             .field("root_certificate_count", &self.root_certificates.len())
             .finish()
@@ -262,7 +271,6 @@ impl SimpleIndexClient {
     pub fn new(cache_root: impl AsRef<Path>, config: SimpleHttpConfig) -> SimpleClientResult<Self> {
         validate_config(&config)?;
         let mut builder = reqwest::Client::builder()
-            .no_proxy()
             .no_gzip()
             .no_brotli()
             .no_zstd()
@@ -272,6 +280,12 @@ impl SimpleIndexClient {
             .connect_timeout(config.connect_timeout)
             .timeout(config.request_timeout)
             .http1_max_headers(1024);
+        if !config.use_system_proxy {
+            builder = builder.no_proxy();
+        }
+        if let Some(timeout) = config.read_timeout {
+            builder = builder.read_timeout(timeout);
+        }
         for proxy in &config.proxies {
             builder = builder.proxy(proxy.clone());
         }
@@ -337,6 +351,7 @@ mod tests;
 
 fn validate_config(config: &SimpleHttpConfig) -> SimpleClientResult<()> {
     if config.connect_timeout.is_zero()
+        || config.read_timeout.is_some_and(|timeout| timeout.is_zero())
         || config.request_timeout.is_zero()
         || config.proxies.len() > 16
         || config.root_certificates.len() > 16
@@ -345,8 +360,16 @@ fn validate_config(config: &SimpleHttpConfig) -> SimpleClientResult<()> {
             "timeouts must be positive and proxy/CA lists finite",
         ));
     }
+    if config.use_system_proxy && !config.proxies.is_empty() {
+        return Err(SimpleClientError::InvalidConfiguration(
+            "system proxies and an explicit proxy list cannot be combined",
+        ));
+    }
     Ok(())
 }
 
 #[cfg(test)]
 mod auth_tests;
+
+#[cfg(test)]
+mod proxy_tests;

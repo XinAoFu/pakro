@@ -1,5 +1,5 @@
 # F1 registered test inventory, checked by: bash tests/scripts/f-manual-check.sh f1
-# Real inputs: offline fixture PBS archive (cpython-3.15.0), no packages in F1.
+# Real inputs: tiny offline PBS protocol fixture; shared-command and recovery E2E also use explicitly supplied real local archives.
 # lib: pakro lib unit tests; bin: pakro CLI through tests/e2e/run_test.
 programs::shared::exact_version::tests::f1_incomplete_version_has_no_effects
 programs::query::paths::tests::f1_local_selection_reports_missing_and_ambiguity
@@ -8,6 +8,10 @@ programs::install::selection::tests::f1_failed_selection_keeps_old_references
 # Env-driven staging helper; never run standalone (excluded from the f1 filter).
 programs::install::selection::tests::f1_e2e_stage_shared_language [ignored: e2e]
 tests/e2e/cli/test_f1_directory_selection
+tests/e2e/cli/test_f1_shared_python_bytecode
+tests/e2e/cli/test_python_bytecode_recovery
+# Uses the real verified local archive through the isolated recovery E2E only.
+libraries::language::recovery::tests::stage_real_bytecode_recovery [ignored: e2e]
 
 programs::directory::tests::f1_nearest_local_declaration_wins
 programs::directory::tests::f1_requires_python_blocks_language_only_selection
@@ -21,3 +25,39 @@ tests/e2e/cli/test_f1_command_lookup_no_install
 shims::shared_python_tests::f1_shared_command_gate_preserves_configured_non_python_provider
 
 libraries::language::lease::held_tree_tests::f1_held_inventory_rechecks_store_namespace_after_the_complete_hash_walk
+
+libraries::language::recovery::tests::f1_recovery_restores_only_four_archive_members_and_keeps_other_facts
+libraries::language::recovery::tests::f1_recovery_dry_run_has_no_library_effect
+libraries::language::recovery::tests::f1_recovery_extra_damage_is_refused_before_payload_changes
+libraries::language::recovery::tests::f1_recovery_live_shared_lease_refuses_exclusive_mutation
+libraries::language::recovery::tests::f1_recovery_interrupted_capture_resumes_from_recorded_facts
+
+libraries::language::recovery::tests::f1_recovery_every_durable_boundary_can_resume_without_adoption
+
+libraries::language::recovery::tests::f1_recovery_stage_errors_clean_only_current_receipts_before_wal
+
+libraries::language::recovery::tests::f1_recovery_prepared_manifest_inode_is_recorded_before_cas_and_survives_restart
+
+libraries::language::recovery::tests::f1_recovery_unknown_or_missing_prepared_manifest_is_refused_before_payload_effects
+
+libraries::language::recovery::tests::f1_recovery_committed_retry_refuses_reintroduced_prepared_source
+
+libraries::language::recovery::tests::f1_recovery_unknown_stage_backup_and_parent_are_preserved_and_refused
+
+libraries::language::recovery::tests::f1_recovery_control_inode_replacement_is_detected_before_next_effect
+
+libraries::language::recovery::tests::f1_recovery_restart_rejects_same_bytes_new_published_manifest_inode
+
+libraries::language::recovery::tests::f1_recovery_restart_rejects_same_bytes_new_original_manifest_inode
+
+libraries::language::recovery::tests::f1_recovery_rejects_unknown_type_permissions_links_and_entries
+
+libraries::language::recovery::tests::f1_recovery_missing_or_corrupt_archive_is_refused_without_download
+
+libraries::language::recovery::tests::f1_recovery_archive_members_must_match_original_published_hashes
+
+libraries::language::recovery::tests::f1_recovery_manifest_change_before_cas_is_refused_and_not_adopted
+
+libraries::language::recovery::tests::f1_recovery_retry_rejects_unknown_target_and_preserves_it
+
+libraries::language::recovery::tests::f1_recovery_dry_run_needs_no_write_policy_and_root_comparison_is_strict

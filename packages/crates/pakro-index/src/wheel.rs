@@ -3,7 +3,6 @@
 //! each of the last three fields may hold a `.`-compressed set of tags.
 
 use std::cmp::Ordering;
-use std::collections::BTreeSet;
 use std::str::FromStr;
 
 use pakro_store::{Arch, Libc, Os, Platform};
@@ -205,32 +204,138 @@ impl WheelTag {
 #[derive(Debug, Clone)]
 pub struct SupportedWheelTags {
     ordered: Vec<WheelTag>,
+    // Sorted canonical triples retain their positions in the original ordered
+    // target. Looking up one compressed combination allocates no query key.
+    ranked: Vec<(WheelTag, usize)>,
+}
+
+/// One validated, immutable matching strategy over this exact ordered target.
+/// The work bound is available before any tag-combination matching executes.
+#[derive(Debug)]
+pub struct WheelRankPlan<'target> {
+    target: &'target SupportedWheelTags,
+    canonical: WheelTags,
+    indexed: bool,
+    work_bound: usize,
+}
+impl WheelRankPlan<'_> {
+    pub fn work_bound(&self) -> usize {
+        self.work_bound
+    }
+
+    pub fn best_rank(self) -> Option<usize> {
+        let Self {
+            target,
+            canonical,
+            indexed,
+            ..
+        } = self;
+        if !indexed {
+            return target.ordered.iter().position(|tag| {
+                canonical.python.binary_search(&tag.interpreter).is_ok()
+                    && canonical.abi.binary_search(&tag.abi).is_ok()
+                    && canonical.platform.binary_search(&tag.platform).is_ok()
+            });
+        }
+        let mut best: Option<usize> = None;
+        for python in &canonical.python {
+            for abi in &canonical.abi {
+                for platform in &canonical.platform {
+                    if let Ok(position) = target.ranked.binary_search_by(|(tag, _)| {
+                        tag.interpreter
+                            .cmp(python)
+                            .then_with(|| tag.abi.cmp(abi))
+                            .then_with(|| tag.platform.cmp(platform))
+                    }) {
+                        let rank = target.ranked[position].1;
+                        best = Some(best.map_or(rank, |previous| previous.min(rank)));
+                        if rank == 0 {
+                            return best;
+                        }
+                    }
+                }
+            }
+        }
+        best
+    }
+}
+
+/// A binary search makes at most floor(log2(n))+1 comparisons. Zero means
+/// there are no entries to inspect, not permission to skip input validation.
+fn search_bound(count: usize) -> usize {
+    if count == 0 {
+        0
+    } else {
+        (usize::BITS - count.leading_zeros()) as usize
+    }
+}
+
+fn canonical_work_bound(tags: &WheelTags) -> usize {
+    [&tags.python, &tags.abi, &tags.platform]
+        .into_iter()
+        .map(|field| {
+            let count = field.len();
+            let height = search_bound(count.saturating_sub(1));
+            // Validate, lowercase/copy and deduplicate every supplied atom,
+            // plus a conservative comparison envelope for canonical sorting.
+            count.saturating_mul(height.saturating_mul(2).saturating_add(3))
+        })
+        .fold(0usize, usize::saturating_add)
 }
 
 impl SupportedWheelTags {
     pub fn new(ordered: Vec<WheelTag>) -> Result<Self> {
-        let mut seen = BTreeSet::new();
-        for tag in &ordered {
-            if !seen.insert(tag.clone()) {
-                return Err(IndexError::InvalidWheelTags(
-                    "supported list contains a duplicate canonical triple".into(),
-                ));
-            }
+        let mut ranked = ordered
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(rank, tag)| (tag, rank))
+            .collect::<Vec<_>>();
+        ranked.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        if ranked.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+            return Err(IndexError::InvalidWheelTags(
+                "supported list contains a duplicate canonical triple".into(),
+            ));
         }
-        Ok(Self { ordered })
+        Ok(Self { ordered, ranked })
     }
 
     pub fn ordered(&self) -> &[WheelTag] {
         &self.ordered
     }
 
-    pub fn best_rank(&self, wheel: &WheelTags) -> Result<Option<usize>> {
+    pub fn plan_rank(&self, wheel: &WheelTags) -> Result<WheelRankPlan<'_>> {
+        let canonical_work = canonical_work_bound(wheel);
         let canonical = canonical_wheel_tags(wheel)?;
-        Ok(self.ordered.iter().position(|tag| {
-            canonical.python.binary_search(&tag.interpreter).is_ok()
-                && canonical.abi.binary_search(&tag.abi).is_ok()
-                && canonical.platform.binary_search(&tag.platform).is_ok()
-        }))
+        let fields = [
+            canonical.python.len(),
+            canonical.abi.len(),
+            canonical.platform.len(),
+        ];
+        let linear_unit = fields
+            .into_iter()
+            .map(search_bound)
+            .fold(1usize, usize::saturating_add);
+        let linear_work = self.ordered.len().saturating_mul(linear_unit);
+        let combinations = fields.into_iter().try_fold(1usize, usize::checked_mul);
+        let indexed_unit = search_bound(self.ranked.len())
+            .saturating_mul(3)
+            .saturating_add(1);
+        let indexed_work = combinations.and_then(|count| count.checked_mul(indexed_unit));
+        let (indexed, matching_work) = match indexed_work {
+            Some(work) if work < linear_work => (true, work),
+            _ => (false, linear_work),
+        };
+        Ok(WheelRankPlan {
+            target: self,
+            canonical,
+            indexed,
+            work_bound: canonical_work.saturating_add(matching_work),
+        })
+    }
+
+    pub fn best_rank(&self, wheel: &WheelTags) -> Result<Option<usize>> {
+        Ok(self.plan_rank(wheel)?.best_rank())
     }
 }
 

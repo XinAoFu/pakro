@@ -329,6 +329,56 @@ fn model_file_ref_normalizes_identity_and_rejects_unsafe_or_conflicting_filename
         LockModelError::IdentityMismatch
     );
 }
+
+#[test]
+fn s3_legacy_source_filename_original_hyphenated_project_pin_is_preserved() {
+    let input = RegistryFileRefInput {
+        registry_id: "pypi",
+        canonical_base_fingerprint: [7; 32],
+        project: "antlr4-python3-runtime",
+        version: "4.9.3",
+        filename: "antlr4-python3-runtime-4.9.3.tar.gz",
+        kind: RegistryArtifactKind::Sdist,
+    };
+    let mut ids = Vec::new();
+    for filename in [input.filename, "antlr4_python3_runtime-4.9.3.tar.gz"] {
+        let file = RegistryFileRef::new(
+            RegistryFileRefInput { filename, ..input },
+            Default::default(),
+        )
+        .unwrap();
+        assert_eq!(file.filename(), filename);
+        assert_eq!(file.project(), "antlr4-python3-runtime");
+        assert_eq!(file.version(), "4.9.3");
+        let pin = ContentPin::new(
+            &file,
+            Digest::Sha256([31; 32]),
+            100,
+            PinEvidence::Advertised,
+            Default::default(),
+        )
+        .unwrap();
+        ids.push(pin.id());
+    }
+    assert_ne!(
+        ids[0], ids[1],
+        "actual source basenames must remain bound by their pins"
+    );
+    for filename in [
+        "foreign-4.9.3.tar.gz",
+        "antlr4-python3-runtime-4.9.3-1.tar.gz",
+        "../antlr4-python3-runtime-4.9.3.tar.gz",
+    ] {
+        assert!(
+            RegistryFileRef::new(
+                RegistryFileRefInput { filename, ..input },
+                Default::default()
+            )
+            .is_err(),
+            "{filename}"
+        );
+    }
+}
 #[test]
 fn model_pin_and_canonical_base_hashes_match_independent_versioned_golden() {
     let limits = LockModelLimits::default();

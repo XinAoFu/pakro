@@ -51,6 +51,7 @@ include = [
   "/runtimes/vendor/aqua-registry/metadata.json",
   "/runtimes/vendor/aqua-registry/registry.yml",
   "/packages/src/**/*.rs",
+  "/packages/src/python_source_build/hook.py",
   "/packages/src/python_resolution/source/fresh/wheel/fixtures/*",
   "/packages/deps/**/*.rs",
   "/packages/system/**/*.rs",

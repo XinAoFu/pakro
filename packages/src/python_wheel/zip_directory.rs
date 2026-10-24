@@ -654,6 +654,10 @@ impl<R: Read + Seek> ValidatedZipView<R> {
             position: 0,
         })
     }
+
+    pub(super) fn into_input(self) -> R {
+        self.input
+    }
 }
 impl<R: Read + Seek> Read for ValidatedZipView<R> {
     fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {

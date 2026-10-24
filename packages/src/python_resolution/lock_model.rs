@@ -275,7 +275,7 @@ impl RegistryFileRef {
                     .strip_suffix(".tar.gz")
                     .ok_or(LockModelError::InvalidField(LockField::Filename))?;
                 let (name, raw_version) = stem
-                    .split_once('-')
+                    .rsplit_once('-')
                     .ok_or(LockModelError::InvalidField(LockField::Filename))?;
                 if raw_version.contains('-') {
                     return Err(LockModelError::InvalidField(LockField::Filename));

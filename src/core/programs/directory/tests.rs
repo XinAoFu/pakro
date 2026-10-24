@@ -124,6 +124,7 @@ async fn f3_new_project_reuses_ready_layout_and_missing_never_commits() {
                 filename: archive.filename().into(),
                 size: archive.size(),
                 advertised: true,
+                build: None,
             },
         }],
         edges: vec![],

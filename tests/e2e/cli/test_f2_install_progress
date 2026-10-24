@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# A real CLI report over an existing guarded runtime; no network or large input.
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
+export CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
+stage_log="$TMPDIR/f2-progress-stage.log"
+(
+  cd "$ROOT"
+  PAKRO_F1_STAGE_DATA_ROOT="$PAKRO_DATA_DIR" PAKRO_F1_STAGE_VERSION=3.15.0 \
+    cargo test -p pakro --lib --all-features \
+      programs::install::selection::tests::f1_e2e_stage_shared_language \
+      -- --exact --ignored --nocapture
+) >"$stage_log" 2>&1 || { cat "$stage_log"; fail 'shared runtime fixture staging failed'; }
+printf '[tools]\npython = "3.15.0+20261013"\n' >pakro.toml
+out="$(pakro install python 3.15.0+20261013 2>&1)"
+printf '%s\n' "$out"
+[[ "$out" == *reuse* ]] || fail 'explicit shared runtime reuse produced no user-facing progress'
+quiet_out="$(pakro --quiet install python 3.15.0+20261013 2>&1)"
+[[ -z "$quiet_out" ]] || fail "quiet installation printed progress: $quiet_out"
+export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost
+export PAKRO_URL_REPLACEMENTS='{"https://api.github.com":"http://127.0.0.1:9"}'
+if failed_out="$(pakro install python 3.15.1+20261013 2>&1)"; then
+  fail 'the refused local source unexpectedly installed a runtime'
+fi
+printf '%s\n' "$failed_out" | sed -n '1,6p'
+[[ "$failed_out" == *'select runtime source'* && "$failed_out" == *failed* ]] || fail 'failed installation lost its phase or failure status'
+count="$(find "$PAKRO_DATA_DIR/languages" -mindepth 1 -maxdepth 1 -type d ! -name '.*' | wc -l | tr -d ' ')"
+[[ "$count" == 1 ]] || fail 'reporting changed the shared runtime instance count'

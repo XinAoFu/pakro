@@ -93,6 +93,9 @@ pub async fn generate_seatbelt_profile(
     config: &SandboxConfig,
     initial_program: Option<&std::path::Path>,
 ) -> String {
+    if config.build_worker {
+        return build_worker_profile(config, initial_program);
+    }
     let mut rules = Vec::new();
     rules.push("(version 1)".to_string());
     rules.push("(allow default)".to_string());
@@ -230,11 +233,329 @@ pub async fn generate_seatbelt_profile(
     rules.join("\n")
 }
 
+/// A build worker receives no interactive-task convenience grants. Its caller
+/// has already validated canonical fixed inputs and private writable roots.
+fn build_worker_profile(config: &SandboxConfig, initial_program: Option<&Path>) -> String {
+    let mut rules = vec![
+        "(version 1)".to_owned(),
+        "(allow default)".to_owned(),
+        "(deny file-read*)".to_owned(),
+        "(deny file-write*)".to_owned(),
+        "(deny network*)".to_owned(),
+        "(deny process-fork)".to_owned(),
+        "(deny process-exec)".to_owned(),
+        "(deny signal)".to_owned(),
+        "(allow signal (target self))".to_owned(),
+        // getcwd and process startup need the root vnode; this grant does not
+        // allow reading any descendant's contents.
+        "(allow file-read-data (literal \"/\"))".to_owned(),
+    ];
+    for path in &config.allow_read {
+        let path = sbpl_escape(&path.to_string_lossy());
+        rules.push(format!("(allow file-read* (subpath \"{path}\"))"));
+        rules.push(format!("(allow file-read* (literal \"{path}\"))"));
+    }
+    for path in &config.allow_write {
+        let path = sbpl_escape(&path.to_string_lossy());
+        rules.push(format!("(allow file-read* (subpath \"{path}\"))"));
+        rules.push(format!("(allow file-read* (literal \"{path}\"))"));
+        rules.push(format!("(allow file-write* (subpath \"{path}\"))"));
+        rules.push(format!("(allow file-write* (literal \"{path}\"))"));
+    }
+    let executable_paths: BTreeSet<_> = initial_program
+        .into_iter()
+        .chain(config.allow_process.iter().map(PathBuf::as_path))
+        .collect();
+    for path in &executable_paths {
+        let escaped = sbpl_escape(&path.to_string_lossy());
+        rules.push(format!("(allow process-exec (literal \"{escaped}\"))"));
+    }
+    let mut metadata = metadata_ancestors(
+        config
+            .allow_read
+            .iter()
+            .chain(&config.allow_write)
+            .map(PathBuf::as_path)
+            .chain(executable_paths),
+    );
+    for path in &config.symlinked_allow_paths {
+        metadata.extend(walk_through(path));
+    }
+    for path in metadata {
+        let path = sbpl_escape(&path.to_string_lossy());
+        rules.push(format!("(allow file-read-metadata (literal \"{path}\"))"));
+    }
+    rules.join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     // `Path` and `PathBuf` come from the parent module.
     use super::*;
     use std::{fs, process::Command};
+
+    #[tokio::test]
+    async fn s1_build_worker_profile_has_only_explicit_inputs_and_no_network_exceptions() {
+        let config = SandboxConfig {
+            build_worker: true,
+            allow_read: vec![PathBuf::from("/sealed/runtime"), PathBuf::from("/usr/lib")],
+            allow_write: vec![PathBuf::from("/private/worker-stage")],
+            allow_process: vec![PathBuf::from("/sealed/tools/cc")],
+            ..Default::default()
+        };
+        let profile =
+            generate_seatbelt_profile(&config, Some(Path::new("/sealed/runtime/bin/python"))).await;
+        for rule in [
+            "(deny file-read*)",
+            "(deny file-write*)",
+            "(deny network*)",
+            "(deny process-exec)",
+            "(allow file-read* (subpath \"/sealed/runtime\"))",
+            "(allow file-write* (subpath \"/private/worker-stage\"))",
+            "(allow process-exec (literal \"/sealed/runtime/bin/python\"))",
+            "(allow process-exec (literal \"/sealed/tools/cc\"))",
+        ] {
+            assert!(profile.contains(rule), "missing {rule}: {profile}");
+        }
+        assert!(!profile.contains("(allow network"), "{profile}");
+        for broad in [
+            "/tmp",
+            "/private/tmp",
+            "/opt/homebrew",
+            "/Library",
+            "/System",
+        ] {
+            assert!(
+                !profile.contains(&format!("(allow file-read* (subpath \"{broad}\"))")),
+                "unexpected implicit read grant {broad}: {profile}"
+            );
+        }
+        for broad in ["/tmp", "/private/tmp", "/dev"] {
+            assert!(
+                !profile.contains(&format!("(allow file-write* (subpath \"{broad}\"))")),
+                "unexpected implicit write grant {broad}: {profile}"
+            );
+        }
+        let data = crate::env::PAKRO_DATA_DIR
+            .canonicalize()
+            .unwrap_or_else(|_| crate::env::PAKRO_DATA_DIR.to_path_buf());
+        assert!(!profile.contains(&format!(
+            "(allow file-read* (subpath \"{}\"))",
+            data.display()
+        )));
+    }
+
+    #[tokio::test]
+    async fn s1_build_worker_real_files_network_and_processes_are_confined() {
+        use std::net::TcpListener;
+        use std::os::unix::net::UnixListener;
+        use std::time::Duration;
+
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        let input = root.join("fixed-input");
+        let work = root.join("private-work");
+        let outside = root.join("unrelated");
+        for directory in [&input, &work, &outside] {
+            fs::create_dir(directory).unwrap();
+        }
+        fs::write(input.join("value"), "fixed").unwrap();
+        fs::write(outside.join("secret"), "unrelated").unwrap();
+        let tcp = TcpListener::bind("127.0.0.1:0").unwrap();
+        tcp.set_nonblocking(true).unwrap();
+        let unix_path = root.join("network.sock");
+        let unix = UnixListener::bind(&unix_path).unwrap();
+        unix.set_nonblocking(true).unwrap();
+        let program = fs::canonicalize("/usr/bin/ruby").unwrap();
+        let mut config = SandboxConfig {
+            build_worker: true,
+            deny_process: true,
+            allow_read: vec![
+                input.clone(),
+                unix_path.clone(),
+                fs::canonicalize("/System/Library").unwrap(),
+                fs::canonicalize("/usr/lib").unwrap(),
+                program.clone(),
+            ],
+            allow_write: vec![work.clone()],
+            ..Default::default()
+        };
+        config.resolve_paths();
+        let script = r#"
+require 'socket'
+abort 'fixed input unavailable' unless File.read(ARGV[0]) == 'fixed'
+File.write(ARGV[1], 'owned')
+puts 'fixed input and private write work'
+begin
+  File.read(ARGV[2])
+  abort 'outside read escaped'
+rescue SystemCallError
+  puts 'outside read denied'
+end
+begin
+  File.write(ARGV[3], 'escaped')
+  abort 'outside write escaped'
+rescue SystemCallError
+  puts 'outside write denied'
+end
+begin
+  TCPSocket.new('127.0.0.1', Integer(ARGV[5]))
+  abort 'inet escaped'
+rescue SystemCallError
+  puts 'inet denied'
+end
+begin
+  UNIXSocket.new(ARGV[4])
+  abort 'unix escaped'
+rescue SystemCallError
+  puts 'unix denied'
+end
+begin
+  child = fork { exit! 0 }
+  Process.wait(child)
+  abort 'fork escaped'
+rescue SystemCallError
+  puts 'fork denied'
+end
+begin
+  child = Process.spawn(ARGV[6], '--disable-gems', '-e', 'exit 9')
+  Process.wait(child)
+  abort 'spawn escaped'
+rescue SystemCallError
+  puts 'spawn denied'
+end
+begin
+  exec('/usr/bin/true')
+rescue SystemCallError
+  puts 'other executable denied'
+end
+"#;
+        let mut command = crate::cmd::CmdLineRunner::new(&program)
+            .env_clear()
+            .env("HOME", &work)
+            .env("TMPDIR", &work)
+            .env("PATH", "/unavailable")
+            .env("LC_ALL", "C")
+            .current_dir(&work)
+            .args(["--disable-gems", "-e", script])
+            .arg(input.join("value"))
+            .arg(work.join("result"))
+            .arg(outside.join("secret"))
+            .arg(outside.join("escaped"))
+            .arg(&unix_path)
+            .arg(tcp.local_addr().unwrap().port().to_string())
+            .arg(&program)
+            .with_timeout(Duration::from_secs(5))
+            .with_sandbox(config);
+        command.apply_sandbox().await.unwrap();
+        let output = command.output_isolated(16 * 1024).await.unwrap();
+        assert!(
+            output.status.success(),
+            "worker failed: {}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        for expected in [
+            "fixed input and private write work",
+            "outside read denied",
+            "outside write denied",
+            "inet denied",
+            "unix denied",
+            "fork denied",
+            "spawn denied",
+            "other executable denied",
+        ] {
+            assert!(stdout.contains(expected), "missing {expected}: {stdout}");
+        }
+        assert_eq!(fs::read_to_string(work.join("result")).unwrap(), "owned");
+        assert!(!outside.join("escaped").exists());
+        assert_eq!(
+            tcp.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        assert_eq!(
+            unix.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+
+    #[test]
+    fn s1_build_worker_rejects_untracked_descendant_mode() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        let program = fs::canonicalize("/usr/bin/ruby").unwrap();
+        let config = SandboxConfig {
+            build_worker: true,
+            allow_read: vec![program.clone()],
+            allow_write: vec![root],
+            ..Default::default()
+        };
+        let error = config.validate_build_worker(Some(&program)).unwrap_err();
+        assert!(error.to_string().contains("tracked descendant supervisor"));
+    }
+
+    #[tokio::test]
+    async fn s1_build_worker_rejects_hardlink_alias() {
+        use std::time::Duration;
+
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        let input = root.join("fixed-input");
+        let work = root.join("private-work");
+        fs::create_dir(&input).unwrap();
+        fs::create_dir(&work).unwrap();
+        let original = input.join("immutable");
+        let alias = work.join("alias");
+        fs::write(&original, "immutable input").unwrap();
+        let program = fs::canonicalize("/usr/bin/ruby").unwrap();
+        let mut config = SandboxConfig {
+            build_worker: true,
+            deny_process: true,
+            allow_read: vec![
+                input,
+                fs::canonicalize("/System/Library").unwrap(),
+                fs::canonicalize("/usr/lib").unwrap(),
+                program.clone(),
+            ],
+            allow_write: vec![work.clone()],
+            ..Default::default()
+        };
+        config.resolve_paths();
+        let script = r#"
+begin
+  File.link(ARGV[0], ARGV[1])
+  puts 'alias created'
+  File.write(ARGV[1], 'escaped mutation')
+  puts 'alias write escaped'
+rescue SystemCallError => error
+  puts "alias denied errno=#{error.errno}"
+end
+"#;
+        let mut command = crate::cmd::CmdLineRunner::new(&program)
+            .env_clear()
+            .env("HOME", &work)
+            .env("TMPDIR", &work)
+            .env("PATH", "/unavailable")
+            .env("LC_ALL", "C")
+            .current_dir(&work)
+            .args(["--disable-gems", "-e", script])
+            .arg(&original)
+            .arg(&alias)
+            .with_timeout(Duration::from_secs(5))
+            .with_sandbox(config);
+        command.apply_sandbox().await.unwrap();
+        let output = command.output_isolated(8192).await.unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        eprintln!("controlled hard-link probe: {stdout}");
+        assert!(
+            output.status.success(),
+            "hard-link probe failed before its assertion: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(stdout.contains("alias denied"), "{stdout}");
+        assert_eq!(fs::read_to_string(original).unwrap(), "immutable input");
+    }
 
     #[tokio::test]
     async fn test_deny_write_profile() {
@@ -303,7 +624,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_allow_read_executes_shell_without_reading_siblings() {
-        let root = tempfile::tempdir().unwrap();
+        // The shared test wrapper deliberately uses /private/tmp, which the
+        // legacy task policy always allows reading. Keep this negative
+        // fixture in the existing build directory instead of that exception.
+        let parent = std::env::var_os("CARGO_TARGET_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+        let root = tempfile::Builder::new()
+            .prefix("sandbox-read-siblings-")
+            .tempdir_in(parent)
+            .unwrap();
         let allowed_dir = root.path().join("allowed");
         fs::create_dir(&allowed_dir).unwrap();
         let allowed_file = allowed_dir.join("allowed.txt");
