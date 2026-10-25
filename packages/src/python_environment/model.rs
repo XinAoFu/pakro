@@ -178,6 +178,14 @@ pub(crate) struct SourceBuildInput {
 /// resulting wheel has the same distribution name/version as its source.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct SourceBuildObservation {
+    pub initial_requirements: Vec<String>,
+    pub initial_inputs: Vec<SourceBuildInput>,
+    pub dynamic_requirements: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct SourceBuildRecord {
     pub source_digest: String,
     pub request_id: [u8; 32],
@@ -188,6 +196,8 @@ pub(crate) struct SourceBuildRecord {
     pub output_digest: String,
     pub output_size: u64,
     pub metadata_sha256: [u8; 32],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observation: Option<SourceBuildObservation>,
 }
 #[path = "model/source_build.rs"]
 mod source_build;

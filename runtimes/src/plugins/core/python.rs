@@ -98,97 +98,7 @@ fn native_artifact_sha256(
     Ok(hash.finalize().into())
 }
 
-#[cfg(unix)]
-fn publish_native_compatibility(
-    lease: &crate::libraries::language::lease::LanguageLease,
-    path: &Path,
-    context: &crate::programs::OperationContext,
-) -> Result<()> {
-    use nix::fcntl::{AtFlags, readlinkat};
-    use nix::sys::stat::{SFlag, fstatat};
-    use pakro_store::control::{FileIdentity, open_trusted_store_with_deadline};
-    use std::os::unix::fs::MetadataExt;
-    context.checkpoint()?;
-    eyre::ensure!(
-        context.policy().writes.libraries,
-        "native compatibility publication is not authorized"
-    );
-    eyre::ensure!(
-        path.is_absolute()
-            && path.components().all(|part| matches!(
-                part,
-                std::path::Component::RootDir | std::path::Component::Normal(_)
-            )),
-        "native compatibility path must be an absolute normal path"
-    );
-    let libraries = context.requested_data_root().join("languages");
-    eyre::ensure!(
-        !path.starts_with(&libraries) && !libraries.starts_with(path),
-        "native compatibility path overlaps the language library"
-    );
-    lease.check_binding()?;
-    let uid = nix::unistd::geteuid().as_raw();
-    let directory = open_trusted_store_with_deadline(path, uid, true, context.policy().deadline)?;
-    let identity = FileIdentity::of(&directory)?;
-    let mut entries = Vec::new();
-    for entry in std::fs::read_dir(lease.root())? {
-        context.checkpoint()?;
-        eyre::ensure!(
-            entries.len() < 4096,
-            "native compatibility entry budget exceeded"
-        );
-        let name = entry?.file_name();
-        eyre::ensure!(
-            name.as_encoded_bytes().len() <= 16_384,
-            "native compatibility name exceeds its budget"
-        );
-        entries.push(name);
-    }
-    entries.sort();
-    // Check all conflicts before creating any reference. Existing backend
-    // receipts remain in this independent directory, outside the payload.
-    for name in &entries {
-        match fstatat(&directory, name.as_os_str(), AtFlags::AT_SYMLINK_NOFOLLOW) {
-            Ok(stat) => eyre::ensure!(
-                SFlag::from_bits_truncate(stat.st_mode) == SFlag::S_IFLNK
-                    && PathBuf::from(readlinkat(&directory, name.as_os_str())?)
-                        == lease.root().join(name),
-                "native compatibility entry conflicts with existing content"
-            ),
-            Err(nix::errno::Errno::ENOENT) => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
-    for name in entries {
-        context.checkpoint()?;
-        lease.check_binding()?;
-        let current =
-            open_trusted_store_with_deadline(path, uid, false, context.policy().deadline)?;
-        eyre::ensure!(
-            FileIdentity::of(&current)? == identity && current.metadata()?.uid() == uid,
-            "native compatibility directory changed"
-        );
-        let target = lease.root().join(&name);
-        match nix::unistd::symlinkat(&target, &directory, name.as_os_str()) {
-            Ok(()) => {}
-            Err(nix::errno::Errno::EEXIST) => eyre::ensure!(
-                PathBuf::from(readlinkat(&directory, name.as_os_str())?) == target,
-                "native compatibility reference changed"
-            ),
-            Err(error) => return Err(error.into()),
-        }
-    }
-    directory.sync_all()?;
-    let current = open_trusted_store_with_deadline(path, uid, false, context.policy().deadline)?;
-    eyre::ensure!(
-        FileIdentity::of(&current)? == identity,
-        "native compatibility directory changed"
-    );
-    lease.check_binding()?;
-    context.checkpoint()?;
-    Ok(())
-}
-
+use crate::Result;
 use crate::args::BackendArg;
 use crate::backend::options::BackendOptions;
 use crate::backend::platform_target::PlatformTarget;
@@ -196,17 +106,14 @@ use crate::backend::static_helpers::fetch_checksum_from_shasums;
 use crate::backend::{Backend, VersionCacheManager, VersionInfo};
 use crate::build_time::built_info;
 use crate::cache::{CacheManager, CacheManagerBuilder};
-use crate::cmd::CmdLineRunner;
 use crate::config::{CompilePurpose, Config, Settings, SettingsExt};
 use crate::file::{ExtractOptions, ExtractionFormat, display_path};
-use crate::git::{CloneOptions, Git};
 use crate::http::{HTTP, HTTP_FETCH};
 use crate::install_context::InstallContext;
 use crate::lockfile::{PlatformInfo, ProvenanceType};
 use crate::platform::Platform;
 use crate::toolset::{ToolRequest, ToolVersion, ToolVersionOptions, Toolset};
 use crate::ui::progress_report::SingleReport;
-use crate::{Result, lock_file::LockFile};
 use crate::{dirs, file, plugins, sysconfig};
 use async_trait::async_trait;
 use eyre::{bail, eyre};
@@ -250,7 +157,6 @@ struct PypyFile {
 #[derive(Debug)]
 pub(crate) struct PythonPlugin {
     ba: Arc<BackendArg>,
-    native_plans: std::sync::Mutex<BTreeMap<String, native::pipeline::RuntimeInstallPlan>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -267,10 +173,6 @@ impl<'a> PythonOptions<'a> {
 
     fn patch_sysconfig(&self) -> bool {
         self.values.bool_with_default("patch_sysconfig", true)
-    }
-
-    fn virtualenv(&self) -> Option<&'a str> {
-        self.values.str("virtualenv")
     }
 
     fn lockfile_options(&self) -> BTreeMap<String, String> {
@@ -575,10 +477,7 @@ pub(crate) fn pinned_shared_language_spec(
 impl PythonPlugin {
     pub(crate) fn new() -> Self {
         let ba = Arc::new(plugins::core::new_backend_arg("python"));
-        Self {
-            ba,
-            native_plans: std::sync::Mutex::new(BTreeMap::new()),
-        }
+        Self { ba }
     }
 
     /// Program-level exact install. No legacy toolset resolution or task,
@@ -750,7 +649,7 @@ impl PythonPlugin {
             before_date: None,
             dependency_context: tokio::sync::OnceCell::new(),
         };
-        self.install_native_body(operation, &install, &mut tool_version, None, recipe)
+        self.install_native_body(operation, &install, &mut tool_version, recipe)
             .await
     }
 
@@ -892,17 +791,6 @@ impl PythonPlugin {
             && (info.url.is_some() || info.checksum.is_some() || info.provenance.is_some())
         {
             let plan = pinned_runtime_plan(&tv.version, info, &archive_target, settings)?;
-            let cache_key = format!("{}:{}", tv.version, plan.source().digest());
-            if let Some(prepared) = self.native_plans.lock().unwrap().get(&cache_key).cloned()
-                && prepared.distribution() == plan.distribution()
-                && prepared.target() == plan.target()
-                && prepared.flavor() == plan.flavor()
-                && prepared.source().filename() == plan.source().filename()
-                && prepared.source().url() == plan.source().url()
-                && prepared.source().digest() == plan.source().digest()
-            {
-                return Ok(prepared);
-            }
             return Ok(plan);
         }
         // F2 exact installs pin one build: several distribution builds of one
@@ -1072,28 +960,14 @@ impl PythonPlugin {
         self.native_archive_in_context(plan, &operation).await
     }
 
-    #[cfg(unix)]
-    async fn install_native_runtime(
-        &self,
-        ctx: &InstallContext,
-        tv: &mut ToolVersion,
-        settings: &Settings,
-    ) -> Result<()> {
-        let operation = Self::native_operation_context(settings, ctx.locked)?;
-        let compatibility = tv.install_path();
-        self.install_native_body(&operation, ctx, tv, Some(&compatibility), None)
-            .await
-    }
-
     /// The native install body for one already-frozen operation context. The
     /// F2 exact-Python path captures its context once and calls this body
-    /// directly; the legacy wrapper above stays for its old consumers.
+    /// directly without a legacy installation projection.
     async fn install_native_body(
         &self,
         operation: &crate::programs::OperationContext,
         ctx: &InstallContext,
         tv: &mut ToolVersion,
-        compatibility: Option<&Path>,
         existing_recipe: Option<bool>,
     ) -> Result<()> {
         let deadline = operation.policy().deadline;
@@ -1167,9 +1041,6 @@ impl PythonPlugin {
                 Ok(artifact)
             },
         ).await?;
-        if let Some(path) = compatibility {
-            publish_native_compatibility(&lease, path, operation)?;
-        }
         ctx.pr.set_message("verify shared runtime".into());
         lease.check_binding()
     }
@@ -1211,87 +1082,6 @@ impl PythonPlugin {
                 .collect())
         };
         Ok(merge_pypy_and_cpython(infos(pypy)?, infos(cpython)?))
-    }
-
-    fn python_build_path(&self) -> PathBuf {
-        self.ba.cache_path().join("pyenv")
-    }
-    fn python_build_bin(&self) -> PathBuf {
-        self.python_build_path()
-            .join("plugins/python-build/bin/python-build")
-    }
-    fn lock_pyenv(&self) -> Result<fslock::LockFile> {
-        LockFile::new(&self.python_build_path())
-            .with_callback(|l| {
-                trace!("install_or_update_pyenv {}", l.display());
-            })
-            .lock()
-    }
-    fn install_or_update_python_build(&self, ctx: Option<&InstallContext>) -> eyre::Result<()> {
-        ensure_not_windows()?;
-        let _lock = self.lock_pyenv();
-        if self.python_build_bin().exists() {
-            self.update_python_build()
-        } else {
-            self.install_python_build(ctx)
-        }
-    }
-    fn install_python_build(&self, ctx: Option<&InstallContext>) -> eyre::Result<()> {
-        if self.python_build_bin().exists() {
-            return Ok(());
-        }
-        let python_build_path = self.python_build_path();
-        debug!("Installing python-build to {}", python_build_path.display());
-        file::remove_all(&python_build_path)?;
-        file::create_dir_all(self.python_build_path().parent().unwrap())?;
-        let git = Git::new(self.python_build_path());
-        let pr = ctx.map(|ctx| ctx.pr.as_ref());
-        let mut clone_options = CloneOptions::default();
-        if let Some(pr) = pr {
-            clone_options = clone_options.pr(pr);
-        }
-        git.clone(&Settings::get().python.pyenv_repo, clone_options)?;
-        Ok(())
-    }
-    fn update_python_build(&self) -> eyre::Result<()> {
-        // TODO: do not update if recently updated
-        debug!(
-            "Updating python-build in {}",
-            self.python_build_path().display()
-        );
-        let pyenv_path = self.python_build_path();
-        let git = Git::new(pyenv_path.clone());
-        match plugins::core::run_fetch_task_with_timeout(move || git.update(None)) {
-            Ok(_) => Ok(()),
-            Err(err) => {
-                warn!(
-                    "failed to update python-build repo ({}), attempting self-repair by recloning",
-                    err
-                );
-                // The cached pyenv repo can get corrupted (e.g. unable to read sha1 file).
-                // Repair by removing the cache and performing a fresh clone.
-                file::remove_all(&pyenv_path)?;
-                // Safe to reinstall without a context; progress reporting is optional here.
-                self.install_python_build(None)
-            }
-        }
-    }
-    fn python_build_definition_created_at(&self) -> eyre::Result<BTreeMap<String, String>> {
-        let output = crate::cmd!(
-            "git",
-            "-C",
-            self.python_build_path(),
-            "-c",
-            format!("safe.directory={}", self.python_build_path().display()),
-            "log",
-            "--format=%cI",
-            "--diff-filter=A",
-            "--name-only",
-            "--",
-            "plugins/python-build/share/python-build",
-        )
-        .read()?;
-        Ok(parse_python_build_definition_created_at(&output))
     }
 
     async fn fetch_precompiled_remote_versions(
@@ -1410,378 +1200,6 @@ impl PythonPlugin {
             url,
             ..Default::default()
         })
-    }
-
-    /// Install a `pypy*` version from PyPy's own downloads.
-    ///
-    /// python-build-standalone publishes CPython only, so the precompiled path cannot serve these.
-    /// PyPy publishes no checksums next to its archives — they live on an HTML page — so integrity
-    /// rests on `verify_checksum`, which locks the digest on first install and enforces it after,
-    /// the same treatment every backend gives a source without upstream checksums. There is no
-    /// provenance step for the same reason: PyPy publishes no attestations.
-    async fn install_pypy(&self, ctx: &InstallContext, tv: &mut ToolVersion) -> eyre::Result<()> {
-        let platform_key = self.get_platform_key();
-        let url = if let Some(url) = tv
-            .lock_platforms
-            .get(&platform_key)
-            .and_then(|pi| pi.url.clone())
-        {
-            debug!("using lockfile URL for platform {platform_key}: {url}");
-            url
-        } else {
-            let settings = Settings::get();
-            let os = settings.os();
-            let (platform, arch) = pypy_platform_arch(os, settings.arch())
-                .ok_or_else(|| eyre!("pypy publishes no build for {os}-{}", settings.arch()))?;
-            let releases = self.fetch_pypy_releases().await?;
-            let release = releases
-                .iter()
-                .find(|r| pypy_version_str(r).as_deref() == Some(tv.version.as_str()))
-                .ok_or_else(|| eyre!("no pypy release found for {tv}"))?;
-            let file = pypy_file_for(release, platform, arch).ok_or_else(|| {
-                eyre!(
-                    "pypy {} publishes no {platform}/{arch} build",
-                    release.pypy_version
-                )
-            })?;
-            file.download_url.clone()
-        };
-        let filename = url.split('/').next_back().unwrap();
-
-        let tarball_path = tv.download_path().join(filename);
-        ctx.pr.set_message(format!("download {filename}"));
-        HTTP.download_file(&url, &tarball_path, Some(ctx.pr.as_ref()))
-            .await?;
-        tv.lock_platforms.entry(platform_key).or_default().url = Some(url.clone());
-        self.verify_checksum(ctx, tv, &tarball_path)?;
-
-        let install = tv.install_path();
-        file::remove_all(&install)?;
-        file::extract_archive(
-            &tarball_path,
-            &install,
-            ExtractionFormat::from_file_name(filename),
-            &ExtractOptions {
-                strip_components: 1,
-                pr: Some(ctx.pr.as_ref()),
-                ..Default::default()
-            },
-        )?;
-
-        // The archives already carry the interpreter entrypoints — `bin/python` on unix,
-        // `python.exe`/`python3.exe` at the root on windows — but no pip. python-build ran
-        // `ensurepip` on its pypy definitions for exactly that reason; the wheel ships inside the
-        // archive, so this needs no network. It lands `bin/pip*` on unix and `Scripts\pip.exe` on
-        // windows, both of which `list_bin_paths` already exposes.
-        ctx.pr.set_message("ensurepip".into());
-        CmdLineRunner::new(python_path(tv))
-            .with_pr(ctx.pr.as_ref())
-            .args(["-m", "ensurepip", "--upgrade", "--default-pip"])
-            .env("PIP_REQUIRE_VIRTUALENV", "false")
-            .execute()?;
-
-        // Belt and braces: current releases ship `bin/python` as a symlink already.
-        if !install.join("bin").join("python").exists() {
-            #[cfg(unix)]
-            file::make_symlink(&install.join("bin/python3"), &install.join("bin/python"))?;
-        }
-        Ok(())
-    }
-
-    async fn install_precompiled(
-        &self,
-        ctx: &InstallContext,
-        tv: &mut ToolVersion,
-    ) -> eyre::Result<()> {
-        #[cfg(unix)]
-        if cfg!(any(target_os = "macos", target_os = "linux")) {
-            return self.install_native_runtime(ctx, tv, &Settings::get()).await;
-        }
-        // Only where the precompiled list is actually the source of truth. With `compile` unset on
-        // unix this function is still entered, but a `pypy*` version falls through to python-build
-        // below and installs fine today — no reason to change that here.
-        if tv.version.starts_with("pypy") {
-            if cfg!(windows)
-                || Settings::get().python_compile(CompilePurpose::Inspect) == Some(false)
-            {
-                return self.install_pypy(ctx, tv).await;
-            }
-            // With `compile` unset on unix this function is still entered, but python-build owns
-            // pypy there and installs it fine today. Hand over directly rather than falling
-            // through: the CPython path below would pick up a pypy URL recorded in the lockfile
-            // and then verify it against python-build-standalone's attestations, which it is not
-            // from. It would also warn about a missing precompiled build that was never expected.
-            return self.install_compiled(ctx, tv).await;
-        }
-        let platform_key = self.get_platform_key();
-        let url = if let Some(url) = tv
-            .lock_platforms
-            .get(&platform_key)
-            .and_then(|pi| pi.url.clone())
-        {
-            debug!("using lockfile URL for platform {platform_key}: {url}");
-            url
-        } else {
-            let precompiled_versions = self.fetch_precompiled_remote_versions().await?;
-            let precompile_info = precompiled_versions
-                .iter()
-                .rev()
-                .find(|(v, _, _)| &tv.version == v);
-            let (tag, filename) = match precompile_info {
-                Some((_, tag, filename)) => (tag, filename),
-                None => {
-                    if cfg!(windows)
-                        || Settings::get().python_compile(CompilePurpose::Inspect) == Some(false)
-                    {
-                        if !cfg!(windows) {
-                            hint!(
-                                "python_compile",
-                                "To compile python from source, run",
-                                "pakro settings python.compile=1"
-                            );
-                        }
-                        let platform = python_precompiled_platform();
-                        bail!("no precompiled python found for {tv} on {platform}");
-                    }
-                    let available = precompiled_versions.iter().map(|(v, _, _)| v).collect_vec();
-                    if available.is_empty() {
-                        debug!("no precompiled python found for {}", tv.version);
-                    } else {
-                        warn!(
-                            "no precompiled python found for {}, force pakro to use a precompiled version with `pakro settings set python.compile=false`",
-                            tv.version
-                        );
-                    }
-                    trace!(
-                        "available precompiled versions: {}",
-                        available.into_iter().join(", ")
-                    );
-                    return self.install_compiled(ctx, tv).await;
-                }
-            };
-
-            if cfg!(unix) {
-                hint!(
-                    "python_precompiled",
-                    "installing precompiled python from astral-sh/python-build-standalone\n\
-                    if you experience issues with this python (e.g.: running poetry), switch to python-build by running",
-                    "pakro settings python.compile=1"
-                );
-            }
-
-            format!(
-                "https://github.com/astral-sh/python-build-standalone/releases/download/{tag}/{filename}"
-            )
-        };
-        let filename = url.split('/').next_back().unwrap();
-        let install = tv.install_path();
-        let download = tv.download_path();
-        let tarball_path = download.join(filename);
-
-        ctx.pr.set_message(format!("download {filename}"));
-        HTTP.download_file(&url, &tarball_path, Some(ctx.pr.as_ref()))
-            .await?;
-
-        // Record the URL in lock_platforms so verify_checksum can find it
-        tv.lock_platforms
-            .entry(platform_key.clone())
-            .or_default()
-            .url = Some(url.to_string());
-
-        // Check before verify_checksum, which may generate a new checksum from the
-        // downloaded file. We only skip provenance when the lockfile already had
-        // integrity data before this install.
-        let has_lockfile_integrity = Self::has_precompiled_lockfile_integrity(tv, &platform_key);
-
-        self.verify_checksum(ctx, tv, &tarball_path)?;
-
-        let settings = Settings::get();
-        if has_lockfile_integrity && !settings.force_provenance_verify() {
-            Self::ensure_precompiled_provenance_setting_enabled(tv, &platform_key)?;
-        } else {
-            self.verify_precompiled_provenance(ctx, tv, &platform_key, &tarball_path)
-                .await?;
-        }
-
-        file::remove_all(&install)?;
-        file::extract_archive(
-            &tarball_path,
-            &install,
-            ExtractionFormat::from_file_name(filename),
-            &ExtractOptions {
-                strip_components: 1,
-                pr: Some(ctx.pr.as_ref()),
-                ..Default::default()
-            },
-        )?;
-        if !install.join("bin").exists() {
-            // debug builds of indygreg binaries have a different structure
-            for entry in file::ls(&install.join("install"))? {
-                let filename = entry.file_name().unwrap();
-                file::remove_all(install.join(filename))?;
-                file::rename(&entry, install.join(filename))?;
-            }
-        }
-
-        let re_digits = regex!(r"\d+");
-        let version_parts = tv.version.split('.').collect_vec();
-        let major = re_digits
-            .find(version_parts[0])
-            .and_then(|m| m.as_str().parse().ok());
-        let minor = re_digits
-            .find(version_parts[1])
-            .and_then(|m| m.as_str().parse().ok());
-        let suffix = version_parts
-            .get(2)
-            .map(|s| re_digits.replace(s, "").to_string());
-        if cfg!(unix) {
-            if let (Some(major), Some(minor), Some(suffix)) = (major, minor, suffix) {
-                let raw_opts = tv.request.options();
-                let opts = PythonOptions::new(&raw_opts);
-                if opts.patch_sysconfig() {
-                    sysconfig::update_sysconfig(&install, major, minor, &suffix)?;
-                }
-            } else {
-                debug!("failed to update sysconfig with version {}", tv.version);
-            }
-        }
-
-        if !install.join("bin").join("python").exists() {
-            #[cfg(unix)]
-            file::make_symlink(&install.join("bin/python3"), &install.join("bin/python"))?;
-        }
-
-        #[cfg(windows)]
-        {
-            install_python3_windows(tv)?;
-            install_pip_wrappers_windows(tv)?;
-        }
-
-        Ok(())
-    }
-
-    async fn install_compiled(&self, ctx: &InstallContext, tv: &ToolVersion) -> eyre::Result<()> {
-        self.install_or_update_python_build(Some(ctx))?;
-        if matches!(&tv.request, ToolRequest::Ref { .. }) {
-            return Err(eyre!("Ref versions not supported for python"));
-        }
-        ctx.pr.set_message("python-build".into());
-        let mut cmd = CmdLineRunner::new(self.python_build_bin())
-            .with_pr(ctx.pr.as_ref())
-            .arg(tv.version.as_str())
-            .arg(tv.install_path())
-            .envs(ctx.config.env().await?)
-            .env_values(tv.install_env())
-            .env("PIP_REQUIRE_VIRTUALENV", "false");
-        if Settings::get().verbose {
-            cmd = cmd.arg("--verbose");
-        }
-        if let Some(patch_url) = &Settings::get().python.patch_url {
-            ctx.pr
-                .set_message(format!("with patch file from: {patch_url}"));
-            let patch = HTTP.get_text(patch_url).await?;
-            cmd = cmd.arg("--patch").stdin_string(patch)
-        }
-        if let Some(patches_dir) = &Settings::get().python.patches_directory {
-            let patch_file = patches_dir.join(format!("{}.patch", tv.version));
-            if patch_file.exists() {
-                ctx.pr
-                    .set_message(format!("with patch file: {}", patch_file.display()));
-                let contents = file::read_to_string(&patch_file)?;
-                cmd = cmd.arg("--patch").stdin_string(contents);
-            } else {
-                warn!("patch file not found: {}", patch_file.display());
-            }
-        }
-        cmd.execute()?;
-        Ok(())
-    }
-
-    async fn install_default_packages(
-        &self,
-        config: &Arc<Config>,
-        packages_file: &Path,
-        tv: &ToolVersion,
-        pr: &dyn SingleReport,
-    ) -> eyre::Result<()> {
-        if !packages_file.exists() {
-            return Ok(());
-        }
-        if !file::read_to_string(packages_file)?
-            .lines()
-            .any(|package| Settings::parse_default_package_line(package).is_some())
-        {
-            return Ok(());
-        }
-        Settings::warn_default_package_file_deprecated(
-            "python.default_packages_file",
-            "python package",
-        );
-        pr.set_message("install default packages".into());
-        CmdLineRunner::new(python_path(tv))
-            .with_pr(pr)
-            .arg("-m")
-            .arg("pip")
-            .arg("install")
-            .arg("--upgrade")
-            .arg("-r")
-            .arg(packages_file)
-            .envs(config.env().await?)
-            .env_values(tv.install_env())
-            .env("PIP_REQUIRE_VIRTUALENV", "false")
-            .execute()
-    }
-
-    async fn get_virtualenv(
-        &self,
-        config: &Arc<Config>,
-        tv: &ToolVersion,
-    ) -> eyre::Result<Option<PathBuf>> {
-        let raw_opts = tv.request.options();
-        let opts = PythonOptions::new(&raw_opts);
-        if let Some(virtualenv) = opts.virtualenv() {
-            deprecated_at!(
-                "2026.7.0",
-                "2027.7.0",
-                "python.virtualenv",
-                "the python `virtualenv` tool option is deprecated. Use `_.python.venv` in the `[env]` section instead: https://mise.jdx.dev/lang/python.html#automatic-virtualenv-activation"
-            );
-            let mut virtualenv: PathBuf = file::replace_path(Path::new(virtualenv));
-            if !virtualenv.is_absolute()
-                && let Some(project_root) = &config.project_root
-            {
-                virtualenv = project_root.join(virtualenv);
-            }
-            if !virtualenv.exists() {
-                warn!(
-                    "no venv found at: {p}\n\n\
-                    To create a virtualenv manually, run:\n\
-                    python -m venv {p}",
-                    p = display_path(&virtualenv)
-                );
-                return Ok(None);
-            }
-            // TODO: enable when it is more reliable
-            // self.check_venv_python(&virtualenv, tv)?;
-            Ok(Some(virtualenv))
-        } else {
-            Ok(None)
-        }
-    }
-
-    async fn test_python(
-        &self,
-        config: &Arc<Config>,
-        tv: &ToolVersion,
-        pr: &dyn SingleReport,
-    ) -> eyre::Result<()> {
-        pr.set_message("python --version".into());
-        CmdLineRunner::new(python_path(tv))
-            .with_pr(pr)
-            .arg("--version")
-            .envs(config.env().await?)
-            .env_values(tv.install_env())
-            .execute()
     }
 
     /// Fetch the best precompiled release for a specific version and platform target.
@@ -2146,72 +1564,11 @@ impl Backend for PythonPlugin {
     }
 
     async fn _list_remote_versions(&self, _config: &Arc<Config>) -> eyre::Result<Vec<VersionInfo>> {
-        if cfg!(any(target_os = "macos", target_os = "linux")) {
-            return self.native_version_infos().await;
-        }
-        if cfg!(windows) || Settings::get().python_compile(CompilePurpose::Inspect) == Some(false) {
-            // python-build-standalone is CPython only, so pypy comes from its own index — and only
-            // the releases that publish an archive for this platform, the way the CPython list is
-            // already filtered. Offering the rest would list versions that cannot install: macOS
-            // arm64 is the sharp case, with builds for 43 of the 94 indexed releases.
-            let mut versions = vec![];
-            let settings = Settings::get();
-            if let Some((platform, arch)) = pypy_platform_arch(settings.os(), settings.arch()) {
-                // A failure here must not take the CPython list down with it.
-                match self.fetch_pypy_releases().await {
-                    Ok(releases) => versions = pypy_version_infos(releases, platform, arch),
-                    // warn, not debug: this list gets cached for the whole
-                    // fetch_remote_versions_cache window, so a user would see `ls-remote` lose
-                    // every pypy entry with nothing to explain it. The cpython branch below uses
-                    // `?`, so only this half can cache a partial answer.
-                    Err(err) => {
-                        warn!("failed to fetch pypy versions, listing cpython only: {err:#}")
-                    }
-                }
-            }
-            let cpython = self
-                .fetch_precompiled_remote_versions()
-                .await?
-                .iter()
-                .map(|(v, date, _)| VersionInfo {
-                    version: v.clone(),
-                    created_at: python_precompiled_created_at(date),
-                    ..Default::default()
-                })
-                .collect();
-            Ok(merge_pypy_and_cpython(versions, cpython))
-        } else {
-            self.install_or_update_python_build(None)?;
-            let python_build_bin = self.python_build_bin();
-            let python_build_str = python_build_bin.to_string_lossy().to_string();
-            let definition_created_at = self
-                .python_build_definition_created_at()
-                .inspect_err(|err| {
-                    debug!("failed to get python-build definition timestamps: {err:#}")
-                })
-                .unwrap_or_default();
-            plugins::core::run_fetch_task_with_timeout_async(async move || {
-                let output = crate::cmd::cmd_read_async_inherited_env(
-                    &python_build_str,
-                    &["--definitions"],
-                    std::iter::empty::<(&str, &std::ffi::OsStr)>(),
-                )
-                .await?;
-                let versions = output
-                    .split('\n')
-                    // remove free-threaded pythons like 3.13t and 3.14t-dev
-                    .filter(|s| !regex!(r"\dt(-dev)?$").is_match(s))
-                    .map(|s| VersionInfo {
-                        version: s.to_string(),
-                        created_at: definition_created_at.get(s).cloned(),
-                        ..Default::default()
-                    })
-                    .sorted_by_cached_key(|v| python_version_sort_key(&v.version))
-                    .collect();
-                Ok(versions)
-            })
-            .await
-        }
+        eyre::ensure!(
+            cfg!(any(target_os = "macos", target_os = "linux")),
+            "shared Python catalogs require macOS or Linux"
+        );
+        self.native_version_infos().await
     }
 
     /// Python versions follow PEP 440, so `3.15.0a8`-style separator-less
@@ -2244,80 +1601,12 @@ impl Backend for PythonPlugin {
 
     async fn install_version_(
         &self,
-        ctx: &InstallContext,
-        mut tv: ToolVersion,
+        _ctx: &InstallContext,
+        _tv: ToolVersion,
     ) -> Result<ToolVersion> {
-        let settings = Settings::get();
-        #[cfg(unix)]
-        if cfg!(any(target_os = "macos", target_os = "linux"))
-            && settings.python_compile(CompilePurpose::Install) != Some(true)
-        {
-            validate_python_precompiled_settings(&settings)?;
-            self.install_native_runtime(ctx, &mut tv, &settings).await?;
-            return Ok(tv);
-        }
-        if cfg!(windows) || settings.python_compile(CompilePurpose::Install) != Some(true) {
-            validate_python_precompiled_settings(&settings)?;
-            self.install_precompiled(ctx, &mut tv).await?;
-        } else {
-            self.install_compiled(ctx, &tv).await?;
-        }
-        self.test_python(&ctx.config, &tv, ctx.pr.as_ref()).await?;
-        if let Err(e) = self.get_virtualenv(&ctx.config, &tv).await {
-            warn!("failed to get virtualenv: {e:#}");
-        }
-        if let Some(default_file) = &Settings::get().python.default_packages_file {
-            let default_file = file::replace_path(default_file);
-            if let Err(err) = self
-                .install_default_packages(&ctx.config, &default_file, &tv, ctx.pr.as_ref())
-                .await
-            {
-                warn!("failed to install default python packages: {err:#}");
-            }
-        }
-        Ok(tv)
-    }
-
-    async fn prepare_install_version(
-        &self,
-        ctx: &InstallContext,
-        mut tv: ToolVersion,
-    ) -> Result<ToolVersion> {
-        if !cfg!(any(target_os = "macos", target_os = "linux"))
-            || Settings::get().python_compile(CompilePurpose::Install) == Some(true)
-        {
-            return Ok(tv);
-        }
-        validate_python_precompiled_settings(&Settings::get())?;
-        let platform = self.get_platform_key();
-        if ctx.locked
-            && tv
-                .lock_platforms
-                .get(&platform)
-                .is_none_or(|info| info.url.is_none())
-        {
-            bail!("locked Python runtime is missing an exact artifact URL for {platform}");
-        }
-        if !ctx.force
-            && self
-                .is_install_satisfied_or_false(&ctx.config, &tv, true)
-                .await
-        {
-            // An installed binding remains usable without discovering a new
-            // distribution. Package installation probes that exact runtime.
-            return Ok(tv);
-        }
-        let plan = self
-            .native_plan(&tv, &PlatformTarget::from_current())
-            .await?;
-        let info = tv.lock_platforms.entry(platform).or_default();
-        info.url = Some(plan.source().url().to_string());
-        info.checksum = Some(plan.source().digest().to_string().replacen('-', ":", 1));
-        self.native_plans
-            .lock()
-            .unwrap()
-            .insert(format!("{}:{}", tv.version, plan.source().digest()), plan);
-        Ok(tv)
+        bail!(
+            "legacy Python installation has been removed; use the shared Python installation path"
+        )
     }
 
     fn preserve_install_on_error(&self, _tv: &ToolVersion) -> bool {
@@ -2339,27 +1628,6 @@ impl Backend for PythonPlugin {
         // Backend::list_bin_paths docs); it may not exist until the first
         // `pip install`.
         Ok(vec![tv.install_path(), tv.install_path().join("Scripts")])
-    }
-
-    async fn exec_env(
-        &self,
-        config: &Arc<Config>,
-        _ts: &Toolset,
-        tv: &ToolVersion,
-    ) -> eyre::Result<BTreeMap<String, String>> {
-        let mut hm = BTreeMap::new();
-        match self.get_virtualenv(config, tv).await {
-            Err(e) => warn!("failed to get virtualenv: {e}"),
-            Ok(Some(virtualenv)) => {
-                // Windows venvs place executables in Scripts, not bin (same
-                // handling as the `_.python.venv` env directive)
-                let bin = virtualenv.join(if cfg!(windows) { "Scripts" } else { "bin" });
-                hm.insert("VIRTUAL_ENV".into(), virtualenv.to_string_lossy().into());
-                hm.insert("PAKRO_ADD_PATH".into(), bin.to_string_lossy().into());
-            }
-            Ok(None) => {}
-        };
-        Ok(hm)
     }
 
     fn get_remote_version_cache(&self) -> Arc<Mutex<VersionCacheManager>> {
@@ -2572,30 +1840,6 @@ impl Backend for PythonPlugin {
             ..Default::default()
         })
     }
-}
-
-fn parse_python_build_definition_created_at(output: &str) -> BTreeMap<String, String> {
-    let mut created_at = BTreeMap::new();
-    let mut current_timestamp = None;
-    for line in output.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        if !line.starts_with("plugins/") && crate::duration::parse_into_timestamp(line).is_ok() {
-            current_timestamp = Some(line.to_string());
-            continue;
-        }
-        if let Some(version) = line.strip_prefix("plugins/python-build/share/python-build/")
-            && !version.contains('/')
-            && let Some(timestamp) = &current_timestamp
-        {
-            created_at
-                .entry(version.to_string())
-                .or_insert_with(|| timestamp.clone());
-        }
-    }
-    created_at
 }
 
 fn python_precompiled_created_at(date: &str) -> Option<String> {
@@ -3033,7 +2277,6 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("checksum"), "{error}");
-        assert!(backend.native_plans.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -3388,12 +2631,6 @@ mod tests {
     }
 
     #[test]
-    fn python_options_reads_virtualenv() {
-        let opts = opts_with("virtualenv", ".venv");
-        assert_eq!(PythonOptions::new(&opts).virtualenv(), Some(".venv"));
-    }
-
-    #[test]
     fn python_lockfile_options_include_patch_sysconfig_but_not_virtualenv() {
         let mut opts = opts_with("patch_sysconfig", "false");
         opts.opts.insert(
@@ -3408,37 +2645,6 @@ mod tests {
 
         let opts = opts_with("patch_sysconfig", "true");
         assert!(PythonOptions::new(&opts).lockfile_options().is_empty());
-    }
-
-    #[test]
-    fn parses_python_build_definition_created_at() {
-        let output = "\
-2026-06-11T12:34:56+00:00
-plugins/python-build/share/python-build/3.14.6
-plugins/python-build/share/python-build/3.13.8
-
-2026-06-01T01:02:03+00:00
-plugins/python-build/share/python-build/3.14.5
-plugins/python-build/share/python-build/patches/3.14.5/foo.patch
-";
-
-        assert_eq!(
-            parse_python_build_definition_created_at(output),
-            BTreeMap::from([
-                (
-                    "3.13.8".to_string(),
-                    "2026-06-11T12:34:56+00:00".to_string()
-                ),
-                (
-                    "3.14.5".to_string(),
-                    "2026-06-01T01:02:03+00:00".to_string()
-                ),
-                (
-                    "3.14.6".to_string(),
-                    "2026-06-11T12:34:56+00:00".to_string()
-                ),
-            ])
-        );
     }
 
     #[test]
@@ -3732,7 +2938,7 @@ mod f2_shared_program_tests {
             dependency_context: tokio::sync::OnceCell::new(),
         };
         plugin
-            .install_native_body(&operation, &install, &mut version, None, Some(false))
+            .install_native_body(&operation, &install, &mut version, Some(false))
             .await
             .unwrap();
         let messages = progress.0.lock().unwrap().clone();

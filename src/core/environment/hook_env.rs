@@ -452,12 +452,10 @@ fn have_files_been_modified(watch_files: BTreeSet<PathBuf>) -> bool {
             if mtime_to_millis(mtime) > PREV_SESSION.latest_update {
                 trace!("file modified: {:?}", fp);
                 modified = true;
-                watch_files::add_modified_file(fp.clone());
             }
         } else if !fp.exists() {
             trace!("file deleted: {:?}", fp);
             modified = true;
-            watch_files::add_modified_file(fp.clone());
         }
     }
     if !modified {
@@ -608,26 +606,7 @@ pub async fn build_session(
         max_modtime = std::cmp::max(modified, max_modtime);
     }
 
-    let included_paths: Vec<PathBuf> = config
-        .config_files
-        .values()
-        .flat_map(|cf| cf.included_paths())
-        .collect();
-    // A remote include is stored in a cache file that is rewritten when it
-    // refreshes. It is checked on every prompt like any loaded config, so
-    // latest_update has to cover it or one refresh would make every later
-    // prompt run in full.
-    for path in &included_paths {
-        if let Ok(Ok(modified)) = path.metadata().map(|m| m.modified()) {
-            max_modtime = std::cmp::max(modified, max_modtime);
-        }
-    }
-    let loaded_configs: IndexSet<PathBuf> = config
-        .config_files
-        .keys()
-        .cloned()
-        .chain(included_paths)
-        .collect();
+    let loaded_configs: IndexSet<PathBuf> = config.config_files.keys().cloned().collect();
 
     let settings = Settings::get();
     let cache_ttl_ms = duration::parse_duration(&settings.hook_env.cache_ttl)

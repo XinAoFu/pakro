@@ -2,10 +2,6 @@
 resolver = "3"
 members = [
   "src/crates/pakro-cache-core",
-  "packages/crates/pakro-brew-relocation",
-  "src/crates/pakro-agent-env",
-  "packages/crates/pakro-brew-metadata",
-  "src/crates/pakro-bootstrap",
   "runtimes/crates/aqua-registry",
   "src/crates/pakro-sigstore",
   "src/crates/pakro-settings",
@@ -20,7 +16,7 @@ members = [
 name = "pakro"
 version = "2026.10.3"
 edition = "2024"
-description = "Dev tools, env vars, and tasks in one CLI"
+description = "Shared language and package management for projects"
 authors = ["Jeff Dickey (@jdx)"]
 readme = "README.md"
 license = "MIT"
@@ -33,9 +29,6 @@ include = [
   "/src/*.rs",
   "/src/build/*.rs",
   "/src/core/**/*.rs",
-  "/src/core/system/history/notify/macos.m",
-  "/src/core/system/history/notify/macos.plist",
-  "/src/assets/notifications/*.png",
   "/src/schema/pakro.json",
   "/cli/src/**/*.rs",
   "/cli/assets/**",
@@ -46,7 +39,6 @@ include = [
   "/runtimes/src/toolinstall/*.py",
   "/runtimes/src/plugins/core/assets/**",
   "/runtimes/registry/*.toml",
-  "/runtimes/registry/daemon-presets/*.toml",
   "/runtimes/vendor/aqua-registry/LICENSE",
   "/runtimes/vendor/aqua-registry/metadata.json",
   "/runtimes/vendor/aqua-registry/registry.yml",
@@ -54,8 +46,6 @@ include = [
   "/packages/src/python_source_build/hook.py",
   "/packages/src/python_resolution/source/fresh/wheel/fixtures/*",
   "/packages/deps/**/*.rs",
-  "/packages/system/**/*.rs",
-  "/packages/system/**/*.rb",
   "/packaging/resources/keys/minisign.pub",
   "/packaging/resources/keys/zipsign.pub",
   "/tests/support/fixtures/**/*",
@@ -152,8 +142,6 @@ pakro-store = { path = "packages/crates/pakro-store", version = "0.1" }
 pakro-index = { path = "packages/crates/pakro-index", version = "0.1" }
 pakro-resolver = { path = "packages/crates/pakro-resolver", version = "0.1" }
 pep440_rs = "0.7"
-pakro-brew-metadata = { path = "packages/crates/pakro-brew-metadata", version = "0.1" }
-pakro-bootstrap = { path = "src/crates/pakro-bootstrap", version = "0.1" }
 fslock = "0.2"
 gix = { version = "<1", default-features = false, features = [
   "max-performance-safe",
@@ -221,7 +209,6 @@ reqwest = { version = "0.13", default-features = false, features = [
   "system-proxy",
 ] }
 reqwest-middleware = { package = "astral-reqwest-middleware", version = "0.5" }
-rmcp = { version = "3", features = ["server", "transport-io", "schemars"] }
 rmp-serde = "1"
 rops = { version = "0.1", default-features = false, features = [
   "aes-gcm",
@@ -277,24 +264,6 @@ which = "8"
 xx = { version = "2", default-features = false, features = ["glob"] }
 zip = { version = "8", default-features = false, features = ["deflate"] }
 zstd = "0.14"
-opentelemetry = { version = "0.33", default-features = false, features = [
-  "trace",
-  "logs",
-] }
-opentelemetry_sdk = { version = "0.33", default-features = false, features = [
-  "trace",
-  "logs",
-  "rt-tokio",
-  "experimental_logs_batch_log_processor_with_async_runtime",
-  "experimental_trace_batch_span_processor_with_async_runtime",
-] }
-opentelemetry-otlp = { version = "0.33", default-features = false, features = [
-  "http-proto",
-  "http-json",
-  "trace",
-  "logs",
-  "reqwest-client",
-] }
 
 self-replace = { version = "1", optional = true }
 tar = { version = "0.4", optional = true }
@@ -302,7 +271,6 @@ zipsign-api = { version = "0.2", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 exec = "0.3"
-pakro-brew-relocation = { path = "packages/crates/pakro-brew-relocation", version = "0.1" }
 nix = { version = "0.31", features = [
   "dir",
   "fs",
@@ -334,7 +302,6 @@ windows-sys = { version = "0.61", features = [
 [build-dependencies]
 aqua-registry = { path = "runtimes/crates/aqua-registry" }
 built = { version = "0.8", features = ["chrono"] }
-cc = "1"
 cfg_aliases = "0.2"
 eyre = "0.6"
 phf_codegen = "0.14"
@@ -348,9 +315,6 @@ toml = "1"
 ctor = "1"
 insta = { version = "1", features = ["filters", "json"] }
 mockito = "1"
-opentelemetry_sdk = { version = "0.33", default-features = false, features = [
-  "testing",
-] }
 pretty_assertions = "1"
 test-log = "0.2"
 

@@ -1,7 +1,7 @@
 amends "package://github.com/jdx/hk/releases/download/v2.0.0/hk@2.0.0#/Config.pkl"
 import "package://github.com/jdx/hk/releases/download/v2.0.0/hk@2.0.0#/Builtins.pkl"
 
-local bash_glob = List("*.sh", "tests/e2e/**", "tests/tasks/**", "tests/scripts/**", "packaging/scripts/**", "packaging/tasks/**", "src/dev/tasks/**", "runtimes/tasks/**")
+local bash_glob = List("*.sh", "tests/e2e/**", "tests/scripts/**", "packaging/scripts/**", "runtimes/tasks/**")
 local bash_exclude = List("*.ps1", "**/*.fish", "*.ts", "*.js", "*.json", "*.bat", "**/.*", "cli/assets/bash_zsh_support/**", "tests/e2e/shell/xonsh_script", "tmp/install.sh", "**/*.py", "**/*.xsh")
 local linters = new Mapping<String, Step> {
     //["clippy"] = (Builtins.cargo_clippy) {

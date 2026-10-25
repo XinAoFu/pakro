@@ -1982,18 +1982,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "const-hex"
-version = "1.19.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e59eef12462b0f9b0a3620219be5d639afd79fe39dff0a42c3997061f9298b4"
-dependencies = [
- "cfg-if",
- "cpufeatures 0.2.17",
- "proptest",
- "serde_core",
-]
-
-[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6582,83 +6570,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "opentelemetry"
-version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cdb0b1b267eb9db3331b434ed9ddab10d50e280a9adf9d13e5233e2002b61b5"
-dependencies = [
- "futures-core",
- "futures-sink",
- "js-sys",
- "pin-project-lite",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "opentelemetry-http"
-version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee2c3625b8aa04209f7e01e513bc8044da9687fa38a9eacf59628ca5f3b87300"
-dependencies = [
- "async-trait",
- "bytes",
- "http 1.5.0",
- "opentelemetry",
- "reqwest",
-]
-
-[[package]]
-name = "opentelemetry-otlp"
-version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "699a67345e21962a231955b9059a157e428b219fa5df8efe11f08346fb23a344"
-dependencies = [
- "http 1.5.0",
- "httpdate",
- "opentelemetry",
- "opentelemetry-http",
- "opentelemetry-proto",
- "opentelemetry_sdk",
- "prost",
- "reqwest",
- "serde_json",
- "thiserror 2.0.21",
- "tokio",
-]
-
-[[package]]
-name = "opentelemetry-proto"
-version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25da1ac11a0aeccf38d7f77ee0348715adaf8340f65ad46c94a02c6b20e2f65d"
-dependencies = [
- "base64 0.22.1",
- "const-hex",
- "opentelemetry",
- "opentelemetry_sdk",
- "prost",
- "serde",
-]
-
-[[package]]
-name = "opentelemetry_sdk"
-version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb39533d9d1c912123efd7d41d7e0c29d16917b60ce15b4c8d87cb1af7f67520"
-dependencies = [
- "futures-channel",
- "futures-executor",
- "futures-util",
- "opentelemetry",
- "percent-encoding",
- "portable-atomic",
- "rand 0.9.5",
- "thiserror 2.0.21",
- "tokio",
- "tokio-stream",
-]
-
-[[package]]
 name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6770,7 +6681,6 @@ dependencies = [
  "bytesize",
  "bzip2",
  "calm_io",
- "cc",
  "cfg_aliases",
  "chacha20poly1305 0.11.0",
  "chrono",
@@ -6826,13 +6736,7 @@ dependencies = [
  "num_cpus",
  "once_cell",
  "openssl",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry_sdk",
  "packslip",
- "pakro-bootstrap",
- "pakro-brew-metadata",
- "pakro-brew-relocation",
  "pakro-cache-core",
  "pakro-dotenv",
  "pakro-index",
@@ -6858,7 +6762,6 @@ dependencies = [
  "reflink-copy",
  "regex",
  "reqwest",
- "rmcp",
  "rmp-serde",
  "rops",
  "rust-embed",
@@ -6906,41 +6809,6 @@ dependencies = [
  "zip 8.6.0",
  "zipsign-api",
  "zstd 0.14.0",
-]
-
-[[package]]
-name = "pakro-agent-env"
-version = "0.1.0"
-
-[[package]]
-name = "pakro-bootstrap"
-version = "0.1.0"
-dependencies = [
- "base64 0.23.1",
- "eyre",
- "indexmap 2.14.2",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "pakro-brew-metadata"
-version = "0.1.0"
-dependencies = [
- "eyre",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "pakro-brew-relocation"
-version = "0.1.0"
-dependencies = [
- "eyre",
- "log",
- "tempfile",
- "walkdir",
- "zip 8.6.0",
 ]
 
 [[package]]
@@ -7117,7 +6985,6 @@ dependencies = [
  "num_cpus",
  "once_cell",
  "packslip",
- "pakro-agent-env",
  "pakro-cache-core",
  "pakro-settings",
  "pakro-sigstore",
@@ -7861,29 +7728,6 @@ dependencies = [
  "rusty-fork",
  "tempfile",
  "unarray",
-]
-
-[[package]]
-name = "prost"
-version = "0.14.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "528ac67416ff8646872a3c02cad9cc4ee5dc9f9540c9b10771855c95cb2e5ae1"
-dependencies = [
- "bytes",
- "prost-derive",
-]
-
-[[package]]
-name = "prost-derive"
-version = "0.14.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
-dependencies = [
- "anyhow",
- "itertools 0.14.0",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
 ]
 
 [[package]]

@@ -157,33 +157,6 @@ impl ToolsetBuilder {
             }
             ts.merge(cf.to_toolset()?);
         }
-        let scoped_files = config_files
-            .iter()
-            .filter(|(_, cf)| match self.scope {
-                ConfigScope::All => true,
-                ConfigScope::LocalOnly => !config::is_global_config(cf.get_path()),
-                ConfigScope::GlobalOnly => config::is_global_config(cf.get_path()),
-            })
-            .map(|(path, cf)| (path.clone(), cf.clone()))
-            .collect();
-        let scoped_daemons;
-        let daemons = if self.config_files.is_none() && matches!(self.scope, ConfigScope::All) {
-            config.daemons()?
-        } else {
-            scoped_daemons = crate::daemons::load(&scoped_files)?;
-            &scoped_daemons
-        };
-        if !daemons.daemons.values().any(|daemon| daemon.tool.is_some()) {
-            return Ok(());
-        }
-        let mut requests = crate::toolset::ToolRequestSet::new();
-        for versions in ts.versions.values() {
-            for request in &versions.requests {
-                requests.add_version(request.clone(), request.source());
-            }
-        }
-        daemons.add_tool_requests(&mut requests)?;
-        ts.merge(requests.into_toolset());
         Ok(())
     }
 
@@ -467,7 +440,7 @@ mod tests {
         };
         let mut inactive_options = parse_tool_options(r#"selected="inactive""#);
         inactive_options.core.os = Some(vec![inactive_os.to_string()]);
-        let active_source = ToolSource::PakroTomlDaemon("/project/pakro.toml".into());
+        let active_source = ToolSource::PakroToml("/project/pakro.toml".into());
         let inactive = ToolRequest::new_with_options(
             ba.clone(),
             "1.0.0",

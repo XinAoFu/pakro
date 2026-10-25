@@ -22,7 +22,7 @@ pakro() {
 	shift
 
 	case "$command" in
-	deactivate | shell | sh)
+	deactivate)
 		# if argv doesn't contains -h,--help
 		if [[ ! " $* " =~ " --help " ]] && [[ ! " $* " =~ " -h " ]]; then
 			eval "$(command __PAKRO_EXE_VALUE__ "$command" "$@")"

@@ -4,8 +4,10 @@
 pub(crate) mod apply;
 #[cfg(unix)]
 pub(crate) mod build;
-pub(crate) mod context;
-pub(crate) mod request;
+#[cfg(unix)]
+pub(crate) mod lock;
+#[cfg(unix)]
+pub(crate) mod lock_document;
 #[cfg(unix)]
 pub(crate) mod resolve;
 #[cfg(unix)]

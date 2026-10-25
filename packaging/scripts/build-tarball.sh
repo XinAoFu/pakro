@@ -161,7 +161,6 @@ cp README.md dist/pakro/README.md
 cp LICENSE dist/pakro/LICENSE
 
 if [[ $os != "windows" ]]; then
-	cp cli/man/man1/pakro.1 dist/pakro/man/man1/pakro.1
 	cp cli/share/fish/vendor_conf.d/pakro-activate.fish dist/pakro/share/fish/vendor_conf.d/pakro-activate.fish
 fi
 

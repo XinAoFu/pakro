@@ -1,123 +1,25 @@
 use eyre::Result;
-
-mod add;
 mod install;
-mod remove;
-
-/// [experimental] Manage project dependencies
-///
-/// With no subcommand, runs dependency installation for the current project, the same
-/// as `pakro deps install`. Providers detect their inputs and installed outputs to
-/// decide whether work is needed; use `--explain PROVIDER` to inspect that decision.
-///
-/// Providers with `auto = true` run before `pakro exec` and `pakro run` unless `--no-deps`
-/// is passed. These install project dependencies, such as node_modules, separately
-/// from versioned tools managed by `pakro install`.
+/// Prepare the project's declared Python dependencies without editing declarations.
 #[derive(Debug, usage_rs::Args)]
-#[usage(
-    visible_alias = "dep",
-    alias = "prepare",
-    verbatim_doc_comment,
-    after_long_help = AFTER_LONG_HELP,
-    example(r###"pakro deps                    # Install all project dependencies
-pakro deps install            # Same as bare `pakro deps`
-pakro deps install --force    # Force reinstall even if fresh
-pakro deps install --dry-run  # Show what would run
-pakro deps --monorepo         # Install deps from explicit monorepo config roots
-pakro deps add npm:react      # Add a dependency
-pakro deps add -D npm:vitest  # Add a dev dependency
-pakro deps remove npm:lodash  # Remove a dependency"###)
-)]
+#[usage(verbatim_doc_comment)]
 pub(crate) struct Deps {
     #[usage(subcommand)]
-    command: Option<Commands>,
-
-    #[usage(flatten)]
-    install: install::DepsInstall,
+    command: Commands,
 }
-
 #[derive(Debug, usage_rs::Subcommands)]
 enum Commands {
-    Add(add::DepsAdd),
     Install(install::DepsInstall),
-    Remove(remove::DepsRemove),
 }
-
-impl Commands {
-    pub(crate) async fn run(self) -> Result<()> {
-        match self {
-            Self::Add(cmd) => cmd.run().await,
-            Self::Install(cmd) => cmd.run().await,
-            Self::Remove(cmd) => cmd.run().await,
-        }
-    }
-}
-
 impl Deps {
     pub(super) async fn preflight(&self) -> Result<()> {
         match &self.command {
-            Some(Commands::Add(cmd)) => preflight_packages(&cmd.packages, false),
-            Some(Commands::Remove(cmd)) => preflight_packages(&cmd.packages, true),
-            Some(Commands::Install(cmd)) => cmd.preflight().await,
-            None => self.install.preflight().await,
+            Commands::Install(command) => command.preflight().await,
         }
     }
-
-    pub(super) fn is_local_observation(&self) -> bool {
-        match &self.command {
-            Some(Commands::Install(cmd)) => cmd.list || cmd.explain,
-            None => self.install.list || self.install.explain,
-            _ => false,
-        }
-    }
-
     pub(crate) async fn run(self) -> Result<()> {
-        let cmd = self.command.unwrap_or(Commands::Install(self.install));
-
-        cmd.run().await
+        match self.command {
+            Commands::Install(command) => command.run().await,
+        }
     }
 }
-
-fn preflight_packages(packages: &[String], remove: bool) -> Result<()> {
-    for spec in packages {
-        let (provider, _) = parse_package_spec(spec)?;
-        #[cfg(unix)]
-        crate::programs::python::reject_python_provider_write(
-            if remove {
-                crate::programs::python::PythonWriteOperation::Remove
-            } else {
-                crate::programs::python::PythonWriteOperation::Add
-            },
-            provider,
-        )?;
-    }
-    Ok(())
-}
-
-/// Parse a package spec like "npm:react" or "npm:@types/react@19" into (ecosystem, package)
-pub(super) fn parse_package_spec(spec: &str) -> Result<(&str, &str)> {
-    spec.split_once(':').ok_or_else(|| {
-        eyre::eyre!(
-            "invalid package spec '{spec}', expected format: ecosystem:package (e.g., npm:react)"
-        )
-    })
-}
-
-static AFTER_LONG_HELP: &str = color_print::cstr!(
-    r###"<bold><underline>Configuration:</underline></bold>
-
-```toml
-# Built-in npm provider (auto-detects lockfile)
-[deps.npm]
-auto = true              # Auto-run before pakro x/run
-
-# Custom provider
-[deps.codegen]
-auto = true
-sources = ["schema/*.graphql"]
-outputs = ["src/generated/"]
-run = "npm run codegen"
-
-# To disable npm instead, add `disable = ["npm"]` under [deps].
-```"###
-);

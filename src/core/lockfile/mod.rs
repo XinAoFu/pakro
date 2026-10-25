@@ -2166,9 +2166,7 @@ fn lockfile_path_for_tool_source_with_root(
     monorepo_root: Option<&Path>,
 ) -> Option<(PathBuf, bool)> {
     match source {
-        ToolSource::PakroToml(path) | ToolSource::PakroTomlDaemon(path) => {
-            Some(lockfile_path_for_config(path, monorepo_root))
-        }
+        ToolSource::PakroToml(path) => Some(lockfile_path_for_config(path, monorepo_root)),
         ToolSource::IdiomaticVersionFile(path) => config
             .config_files
             .iter()
@@ -4249,7 +4247,7 @@ pub(crate) fn read_lockfile_for_tool_source(
     source: &ToolSource,
 ) -> Result<Lockfile> {
     warn_outdated_lockfiles(config);
-    if let ToolSource::PakroToml(path) | ToolSource::PakroTomlDaemon(path) = source {
+    if let ToolSource::PakroToml(path) = source {
         return Ok(read_lockfile_for_config_path(config, path));
     }
 

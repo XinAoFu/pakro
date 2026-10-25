@@ -37,6 +37,13 @@ pub(crate) struct LockImage {
     pin: Option<PinnedFile>,
 }
 impl LockImage {
+    /// Descriptive identity only; mutation still requires this session's image.
+    pub(crate) fn file_identity(&self) -> Option<(u64, u64)> {
+        #[cfg(unix)]
+        return self.pin.as_ref().map(PinnedFile::identity);
+        #[cfg(not(unix))]
+        None
+    }
     pub(crate) fn bytes(&self) -> Option<&[u8]> {
         self.bytes.as_deref()
     }
@@ -95,6 +102,44 @@ impl ProjectLockSession {
         {
             let _ = (expected, new_bytes);
             eyre::bail!("project lock IO requires Unix");
+        }
+    }
+    /// Persist the prepared inode in the caller's journal before publication.
+    pub(crate) fn compare_and_replace_journaled(
+        &mut self,
+        expected: &LockImage,
+        new_bytes: &[u8],
+        staged: impl FnOnce(&Path, (u64, u64)) -> Result<()>,
+    ) -> Result<LockImage> {
+        #[cfg(unix)]
+        return self.io.replace_journaled(expected, new_bytes, staged);
+        #[cfg(not(unix))]
+        {
+            let _ = (expected, new_bytes, staged);
+            eyre::bail!("project lock IO requires Unix")
+        }
+    }
+    pub(crate) fn compare_and_remove(&mut self, expected: &LockImage) -> Result<LockImage> {
+        #[cfg(unix)]
+        return self.io.remove(expected);
+        #[cfg(not(unix))]
+        {
+            let _ = expected;
+            eyre::bail!("project lock IO requires Unix")
+        }
+    }
+    pub(crate) fn cleanup_staged(
+        &self,
+        path: &Path,
+        identity: (u64, u64),
+        bytes: &[u8],
+    ) -> Result<()> {
+        #[cfg(unix)]
+        return self.io.cleanup_staged(path, identity, bytes);
+        #[cfg(not(unix))]
+        {
+            let _ = (path, identity, bytes);
+            eyre::bail!("project lock IO requires Unix")
         }
     }
     #[cfg(all(test, unix))]
@@ -527,6 +572,11 @@ mod unix {
         file: File,
         observed: Stamp,
     }
+    impl PinnedFile {
+        pub(super) fn identity(&self) -> (u64, u64) {
+            (self.observed.device as u64, self.observed.inode as u64)
+        }
+    }
     pub(super) struct SessionIo {
         domain: GuardDomain,
         name: OsString,
@@ -770,6 +820,17 @@ mod unix {
             bytes: &[u8],
             hook: impl FnOnce(&Path),
         ) -> Result<LockImage> {
+            self.replace_journaled(expected, bytes, |path, _| {
+                hook(path);
+                Ok(())
+            })
+        }
+        pub(super) fn replace_journaled(
+            &mut self,
+            expected: &LockImage,
+            bytes: &[u8],
+            hook: impl FnOnce(&Path, (u64, u64)) -> Result<()>,
+        ) -> Result<LockImage> {
             ensure!(
                 bytes.len() <= self.max_bytes,
                 "project lock replacement byte limit exceeded"
@@ -784,16 +845,94 @@ mod unix {
                 self.max_bytes,
                 self.deadline,
                 || self.recheck(expected),
-                hook,
+                |path| {
+                    let metadata = std::fs::symlink_metadata(path)?;
+                    use std::os::unix::fs::MetadataExt;
+                    hook(path, (metadata.dev(), metadata.ino()))
+                },
             )
-            .and_then(|()| {
-                self.snapshot()
-                    .context("project lock replacement may be committed; fresh observation failed")
+            .and_then(|(bytes, pin)| {
+                // The published inode and bytes come from the guarded write
+                // itself. A later observation may only recheck that owner;
+                // it must not define a new baseline after the side effect.
+                let image = LockImage {
+                    sha256: Some(observed_sha256(&bytes, self.deadline)?),
+                    bytes: Some(bytes),
+                    pin: Some(pin),
+                    session: Arc::clone(&self.token),
+                };
+                self.recheck(&image)
+                    .context("project lock replacement may be committed; owned image changed")?;
+                Ok(image)
             });
             if result.is_err() {
                 self.failed = true;
             }
             result
+        }
+        pub(super) fn remove(&mut self, expected: &LockImage) -> Result<LockImage> {
+            self.recheck(expected)?;
+            ensure!(
+                expected.exists(),
+                "cannot remove an absent project lock image"
+            );
+            unlinkat(
+                &self.domain.parent.file,
+                self.name.as_os_str(),
+                UnlinkatFlags::NoRemoveDir,
+            )?;
+            self.domain.parent.file.sync_all()?;
+            self.check()?;
+            ensure!(
+                self.domain.parent.named(&self.name)?.is_none(),
+                "removed project lock entry reappeared"
+            );
+            let image = LockImage {
+                bytes: None,
+                sha256: None,
+                pin: None,
+                session: Arc::clone(&self.token),
+            };
+            self.recheck(&image)?;
+            Ok(image)
+        }
+        pub(super) fn cleanup_staged(
+            &self,
+            path: &Path,
+            identity: (u64, u64),
+            bytes: &[u8],
+        ) -> Result<()> {
+            self.check()?;
+            ensure!(
+                path.parent() == Some(self.domain.parent.path.as_path()),
+                "staged lock parent differs"
+            );
+            let name = path
+                .file_name()
+                .context("staged lock filename is missing")?;
+            ensure!(
+                name.to_str()
+                    .is_some_and(|name| name.starts_with(".pakro.lock.txn-")),
+                "invalid staged lock name"
+            );
+            let Some((current, pin)) =
+                read_entry(&self.domain.parent, name, self.max_bytes, self.deadline)?
+            else {
+                return Ok(());
+            };
+            ensure!(
+                (pin.observed.device as u64, pin.observed.inode as u64) == identity
+                    && current == bytes,
+                "staged lock identity or bytes changed; evidence retained"
+            );
+            self.check()?;
+            ensure!(
+                self.domain.parent.named(name)? == Some(pin.observed),
+                "staged lock changed before cleanup"
+            );
+            unlinkat(&self.domain.parent.file, name, UnlinkatFlags::NoRemoveDir)?;
+            self.domain.parent.file.sync_all()?;
+            self.check()
         }
     }
 
@@ -828,8 +967,12 @@ mod unix {
             maximum,
             limit,
             || pin.check_dangling(),
-            hook,
+            |path| {
+                hook(path);
+                Ok(())
+            },
         )
+        .map(|_| ())
     }
 
     // Both writers need this actual exclusive domain. Their independent
@@ -842,8 +985,8 @@ mod unix {
         maximum: usize,
         limit: Instant,
         predicate: impl Fn() -> Result<()>,
-        hook: impl FnOnce(&Path),
-    ) -> Result<()> {
+        hook: impl FnOnce(&Path) -> Result<()>,
+    ) -> Result<(Vec<u8>, PinnedFile)> {
         validate_publication(bytes, maximum, limit)?;
         domain.check(limit)?;
         predicate()?;
@@ -860,7 +1003,7 @@ mod unix {
             }
             temporary.file.sync_all()?;
             let observed = Stamp::file(&temporary.file)?;
-            hook(&parent.path.join(&temporary.name));
+            hook(&parent.path.join(&temporary.name))?;
             predicate()?;
             domain.check(limit)?;
             let current = read_entry(parent, &temporary.name, maximum, limit)?
@@ -887,7 +1030,8 @@ mod unix {
                 committed.0 == bytes && committed.1.observed == Stamp::file(&temporary.file)?,
                 "project lock replacement may be committed; current entry changed"
             );
-            domain.check(limit)
+            domain.check(limit)?;
+            Ok(committed)
         })();
         if result.is_err() && temporary.cleanup().is_err() {
             return result

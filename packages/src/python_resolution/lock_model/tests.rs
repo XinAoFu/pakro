@@ -5,6 +5,8 @@ use serde::de::{MapAccess, Visitor};
 mod complete_roots;
 #[path = "tests/recheck_limits.rs"]
 mod recheck_limits;
+#[path = "tests/source_builds.rs"]
+mod source_builds;
 #[path = "tests/strict_matrix.rs"]
 mod strict_matrix;
 

@@ -18,7 +18,7 @@ use crate::install_context::{InstallContext, install_dependency_declarations};
 use crate::plugins::PluginType;
 use crate::registry::REGISTRY;
 use crate::toolset::Toolset;
-use crate::toolset::helpers::{TVTuple, preflight_system_deps, show_python_install_hint};
+use crate::toolset::helpers::TVTuple;
 use crate::toolset::install_options::InstallOptions;
 use crate::toolset::tool_deps::{ToolDeps, ensure_compatible_install_requests, tool_key};
 use crate::toolset::tool_request::ToolRequest;
@@ -391,8 +391,6 @@ impl Toolset {
         )
         .await;
 
-        show_python_install_hint(&versions);
-
         let mut disabled_backend_errors = vec![];
         versions.retain(|tr| {
             if let Ok(backend) = tr.backend()
@@ -417,7 +415,6 @@ impl Toolset {
         // Runs here (after plugins are installed, before parallel install tasks
         // spawn) so declarations are readable and the non-Send driver stays on
         // the main task.
-        preflight_system_deps(config, &versions, opts).await;
 
         // Build dependency graph and install using Kahn's algorithm
         let (installed, failed, attempted_failures) = self
@@ -485,9 +482,6 @@ impl Toolset {
             {
                 warn!("failed to restore runtime symlinks after install failure: {err:#}");
             }
-        }
-        if !opts.dry_run {
-            crate::packslip::auto_sync_skills(config).await;
         }
 
         // Debug logging for successful installations

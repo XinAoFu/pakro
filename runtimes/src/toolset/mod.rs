@@ -1027,9 +1027,7 @@ pub async fn get_versions_needed_by_tracked_configs_excluding_locks(
                 ),
             }
         }
-        let mut requests = cf.to_tool_request_set()?;
-        let files = [(path.clone(), cf.clone())].into_iter().collect();
-        crate::daemons::load(&files)?.add_tool_requests(&mut requests)?;
+        let requests = cf.to_tool_request_set()?;
         let mut ts = Toolset::from(requests);
         ts.resolve_with_opts(config, &opts).await?;
         collect_needed_versions(&ts, offline, &path, &mut needed);

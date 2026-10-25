@@ -2430,16 +2430,6 @@ pub trait Backend: Debug + Send + Sync {
         self.get_dependencies()
     }
 
-    /// Plugin-declared system prerequisites (build tools, libraries, ...) that
-    /// must be present on the machine before this tool can install. Distinct
-    /// from [`Backend::get_dependencies`], which returns other *pakro tools*.
-    /// Detection is the source of truth; the package hints attached to each dep
-    /// only drive optional remediation. Infallible by design — a malformed
-    /// declaration must never block an install, so overrides warn and skip.
-    fn system_dependencies(&self) -> Vec<crate::system::deps::SystemDep> {
-        vec![]
-    }
-
     /// Whether this backend's version source lacks an upstream prerelease flag
     /// and should mark regex-shaped versions as prereleases before caching.
     fn mark_prereleases_from_version_pattern(&self) -> bool {
@@ -3946,21 +3936,6 @@ pub trait Backend: Debug + Send + Sync {
             // forced reinstall removes it first, and the path would otherwise
             // resolve to a hashed directory that nothing records.
             tv.install_path = Some(legacy);
-        }
-
-        #[cfg(unix)]
-        if tv.install_path_is_explicit
-            && env::install_path_category(&tv.install_path()) == env::InstallPathCategory::System
-            && crate::system_install::needs_elevation(&tv.install_path())
-            && (ctx.force
-                || rolling_reinstall
-                || !self
-                    .is_install_satisfied_or_false(&ctx.config, &tv, true)
-                    .await)
-        {
-            let mut ctx = ctx;
-            ctx.force |= rolling_reinstall;
-            return crate::system_install::install(self, ctx, tv).await;
         }
 
         if let Some(plugin) = self.plugin() {

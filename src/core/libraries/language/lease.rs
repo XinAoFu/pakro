@@ -235,6 +235,42 @@ impl LanguageLease {
     pub(crate) fn target(&self) -> &FrozenRegistryTarget {
         &self.inner.target
     }
+    /// Pure portable source description from the held runtime descriptor.
+    /// This does not revalidate contents or grant acquisition/publication rights;
+    /// callers keep the existing complete lease checks at their IO boundaries.
+    pub(crate) fn source_pin(&self) -> Result<crate::lockfile::PlatformInfo> {
+        let source = self.inner.spec.plan().source();
+        Ok(crate::lockfile::PlatformInfo {
+            url: Some(source.url().to_string()),
+            checksum: Some(source.digest().to_string().replacen('-', ":", 1)),
+            ..Default::default()
+        })
+    }
+    /// Pure exact request reconstructed from the held source and probe,
+    /// including the PBS distribution build. Content validation belongs to the
+    /// surrounding acquisition/query/commit boundary.
+    pub(crate) fn lock_version(&self) -> Result<String> {
+        let descriptor = self.descriptor();
+        match descriptor.implementation {
+            crate::python_runtime::PythonImplementation::CPython => {
+                let (version, build, _, _) = crate::plugins::core::python::native::pbs_filename(
+                    self.inner.spec.plan().source().filename(),
+                )?
+                .context("protected CPython source lacks its exact PBS identity")?;
+                ensure!(
+                    version == descriptor.language_version.full_version(),
+                    "protected runtime version differs from its source"
+                );
+                Ok(format!("{version}+{build}"))
+            }
+            crate::python_runtime::PythonImplementation::PyPy => Ok(format!(
+                "pypy{}.{}-{}",
+                descriptor.language_version.major,
+                descriptor.language_version.minor,
+                descriptor.implementation_version.full_version(),
+            )),
+        }
+    }
     pub(crate) fn handle(&self) -> Result<PythonRuntimeHandle> {
         self.check_binding()?;
         let expected = self.root().join(&self.inner.manifest.entrypoint);

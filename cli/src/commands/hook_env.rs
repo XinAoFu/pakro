@@ -8,7 +8,7 @@ use crate::hook_env::{PREV_SESSION, WatchFilePattern};
 use crate::shell::{EXAMPLE_SHELL, ShellType, require_shell};
 use crate::toolset::{ResolveOptions, Toolset, ToolsetBuilder};
 use crate::ui::style;
-use crate::{env, hook_env, hooks, watch_files};
+use crate::{env, hook_env, hooks};
 use console::truncate_str;
 use eyre::Result;
 use indexmap::IndexSet;
@@ -178,22 +178,6 @@ impl HookEnv {
                 }
             }
         }
-        let daemon_commands = match crate::daemons::hook_env::emit(
-            &config,
-            &ts,
-            &pakro_env,
-            self.shell_pid,
-            &*shell,
-            self.force,
-        )
-        .await
-        {
-            Ok(commands) => commands,
-            Err(err) => {
-                warn!("daemon auto lifecycle: {err:#}");
-                String::new()
-            }
-        };
         pakro_env.remove(&*PATH_KEY);
 
         // Create config_paths from user_paths for display_status and build_session
@@ -303,7 +287,6 @@ impl HookEnv {
                 );
             }
         }
-        pakroprint!("{daemon_commands}")?;
 
         // Build and output alias commands
         let alias_output =
@@ -317,7 +300,6 @@ impl HookEnv {
 
         hooks::run_all_hooks(&config, &ts, &*shell).await;
         hooks::run_enter_hooks_for_newly_loaded_configs(&config, &ts, &*shell).await;
-        watch_files::execute_runs(&config, &ts).await;
         hooks::take_output_error()?;
 
         Ok(())
@@ -389,7 +371,6 @@ impl HookEnv {
             }
         }
         ts.notify_if_versions_missing(config).await;
-        crate::deps::notify_if_stale(config, cur_env);
         Ok(())
     }
 

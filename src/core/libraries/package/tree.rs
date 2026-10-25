@@ -365,38 +365,6 @@ pub(crate) fn prepare_package_tree(
     }
     Ok(lease)
 }
-pub(crate) struct PreparedTree {
-    digest: pakro_store::Digest,
-    lease: PackageLease,
-}
-impl PreparedTree {
-    pub(crate) fn digest(&self) -> &pakro_store::Digest {
-        &self.digest
-    }
-}
-/// This legacy descriptive lookup cannot expand an archive without a real
-/// target. New writers call prepare_package_tree with that target capability.
-pub(crate) fn prepare_tree(
-    context: &OperationContext,
-    digest: &pakro_store::Digest,
-) -> Result<PreparedTree> {
-    let mut matches = manifest::enumerate_published(context)?
-        .into_iter()
-        .filter(|p| p.facts.artifact == digest.to_string());
-    let found = matches.next().context(
-        "package tree is absent; expansion requires a selected language and inspected wheel",
-    )?;
-    ensure!(
-        matches.next().is_none(),
-        "artifact has multiple package instances; select an exact instance"
-    );
-    let lease = acquire_package(context, found.facts.key)?.context("package tree is not Ready")?;
-    Ok(PreparedTree {
-        digest: *digest,
-        lease,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

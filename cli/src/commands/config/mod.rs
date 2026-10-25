@@ -7,7 +7,6 @@ use std::path::PathBuf;
 mod get;
 mod keys;
 mod ls;
-mod set;
 
 /// Manage config files
 #[derive(Debug, usage_rs::Args)]
@@ -25,7 +24,6 @@ enum Commands {
     Get(get::ConfigGet),
     #[usage(visible_alias = "list")]
     Ls(ls::ConfigLs),
-    Set(set::ConfigSet),
 }
 
 impl Commands {
@@ -33,7 +31,6 @@ impl Commands {
         match self {
             Self::Get(cmd) => cmd.run(),
             Self::Ls(cmd) => cmd.run().await,
-            Self::Set(cmd) => cmd.run(),
         }
     }
 }
@@ -46,7 +43,7 @@ impl Config {
     }
 }
 
-/// The TOML file `config get` and `config set` act on.
+/// The TOML file `config get` reads.
 ///
 /// Only an explicitly named target goes through the shared resolver — the default is a
 /// different rule (the top TOML config of the loaded set, not the nearest writable one).

@@ -1,30 +1,63 @@
 use crate::config::settings::SettingsPartial;
-use crate::config::{Config, Settings, SettingsExt, config_file};
-use crate::task::TaskOutput;
+use crate::config::{Config, Settings, config_file};
 use crate::ui::{self, ctrlc};
 use crate::{Result, backend, request_exit};
-use crate::{cli::args::ToolArg, path::PathExt};
-use crate::{hook_env as hook_env_module, logger, migrate};
+use crate::{hook_env as hook_env_module, logger};
 use confique::Layer as _;
 use eyre::{Report, bail};
 use futures_util::future::LocalBoxFuture;
 use std::path::PathBuf;
 use usage_rs::config::{Layers, PropMeta, Registry as SettingsRegistry, Ty, Value};
+const CLI_SETTINGS_REGISTRY: SettingsRegistry = SettingsRegistry::new(&[PropMeta {
+    cli: &["--truncate", "--no-truncate"],
+    ..PropMeta::new("truncate", Ty::Bool)
+}]);
+fn command_local_settings(layer: &usage_rs::config::CliLayer) -> Result<SettingsPartial> {
+    let resolved = usage_rs::config::resolve(CLI_SETTINGS_REGISTRY, Layers::new().then(layer))?;
+    let mut settings = SettingsPartial::empty();
+    if let Some(Value::Bool(value)) = resolved.get_key("truncate") {
+        settings.truncate = Some(*value);
+    }
+    Ok(settings)
+}
 
-static CLI_SETTING_PROPS: &[PropMeta] = &[
-    PropMeta {
-        cli: &["--truncate", "--no-truncate"],
-        ..PropMeta::new("truncate", Ty::Bool)
-    },
-    PropMeta {
-        cli: &["--no-cache"],
-        ..PropMeta::new("task.remote_no_cache", Ty::Bool)
-    },
-];
-const CLI_SETTINGS_REGISTRY: SettingsRegistry = SettingsRegistry::new(CLI_SETTING_PROPS);
+pub(crate) use crate::args;
+mod activate;
+mod bin_paths;
+mod cache;
+mod command_effects;
+mod completion;
+mod config;
+mod current;
+mod deactivate;
+mod deps;
+mod doctor;
+mod env;
+mod hook_env;
+mod hook_not_found;
+mod implode;
+mod install;
+mod installs;
+mod latest;
+mod ls;
+mod ls_remote;
+mod project;
+mod registry;
+mod reshim;
+mod search;
+#[cfg_attr(not(feature = "self_update"), path = "self_update_stub.rs")]
+pub(crate) mod self_update;
+mod settings;
+mod shim;
+mod trust;
+mod uninstall;
+mod untrust;
+mod usage;
+pub(crate) mod version;
+mod r#where;
+mod r#which;
 
-/// Load only the existing configuration needed to resolve target identities.
-/// This phase cannot register configs or migrate installation metadata.
+/// Read configuration without registration or maintenance side effects.
 pub(super) async fn read_config_for_admission() -> Result<std::sync::Arc<Config>> {
     let previous = crate::config::readonly_invocation();
     crate::config::set_readonly_invocation(true);
@@ -32,108 +65,6 @@ pub(super) async fn read_config_for_admission() -> Result<std::sync::Arc<Config>
     crate::config::set_readonly_invocation(previous);
     result
 }
-
-#[cfg(unix)]
-fn reject_python_install_dependencies(request: &crate::toolset::ToolRequest) -> Result<()> {
-    crate::toolset::Toolset::ensure_python_install_admission(request)
-}
-
-/// The settings layer given by command-local flags declared with `setting = "..."`.
-fn command_local_settings(layer: &usage_rs::config::CliLayer) -> Result<SettingsPartial> {
-    let resolved = usage_rs::config::resolve(CLI_SETTINGS_REGISTRY, Layers::new().then(layer))?;
-    let get_bool = |key: &str| match resolved.get_key(key) {
-        Some(Value::Bool(value)) => Some(*value),
-        None => None,
-        Some(value) => unreachable!("{key} resolved as {}", value.type_name()),
-    };
-    let mut s = SettingsPartial::empty();
-    s.truncate = get_bool("truncate");
-    s.task.remote_no_cache = get_bool("task.remote_no_cache");
-    Ok(s)
-}
-
-mod activate;
-pub(crate) use crate::args;
-mod asdf;
-pub(crate) mod backends;
-mod bin_paths;
-mod bootstrap;
-mod cache;
-mod completion;
-mod config;
-mod current;
-mod daemons;
-mod deactivate;
-mod direnv;
-mod doctor;
-pub(crate) mod dotfiles;
-mod en;
-mod env;
-pub(crate) mod exec;
-mod external;
-mod fmt;
-mod generate;
-mod github;
-mod global;
-mod hook_env;
-mod hook_not_found;
-mod tool_alias;
-
-mod command_effects;
-mod deps;
-mod editor;
-mod implode;
-mod install;
-mod install_into;
-mod installs;
-mod latest;
-mod link;
-mod local;
-pub(crate) mod lock;
-mod ls;
-mod ls_remote;
-mod mcp;
-mod oci;
-mod outdated;
-mod packslip;
-mod patrons;
-mod plugins;
-mod project;
-pub(crate) mod prune;
-mod publish_system_install;
-mod registry;
-mod reshim;
-pub(crate) mod run;
-mod search;
-#[cfg_attr(not(feature = "self_update"), path = "self_update_stub.rs")]
-pub(crate) mod self_update;
-mod set;
-mod settings;
-mod shell;
-mod shell_alias;
-mod shim;
-mod skills;
-mod sponsors;
-mod ssh;
-mod sync;
-pub(crate) mod system;
-mod tasks;
-mod test_tool;
-mod token;
-mod tool;
-pub(crate) mod tool_stub;
-mod trust;
-mod uninstall;
-mod unset;
-mod untrust;
-mod unuse;
-mod upgrade;
-mod usage;
-mod r#use;
-pub(crate) mod version;
-mod watch;
-mod r#where;
-mod r#which;
 
 #[derive(usage_rs::ValueEnum, Debug, Clone, strum::Display)]
 #[strum(serialize_all = "kebab-case")]
@@ -146,144 +77,53 @@ pub(crate) enum LevelFilter {
 }
 
 #[derive(usage_rs::Cli)]
-#[usage(
-    name = "pakro", about, long_about = LONG_ABOUT, settings,
-    // The chef's toque and the wink, in block characters. In a file rather than in this
-    // attribute because art is edited by looking at it, and a raw string indented to match
-    // this list would not be what prints.
-    logo = include_str!("../../assets/logo.txt"),
-    logo_style = "green",
-    example("pakro install node@20.0.0", help = "Install a specific node version"),
-    example("pakro install node@20", help = "Install a version matching a prefix"),
-    example("pakro install node", help = "Install the node version defined in config"),
-    example("pakro install", help = "Install all plugins/tools defined in config"),
-    example("pakro install cargo:ripgrep", help = "Install something via cargo"),
-    example("pakro install github:BurntSushi/ripgrep", help = "Install a GitHub release"),
-    example("pakro use node@20", help = "Use node-20.x in current project"),
-    example("pakro use -g node@20", help = "Use node-20.x as default"),
-    example("pakro use node@latest", help = "Use latest node in current directory"),
-    example("pakro up --interactive", help = "Show a menu to upgrade tools"),
-    example("pakro x -- npm install", help = "Run npm install with config loaded into PATH"),
-    example("pakro x node@20 -- node app.js", help = "Run node app.js with config and node-20.x on PATH"),
-    example("pakro set NODE_ENV=production", help = "Set NODE_ENV=production in config"),
-    example("pakro run build", help = "Run build tasks"),
-    example("pakro watch build", help = "Run build tasks repeatedly when files change"),
-    example("pakro settings", help = "Show settings in use"),
-    example("pakro settings color=0", help = "Disable color by modifying global config file"),
-    author = "Jeff Dickey <@jdx>", arg_required_else_help = true, completion = true, unknown_flags = "error"
-)]
+#[usage(name = "pakro", about, long_about = LONG_ABOUT, settings,
+    logo = include_str!("../../assets/logo.txt"), logo_style = "green",
+    example("pakro install python@3.13.16", help = "Install an exact Python version"),
+    example("pakro install", help = "Install the Python and packages declared by this project"),
+    example("pakro current python", help = "Show the project's current Python selection"),
+    arg_required_else_help = true, completion = true, unknown_flags = "error")]
 pub(crate) struct Cli {
     #[usage(subcommand)]
     pub command: Option<Commands>,
-    /// Task to run
-    #[usage(
-        name = "TASK",
-        double_dash = "automatic",
-        long_help = r#"Task to run.
-
-Shorthand for `pakro tasks run <TASK>`."#
-    )]
-    pub task: Option<String>,
-    /// Task arguments
-    #[usage(hide = true)]
-    pub task_args: Option<Vec<String>>,
-    #[usage(double_dash = "required", hide = true)]
-    pub task_args_last: Vec<String>,
-    /// Continue running tasks even if one fails
-    #[usage(long, short = 'c', hide = true, verbatim_doc_comment)]
-    pub continue_on_error: bool,
-    /// Change directory before running command
     #[usage(short='C', long, global=true, value_name="DIR", value_hint=usage_rs::ValueHint::DirPath)]
     pub cd: Option<PathBuf>,
-    /// Set the environment for loading `pakro.<ENV>.toml`
     #[usage(short = 'E', long, global = true)]
     pub env: Option<Vec<String>>,
-    /// Force the operation
-    #[usage(long, short, hide = true)]
-    pub force: bool,
-    /// How many jobs to run in parallel; values below 1 are treated as 1 [default: 8]
     #[usage(long, short, global = true, env = "PAKRO_JOBS")]
     pub jobs: Option<usize>,
-    /// Dry run, don't actually do anything
     #[usage(short = 'n', long, hide = true)]
     pub dry_run: bool,
-    /// Set the profile (environment)
     #[usage(short = 'P', long, global = true, hide = true, conflicts = "env")]
     pub profile: Option<Vec<String>>,
-    /// Suppress non-error messages
     #[usage(short = 'q', long, global = true, env = "PAKRO_QUIET", overrides = &["silent", "trace", "verbose", "debug", "log_level"])]
     pub quiet: bool,
-    #[usage(long, short, hide = true)]
-    pub shell: Option<String>,
-    /// Tool(s) to run in addition to what is in pakro.toml files
-    /// e.g.: node@20 python@3.10
-    #[usage(short, long, hide = true, value_name = "TOOL@VERSION")]
-    pub tool: Vec<ToolArg>,
-    /// Show extra output (use -vv for even more)
     #[usage(short='v', long, global=true, count, overrides = &["quiet", "silent", "trace", "debug"])]
     pub verbose: u8,
     #[usage(long, short = 'V', hide = true)]
     pub version: bool,
-    /// Answer yes to all confirmation prompts
     #[usage(short = 'y', long, global = true)]
     pub yes: bool,
-    /// Set the log level to debug
     #[usage(long, global = true, hide = true, overrides = &["quiet", "trace", "verbose", "silent", "log_level"])]
     pub debug: bool,
     #[usage(long, global = true, hide = true, value_name = "LEVEL", value_enum, overrides = &["quiet", "trace", "verbose", "silent", "debug"])]
     pub log_level: Option<LevelFilter>,
-    /// Do not load any config files
-    ///
-    /// Can also use `PAKRO_NO_CONFIG=1`
     #[usage(long)]
     pub no_config: bool,
-    /// Do not load environment variables from config files
-    ///
-    /// Can also use `PAKRO_NO_ENV=1`
     #[usage(long)]
     pub no_env: bool,
-    /// Do not execute hooks from config files
-    ///
-    /// Can also use `PAKRO_NO_HOOKS=1`
     #[usage(long)]
     pub no_hooks: bool,
-    /// Hide the elapsed time printed after each task completes
-    ///
-    /// Set `PAKRO_TASK_TIMINGS=0` to hide it by default
-    #[usage(long, alias = "no-timing", hide = true, verbatim_doc_comment)]
-    pub no_timings: bool,
-    /// How task output is displayed when running a task (same as `pakro run --output`)
-    #[usage(long, hide = true)]
-    pub output: Option<TaskOutput>,
-    /// Read/write directly to stdin/stdout/stderr instead of by line
     #[usage(long, global = true)]
     pub raw: bool,
-    /// Require lockfile URLs to be present during installation
-    ///
-    /// Fails if tools don't have pre-resolved URLs in the lockfile for the current platform.
-    /// This prevents API calls to GitHub, aqua registry, etc.
-    /// Can also be enabled via PAKRO_LOCKED=1 or settings.locked=true
-    #[usage(long, global = true, verbatim_doc_comment)]
+    /// Restore the exact project lock without changing its contents.
+    #[usage(long, global = true)]
     pub locked: bool,
-    /// Suppress all task output and pakro non-error messages
     #[usage(long, global = true, overrides = &["quiet", "trace", "verbose", "debug", "log_level"])]
     pub silent: bool,
-    /// Show the elapsed time after each task completes
-    ///
-    /// Set `PAKRO_TASK_TIMINGS=1` to show it by default
-    #[usage(long, alias = "timing", verbatim_doc_comment, hide = true)]
-    pub timings: bool,
-    /// Set the log level to trace
     #[usage(long, global = true, hide = true, overrides = &["quiet", "silent", "verbose", "debug", "log_level"])]
     pub trace: bool,
 }
-
-/// Whether a help page pakro prints should carry colour.
-///
-/// pakro's own policy, not the renderer's: `Settings` folds `color`, `PAKRO_COLOR`, `CLICOLOR`,
-/// `CLICOLOR_FORCE`, `NO_COLOR` and CI detection into `console`, so a user who turned colour
-/// off has said so in one place. `Style::auto()` would ask the terminal directly and miss all
-/// of it. This is the rule `render_task_help` already follows.
 fn help_style() -> usage_rs::help::Style {
     help_style_for(console::colors_enabled())
 }
@@ -317,629 +157,103 @@ fn render_page(
     usage_rs::help::render_styled(spec, cmd, long, help_style())
 }
 
-fn render_subcommand_help(name: &str, long: bool) -> String {
-    let spec = Cli::spec();
-    let command = spec
-        .root
-        .subcommands
-        .iter()
-        .find(|command| command.cmd.name == name)
-        .unwrap_or_else(|| panic!("missing generated {name} command"));
-    usage_rs::help::render_styled(spec, command.cmd, long, help_style())
-        .unwrap_or_else(|| panic!("generated {name} command is outside the usage spec"))
-}
-
 #[derive(usage_rs::Subcommands, strum::Display)]
 #[strum(serialize_all = "kebab-case")]
 pub(crate) enum Commands {
     Activate(activate::Activate),
-    ToolAlias(Box<tool_alias::ToolAlias>),
-    Asdf(asdf::Asdf),
-    Backends(backends::Backends),
     BinPaths(bin_paths::BinPaths),
-    #[usage(visible_alias = "bs")]
-    Bootstrap(bootstrap::Bootstrap),
     Cache(cache::Cache),
     Completion(completion::Completion),
     Config(config::Config),
     Current(current::Current),
     Deactivate(deactivate::Deactivate),
-    Daemons(daemons::Daemons),
-    Direnv(direnv::Direnv),
-    #[usage(visible_alias = "dot")]
-    Dotfiles(dotfiles::Dotfiles),
     Doctor(doctor::Doctor),
-    En(en::En),
     Env(env::Env),
-    Exec(exec::Exec),
-    Fmt(fmt::Fmt),
-    Generate(generate::Generate),
-    Github(github::Github),
-    Global(global::Global),
     HookEnv(hook_env::HookEnv),
     HookNotFound(hook_not_found::HookNotFound),
     Implode(implode::Implode),
     Install(install::Install),
-    InstallInto(install_into::InstallInto),
     Installs(installs::Installs),
     Latest(latest::Latest),
-    Link(link::Link),
-    Local(local::Local),
-    Lock(lock::Lock),
     Ls(ls::Ls),
     LsRemote(ls_remote::LsRemote),
-    Mcp(mcp::Mcp),
-    Oci(oci::Oci),
-    Packslip(packslip::Packslip),
-    Outdated(outdated::Outdated),
-    Patrons(patrons::Patrons),
     Project(project::Project),
-    Plugins(plugins::Plugins),
     Deps(deps::Deps),
-    Prune(prune::Prune),
-    #[usage(name = "__publish-system-install", hide = true)]
-    PublishSystemInstall(publish_system_install::PublishSystemInstall),
     Registry(registry::Registry),
     Reshim(reshim::Reshim),
-    Run(Box<run::Run>),
     Search(search::Search),
     SelfUpdate(self_update::SelfUpdate),
-    Set(set::Set),
     Settings(settings::Settings),
-    Shell(shell::Shell),
-    Ssh(ssh::Ssh),
-    ShellAlias(shell_alias::ShellAlias),
-    Skills(skills::Skills),
-    Sponsors(sponsors::Sponsors),
-    Sync(sync::Sync),
-    Tasks(tasks::Tasks),
-    TestTool(test_tool::TestTool),
-    Token(token::Token),
-    Tool(tool::Tool),
-    ToolStub(tool_stub::ToolStub),
     Trust(trust::Trust),
     Uninstall(uninstall::Uninstall),
-    Unset(unset::Unset),
     Untrust(untrust::Untrust),
-    Unuse(unuse::Unuse),
-    Upgrade(upgrade::Upgrade),
     Usage(usage::Usage),
-    Use(r#use::Use),
     Version(version::Version),
-    Watch(Box<watch::Watch>),
     Where(r#where::Where),
-    Which(which::Which),
+    Which(r#which::Which),
 }
-
 impl Commands {
-    fn is_local_observation(&self) -> bool {
+    async fn preflight(&self) -> Result<()> {
         match self {
-            Self::Where(command) => !command.explicitly_non_python(),
-            Self::Which(command) => !command.explicitly_non_python(),
-            Self::BinPaths(command) => !command.explicitly_non_python(),
-            Self::Env(command) => !command.explicitly_non_python(),
-            Self::Current(command) => !command.explicitly_non_python(),
-            Self::Ls(command) => !command.explicitly_non_python(),
-            Self::HookEnv(_) => true,
-            Self::Project(command) => command.is_local_observation(),
-            Self::Installs(command) => {
-                command.is_local_observation() && !command.explicitly_non_python()
-            }
-            Self::Deps(command) => command.is_local_observation(),
-            _ => false,
-        }
-    }
-
-    async fn preflight_python_writes(&self) -> Result<()> {
-        match self {
-            Self::Use(command) => command.preflight().await,
-            Self::Unuse(command) => command.preflight().await,
-            Self::Upgrade(command) => command.preflight().await,
-            Self::Prune(command) => command.preflight().await,
-            Self::InstallInto(command) => command.preflight(),
-            Self::Deps(command) => command.preflight().await,
             Self::Install(command) => command.preflight().await,
+            Self::Deps(command) => command.preflight().await,
             _ => Ok(()),
         }
     }
-
-    fn is_dry_run(&self) -> bool {
-        match self {
-            Self::Bootstrap(cmd) => cmd.is_dry_run(),
-            Self::Implode(cmd) => cmd.is_dry_run(),
-            Self::Install(cmd) => cmd.is_dry_run(),
-            Self::Lock(cmd) => cmd.dry_run,
-            Self::Prune(cmd) => cmd.is_dry_run(),
-            Self::Run(cmd) => cmd.dry_run,
-            Self::Uninstall(cmd) => cmd.is_dry_run(),
-            Self::Upgrade(cmd) => cmd.is_dry_run(),
-            Self::Use(cmd) => cmd.is_dry_run(),
-            _ => false,
-        }
-    }
-
-    /// Commands that run as a service, with no terminal reading their output.
-    ///
-    /// Windows gives a Scheduled Task's console program a console of its own,
-    /// and the watcher would run behind that window until it was hidden. This
-    /// is asked for right after parsing, ahead of the auto-update that could
-    /// otherwise leave the window on screen for a download's worth of time.
-    fn runs_unattended(&self) -> bool {
-        match self {
-            Self::Dotfiles(cmd) => cmd.is_watch(),
-            Self::Bootstrap(cmd) => cmd.runs_unattended(),
-            _ => false,
-        }
-    }
-
-    /// Whether this parsed command may trigger a pre-command automatic update.
-    ///
-    /// This operates on clap's canonical command variant so aliases such as
-    /// `dr` inherit the same policy as `doctor`.
-    fn allows_auto_update(&self) -> bool {
-        !matches!(
-            self,
-            Self::Activate(_)
-                | Self::Completion(_)
-                | Self::Deactivate(_)
-                | Self::Doctor(_)
-                | Self::HookEnv(_)
-                | Self::HookNotFound(_)
-                | Self::Implode(_)
-                | Self::PublishSystemInstall(_)
-                | Self::SelfUpdate(_)
-                | Self::Settings(_)
-                | Self::Shell(_)
-                | Self::Ssh(_)
-                | Self::Usage(_)
-                | Self::Version(_)
-        )
-    }
-
-    /// Shell integration runs on startup and every prompt, so it must not do
-    /// an all-project tracked-config scan or mutate installed tools. Deferred
-    /// cleanup will run on the next ordinary command instead.
-    fn allows_tool_purgatory_auto_prune(&self) -> bool {
-        !matches!(
-            self,
-            Self::Activate(_)
-                | Self::Deactivate(_)
-                | Self::HookEnv(_)
-                | Self::HookNotFound(_)
-                | Self::PublishSystemInstall(_)
-                | Self::Ssh(_)
-        )
-    }
-
-    fn implicitly_trusts_active_config(&self) -> bool {
-        matches!(self, Self::Daemons(cmd) if cmd.starts())
-            || matches!(
-                self,
-                Self::Exec(_) | Self::Install(_) | Self::Run(_) | Self::Watch(_)
-            )
-    }
-
-    /// Builds the subcommand's future on the heap instead of awaiting it
-    /// here. An unoptimized build gives every arm's future its own slot in an
-    /// `async fn`'s poll frame, and that frame stays on the stack for the
-    /// whole command: as an `async fn` this dispatcher alone took ~1.8 MB of
-    /// a debug build's main stack. Building the futures in a plain `fn` frees
-    /// that frame before the command is polled. The other dispatchers
-    /// underneath (`bootstrap`, `dotfiles`) follow this pattern too.
     pub(crate) fn run(self) -> LocalBoxFuture<'static, Result<()>> {
         match self {
             Self::Activate(cmd) => Box::pin(async move { cmd.run() }),
-            Self::ToolAlias(cmd) => Box::pin(cmd.run()),
-            Self::Asdf(cmd) => Box::pin(cmd.run()),
-            Self::Backends(cmd) => Box::pin(cmd.run()),
             Self::BinPaths(cmd) => Box::pin(cmd.run()),
-            Self::Bootstrap(cmd) => Box::pin(cmd.run()),
             Self::Cache(cmd) => Box::pin(cmd.run()),
             Self::Completion(cmd) => Box::pin(cmd.run()),
             Self::Config(cmd) => Box::pin(cmd.run()),
             Self::Current(cmd) => Box::pin(cmd.run()),
             Self::Deactivate(cmd) => Box::pin(async move { cmd.run() }),
-            Self::Daemons(cmd) => Box::pin(cmd.run()),
-            Self::Direnv(cmd) => Box::pin(cmd.run()),
-            Self::Dotfiles(cmd) => Box::pin(cmd.run()),
             Self::Doctor(cmd) => Box::pin(cmd.run()),
-            Self::En(cmd) => Box::pin(cmd.run()),
             Self::Env(cmd) => Box::pin(cmd.run()),
-            Self::Exec(cmd) => Box::pin(cmd.run()),
-            Self::Fmt(cmd) => Box::pin(async move { cmd.run() }),
-            Self::Generate(cmd) => Box::pin(cmd.run()),
-            Self::Github(cmd) => Box::pin(cmd.run()),
-            Self::Global(cmd) => Box::pin(cmd.run()),
             Self::HookEnv(cmd) => Box::pin(cmd.run()),
             Self::HookNotFound(cmd) => Box::pin(cmd.run()),
             Self::Implode(cmd) => Box::pin(async move { cmd.run() }),
             Self::Install(cmd) => Box::pin(cmd.run()),
-            Self::InstallInto(cmd) => Box::pin(cmd.run()),
             Self::Installs(cmd) => Box::pin(cmd.run()),
             Self::Latest(cmd) => Box::pin(cmd.run()),
-            Self::Link(cmd) => Box::pin(cmd.run()),
-            Self::Local(cmd) => Box::pin(cmd.run()),
-            Self::Lock(cmd) => Box::pin(cmd.run()),
             Self::Ls(cmd) => Box::pin(cmd.run()),
             Self::LsRemote(cmd) => Box::pin(cmd.run()),
-            Self::Mcp(cmd) => Box::pin(cmd.run()),
-            Self::Oci(cmd) => Box::pin(cmd.run()),
-            Self::Packslip(cmd) => Box::pin(cmd.run()),
-            Self::Outdated(cmd) => Box::pin(cmd.run()),
-            Self::Patrons(cmd) => Box::pin(cmd.run()),
             Self::Project(cmd) => Box::pin(cmd.run()),
-            Self::Plugins(cmd) => Box::pin(cmd.run()),
             Self::Deps(cmd) => Box::pin(cmd.run()),
-            Self::Prune(cmd) => Box::pin(cmd.run()),
-            Self::PublishSystemInstall(cmd) => Box::pin(async move { cmd.run() }),
             Self::Registry(cmd) => Box::pin(cmd.run()),
             Self::Reshim(cmd) => Box::pin(cmd.run()),
-            Self::Run(cmd) => Box::pin((*cmd).run()),
             Self::Search(cmd) => Box::pin(cmd.run()),
             Self::SelfUpdate(cmd) => Box::pin(cmd.run()),
-            Self::Set(cmd) => Box::pin(cmd.run()),
             Self::Settings(cmd) => Box::pin(cmd.run()),
-            Self::Shell(cmd) => Box::pin(cmd.run()),
-            Self::Ssh(cmd) => Box::pin(cmd.run()),
-            Self::ShellAlias(cmd) => Box::pin(cmd.run()),
-            Self::Skills(cmd) => Box::pin(cmd.run()),
-            Self::Sponsors(cmd) => Box::pin(async move { cmd.run() }),
-            Self::Sync(cmd) => Box::pin(cmd.run()),
-            Self::Tasks(cmd) => Box::pin(cmd.run()),
-            Self::TestTool(cmd) => Box::pin(cmd.run()),
-            Self::Token(cmd) => Box::pin(cmd.run()),
-            Self::Tool(cmd) => Box::pin(cmd.run()),
-            Self::ToolStub(cmd) => Box::pin(cmd.run()),
             Self::Trust(cmd) => Box::pin(cmd.run()),
             Self::Uninstall(cmd) => Box::pin(cmd.run()),
-            Self::Unset(cmd) => Box::pin(cmd.run()),
             Self::Untrust(cmd) => Box::pin(async move { cmd.run() }),
-            Self::Unuse(cmd) => Box::pin(cmd.run()),
-            Self::Upgrade(cmd) => Box::pin(cmd.run()),
             Self::Usage(cmd) => Box::pin(async move { cmd.run() }),
-            Self::Use(cmd) => Box::pin(cmd.run()),
             Self::Version(cmd) => Box::pin(cmd.run()),
-            Self::Watch(cmd) => Box::pin(cmd.run()),
             Self::Where(cmd) => Box::pin(cmd.run()),
             Self::Which(cmd) => Box::pin(cmd.run()),
         }
     }
 }
-
-fn has_dry_run_flag(args: &[String], allow_short: bool) -> bool {
-    args.iter()
-        .take_while(|arg| arg.as_str() != "--")
-        .any(|arg| {
-            matches!(arg.as_str(), "--dry-run" | "--dry-run-code")
-                || allow_short
-                    && arg
-                        .strip_prefix('-')
-                        .is_some_and(|flags| !flags.starts_with('-') && flags.contains('n'))
-        })
-}
-
-fn get_global_flags(cmd: &usage_rs::Command<'_>) -> (Vec<String>, Vec<String>) {
-    let mut flags_with_values = Vec::new();
-    let mut boolean_flags = Vec::new();
-
-    for arg in cmd.flags {
-        let takes_value = arg.takes_value;
-        let is_bool = !takes_value;
-
-        if takes_value {
-            if let Some(long) = arg.longs.first() {
-                flags_with_values.push(format!("--{}", long));
-            }
-            if let Some(short) = arg.shorts.first() {
-                flags_with_values.push(format!("-{}", *short as char));
-            }
-        } else if is_bool {
-            if let Some(long) = arg.longs.first() {
-                boolean_flags.push(format!("--{}", long));
-            }
-            if let Some(short) = arg.shorts.first() {
-                boolean_flags.push(format!("-{}", *short as char));
-            }
-        }
-    }
-
-    (flags_with_values, boolean_flags)
-}
-
-/// Get all flags (with values and boolean) from both global Cli and Run subcommand
-fn get_all_run_flags(cmd: &usage_rs::Command<'_>) -> (Vec<String>, Vec<String>) {
-    // Get global flags from Cli
-    let (mut flags_with_values, mut boolean_flags) = get_global_flags(cmd);
-
-    // Get run-specific flags from Run subcommand
-    if let Some(run_cmd) = cmd.subcommands.iter().find(|s| s.name == "run") {
-        let (run_vals, run_bools) = get_global_flags(run_cmd);
-        flags_with_values.extend(run_vals);
-        boolean_flags.extend(run_bools);
-    }
-
-    (flags_with_values, boolean_flags)
-}
-
-fn get_value_taking_short_flags(cmd: &usage_rs::Command<'_>) -> Vec<(String, String)> {
-    cmd.flags
-        .iter()
-        .filter(|arg| arg.takes_value)
-        .filter_map(|arg| Some((*arg.shorts.first()? as char, *arg.longs.first()?)))
-        .map(|(short, long)| (format!("-{short}"), format!("--{long}")))
-        .collect()
-}
-
-fn get_all_run_value_taking_short_flags(cmd: &usage_rs::Command<'_>) -> Vec<(String, String)> {
-    let mut flags = get_value_taking_short_flags(cmd);
-    if let Some(run_cmd) = cmd
-        .subcommands
-        .iter()
-        .find(|subcommand| subcommand.name == "run")
-    {
-        flags.extend(get_value_taking_short_flags(run_cmd));
-    }
-    flags
-}
-
-/// Prefix used to escape flags that should be passed to tasks, not pakro
-const TASK_ARG_ESCAPE_PREFIX: &str = "\x00PAKRO_TASK_ARG\x00";
-
-/// One task-side argument, with a leading flag hidden from the parser.
-///
-/// A lone `-` is the conventional stdin placeholder rather than a flag, so it passes through. That
-/// exception was written out at each of the three places that needed this rule; this is the only
-/// copy of it now.
-fn escape_flag_arg(arg: &str) -> String {
-    if arg.starts_with('-') && arg != "-" {
-        format!("{TASK_ARG_ESCAPE_PREFIX}{arg}")
-    } else {
-        arg.to_string()
-    }
-}
-
-fn escape_args_after_separator(args: &[String], separator_idx: usize) -> Vec<String> {
-    let mut result = args[..=separator_idx].to_vec();
-    result.extend(args[separator_idx + 1..].iter().map(|a| escape_flag_arg(a)));
-    result
-}
-
-use pakro_util::args::first_non_global_arg_idx_with;
-
-/// Index of the first argument that is not a global flag or one of its values.
-///
-/// Takes a `&Command` so callers that have already built one (argument parsing)
-/// use its real flag set. Callers without one want
-/// [`first_non_global_arg_idx_cached`].
 pub(crate) fn first_non_global_arg_idx(
     cmd: &usage_rs::Command<'_>,
     args: &[String],
 ) -> Option<usize> {
-    let flags = get_global_flags(cmd).0;
-    first_non_global_arg_idx_with(|f| flags.iter().any(|x| x == f), args)
-}
-
-fn is_known_subcommand(cmd: &usage_rs::Command<'_>, arg: &str) -> bool {
-    cmd.subcommands
-        .iter()
-        .flat_map(|s| std::iter::once(s.name).chain(s.aliases.iter().copied()))
-        .any(|name| name == arg)
-}
-
-fn uses_deprecated_backends_alias(cmd: &usage_rs::Command<'_>, args: &[String]) -> bool {
-    matches!(
-        first_non_global_arg_idx(cmd, args).and_then(|idx| args.get(idx)),
-        Some(arg) if arg == "b"
+    pakro_util::args::first_non_global_arg_idx_with(
+        |name| {
+            cmd.flags.iter().any(|flag| {
+                flag.takes_value
+                    && (flag.longs.iter().any(|long| name == format!("--{long}"))
+                        || flag
+                            .shorts
+                            .iter()
+                            .any(|short| name == format!("-{}", *short as char)))
+            })
+        },
+        args,
     )
 }
-
-fn warn_deprecated_backends_alias(uses_alias: bool) {
-    if uses_alias {
-        deprecated_at!(
-            "2026.4.0",
-            "2027.4.0",
-            "cli.backends.b",
-            "`pakro b` is deprecated. Use `pakro backends` instead."
-        );
-    }
-}
-
-/// Escape flags after task names so clap doesn't parse them as pakro flags.
-/// This preserves ::: separators for multi-task handling while preventing
-/// clap from consuming flags like --jobs that appear after task names.
-fn escape_task_args(cmd: &usage_rs::Command<'_>, args: &[String]) -> Vec<String> {
-    // Find the pakro `run` subcommand position. Do not scan past `--`; values
-    // after that boundary belong to another command or a task.
-    let first_idx = first_non_global_arg_idx(cmd, args);
-    let run_pos = first_idx.filter(|&pos| args[pos] == "run");
-    let run_pos = match run_pos {
-        Some(pos) => pos,
-        None => {
-            if let (Some(task_idx), Some(separator_idx)) =
-                (first_idx, args.iter().position(|a| a == "--"))
-            {
-                if is_known_subcommand(cmd, &args[task_idx]) || separator_idx <= task_idx {
-                    return args.to_vec();
-                }
-                return escape_args_after_separator(args, separator_idx);
-            }
-            return args.to_vec();
-        }
-    };
-
-    if let Some(separator_idx) = args[run_pos + 1..].iter().position(|a| a == "--") {
-        let separator_idx = run_pos + 1 + separator_idx;
-        // First protect task-side flags before the separator (`run TASK -q -- ...`),
-        // then preserve the existing escaping for its tail.
-        let mut result = escape_task_args(cmd, &args[..separator_idx]);
-        // `separator_idx` was found by matching `"--"`, so the slice starting there begins with it:
-        // `escape_args_after_separator(.., 0)` emits that element and then escapes the tail, which
-        // is what this branch used to build by hand.
-        result.extend(escape_args_after_separator(&args[separator_idx..], 0));
-        return result;
-    }
-
-    let (flags_with_values, _) = get_all_run_flags(cmd);
-    let short_flags_with_values = get_all_run_value_taking_short_flags(cmd);
-
-    // Build result, escaping flags that appear after task names
-    let mut result = args[..=run_pos].to_vec(); // Include up to and including "run"
-    let mut in_task_args = false; // true after we've seen a task name
-
-    let mut i = run_pos + 1;
-    while i < args.len() {
-        let arg = &args[i];
-
-        // ::: starts a new task, so reset to looking for task name
-        if arg == ":::" {
-            result.push(arg.clone());
-            in_task_args = false;
-            i += 1;
-            continue;
-        }
-
-        if !in_task_args {
-            // Looking for task name - skip any pakro flags
-            if arg.starts_with('-') {
-                // clap treats attached values for short options as positional
-                // values when the positional allows hyphens. Normalize them to
-                // unambiguous long options before parsing.
-                let attached_short_value =
-                    short_flags_with_values.iter().find_map(|(short, long)| {
-                        arg.strip_prefix(short)
-                            .filter(|value| !value.is_empty())
-                            .map(|value| (long, value))
-                    });
-
-                if let Some((long, value)) = attached_short_value {
-                    let value = value.strip_prefix('=').unwrap_or(value);
-                    result.push(format!("{long}={value}"));
-                    i += 1;
-                    continue;
-                }
-
-                // It's a flag - keep it as-is for pakro to parse
-                result.push(arg.clone());
-
-                // Check if this flag takes a value (and needs to consume the next arg)
-                let flag_takes_value = if arg.starts_with("--") {
-                    if arg.contains('=') {
-                        false // --flag=value, no separate value
-                    } else {
-                        flags_with_values.iter().any(|f| f == arg)
-                    }
-                } else if arg.len() > 2 {
-                    // Short flag with embedded value (e.g., -j4), no separate value needed
-                    false
-                } else if arg.len() == 2 {
-                    let flag_name = &arg[..2];
-                    flags_with_values.iter().any(|f| f == flag_name)
-                } else {
-                    false
-                };
-
-                if flag_takes_value && i + 1 < args.len() && !args[i + 1].starts_with('-') {
-                    i += 1;
-                    result.push(args[i].clone());
-                }
-            } else {
-                // Found task name
-                result.push(arg.clone());
-                in_task_args = true;
-            }
-        } else {
-            // In task args - escape flags so the parser doesn't take them
-            result.push(escape_flag_arg(arg));
-        }
-
-        i += 1;
-    }
-
-    result
-}
-
-/// Unescape task args that were escaped by escape_task_args
-pub(crate) fn unescape_task_args(args: &[String]) -> Vec<String> {
-    args.iter()
-        .map(|arg| {
-            if let Some(stripped) = arg.strip_prefix(TASK_ARG_ESCAPE_PREFIX) {
-                stripped.to_string()
-            } else {
-                arg.clone()
-            }
-        })
-        .collect()
-}
-
-fn preprocess_args_for_naked_run(cmd: &usage_rs::Command<'_>, args: &[String]) -> Vec<String> {
-    // Check if this might be a naked run (no subcommand)
-    if args.len() < 2 {
-        return args.to_vec();
-    }
-
-    // If there's already a '--' separator, let clap handle the naked task path.
-    // escape_task_args will still protect task-side flags after the separator.
-    if args.contains(&"--".to_string()) {
-        return args.to_vec();
-    }
-
-    // Skip global flags to find the first non-flag argument (subcommand or task)
-    let Some(i) = first_non_global_arg_idx(cmd, args) else {
-        return args.to_vec();
-    };
-
-    // Check if the first non-flag argument is a known subcommand
-    if is_known_subcommand(cmd, &args[i]) {
-        return args.to_vec();
-    }
-
-    // Special case: "help" should print help, not be treated as a task
-    if args[i] == "help" || args[i] == "-h" || args[i] == "--help" {
-        return args.to_vec();
-    }
-
-    // This is a naked run - inject "run" subcommand so clap routes it correctly
-    // Format: ["pakro", "-q", "task", "arg1"] becomes ["pakro", "-q", "run", "task", "arg1"]
-    // This preserves global flags while making it an explicit run command
-    let mut result = args[..i].to_vec(); // Keep program name + global flags
-    result.push("run".to_string()); // Insert "run" subcommand
-    result.extend_from_slice(&args[i..]); // Add task name and args
-    result
-}
-
-/// Recognize the query path before configuration loading, even when query arguments are invalid.
-/// Parser events distinguish command names from flag values and task or exec payloads.
-fn is_packages_where_query(args: &[String]) -> bool {
-    let argv = args
-        .iter()
-        .skip(1)
-        .map(std::ffi::OsStr::new)
-        .collect::<Vec<_>>();
-    let mut parser = usage_rs::Parser::new(Cli::command(), &argv);
-    let mut path = ["bootstrap", "packages", "where"].into_iter();
-    while let Some(event) = parser.next_event() {
-        if parser.double_dash_seen() {
-            return false;
-        }
-        match event {
-            Ok(usage_rs::Event::Command(command)) => {
-                if Some(command.name) != path.next() {
-                    return false;
-                }
-                if path.len() == 0 {
-                    return true;
-                }
-            }
-            Ok(usage_rs::Event::Flag { .. }) => {}
-            _ => return false,
-        }
-    }
-    false
-}
-
-/// Select recovery isolation before normal startup can migrate, prune, or
-/// contact a registry. An install-only flag after `--` belongs to a positional
-/// argument, and the same token in an exec/task payload must never opt in.
 fn bytecode_recovery_command_index(args: &[String]) -> Option<usize> {
     let mut remaining = args
         .iter()
@@ -988,11 +302,6 @@ fn bytecode_recovery_command_index(args: &[String]) -> Option<usize> {
     }
 }
 
-#[cfg(test)]
-fn is_bytecode_recovery_invocation(args: &[String]) -> bool {
-    bytecode_recovery_command_index(args).is_some()
-}
-
 /// The fast path reads no settings, so unless something loaded them there is
 /// nothing to report; setting up the logger would load them.
 fn finish_hook_env_fast_exit() {
@@ -1002,12 +311,8 @@ fn finish_hook_env_fast_exit() {
     }
 }
 
-/// Hand core the pieces of CLI behavior it calls into (see [`crate::frontend`]).
 pub(crate) fn register_frontend() {
     crate::frontend::register(crate::frontend::Frontend {
-        lockfiles_after_install: |config, installed| {
-            Box::pin(async move { lock::Lock::generate_after_install(config, &installed).await })
-        },
         subcommand_names: || {
             Cli::command()
                 .subcommands
@@ -1018,10 +323,7 @@ pub(crate) fn register_frontend() {
         },
     });
 }
-
 impl Cli {
-    /// The settings layer the global flags set on top of `command_local`,
-    /// for `Settings::add_cli_matches`.
     fn settings_layer(&self, command_local: SettingsPartial) -> SettingsPartial {
         let mut s = command_local;
         if self.raw {
@@ -1069,16 +371,8 @@ impl Cli {
         s
     }
 
-    /// Answers an unchanged `hook-env` before `main` starts the async runtime.
-    ///
-    /// The shell hook runs before every prompt and nearly always finds nothing
-    /// changed. Building the runtime spawns up to 16 worker threads, which
-    /// costs more than the check, so this repeats the steps of `run_inner` that
-    /// come before its fast path and runs that fast path here. Anything it
-    /// cannot settle returns false, and `run` then goes through `run_inner` as
-    /// usual.
     pub(crate) fn exit_early_for_unchanged_hook_env(args: &[String]) -> bool {
-        if args.get(1).map(String::as_str) != Some("hook-env") || *crate::env::PAKRO_TOOL_STUB {
+        if args.get(1).map(String::as_str) != Some("hook-env") {
             return false;
         }
         *crate::env::ARGS.write().unwrap() = args.to_vec();
@@ -1095,20 +389,7 @@ impl Cli {
     pub(crate) async fn run(args: &Vec<String>) -> Result<()> {
         run_with_exit_signal(Self::run_inner(args), ctrlc::exit_signal()).await
     }
-
     async fn run_inner(args: &Vec<String>) -> Result<()> {
-        // Git invokes this exact internal form while holding repository locks.
-        // Avoid project configuration, shims, and normal CLI initialization.
-        if args.len() == 5 && args[1..4] == ["token", "github", "--git-credential"] {
-            crate::env::ARGS.write().unwrap().clone_from(args);
-            Settings::init_git_credential()?;
-            return token::git_credential::run(&args[4]);
-        }
-        // usage-rs's generated `parse()` intercepts this, but pakro never calls
-        // `parse()` — it uses `parse_from_argv` after shim/naked-run rewriting.
-        // Handle the hidden completion protocol here, before config or tools load.
-        // Record ARGS first: an error from this path (a closed stdout, an unreadable
-        // spec) still reaches `handle_err`, whose logger setup reads them.
         crate::env::ARGS.write().unwrap().clone_from(args);
         let completion_argv: Vec<std::ffi::OsString> =
             args.iter().skip(1).map(std::ffi::OsString::from).collect();
@@ -1120,26 +401,7 @@ impl Cli {
             pakroprint!("{answer}")?;
             return Ok(());
         }
-        if is_packages_where_query(args) {
-            Settings::select_package_query_sources();
-            crate::env::ARGS.write().unwrap().clone_from(args);
-            let argv = args.iter().map(std::ffi::OsStr::new).collect::<Vec<_>>();
-            let cli = Cli::parse_from_argv(&argv).map_err(|err| usage_error(&argv[1..], err))?;
-            if !matches!(&cli.command, Some(Commands::Bootstrap(cmd)) if cmd.is_packages_where()) {
-                bail!("internal error: recognized package query parsed as another command");
-            }
-            validate_cd_path(&cli.cd)?;
-            Settings::init_package_query(cli.settings_layer(SettingsPartial::empty()))?;
-            logger::init();
-            let Some(Commands::Bootstrap(command)) = cli.command else {
-                unreachable!("package query variant was checked");
-            };
-            return command.run().await;
-        }
         if let Some(command) = bytecode_recovery_command_index(args) {
-            // Reuse the existing environment-only settings source: neither
-            // malformed project TOML nor project hooks may interfere with a
-            // fully explicit local recovery request.
             Settings::select_package_query_sources();
             crate::toolset::install_state::init_readonly_plugin_metadata()?;
             let mut recovery_args = args.clone();
@@ -1150,96 +412,48 @@ impl Cli {
                 .collect::<Vec<_>>();
             let mut cli =
                 Cli::parse_from_argv(&argv).map_err(|err| usage_error(&argv[1..], err))?;
-            if !matches!(&cli.command, Some(Commands::Install(install)) if install.is_bytecode_recovery())
-            {
-                bail!("internal error: recognized bytecode recovery parsed as another command");
-            }
             validate_cd_path(&cli.cd)?;
             Settings::init_package_query(cli.settings_layer(SettingsPartial::empty()))?;
             logger::init();
-            eyre::ensure!(
-                cli.tool.is_empty(),
-                "bytecode recovery does not support installation options or package requests"
-            );
             let Some(Commands::Install(mut install)) = cli.command.take() else {
-                unreachable!("bytecode recovery variant was checked");
+                bail!("bytecode recovery requires install");
             };
-            install.inherit_recovery_flags(cli.dry_run, cli.force, cli.raw, cli.jobs);
+            install.inherit_recovery_flags(cli.dry_run, cli.raw, cli.jobs);
             return install.run().await;
         }
-        crate::env::ARGS.write().unwrap().clone_from(args);
-        let original_cwd = std::env::current_dir().ok();
         crate::config::set_readonly_invocation(true);
-        // Load .pakrorc.toml early, before PAKRO_ENV and other early settings are accessed.
-        // This allows setting PAKRO_ENV in a config file instead of only via env vars.
         crate::config::pakrorc::init()?;
-        if *crate::env::PAKRO_TOOL_STUB && args.len() >= 2 {
-            tool_stub::short_circuit_stub(&args[2..]).await?;
-        }
-        // Fast-path for hook-env: exit early if nothing has changed
-        // This avoids expensive backend::load_tools() and config loading
         if hook_env_module::should_exit_early_fast() {
             finish_hook_env_fast_exit();
             return Ok(());
         }
-        measure!("logger", { logger::init() });
+        logger::init();
         check_working_directory();
-        measure!("handle_shim", { shim::handle_shim().await })?;
+        shim::handle_shim().await?;
         let print_version = version::print_version_if_requested(args)?;
-        // Clap's tool argument parsers consult installed plugin/tool metadata while
-        // resolving registry options. Initialize that filesystem-only state before
-        // parsing, while leaving full backend loading until after registry refresh.
-        if !print_version {
-            measure!("install_state::init", {
-                crate::toolset::install_state::init_readonly_plugin_metadata()?
-            });
-        }
-        // Pre-process args to handle naked runs before parsing
-        let cmd = measure!("build_cli_command", { Cli::command() });
-        let processed_args = preprocess_args_for_naked_run(cmd, args);
-        // Escape flags after task names so they go to tasks, not pakro
-        let mut processed_args = escape_task_args(cmd, &processed_args);
-        // `pakro install python@3.10.14+numpy@4.2.2`: keep the runtime in the
-        // argv for a normal tool install, lift the package pins out for the
-        // packages hook
-        if let Some(command_idx) = first_non_global_arg_idx(cmd, args)
-            && matches!(args[command_idx].as_str(), "install" | "i" | "use" | "u")
+        crate::toolset::install_state::init_readonly_plugin_metadata()?;
+        let mut processed_args = args.clone();
+        if let Some(index) = first_non_global_arg_idx(Cli::command(), args)
+            && matches!(args[index].as_str(), "install" | "i")
         {
-            crate::packages::extract_bound_package_args(&mut processed_args[command_idx + 1..]);
+            crate::packages::extract_bound_package_args(&mut processed_args[index + 1..]);
         }
-        let deprecated_backends_alias = uses_deprecated_backends_alias(cmd, args);
-
-        let parsed_argv: Vec<&std::ffi::OsStr> =
-            processed_args.iter().map(std::ffi::OsStr::new).collect();
-        let (mut cli, cli_settings) = measure!("parse_args", {
-            Cli::parse_from_argv_with_settings(&parsed_argv)
-                .map_err(|err| usage_error(&parsed_argv[1..], err))
-        })?;
-        if let Some(Commands::Bootstrap(bootstrap)) = &mut cli.command {
-            bootstrap.inherit_root_flags(cli.dry_run, cli.yes);
-        }
+        let argv = processed_args
+            .iter()
+            .map(std::ffi::OsStr::new)
+            .collect::<Vec<_>>();
+        let (mut cli, cli_settings) = Cli::parse_from_argv_with_settings(&argv)
+            .map_err(|err| usage_error(&argv[1..], err))?;
         if let Some(Commands::Install(install)) = &mut cli.command {
-            install.inherit_root_yes(cli.yes);
-            install.inherit_root_admission_flags(cli.force, cli.dry_run);
+            install.inherit_root_dry_run(cli.dry_run);
         }
-        config_file::set_implicitly_trust_active_config(
-            cli.command
-                .as_ref()
-                .is_some_and(Commands::implicitly_trusts_active_config)
-                || cli.task.is_some(),
-        );
-        // Validate --cd path BEFORE Settings processes it and changes the directory
+        config_file::set_implicitly_trust_active_config(matches!(
+            cli.command.as_ref(),
+            Some(Commands::Install(_) | Commands::Deps(_))
+        ));
         validate_cd_path(&cli.cd)?;
-        let command_local = command_local_settings(&cli_settings)?;
-        measure!("add_cli_matches", {
-            Settings::add_cli_matches(cli.settings_layer(command_local))
-        });
-        // Propagated, not discarded: this is where `--cd` is actually applied, and a directory
-        // that passed the checks above can still refuse the `chdir` — no execute permission, or a
-        // path past the length `SetCurrentDirectory` accepts. Dropping the error here does not
-        // avoid it, it only defers it: `BASE_SETTINGS` stays empty, so the next `Settings::get()`
-        // repeats the same failure and unwraps it.
-        if let Err(error) = measure!("settings", { Settings::try_get() }) {
+        Settings::add_cli_matches(cli.settings_layer(command_local_settings(&cli_settings)?));
+        if let Err(error) = Settings::try_get() {
             if let Some(Commands::HookEnv(command)) = &cli.command {
                 if let Err(withdrawal) = command.withdraw_previous_environment() {
                     warn!("could not withdraw the previous managed environment: {withdrawal:#}");
@@ -1247,220 +461,24 @@ impl Cli {
             }
             return Err(error);
         }
-        // Git may hold installation locks while asking for credentials. Do not
-        // refresh registries, migrate, or auto-update from its helper process.
-        if let Some(Commands::Token(token)) = &cli.command
-            && let Some(result) = token.run_git_credential()
-        {
-            return result;
-        }
-        // The system publication helper runs as root: nothing beyond settings
-        // may run before it, or root-owned caches, registries and updates land
-        // in the invoking user's directories.
-        if let Some(Commands::PublishSystemInstall(cmd)) = &cli.command {
-            return cmd.run();
-        }
-        if let Some(command) = &cli.command {
-            command.preflight_python_writes().await?;
-            // Resolve configured aliases without tracking or maintenance before
-            // classifying an explicit tool as outside shared Python.
-            if matches!(
-                command,
-                Commands::Where(_)
-                    | Commands::Which(_)
-                    | Commands::BinPaths(_)
-                    | Commands::Env(_)
-                    | Commands::Current(_)
-                    | Commands::Ls(_)
-                    | Commands::Installs(_)
-            ) {
-                read_config_for_admission().await?;
-            }
-            let local_observation = match command {
-                Commands::Env(command) => command.requires_shared_python().await?,
-                Commands::BinPaths(command) => command.requires_shared_python().await?,
-                Commands::Which(command) => command.requires_shared_python().await?,
-                _ => command.is_local_observation(),
-            };
-            if local_observation {
-                // The core/backend registry can be decoded from existing local
-                // metadata. Refresh, tracking, migrations and maintenance are
-                // deliberately absent from this branch, including mixed queries.
-                backend::load_tools().await?;
-                return cli.get_command().await?.run().await;
-            }
-        }
-        crate::config::set_readonly_invocation(false);
-        // After everything that can still refuse this invocation — a bad
-        // `--cd`, unbuildable settings, an untrusted config — so their errors
-        // land in a console somebody can still read, and before the
-        // auto-update that could otherwise leave the window up for a download.
-        if cli.command.as_ref().is_some_and(Commands::runs_unattended) {
-            crate::windows_console::hide_if_unattended();
-        }
-        let auto_update_command_eligible = !print_version
-            && cli
-                .command
-                .as_ref()
-                .is_some_and(Commands::allows_auto_update);
-        measure!("auto_update", {
-            self_update::maybe_auto_update(
-                args,
-                original_cwd.as_deref(),
-                auto_update_command_eligible,
-            )
-            .await?
-        });
-        measure!("trust_active_config", {
-            config_file::trust_active_config()?
-        });
-        measure!("logger", { logger::init() });
-        if matches!(cli.command, Some(Commands::Oci(_))) {
-            // The image gets `[oci.env]`, so a `required` var it defines needn't be set
-            // on the build host. Must precede the first config load, which validates
-            // `[env]`.
-            crate::config::env_directive::oci_env_satisfies_required();
-        }
-        if !print_version {
-            measure!("registry::refresh", { crate::registry::refresh().await });
-            let _ = measure!("backend::load_tools", { backend::load_tools().await });
-        }
-        warn_deprecated_backends_alias(deprecated_backends_alias);
-        measure!("migrate", { migrate::run().await });
-        if let Err(err) = crate::cache::auto_prune() {
-            warn!("auto_prune failed: {err:?}");
-        }
-        let dry_run_requested = cli.dry_run
-            || cli.command.as_ref().is_some_and(Commands::is_dry_run)
-            // Nested command structs are private to their modules, so inspect
-            // their parsed argument span as a fallback. Task/exec arguments
-            // after `--` cannot affect this policy. `watch -n` means
-            // `--no-shell`, unlike every other pakro `-n` flag.
-            || has_dry_run_flag(
-                &processed_args,
-                !matches!(cli.command.as_ref(), Some(Commands::Watch(_))),
-            );
-        if !print_version
-            && !dry_run_requested
-            && !Settings::no_config()
-            && cli
-                .command
-                .as_ref()
-                .is_none_or(Commands::allows_tool_purgatory_auto_prune)
-            && let Err(err) = crate::tool_purgatory::auto_prune().await
-        {
-            warn!("tool purgatory cleanup failed: {err:#}");
-        }
-
-        debug!("ARGS: {}", &args.join(" "));
-        trace!("PAKRO_BIN: {}", crate::env::PAKRO_BIN.display_user());
         if print_version {
-            version::show_latest().await;
-            version::show_version_hint();
             return Err(request_exit(0));
         }
-        let _remote_task_artifacts = crate::task::task_fetcher::RemoteTaskArtifactsGuard::new();
-        let cmd = cli.get_command().await?;
-        measure!("run {cmd}", { cmd.run().await })
-    }
-
-    async fn get_command(self) -> Result<Commands> {
-        if let Some(cmd) = self.command {
-            Ok(cmd)
-        } else {
-            if let Some(task) = self.task {
-                // Handle special case: "help", "-h", or "--help" as task should print help
-                if task == "help" || task == "-h" || task == "--help" {
-                    if let Some(page) = render_page(Cli::spec(), Cli::command(), false) {
-                        pakroprint!("{page}")?;
-                    }
-                    return Err(request_exit(0));
+        if let Some(command) = &cli.command {
+            command.preflight().await?;
+        }
+        backend::load_tools().await?;
+        match cli.command {
+            Some(command) => command.run().await,
+            None => {
+                if let Some(page) = render_page(Cli::spec(), Cli::command(), false) {
+                    pakroprint!("{page}")?;
                 }
-
-                let config = Config::get().await?;
-
-                // Expand :task pattern to match tasks in current directory's config root
-                let task = crate::task::expand_colon_task_syntax(&task, &config)?;
-
-                // For monorepo task patterns (starting with //), we need to load
-                // tasks from the entire monorepo, not just the current hierarchy
-                let tasks = if task.starts_with("//") {
-                    let ctx = crate::task::TaskLoadContext::from_pattern(&task);
-                    config.tasks_with_context(Some(&ctx)).await?
-                } else {
-                    config.tasks().await?
-                };
-                if tasks.iter().any(|(_, t)| t.is_match(&task)) {
-                    return Ok(Commands::Run(Box::new(run::Run {
-                        task: Some(task),
-                        args: self.task_args.unwrap_or_default(),
-                        args_last: self.task_args_last,
-                        all: false,
-                        affected: false,
-                        affected_base: None,
-                        affected_head: None,
-                        affected_explain: false,
-                        affected_json: false,
-                        cd: self.cd,
-                        continue_on_error: self.continue_on_error,
-                        dry_run: self.dry_run,
-                        force: self.force,
-                        is_linear: false,
-                        jobs: self.jobs,
-                        no_timings: self.no_timings,
-                        output: self.output,
-                        shell: self.shell,
-                        quiet: self.quiet,
-                        silent: self.silent,
-                        raw: self.raw,
-                        timings: self.timings,
-                        tmpdir: Default::default(),
-                        tool: Default::default(),
-                        output_handler: None,
-                        context_builder: Default::default(),
-                        executor: None,
-                        telemetry: None,
-                        no_cache: Default::default(),
-                        task_cache: crate::task::TaskCacheMode::from_env()?,
-                        task_cache_explain: false,
-                        task_cache_explain_json: false,
-                        task_cache_stats: false,
-                        timeout: None,
-                        skip_deps: false,
-                        skip_tools: false,
-                        no_deps: false,
-                        fresh_env: false,
-                        deny_all: false,
-                        deny_read: false,
-                        deny_write: false,
-                        deny_net: false,
-                        deny_env: false,
-                        allow_read: vec![],
-                        allow_write: vec![],
-                        allow_net: vec![],
-                        allow_env: vec![],
-                    })));
-                } else if let Some(cmd) = external::COMMANDS.get(&task) {
-                    external::execute(
-                        &task.into(),
-                        cmd.clone(),
-                        self.task_args
-                            .unwrap_or_default()
-                            .into_iter()
-                            .chain(self.task_args_last)
-                            .collect(),
-                    )?;
-                    return Err(request_exit(0));
-                }
+                Err(request_exit(1))
             }
-            if let Some(page) = render_page(Cli::spec(), Cli::command(), false) {
-                pakroprint!("{page}")?;
-            }
-            Err(request_exit(1))
         }
     }
 }
-
 async fn run_with_exit_signal<T>(
     command: impl std::future::Future<Output = Result<T>>,
     exit_signal: impl std::future::Future<Output = i32>,
@@ -1517,10 +535,7 @@ fn usage_error(argv: &[&std::ffi::OsStr], err: usage_rs::Error<'_, '_>) -> Repor
     }
 }
 
-const LONG_ABOUT: &str = "pakro installs the dev tools your projects need, sets their environment variables, and runs their tasks.
-
-Tools, env vars, and tasks are declared in pakro.toml. `pakro use <TOOL>` adds a tool to the project in the current directory, `pakro install` installs everything the config asks for, and `pakro run <TASK>` runs a task. Docs: https://mise.jdx.dev";
-
+const LONG_ABOUT: &str = "Pakro manages shared Python runtimes, packages and project selections. Maintain declarations in pakro.toml, install explicitly, and use the selected environment from the project directory.";
 /// Check if the current working directory exists and warn if not
 fn check_working_directory() {
     if std::env::current_dir().is_err() {
@@ -1559,1196 +574,105 @@ fn validate_cd_path(cd: &Option<PathBuf>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pakro_util::args::GLOBAL_FLAGS_WITH_VALUES;
-
-    #[test]
-    /// A help page follows pakro's colour decision, not the terminal's.
-    ///
-    /// `Style::auto()` asks the terminal and so ignored `color`, `PAKRO_COLOR` and `CLICOLOR`,
-    /// which `Settings` folds into `console` — a user who turned colour off still got a
-    /// coloured help page. This pins the mapping the fix put in its place.
-    fn help_colour_follows_pakro_rather_than_the_terminal() {
-        assert_eq!(help_style_for(true), usage_rs::help::Style::COLOURED);
-        assert_eq!(help_style_for(false), usage_rs::help::Style::PLAIN);
+    fn parses(arguments: &[&str]) -> bool {
+        let argv = arguments
+            .iter()
+            .map(std::ffi::OsStr::new)
+            .collect::<Vec<_>>();
+        Cli::parse_from_argv(&argv).is_ok()
     }
-
     #[test]
-    fn f1_bytecode_recovery_classifier_selects_explicit_install_even_if_incomplete() {
-        let cases: &[&[&str]] = &[
-            &[
-                "pakro",
-                "install",
-                "python@3.11.17+20261013",
-                "--restore-bytecode",
-                "instance",
-            ],
-            &[
-                "pakro",
-                "--quiet",
-                "--cd",
-                ".",
-                "install",
-                "python",
-                "3.11.17+20261013",
-                "--restore-bytecode=instance",
-                "--dry-run",
-            ],
-            &["pakro", "--dry-run", "i", "--restore-bytecode", "instance"],
-            &["pakro", "install", "--restore-bytecode"],
-            &[
-                "pakro",
-                "-qC",
-                ".",
-                "install",
-                "--restore-bytecode",
-                "instance",
-            ],
-            &[
-                "pakro",
-                "--unknown-recovery-option",
-                "install",
-                "--restore-bytecode",
-                "instance",
-            ],
-            &[
-                "pakro",
-                "install",
-                "--unknown-recovery-option",
-                "--restore-bytecode",
-                "instance",
-            ],
-            &[
-                "pakro",
-                "--cd",
-                "install",
-                "install",
-                "--restore-bytecode",
-                "instance",
-            ],
-            &[
-                "pakro",
-                "install",
-                "--shared=--restore-bytecode",
-                "--restore-bytecode",
-                "instance",
-            ],
-        ];
-        for args in cases {
-            let argv = args.iter().map(ToString::to_string).collect::<Vec<_>>();
-            assert!(is_bytecode_recovery_invocation(&argv), "{args:?}");
-        }
-    }
-
-    #[test]
-    fn f1_bytecode_recovery_classifier_preserves_other_commands_values_and_double_dash() {
-        let cases: &[&[&str]] = &[
-            &[
-                "pakro",
-                "exec",
-                "python",
-                "--",
-                "--restore-bytecode",
-                "instance",
-            ],
-            &["pakro", "run", "install", "--restore-bytecode", "instance"],
-            &["pakro", "task", "--restore-bytecode", "instance"],
-            &["pakro", "install", "--", "--restore-bytecode", "instance"],
-            &[
-                "pakro",
-                "-qC",
-                "install",
-                "exec",
-                "--restore-bytecode",
-                "instance",
-            ],
-            &[
-                "pakro",
-                "--cd",
-                "install",
-                "exec",
-                "--restore-bytecode",
-                "instance",
-            ],
-            &[
-                "pakro",
-                "--env",
-                "--restore-bytecode",
-                "install",
-                "python@3.11.17+20261013",
-            ],
-            &[
-                "pakro",
-                "install",
-                "--shared=--restore-bytecode",
-                "python@3.11.17+20261013",
-            ],
-            &[
-                "pakro",
-                "install",
-                "python",
-                "--shared",
-                "--restore-bytecode",
-            ],
-        ];
-        for args in cases {
-            let argv = args.iter().map(ToString::to_string).collect::<Vec<_>>();
-            assert!(!is_bytecode_recovery_invocation(&argv), "{args:?}");
-        }
-    }
-
-    #[test]
-    /// Keep early recognition consistent with the full parser across inherited flag placements.
-    fn packages_where_classifier_accepts_global_and_parent_flags() {
-        let cases: &[&[&str]] = &[
-            &["pakro", "bootstrap", "packages", "where", "brew:widget"],
-            &[
-                "pakro",
-                "--quiet",
-                "--cd",
-                ".",
-                "bootstrap",
-                "packages",
-                "where",
-                "brew:widget",
-            ],
-            &[
-                "pakro",
-                "bootstrap",
-                "--yes",
-                "--only",
-                "packages",
-                "packages",
-                "where",
-                "brew:widget",
-            ],
-            &[
-                "pakro",
-                "bootstrap",
-                "packages",
-                "where",
-                "--cd",
-                ".",
-                "--quiet",
-                "brew:widget",
-            ],
-            &[
-                "pakro",
-                "bootstrap",
-                "packages",
-                "where",
-                "brew:widget",
-                "--cd=.",
-                "--quiet",
-            ],
-            &[
-                "pakro",
-                "-C.",
-                "bootstrap",
-                "packages",
-                "where",
-                "--",
-                "brew:widget",
-            ],
-            &[
-                "pakro",
-                "--env",
-                "bootstrap",
-                "bootstrap",
-                "packages",
-                "where",
-                "brew:widget",
-            ],
-            &[
-                "pakro",
-                "bootstrap",
-                "--from",
-                "packages",
-                "packages",
-                "where",
-                "brew:widget",
-            ],
-        ];
-        for args in cases {
-            let argv: Vec<String> = args.iter().map(ToString::to_string).collect();
-            assert!(is_packages_where_query(&argv), "{args:?}");
-            let cli = parse_cli(args).unwrap_or_else(|error| panic!("{args:?}: {error:?}"));
-            let Some(Commands::Bootstrap(bootstrap)) = cli.command else {
-                panic!("expected bootstrap for {args:?}");
-            };
-            assert!(bootstrap.is_packages_where(), "{args:?}");
-        }
-    }
-
-    #[test]
-    /// Isolate malformed queries so configuration errors cannot mask their argument diagnostics.
-    fn packages_where_recognition_precedes_query_argument_validation() {
-        let cases: &[&[&str]] = &[
-            &["pakro", "bootstrap", "packages", "where"],
-            &[
-                "pakro",
-                "bootstrap",
-                "packages",
-                "where",
-                "--unknown-query-flag",
-            ],
-            &[
-                "pakro",
-                "bootstrap",
-                "packages",
-                "where",
-                "--unknown-query-flag",
-                "brew:widget",
-            ],
-            &[
-                "pakro",
-                "bootstrap",
-                "packages",
-                "where",
-                "brew:widget",
-                "--unknown-query-flag",
-            ],
-            &[
-                "pakro",
-                "bootstrap",
-                "packages",
-                "where",
-                "brew:widget",
-                "brew:extra",
-            ],
-            &["pakro", "bootstrap", "packages", "where", "--help"],
-            &["pakro", "bootstrap", "packages", "where", "--cd"],
-            &[
-                "pakro",
-                "--cd",
-                "/missing",
-                "bootstrap",
-                "packages",
-                "where",
-            ],
-            &["pakro", "bootstrap", "--only=packages", "packages", "where"],
-            &["pakro", "-q", "bootstrap", "-y", "packages", "where"],
-        ];
-        for args in cases {
-            let argv: Vec<String> = args.iter().map(ToString::to_string).collect();
-            assert!(is_packages_where_query(&argv), "{args:?}");
-        }
-    }
-
-    #[test]
-    /// Preserve normal startup when query-like words occur in flag values or another command payload.
-    fn packages_where_recognizer_distinguishes_flag_values_tasks_exec_and_separators() {
-        let cases: &[&[&str]] = &[
-            &["pakro"],
-            &["pakro", "bootstrap", "packages"],
-            &["pakro", "bootstrap", "packages", "status"],
-            &[
-                "pakro",
-                "--env",
-                "bootstrap",
-                "packages",
-                "where",
-                "brew:widget",
-            ],
-            &[
-                "pakro",
-                "--env=bootstrap",
-                "packages",
-                "where",
-                "brew:widget",
-            ],
-            &["pakro", "-Ebootstrap", "packages", "where", "brew:widget"],
-            &[
-                "pakro",
-                "--cd",
-                "bootstrap",
-                "packages",
-                "where",
-                "brew:widget",
-            ],
-            &[
-                "pakro",
-                "bootstrap",
-                "--from",
-                "packages",
-                "where",
-                "brew:widget",
-            ],
-            &[
-                "pakro",
-                "bootstrap",
-                "--from=packages",
-                "where",
-                "brew:widget",
-            ],
-            &[
-                "pakro",
-                "bootstrap",
-                "--only",
-                "packages",
-                "where",
-                "brew:widget",
-            ],
-            &[
-                "pakro",
-                "exec",
-                "--",
-                "bootstrap",
-                "packages",
-                "where",
-                "brew:widget",
-            ],
-            &[
-                "pakro",
-                "x",
-                "--",
-                "bootstrap",
-                "packages",
-                "where",
-                "brew:widget",
-            ],
-            &[
-                "pakro",
-                "run",
-                "bootstrap",
-                "packages",
-                "where",
-                "brew:widget",
-            ],
-            &[
-                "pakro",
-                "task-name",
-                "bootstrap",
-                "packages",
-                "where",
-                "brew:widget",
-            ],
-            &[
-                "pakro",
-                "--",
-                "bootstrap",
-                "packages",
-                "where",
-                "brew:widget",
-            ],
-            &[
-                "pakro",
-                "bootstrap",
-                "--",
-                "packages",
-                "where",
-                "brew:widget",
-            ],
-            &[
-                "pakro",
-                "bootstrap",
-                "packages",
-                "--",
-                "where",
-                "brew:widget",
-            ],
-        ];
-        for args in cases {
-            let argv: Vec<String> = args.iter().map(ToString::to_string).collect();
-            assert!(!is_packages_where_query(&argv), "{args:?}");
-        }
-    }
-
-    #[test]
-    /// Keep other bootstrap operations on their normal configuration and execution path.
-    fn packages_where_classifier_distinguishes_other_bootstrap_commands() {
-        let cases: &[&[&str]] = &[
-            &["pakro", "bootstrap"],
-            &["pakro", "bootstrap", "packages", "status"],
-            &["pakro", "bootstrap", "packages", "apply", "brew:widget"],
-            &["pakro", "bootstrap", "status"],
-            &[
-                "pakro",
-                "bootstrap",
-                "--from",
-                "where",
-                "packages",
-                "status",
-            ],
-        ];
-        for args in cases {
-            let cli = parse_cli(args).unwrap_or_else(|error| panic!("{args:?}: {error:?}"));
-            let Some(Commands::Bootstrap(bootstrap)) = cli.command else {
-                panic!("expected bootstrap for {args:?}");
-            };
-            assert!(!bootstrap.is_packages_where(), "{args:?}");
-        }
-    }
-
-    #[test]
-    /// Enforce the single-formula query interface before installation lookup can run.
-    fn packages_where_parser_requires_exactly_one_package_and_valid_flags() {
-        let cases: &[&[&str]] = &[
-            &[],
-            &["brew:widget", "brew:another"],
-            &["brew:widget", "--json"],
-            &["brew:widget", "--install"],
-            &["brew:widget", "--version", "1"],
-            &["brew:widget", "--unknown-query-flag"],
-        ];
-        for suffix in cases {
-            let mut args = vec!["pakro", "bootstrap", "packages", "where"];
-            args.extend_from_slice(suffix);
-            assert!(parse_cli(&args).is_err(), "{args:?}");
-        }
-    }
-
-    fn parse_cli<'a>(args: &'a [&'a str]) -> std::result::Result<Cli, usage_rs::Error<'a, 'a>> {
-        let argv: Vec<&std::ffi::OsStr> = args.iter().map(std::ffi::OsStr::new).collect();
-        Cli::parse_from_argv(&argv)
-    }
-
-    /// Only a command that is really about to run unattended hides its
-    /// console: it happens before the command runs, and a hidden window
-    /// cannot be handed back to print an error in. See jdx/mise#13426.
-    #[test]
-    fn only_a_starting_watcher_runs_unattended() {
-        fn unattended(args: &[&str]) -> bool {
-            parse_cli(args)
-                .unwrap()
-                .command
-                .as_ref()
-                .is_some_and(Commands::runs_unattended)
-        }
-
-        assert!(unattended(&["pakro", "dot", "watch"]));
-        assert!(unattended(&["pakro", "dotfiles", "watch"]));
-        assert!(unattended(&["pakro", "bootstrap", "dotfiles", "watch"]));
-
-        // the launcher a Windows user service's task starts is handed a
-        // console the same way, and its window has to go before settings,
-        // config, or an auto-update can hold it on screen
-        assert!(unattended(&[
-            "pakro",
+    fn retired_commands_are_not_public_entry_points() {
+        for name in [
+            "install-into",
+            "use",
+            "unuse",
+            "upgrade",
+            "prune",
             "bootstrap",
-            "__service-exec",
-            "--launch",
-            "C:\\state\\pakro-history.launches/abc.json",
-            "--digest",
-            "abc",
-            "--",
-            "pakro-history",
-        ]));
-
-        // every other dotfiles command has a terminal reading it
-        assert!(!unattended(&["pakro", "dot", "status"]));
-        assert!(!unattended(&["pakro", "bootstrap", "dotfiles", "status"]));
-        assert!(!unattended(&["pakro", "bootstrap"]));
-        assert!(!unattended(&["pakro", "run", "build"]));
-
-        // `run` rejects a setup source alongside a subcommand, so these never
-        // reach the watcher and must keep a console to say so
-        for source in ["--from", "--adopt"] {
-            assert!(
-                !unattended(&[
-                    "pakro",
-                    "bootstrap",
-                    source,
-                    "https://example.com/setup.git",
-                    "dotfiles",
-                    "watch",
-                ]),
-                "{source} names a setup repository, not a watcher"
-            );
-        }
-    }
-
-    fn parse_command_local_settings(args: &[&str]) -> SettingsPartial {
-        let argv: Vec<&std::ffi::OsStr> = args.iter().map(std::ffi::OsStr::new).collect();
-        let (_, layer) = Cli::parse_from_argv_with_settings(&argv).unwrap();
-        command_local_settings(&layer).unwrap()
-    }
-
-    fn parse_truncate(args: &[&str]) -> Option<bool> {
-        parse_command_local_settings(args).truncate
-    }
-
-    #[test]
-    fn truncate_flags_are_command_local_negatable_settings() {
-        assert_eq!(parse_truncate(&["pakro", "ls"]), None);
-        assert_eq!(
-            parse_truncate(&["pakro", "config", "ls", "--no-truncate"]),
-            Some(false)
-        );
-        assert_eq!(
-            parse_truncate(&[
-                "pakro",
-                "bootstrap",
-                "dotfiles",
-                "status",
-                "--truncate",
-                "--no-truncate",
-            ]),
-            Some(false)
-        );
-        assert_eq!(
-            parse_truncate(&[
-                "pakro",
-                "bootstrap",
-                "dotfiles",
-                "status",
-                "--no-truncate",
-                "--truncate",
-            ]),
-            Some(true)
-        );
-
-        for args in [
-            &["pakro", "registry", "--no-truncate"][..],
-            &["pakro", "config", "get", "--no-truncate"],
-        ] {
-            let argv = args.iter().map(std::ffi::OsStr::new).collect::<Vec<_>>();
-            assert!(Cli::parse_from_argv_with_settings(&argv).is_err());
-        }
-    }
-
-    fn parse_task_remote_no_cache(args: &[&str]) -> Option<bool> {
-        parse_command_local_settings(args).task.remote_no_cache
-    }
-
-    #[test]
-    fn run_no_cache_flag_sets_task_remote_no_cache() {
-        assert_eq!(parse_task_remote_no_cache(&["pakro", "run", "build"]), None);
-        assert_eq!(
-            parse_task_remote_no_cache(&["pakro", "run", "--no-cache", "build"]),
-            Some(true)
-        );
-        assert_eq!(
-            parse_task_remote_no_cache(&["pakro", "tasks", "run", "--no-cache", "build"]),
-            Some(true)
-        );
-        // `oci build --no-cache` is about image layers, not remote tasks.
-        assert_eq!(
-            parse_task_remote_no_cache(&["pakro", "oci", "build", "--no-cache"]),
-            None
-        );
-    }
-
-    #[test]
-    fn dry_run_flag_scan_handles_nested_clusters_and_separator() {
-        let args = |args: &[&str]| args.iter().map(ToString::to_string).collect::<Vec<_>>();
-
-        assert!(has_dry_run_flag(
-            &args(&["pakro", "cache", "prune", "--dry-run"]),
-            true
-        ));
-        assert!(has_dry_run_flag(
-            &args(&["pakro", "bootstrap", "files", "apply", "-nq"]),
-            true
-        ));
-        assert!(!has_dry_run_flag(
-            &args(&["pakro", "exec", "--", "tool", "--dry-run"]),
-            true
-        ));
-        assert!(!has_dry_run_flag(&args(&["pakro", "watch", "-n"]), false));
-    }
-
-    #[test]
-    fn run_keeps_its_custom_help_route() {
-        let cli = parse_cli(&["pakro", "run", "--help"]).unwrap();
-        let Some(Commands::Run(run)) = cli.command else {
-            panic!("expected the run command");
-        };
-        assert_eq!(run.task.as_deref(), Some("--help"));
-    }
-
-    #[test]
-    fn bootstrap_inherits_root_yes_and_dry_run_flags() {
-        for args in [
-            ["pakro", "--yes", "bootstrap"].as_slice(),
-            ["pakro", "--dry-run", "bootstrap"].as_slice(),
-            ["pakro", "--yes", "--dry-run", "bootstrap"].as_slice(),
-        ] {
-            let mut cli = parse_cli(args).unwrap();
-            let root_flags = (cli.dry_run, cli.yes);
-            let Some(Commands::Bootstrap(bootstrap)) = &mut cli.command else {
-                panic!("expected bootstrap for {args:?}")
-            };
-            bootstrap.inherit_root_flags(root_flags.0, root_flags.1);
-            assert_eq!(bootstrap.inherited_root_flags(), root_flags, "{args:?}");
-        }
-    }
-
-    #[test]
-    fn tool_stub_forwards_flag_like_arguments() {
-        let cli = parse_cli(&["pakro", "tool-stub", "jqstub", "--version"]).unwrap();
-        let Some(Commands::ToolStub(tool_stub)) = cli.command else {
-            panic!("expected tool-stub command")
-        };
-        assert_eq!(tool_stub.file, PathBuf::from("jqstub"));
-        assert_eq!(tool_stub.args, ["--version"]);
-    }
-
-    #[test]
-    fn test_commands_that_implicitly_trust_active_config() {
-        let trusting = [
-            vec!["pakro", "run", "task"],
-            vec!["pakro", "install"],
-            vec!["pakro", "exec", "--", "true"],
-            vec!["pakro", "watch", "task"],
-        ];
-        for args in trusting {
-            let cli = parse_cli(&args).unwrap();
-            assert!(
-                cli.command
-                    .as_ref()
-                    .is_some_and(Commands::implicitly_trusts_active_config),
-                "expected {args:?} to imply config trust"
-            );
-        }
-
-        let non_trusting = [
-            vec!["pakro", "hook-env", "-s", "bash"],
-            vec!["pakro", "env"],
-            vec!["pakro", "ls"],
-        ];
-        for args in non_trusting {
-            let cli = parse_cli(&args).unwrap();
-            assert!(
-                !cli.command
-                    .as_ref()
-                    .is_some_and(Commands::implicitly_trusts_active_config),
-                "expected {args:?} not to imply config trust"
-            );
-        }
-    }
-
-    #[test]
-    fn shell_commands_and_aliases_do_not_allow_auto_update() {
-        for args in [
-            vec!["pakro", "doctor"],
-            vec!["pakro", "dr"],
-            vec!["pakro", "hook-env"],
-            vec!["pakro", "hook-not-found", "missing-bin"],
-            vec!["pakro", "version"],
-            vec!["pakro", "v"],
-        ] {
-            let cli = parse_cli(&args).unwrap();
-            assert!(
-                !cli.command
-                    .as_ref()
-                    .is_some_and(Commands::allows_auto_update),
-                "expected {args:?} to skip automatic updates"
-            );
-        }
-
-        let cli = parse_cli(&["pakro", "install"]).unwrap();
-        assert!(
-            cli.command
-                .as_ref()
-                .is_some_and(Commands::allows_auto_update)
-        );
-    }
-
-    #[test]
-    fn p1_local_query_startup_is_selected_from_parsed_commands() {
-        for args in [
-            vec!["pakro", "where", "python@3.13.99"],
-            vec!["pakro", "which", "--tool=python@3.13.99", "python"],
-            vec!["pakro", "env", "python@3.13.99"],
-            vec!["pakro", "ls", "python", "node"],
-            vec!["pakro", "current"],
-            vec!["pakro", "bin-paths", "python@3.13.99"],
-            vec!["pakro", "project", "status"],
-            vec!["pakro", "installs", "ls", "python"],
-            vec!["pakro", "deps", "install", "--list"],
-            vec!["pakro", "hook-env", "-s", "bash"],
-        ] {
-            let cli = parse_cli(&args).unwrap();
-            assert!(
-                cli.command.as_ref().unwrap().is_local_observation(),
-                "{args:?}"
-            );
-        }
-        for args in [
-            vec!["pakro", "env", "core:node@22"],
-            vec!["pakro", "where", "core:node@22"],
-            vec!["pakro", "project", "init"],
-            vec!["pakro", "exec", "--", "echo", "install-into", "python"],
-        ] {
-            let cli = parse_cli(&args).unwrap();
-            assert!(
-                !cli.command.as_ref().unwrap().is_local_observation(),
-                "{args:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn p1_install_into_admission_rejects_every_decoded_backend() {
-        for tool in ["python@3.13.99", "core:node@22", "dummy@1"] {
-            let cli = parse_cli(&["pakro", "install-into", tool, "/tmp/pakro-p1-unused"]).unwrap();
-            let Some(Commands::InstallInto(command)) = cli.command else {
-                panic!("wrong command");
-            };
-            assert!(command.preflight().unwrap_err().to_string().contains("D01"));
-        }
-    }
-
-    /// Guards [`GLOBAL_FLAGS_WITH_VALUES`]. It is hardcoded so that startup does
-    /// not have to walk the generated tables; this keeps it honest. If you added a
-    /// value-taking flag to `Cli`, add it to that list too.
-    #[test]
-    fn test_global_flags_with_values_matches_generated_tables() {
-        let derived = get_global_flags(Cli::command()).0;
-        let mut derived_sorted = derived.clone();
-        derived_sorted.sort();
-        let mut hardcoded: Vec<String> = GLOBAL_FLAGS_WITH_VALUES
-            .iter()
-            .map(|s| (*s).to_string())
-            .collect();
-        hardcoded.sort();
-        assert_eq!(
-            hardcoded, derived_sorted,
-            "GLOBAL_FLAGS_WITH_VALUES is stale; usage-rs reports {derived:?}"
-        );
-    }
-    #[tokio::test]
-    async fn exit_signal_drops_command_future_before_returning() {
-        struct DropGuard(std::sync::Arc<std::sync::atomic::AtomicBool>);
-
-        impl Drop for DropGuard {
-            fn drop(&mut self) {
-                self.0.store(true, std::sync::atomic::Ordering::SeqCst);
-            }
-        }
-
-        let dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let guard = DropGuard(dropped.clone());
-        let command = async move {
-            let _guard = guard;
-            std::future::pending::<Result<()>>().await
-        };
-
-        let err = run_with_exit_signal(command, std::future::ready(42))
-            .await
-            .unwrap_err();
-
-        assert_eq!(crate::exit::requested_exit_code(&err), Some(42));
-        assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
-    }
-
-    #[test]
-    fn test_bootstrap_command_tree_is_static_and_parses_aliases() {
-        let cmd = Cli::command();
-        let bootstrap = cmd
-            .subcommands
-            .iter()
-            .find(|subcommand| subcommand.name == "bootstrap")
-            .unwrap();
-        assert!(!bootstrap.subcommands.is_empty());
-
-        let alias_args = vec![
-            "pakro".to_string(),
-            "bs".to_string(),
-            "status".to_string(),
-            "--json".to_string(),
-        ];
-        assert_eq!(preprocess_args_for_naked_run(cmd, &alias_args), alias_args);
-        assert!(parse_cli(&["pakro", "bs", "status", "--json"]).is_ok());
-        assert!(parse_cli(&["pakro", "bootstrap", "status", "--json"]).is_ok());
-    }
-
-    #[test]
-    fn test_dotfiles_command_and_alias_expose_the_full_command_tree() {
-        let cmd = Cli::command();
-        let dotfiles = cmd
-            .subcommands
-            .iter()
-            .find(|subcommand| subcommand.name == "dotfiles")
-            .unwrap();
-
-        assert_eq!(dotfiles.aliases, &["dot"]);
-        assert!(
-            dotfiles
-                .subcommands
-                .iter()
-                .any(|command| command.name == "track")
-        );
-        assert!(
-            dotfiles
-                .subcommands
-                .iter()
-                .any(|command| command.name == "history")
-        );
-        assert!(parse_cli(&["pakro", "dotfiles", "track", "~/.zshrc"]).is_ok());
-        assert!(parse_cli(&["pakro", "dot", "track", "~/.zshrc"]).is_ok());
-        assert!(parse_cli(&["pakro", "bootstrap", "dotfiles", "track", "~/.zshrc"]).is_ok());
-    }
-
-    /// Commands that name a config file to write to accept both spellings, so it
-    /// does not matter which one you remember. See
-    /// <https://github.com/jdx/mise/discussions/4881>.
-    ///
-    /// Asserted through the generated tables rather than end-to-end because several of these
-    /// commands install or apply something when actually run.
-    #[test]
-    fn test_config_target_options_accept_both_names() {
-        // (command path, argument id, expected alias, available on this platform)
-        // `use` and `dotfiles add` are deliberately absent: `-f` is `--force` on both, so
-        // they carry `--path` only. See the shadowing test below.
-        let cases: &[(&[&str], &str, &str, bool)] = &[
-            (&["unuse"], "path", "file", true),
-            (&["set"], "file", "path", true),
-            (&["unset"], "file", "path", true),
-            (&["config", "get"], "file", "path", true),
-            (&["config", "set"], "file", "path", true),
-            (&["bootstrap", "packages", "use"], "path", "file", true),
-            (&["bootstrap", "packages", "import"], "path", "file", true),
-            // the brew manager is not registered on Windows
-            (
-                &["bootstrap", "packages", "brew", "tap"],
-                "path",
-                "file",
-                cfg!(not(windows)),
-            ),
-            (
-                &["bootstrap", "packages", "brew", "untap"],
-                "path",
-                "file",
-                cfg!(not(windows)),
-            ),
-        ];
-        let root = Cli::command();
-
-        for (path, arg_name, alias, available) in cases {
-            if !available {
-                continue;
-            }
-            let command = path.iter().fold(root, |command, name| {
-                command
-                    .subcommands
-                    .iter()
-                    .find(|subcommand| subcommand.name == *name)
-                    .unwrap_or_else(|| panic!("missing command path {}", path.join(" ")))
-            });
-            let arg = command
-                .flags
-                .iter()
-                .find(|arg| arg.name == *arg_name)
-                .unwrap_or_else(|| panic!("missing --{arg_name} on {}", path.join(" ")));
-
-            assert!(
-                arg.longs.contains(alias),
-                "missing visible --{alias} alias for --{arg_name} on {}",
-                path.join(" ")
-            );
-        }
-    }
-
-    /// A `--file`/`--path` alias whose natural short form belongs to a *different* argument
-    /// on the same command teaches the wrong flag. `pakro dot add` carried `--file` as an
-    /// alias of `--path` while `-f` was `--force`, and because its targets accept any string,
-    /// `pakro dot add -f <path>` silently adopted that config file as a dotfile instead of
-    /// writing to it — no error, and `--force` meant no prompt either.
-    ///
-    /// Walks the whole CLI rather than a fixed list, so re-adding the alias anywhere fails
-    /// even if the case table above is left alone.
-    #[test]
-    fn config_target_aliases_do_not_shadow_another_short_flag() {
-        fn check(command: &usage_rs::Command<'_>, path: &mut Vec<String>) {
-            for arg in command.flags {
-                for alias in arg.longs.iter().skip(1) {
-                    // Only this vocabulary — an unrelated alias sharing a letter with some
-                    // other flag is ordinary and not what this is about.
-                    if *alias != "file" && *alias != "path" {
-                        continue;
-                    }
-                    let short = alias.chars().next().unwrap();
-                    if let Some(owner) = command
-                        .flags
-                        .iter()
-                        .find(|other| other.key != arg.key && other.shorts.contains(&(short as u8)))
-                    {
-                        panic!(
-                            "pakro {}: --{alias} aliases --{}, but -{short} is --{} — \
-                             drop the alias or the collision",
-                            path.join(" "),
-                            arg.name,
-                            owner.name
-                        );
-                    }
-                }
-            }
-            for subcommand in command.subcommands {
-                path.push(subcommand.name.to_string());
-                check(subcommand, path);
-                path.pop();
-            }
-        }
-
-        check(Cli::command(), &mut Vec::new());
-    }
-
-    #[test]
-    fn test_escape_flag_arg_leaves_a_lone_hyphen_alone() {
-        // The exception the three copies of this rule each carried: `-` on its own is the
-        // conventional stdin placeholder, not a flag, and a task that reads stdin needs it to
-        // arrive unchanged. Now that the rule has one home, it is asserted there.
-        assert_eq!(escape_flag_arg("-"), "-");
-        assert_eq!(escape_flag_arg("plain"), "plain");
-        assert!(escape_flag_arg("--help").starts_with(TASK_ARG_ESCAPE_PREFIX));
-        assert!(escape_flag_arg("-q").starts_with(TASK_ARG_ESCAPE_PREFIX));
-        assert_eq!(
-            unescape_task_args(&[escape_flag_arg("--help")]),
-            vec!["--help".to_string()]
-        );
-    }
-
-    #[test]
-    fn test_escape_task_args_preserves_task_separator_tail() {
-        let cmd = Cli::command();
-        let args = vec![
-            "pakro".to_string(),
-            "run".to_string(),
-            "atask".to_string(),
-            "-q".to_string(),
-            "--".to_string(),
-            "--".to_string(),
-            "--help".to_string(),
-        ];
-
-        let escaped = escape_task_args(cmd, &args);
-        let separator_idx = escaped.iter().position(|arg| arg == "--").unwrap();
-        assert_eq!(escaped[..3], args[..3]);
-        assert!(escaped[3].starts_with(TASK_ARG_ESCAPE_PREFIX));
-        assert_eq!(separator_idx, 4);
-        assert!(escaped[separator_idx + 1].starts_with(TASK_ARG_ESCAPE_PREFIX));
-        assert!(escaped[separator_idx + 2].starts_with(TASK_ARG_ESCAPE_PREFIX));
-        assert_eq!(
-            unescape_task_args(&escaped[separator_idx + 1..]),
-            vec!["--".to_string(), "--help".to_string()]
-        );
-    }
-
-    #[test]
-    fn quiet_owns_the_pakro_quiet_environment_binding() {
-        let quiet = Cli::spec()
-            .root
-            .flags
-            .iter()
-            .find(|flag| flag.flag.name == "quiet")
-            .expect("--quiet");
-        let tool = Cli::spec()
-            .root
-            .flags
-            .iter()
-            .find(|flag| flag.flag.name == "tool")
-            .expect("--tool");
-        assert_eq!(quiet.env, Some("PAKRO_QUIET"));
-        assert_eq!(tool.env, None);
-    }
-
-    #[test]
-    fn test_run_parser_consumes_the_task_separator() {
-        let cmd = Cli::command();
-        let args = [
-            "pakro",
+            "dotfiles",
+            "daemons",
+            "exec",
             "run",
-            "show-output-on-failure",
-            "--",
-            "pakro",
-            "x",
-            "node@latest",
-            "--",
-            "npx",
-            "--version",
-        ]
-        .map(str::to_string);
-        let escaped = escape_task_args(cmd, &args);
-        let refs = escaped.iter().map(String::as_str).collect::<Vec<_>>();
-        let cli = parse_cli(&refs).expect("nested task invocation should parse");
-        let Some(Commands::Run(run)) = cli.command else {
-            panic!("expected run command");
-        };
-        assert_eq!(run.task.as_deref(), Some("show-output-on-failure"));
-        assert!(run.args.is_empty(), "ordinary args: {:?}", run.args);
-        assert_eq!(
-            unescape_task_args(&run.args_last),
-            ["pakro", "x", "node@latest", "--", "npx", "--version"]
-        );
+            "tasks",
+            "watch",
+            "shell",
+            "ssh",
+            "mcp",
+            "generate",
+        ] {
+            assert!(!parses(&["pakro", name]), "retired command {name} parsed");
+        }
+        for arguments in [
+            vec!["pakro", "deps", "add", "python:idna"],
+            vec!["pakro", "project", "init"],
+            vec!["pakro", "installs", "migrate"],
+        ] {
+            assert!(!parses(&arguments), "{arguments:?}");
+        }
     }
-
     #[test]
-    fn test_escape_task_args_splits_attached_short_option_values_before_task() {
-        let cmd = Cli::command();
-        let args = vec![
-            "pakro".to_string(),
-            "run".to_string(),
-            "-j1".to_string(),
-            "-Ctmp".to_string(),
-            "-oprefix".to_string(),
-            "atask".to_string(),
-        ];
-
-        assert_eq!(
-            escape_task_args(cmd, &args),
-            [
+    fn retained_directory_and_exact_install_entry_points_parse() {
+        for arguments in [
+            vec!["pakro", "install", "python@3.13.16"],
+            vec!["pakro", "--locked", "install"],
+            vec!["pakro", "install", "--dry-run"],
+            vec!["pakro", "activate", "bash"],
+            vec!["pakro", "where", "python"],
+            vec!["pakro", "env", "--json"],
+            vec!["pakro", "current", "python"],
+            vec!["pakro", "project", "ls"],
+            vec!["pakro", "deps", "install", "python"],
+            vec!["pakro", "project", "status"],
+            vec!["pakro", "installs", "ls", "--json"],
+            vec!["pakro", "hook-env", "-s", "zsh", "--force"],
+            vec![
                 "pakro",
-                "run",
-                "--jobs=1",
-                "--cd=tmp",
-                "--output=prefix",
-                "atask",
-            ]
-            .map(str::to_string)
-        );
+                "uninstall",
+                "--package",
+                "python@3.13.16+idna@3.10",
+            ],
+        ] {
+            assert!(parses(&arguments), "{arguments:?}");
+        }
     }
-
     #[test]
-    fn test_escape_task_args_preserves_equals_attached_option_values() {
-        let cmd = Cli::command();
-        let args = ["pakro", "run", "-C=/tmp", "-o=prefix", "atask"].map(str::to_string);
-        let processed = escape_task_args(cmd, &args);
-
-        assert_eq!(
-            processed,
-            ["pakro", "run", "--cd=/tmp", "--output=prefix", "atask"].map(str::to_string)
-        );
-        let refs: Vec<&str> = processed.iter().map(String::as_str).collect();
-        let cli = parse_cli(&refs).unwrap();
-        assert_eq!(cli.cd, Some(PathBuf::from("/tmp")));
-        let Some(Commands::Run(run)) = cli.command else {
-            panic!("expected run command");
-        };
-        assert_eq!(run.task.as_deref(), Some("atask"));
-    }
-
-    #[test]
-    fn test_escape_task_args_keeps_hyphen_prefixed_attached_value_bound_to_option() {
-        let cmd = Cli::command();
-        let args = ["pakro", "run", "-C-dir", "atask"].map(str::to_string);
-        let processed = escape_task_args(cmd, &args);
-
-        assert_eq!(
-            processed,
-            ["pakro", "run", "--cd=-dir", "atask"].map(str::to_string)
-        );
-
-        let refs: Vec<&str> = processed.iter().map(String::as_str).collect();
-        let cli = parse_cli(&refs).unwrap();
-        assert_eq!(cli.cd, Some(PathBuf::from("-dir")));
-        let Some(Commands::Run(run)) = cli.command else {
-            panic!("expected run command");
-        };
-        assert_eq!(run.task.as_deref(), Some("atask"));
-    }
-
-    #[test]
-    fn test_escape_task_args_preserves_naked_task_separator_tail() {
-        let cmd = Cli::command();
-        let args = vec![
-            "pakro".to_string(),
-            "atask".to_string(),
-            "-q".to_string(),
-            "--".to_string(),
-            "--help".to_string(),
-        ];
-
-        assert_eq!(preprocess_args_for_naked_run(cmd, &args), args);
-        let escaped = escape_task_args(cmd, &args);
-        let separator_idx = escaped.iter().position(|arg| arg == "--").unwrap();
-        assert_eq!(escaped[..=separator_idx], args[..=separator_idx]);
-        assert!(escaped[separator_idx + 1].starts_with(TASK_ARG_ESCAPE_PREFIX));
-        assert_eq!(
-            unescape_task_args(&escaped[separator_idx + 1..]),
-            vec!["--help".to_string()]
-        );
-    }
-
-    #[test]
-    fn test_escape_task_args_leaves_subcommand_separator_tail_alone() {
-        let cmd = Cli::command();
-        let args = vec![
-            "pakro".to_string(),
-            "exec".to_string(),
-            "--".to_string(),
-            "sh".to_string(),
-            "--flag".to_string(),
-        ];
-
-        assert_eq!(escape_task_args(cmd, &args), args);
-    }
-
-    #[test]
-    fn test_uses_deprecated_backends_alias() {
-        let cmd = Cli::command();
-        let args = vec!["pakro".to_string(), "b".to_string()];
-
-        assert!(uses_deprecated_backends_alias(cmd, &args));
-    }
-
-    #[test]
-    fn test_uses_deprecated_backends_alias_after_global_flag() {
-        let cmd = Cli::command();
-        let args = vec![
-            "pakro".to_string(),
-            "--cd".to_string(),
-            "project".to_string(),
-            "b".to_string(),
-        ];
-
-        assert!(uses_deprecated_backends_alias(cmd, &args));
-    }
-
-    #[test]
-    fn test_uses_deprecated_backends_alias_ignores_global_flag_value() {
-        let cmd = Cli::command();
-        let args = vec![
-            "pakro".to_string(),
-            "--cd".to_string(),
-            "b".to_string(),
-            "backends".to_string(),
-        ];
-
-        assert!(!uses_deprecated_backends_alias(cmd, &args));
-    }
-
-    #[test]
-    fn test_first_non_global_arg_idx_handles_attached_short_flag_values() {
-        let cmd = Cli::command();
-        let args = |args: &[&str]| {
-            args.iter()
-                .map(|arg| (*arg).to_string())
+    fn recovery_preflight_is_scoped_to_explicit_install() {
+        let arguments = |values: &[&str]| {
+            values
+                .iter()
+                .map(|value| value.to_string())
                 .collect::<Vec<_>>()
         };
-
-        for args in [
-            args(&["pakro", "-C", "/tmp", "lock"]),
-            args(&["pakro", "-C/tmp", "lock"]),
-            args(&["pakro", "-C=/tmp", "lock"]),
-            args(&["pakro", "-j8", "lock"]),
-        ] {
-            let idx = first_non_global_arg_idx(cmd, &args).unwrap();
-            assert_eq!(args[idx], "lock");
-        }
-    }
-
-    #[test]
-    fn test_uses_deprecated_backends_alias_ignores_task_arg() {
-        let cmd = Cli::command();
-        let args = vec!["pakro".to_string(), "run".to_string(), "b".to_string()];
-
-        assert!(!uses_deprecated_backends_alias(cmd, &args));
-    }
-
-    #[test]
-    fn test_escape_task_args_ignores_run_after_subcommand_separator() {
-        let cmd = Cli::command();
-        let args = vec![
-            "pakro".to_string(),
-            "exec".to_string(),
-            "--".to_string(),
-            "npm".to_string(),
-            "run".to_string(),
-            "test".to_string(),
-            "--help".to_string(),
-        ];
-
-        assert_eq!(escape_task_args(cmd, &args), args);
+        assert_eq!(
+            bytecode_recovery_command_index(&arguments(&[
+                "pakro",
+                "--quiet",
+                "install",
+                "python@3.11.17+20261013",
+                "--restore-bytecode",
+                "instance"
+            ])),
+            Some(2)
+        );
+        assert_eq!(
+            bytecode_recovery_command_index(&arguments(&[
+                "pakro",
+                "install",
+                "--",
+                "--restore-bytecode",
+                "instance"
+            ])),
+            None
+        );
+        assert_eq!(
+            bytecode_recovery_command_index(&arguments(&[
+                "pakro",
+                "env",
+                "--restore-bytecode",
+                "instance"
+            ])),
+            None
+        );
     }
 }

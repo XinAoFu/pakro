@@ -63,6 +63,24 @@ enum Key {
     Source,
     From,
     To,
+    Builds,
+    DeclarationFingerprint,
+    Observation,
+    InitialRequirements,
+    InitialInputs,
+    DynamicRequirements,
+    RequestId,
+    Backend,
+    Inputs,
+    OutputFilename,
+    OutputDigest,
+    OutputSize,
+    Metadata,
+    SourceDigest,
+    SourceFilename,
+    SourceSize,
+    IsSdist,
+    Advertised,
     Unknown,
 }
 struct KeySeed;
@@ -109,6 +127,24 @@ impl<'de> DeserializeSeed<'de> for KeySeed {
                     "source_pin" => Key::Source,
                     "from" => Key::From,
                     "to" => Key::To,
+                    "builds" => Key::Builds,
+                    "declaration_fingerprint" => Key::DeclarationFingerprint,
+                    "observation" => Key::Observation,
+                    "initial_requirements" => Key::InitialRequirements,
+                    "initial_inputs" => Key::InitialInputs,
+                    "dynamic_requirements" => Key::DynamicRequirements,
+                    "request_id" => Key::RequestId,
+                    "backend" => Key::Backend,
+                    "inputs" => Key::Inputs,
+                    "output_filename" => Key::OutputFilename,
+                    "output_digest" => Key::OutputDigest,
+                    "output_size" => Key::OutputSize,
+                    "metadata_sha256" => Key::Metadata,
+                    "source_digest" => Key::SourceDigest,
+                    "source_filename" => Key::SourceFilename,
+                    "source_size" => Key::SourceSize,
+                    "source_is_sdist" => Key::IsSdist,
+                    "advertised" => Key::Advertised,
                     _ => Key::Unknown,
                 })
             }
@@ -381,10 +417,14 @@ enum ArrayKind {
     RootDeclarations,
     Roots,
     Edges,
+    Builds,
+    BuildInputs,
 }
 impl ArrayKind {
     fn bound(self, limits: LockModelLimits) -> (usize, LockLimit) {
         match self {
+            Self::Builds => (limits.max_pins, LockLimit::Pins),
+            Self::BuildInputs => (4096.min(limits.max_nodes_per_group), LockLimit::Nodes),
             Self::Pins => (limits.max_pins, LockLimit::Pins),
             Self::Groups => (limits.max_groups, LockLimit::Groups),
             Self::Nodes => (limits.max_nodes_per_group, LockLimit::Nodes),
@@ -422,7 +462,10 @@ impl<'de, T: Wire> DeserializeSeed<'de> for ItemSeed<'_, T> {
             self.ctx.checked(checked)?;
         }
         let references = match self.kind {
-            ArrayKind::Nodes | ArrayKind::RootDeclarations => 1,
+            ArrayKind::Nodes
+            | ArrayKind::RootDeclarations
+            | ArrayKind::BuildInputs
+            | ArrayKind::Builds => 1,
             ArrayKind::Roots | ArrayKind::Edges => 2,
             _ => 0,
         };
@@ -650,31 +693,47 @@ record!(LockedGraph, f, {
     })
 });
 record!(PythonLockModel, f, {
-    let (mut schema, mut pins, mut groups) = (None, None, None);
+    let (mut schema, mut pins, mut groups, mut builds) = (None, None, None, None);
+    let mut declaration_fingerprint = None;
     while let Some(key) = f.next()? {
         match key {
             Key::Schema => {
                 let value = f.value::<u64>()?;
-                if value != 2 {
+                if !matches!(value, 2 | 3) {
                     return Err(f.ctx.fail(LockModelError::UnsupportedSchema));
                 }
                 schema = Some(value);
             }
             Key::Pins => pins = Some(f.array::<ContentPin>(ArrayKind::Pins)?),
             Key::Groups => groups = Some(f.array::<LockedGraph>(ArrayKind::Groups)?),
+            Key::Builds => builds = Some(f.array::<BuildWire>(ArrayKind::Builds)?),
+            Key::DeclarationFingerprint => declaration_fingerprint = Some(f.value::<[u8; 32]>()?),
             _ => return Err(f.bad()),
         }
     }
-    if f.required(schema)? != 2 {
+    let schema = f.required(schema)?;
+    if (schema == 2 && (builds.is_some() || declaration_fingerprint.is_some()))
+        || (schema == 3 && builds.is_none())
+    {
         return Err(f.ctx.fail(LockModelError::UnsupportedSchema));
     }
     let model = PythonLockModel {
+        declaration_fingerprint,
         pins: f.required(pins)?,
         graphs: f.required(groups)?,
+        builds: builds
+            .unwrap_or_default()
+            .into_iter()
+            .map(|b| (b.0, b.1))
+            .collect(),
     };
     let checked = close_owned(model, f.ctx.limits);
     f.ctx.checked(checked)
 });
+
+#[path = "decode/builds.rs"]
+mod builds;
+use builds::BuildWire;
 
 struct ProjectionSeed<'a>(&'a mut Context);
 impl<'de> DeserializeSeed<'de> for ProjectionSeed<'_> {

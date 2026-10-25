@@ -42,7 +42,7 @@ fn context(stage: &std::path::Path, fixture: &ProjectRegistryFixture) -> Operati
             writes: AllowedWrites {
                 libraries: true,
                 project_selection: true,
-                lockfile: false,
+                lockfile: true,
                 declarations: false,
             },
         },
@@ -112,6 +112,10 @@ async fn f3_project_facade_reuses_real_closure_and_preserves_failure() {
     install_project_packages(&context, &observed_a, &roots)
         .await
         .unwrap();
+    // Lock publication invalidates this observation. Release its actual
+    // handles before opening the committed input snapshot.
+    drop(observed_a);
+    let observed_a = observe(&projects[0]);
     let requests = fixture.requests();
     assert_eq!(requests.len(), 4, "{requests:?}");
     let identity_a = ProjectIdentity::from_observation(&observed_a).unwrap();
@@ -122,6 +126,7 @@ async fn f3_project_facade_reuses_real_closure_and_preserves_failure() {
         .unwrap()
         .unwrap();
     drop(repository);
+    drop(observed_a);
     assert_eq!(graph_a.nodes().len(), 2);
     assert_eq!(graph_a.edges().len(), 1);
     let edge = &graph_a.edges()[0];
@@ -132,6 +137,8 @@ async fn f3_project_facade_reuses_real_closure_and_preserves_failure() {
     install_project_packages(&context, &observed_b, &roots)
         .await
         .unwrap();
+    drop(observed_b);
+    let observed_b = observe(&projects[1]);
     assert_eq!(
         fixture.requests(),
         requests,
@@ -144,15 +151,24 @@ async fn f3_project_facade_reuses_real_closure_and_preserves_failure() {
         .package_graph(&identity_b)
         .unwrap()
         .unwrap();
+    drop(repository);
+    drop(observed_b);
     assert_eq!(graph_a.layout(), graph_b.layout());
     assert_eq!(graph_a.nodes(), graph_b.nodes());
-    drop(repository);
     for project in &projects[..2] {
         assert_eq!(
             std::fs::read_to_string(project.join("pakro.toml")).unwrap(),
             declaration
         );
-        assert!(!project.join("pakro.lock").exists());
+        let locked = std::fs::read(project.join("pakro.lock")).unwrap();
+        let model = crate::packages::python_resolution::lock_session::decode_root(
+            &locked,
+            Default::default(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(model.graphs().len(), 1);
+        assert!(model.declaration_fingerprint().is_some());
     }
 
     let initial = "[tools]\npython='3.15.0'\n";
@@ -180,6 +196,7 @@ async fn f3_project_facade_reuses_real_closure_and_preserves_failure() {
             .await
             .is_err()
     );
+    drop(observed_c);
     let repository = ProjectRepository::open_readonly(&context).unwrap();
     let old = repository
         .read_views()

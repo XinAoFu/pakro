@@ -1,0 +1,47 @@
+# Exact P2 registrations. Unit runner verifies these before executing p2_.
+pakro lib packages::python_resolution::lock_model::tests::source_builds::p2_source_lock_roundtrip_preserves_original_input_and_actual_output
+pakro lib packages::python_resolution::lock_model::tests::source_builds::p2_source_lock_rejects_wrong_source_output_and_missing_observation
+pakro lib packages::python_resolution::lock_model::tests::source_builds::p2_source_lock_applies_build_collection_and_text_budgets_before_decode
+pakro lib packages::python_resolution::lock_model::tests::source_builds::p2_declaration_commitment_roundtrips_without_rewriting_wheel_identity
+pakro lib packages::python_resolution::source::locked_graph::tests::p2_locked_wheel_replay_reaches_shared_sources_without_new_selection
+pakro lib packages::python_resolution::source::locked_graph::tests::p2_source_output_digest_and_metadata_are_independent_locked_evidence
+pakro lib packages::python_resolution::source::locked_graph::tests::p2_source_replay_retains_original_pin_and_exact_cached_output
+pakro lib programs::shared::lock_transaction::tests::p2_document_before_catalog_is_pending_and_rollback_restores_exact_bytes
+pakro lib programs::shared::lock_transaction::tests::p2_new_lock_before_catalog_is_removed_on_owned_recovery
+pakro lib programs::shared::lock_transaction::tests::p2_catalog_commit_recovery_keeps_the_published_lock
+pakro lib programs::shared::lock_transaction::tests::p2_external_lock_edit_is_preserved_and_remains_pending
+pakro lib programs::shared::lock_transaction::tests::p2_later_project_revision_prevents_rollback_without_rewinding_catalog
+pakro lib programs::shared::lock_transaction::tests::p2_unrelated_catalog_commit_survives_owned_rollback
+pakro lib programs::shared::lock_transaction::tests::p2_locked_request_never_rolls_back_lock_bytes_or_inode
+pakro lib programs::shared::lock_transaction::tests::p2_changed_original_inode_is_rejected_before_journal_or_publication
+pakro lib programs::shared::lock_transaction::tests::p2_recovery_retries_after_original_document_was_restored
+pakro lib programs::shared::lock_transaction::tests::p2_staged_inode_is_recorded_before_rename_and_prewrite_failure_recovers
+pakro lib programs::shared::lock_transaction::tests::p2_another_project_observing_the_same_lock_reports_pending
+pakro lib programs::shared::lock_transaction::tests::p2_recovery_handoff_preserves_owned_inode_and_original_nonlock_inputs
+pakro lib programs::shared::lock_transaction::tests::p2_readonly_lock_alias_cannot_bypass_another_projects_pending_transaction
+pakro lib programs::shared::lock_transaction::tests::p2_recovery_write_result_never_adopts_external_content_before_journal_clear
+pakro lib programs::shared::commit::tests::p2_tests::p2_package_lock_commit_reaches_catalog_with_canonical_wheel_source_pins
+pakro lib programs::shared::commit::tests::p2_tests::p2_package_lock_commit_reaches_catalog_with_recursive_source_build_inputs
+pakro lib programs::shared::commit::tests::p2_tests::p2_post_document_declaration_edits_stop_catalog_commit_and_survive_recovery
+pakro lib programs::shared::commit::tests::p2_tests::p2_real_process_termination_and_fresh_recovery_cover_durable_commit_windows
+pakro lib programs::install::lock_document::tests::p2_runtime_overlay_preserves_native_comments_unknown_fields_and_provenance
+pakro lib programs::query::snapshot::lock_tests::p2_query_validates_declaration_commitment_without_creating_a_guard
+pakro lib programs::python::tests::p2_locked_project_without_complete_lock_refuses_before_library_writes
+pakro lib programs::install::build::tests::p2_source_cold_and_warm_replay_keeps_recursive_inputs_and_rejects_changed_output
+pakro lib packages::python_environment::model::codec::graph::build::tests::p2_build_observation_codec_bounds_fields_and_lists
+pakro lib packages::python_environment::model::codec::graph::build::tests::p2_build_observation_codec_rejects_duplicate_and_unknown_fields
+pakro exact programs::python::integration_tests::f3_project_facade_reuses_real_closure_and_preserves_failure
+# Existing affected publication kernels are separately listed and run nonzero:
+# lockfile::transaction::tests::
+# lockfile::transaction::dangling::tests::
+e2e tests/e2e/packages/test_p2_strict_lock_replay
+e2e tests/e2e/packages/test_p2_source_strict_lock_replay
+e2e tests/e2e/cli/test_p2_pending_preflight_is_readonly
+# Ignored setup only, never counted as product acceptance:
+# programs::shared::lock_transaction::preflight_stage::stage_pending_preflight_readonly
+# programs::shared::commit::tests::p2_tests::lock_commit_crash_child_helper
+# The two strict CLI replays also change only package declarations: language
+# lookup stays usable while full environment selection rejects its stale lock.
+# Actual affected existing CLI regressions; new lock generation is expected.
+e2e tests/e2e/packages/test_native_install_shared_wheel
+e2e tests/e2e/packages/test_native_deps_install_preserves_declarations

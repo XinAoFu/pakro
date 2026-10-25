@@ -24,6 +24,212 @@ use support::*;
 mod scoped;
 
 #[tokio::test]
+async fn p2_locked_wheel_replay_reaches_shared_sources_without_new_selection() {
+    use crate::packages::python_resolution::source::registry_depot::closed::close_registry_plan;
+    let peer = Peer::new(|_| Reply::denied());
+    let fixture = Fixture::new(&peer);
+    let target = target();
+    let specs = specs();
+    let (root, key) = write_graph(
+        &fixture,
+        &target,
+        ORIGINALS,
+        &specs,
+        &[(0, "demo-pkg"), (2, "demo-pkg")],
+        &[("demo-pkg", "dep", DEPENDENCY)],
+    );
+    prelude(&fixture, &root, &target, &specs).await;
+    let endpoints = endpoints(&fixture, &NO_ROUTE);
+    let policy = PythonSourcePolicy::Explicit(fixture.registry.id().clone());
+    let replay = LockedRegistryReplay::new(
+        &root,
+        &key,
+        ORIGINALS,
+        &target,
+        context(&fixture, &endpoints, &policy, NetworkPolicy::Offline),
+    )
+    .unwrap();
+    let strict = ready(replay.prepare().await);
+    let prepared = strict.into_registry_plan().unwrap();
+    let graph = close_registry_plan(prepared, Default::default()).unwrap();
+    assert_eq!(graph.plan().selected.len(), 2);
+    assert_eq!(graph.checked().roots.len(), 2);
+    assert_eq!(graph.checked().edges.len(), 1);
+    let (archives, evidence) = graph.into_shared_sources().unwrap();
+    assert_eq!(archives.len(), 2);
+    evidence
+        .recheck(tokio::time::Instant::now() + Duration::from_secs(10))
+        .unwrap();
+    assert!(peer.requests().is_empty());
+    fixture.assert_no_authority_writes();
+}
+
+#[test]
+fn p2_source_output_digest_and_metadata_are_independent_locked_evidence() {
+    use crate::packages::python_environment::model::SourceBuildRecord;
+    use std::io::Cursor;
+    let peer = Peer::new(|_| Reply::denied());
+    let fixture = Fixture::new(&peer);
+    let target = target();
+    let source = Spec {
+        name: "demo-pkg".into(),
+        version: "1.0".into(),
+        filename: "demo-pkg-1.0.tar.gz".into(),
+        bytes: b"original source evidence".to_vec(),
+    };
+    let output = Spec::wheel("demo-pkg", "1.0", &[], "");
+    let artifact = spool_verified_reader(
+        Cursor::new(&output.bytes),
+        &output.filename,
+        Digest::from_sha256_bytes(&output.bytes),
+        1024 * 1024,
+        fixture.root.path(),
+    )
+    .unwrap();
+    let archive = crate::packages::python_wheel_source::inspect_owned_wheel(
+        artifact,
+        Digest::from_sha256_bytes(&output.bytes),
+        &crate::packages::python_wheel::WheelExpectation {
+            filename: &output.filename,
+            name: &output.name,
+            version: &output.version,
+            supported: target.supported(),
+        },
+        Default::default(),
+    )
+    .unwrap();
+    let record = SourceBuildRecord {
+        source_digest: source.pin(&fixture).digest().to_string(),
+        request_id: [7; 32],
+        recipe: 1,
+        backend: "demo_backend".into(),
+        inputs: Vec::new(),
+        output_filename: output.filename.clone(),
+        output_digest: archive.digest().to_string(),
+        output_size: archive.size(),
+        metadata_sha256: Sha256::digest(archive.manifest().core_metadata().raw()).into(),
+        observation: None,
+    };
+    for metadata_changed in [false, true] {
+        let mut changed = record.clone();
+        if metadata_changed {
+            changed.metadata_sha256[0] ^= 1;
+        } else {
+            changed.output_digest = Digest::Sha256([8; 32]).to_string();
+        }
+        let artifact = spool_verified_reader(
+            Cursor::new(&output.bytes),
+            &output.filename,
+            Digest::from_sha256_bytes(&output.bytes),
+            1024 * 1024,
+            fixture.root.path(),
+        )
+        .unwrap();
+        assert!(matches!(
+            build::inspect_output(
+                artifact,
+                &source.pin(&fixture),
+                &changed,
+                target.supported(),
+                Default::default()
+            ),
+            Err(LockedGraphError::BuildMismatch)
+        ));
+    }
+    assert!(peer.requests().is_empty());
+}
+
+#[tokio::test]
+async fn p2_source_replay_retains_original_pin_and_exact_cached_output() {
+    use crate::packages::python_environment::model::{SourceBuildObservation, SourceBuildRecord};
+    use crate::packages::python_resolution::source::registry_depot::closed::close_registry_plan;
+    use std::io::Cursor;
+    let peer = Peer::new(|_| Reply::denied());
+    let fixture = Fixture::new(&peer);
+    let target = target();
+    let source = Spec {
+        name: "demo-pkg".into(),
+        version: "1.0".into(),
+        filename: "demo_pkg-1.0.tar.gz".into(),
+        bytes: include_bytes!("../fresh/wheel/fixtures/demo_pkg-1.0.tar.gz").to_vec(),
+    };
+    let output = Spec::wheel("demo-pkg", "1.0", &[], "");
+    let mut artifact = spool_verified_reader(
+        Cursor::new(&output.bytes),
+        &output.filename,
+        Digest::from_sha256_bytes(&output.bytes),
+        1024 * 1024,
+        fixture.root.path(),
+    )
+    .unwrap();
+    crate::artifact_snapshot::publish_verified_artifact(&mut artifact, &fixture.cache, 1024 * 1024)
+        .unwrap();
+    let archive = crate::packages::python_wheel_source::inspect_owned_wheel(
+        artifact,
+        Digest::from_sha256_bytes(&output.bytes),
+        &crate::packages::python_wheel::WheelExpectation {
+            filename: &output.filename,
+            name: &output.name,
+            version: &output.version,
+            supported: target.supported(),
+        },
+        Default::default(),
+    )
+    .unwrap();
+    let record = SourceBuildRecord {
+        source_digest: source.pin(&fixture).digest().to_string(),
+        request_id: [7; 32],
+        recipe: 1,
+        backend: "demo_backend".into(),
+        inputs: Vec::new(),
+        output_filename: output.filename.clone(),
+        output_digest: archive.digest().to_string(),
+        output_size: archive.size(),
+        metadata_sha256: Sha256::digest(archive.manifest().core_metadata().raw()).into(),
+        observation: Some(SourceBuildObservation {
+            initial_requirements: Vec::new(),
+            initial_inputs: Vec::new(),
+            dynamic_requirements: Vec::new(),
+        }),
+    };
+    let pin = source.pin(&fixture);
+    let (root, key) = write_graph_with_builds(
+        &fixture,
+        &target,
+        &["demo-pkg==1.0"],
+        std::slice::from_ref(&source),
+        &[(0, "demo-pkg")],
+        &[],
+        &[(pin.id(), record.clone())],
+    );
+    prelude(&fixture, &root, &target, std::slice::from_ref(&source)).await;
+    let endpoints = endpoints(&fixture, &NO_ROUTE);
+    let policy = PythonSourcePolicy::Explicit(fixture.registry.id().clone());
+    let replay = LockedRegistryReplay::new(
+        &root,
+        &key,
+        &["demo-pkg==1.0"],
+        &target,
+        context(&fixture, &endpoints, &policy, NetworkPolicy::Offline),
+    )
+    .unwrap();
+    let prepared = ready(replay.prepare().await).into_registry_plan().unwrap();
+    let graph = close_registry_plan(prepared, Default::default()).unwrap();
+    let selected = &graph.plan().selected[0];
+    let owner = graph.owner(selected.key).unwrap();
+    assert_eq!(owner.pin(), &pin);
+    assert_eq!(owner.output_filename(), output.filename);
+    assert_eq!(owner.build_record(), Some(&record));
+    let (archives, evidence) = graph.into_shared_sources().unwrap();
+    assert_eq!(archives[0].filename(), output.filename);
+    assert_ne!(archives[0].digest(), pin.digest());
+    evidence
+        .recheck(tokio::time::Instant::now() + Duration::from_secs(10))
+        .unwrap();
+    assert!(peer.requests().is_empty());
+}
+
+#[tokio::test]
 async fn original_arbitrary_root_rhs_cannot_be_normalized_during_strict_preflight() {
     for (declaration, expected) in [("demo-pkg===1.0", true), ("demo-pkg===01.0", false)] {
         let peer = Peer::new(|_| Reply::denied());
@@ -782,16 +988,11 @@ async fn source_and_sdist_inputs_return_owned_typed_continuations_without_fake_m
         &["demo-pkg"],
         &target,
         context(&fixture, &endpoints, &policy, NetworkPolicy::Offline),
-    )
-    .unwrap()
-    .prepare()
-    .await
-    .unwrap();
-    let LockedGraphPreparation::NeedsBuild(build) = state else {
-        panic!("a genuine old sdist requires its real build continuation")
-    };
-    assert_eq!(build.pin().id(), sdist.pin(&fixture).id());
-    drop(build);
+    );
+    assert!(
+        matches!(state, Err(LockedGraphError::MissingBuild)),
+        "a historical source pin without exact build/output evidence cannot be replayed"
+    );
     drop(root);
     let reference = "../${PRIVATE_TOKEN}/source";
     let spec = Spec::wheel(

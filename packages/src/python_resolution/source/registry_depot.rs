@@ -8,6 +8,7 @@
 mod active_policy;
 #[path = "built.rs"]
 mod built;
+pub(in crate::packages::python_resolution::source) use built::BuiltRegistryWheel as ReplayedBuiltRegistryWheel;
 use built::{BuiltRegistryWheel, RetainedBuiltRegistryWheel};
 
 use super::*;
@@ -1330,6 +1331,91 @@ pub(crate) struct RegistryPreparedPlan<'root> {
     owners: BTreeMap<CandidateKey, RegistryMetadataOwner<'root>>,
     policy_notices: BTreeMap<CandidateKey, Vec<PolicyNotice>>,
     usage: RegistryDepotUsage,
+}
+impl<'root> RegistryPreparedPlan<'root> {
+    pub(in crate::packages::python_resolution::source) fn from_replayed(
+        root: &'root BoundPythonLock,
+        roots: Vec<PythonRequirementSyntax>,
+        root_scopes: Option<Vec<RegistryRootScope>>,
+        target: super::locked_graph::FrozenRegistryTarget,
+        owners: BTreeMap<CandidateKey, RegistryMetadataOwner<'root>>,
+        derived: crate::packages::python_resolution::graph_check::DerivedGraphData,
+        deadline: Instant,
+        retained_utf8: usize,
+    ) -> Result<Self, super::locked_graph::LockedGraphError> {
+        use super::locked_graph::LockedGraphError;
+        use pakro_resolver::python_native::SelectedCandidate;
+        root.recheck().map_err(|_| LockedGraphError::Revoked)?;
+        let mut selected = owners
+            .iter()
+            .map(|(key, owner)| SelectedCandidate {
+                name: owner.facts().name().as_str().to_owned(),
+                key: *key,
+                version: owner.facts().version().to_owned(),
+                requested_extras: derived.extras.get(key).cloned().unwrap_or_default(),
+            })
+            .collect::<Vec<_>>();
+        selected.sort_by(|a, b| a.name.cmp(&b.name));
+        let retained_bytes = owners.values().try_fold(0u64, |total, owner| {
+            total
+                .checked_add(owner.pin().size())
+                .and_then(|n| {
+                    if owner.build_record().is_some() {
+                        n.checked_add(owner.output_size())
+                    } else {
+                        Some(n)
+                    }
+                })
+                .ok_or(LockedGraphError::Limit)
+        })?;
+        let metadata_count = owners.len();
+        Ok(Self {
+            root,
+            roots,
+            root_scopes,
+            environment: RegistryEnvironment::from_checked(target.environment()),
+            root_scope: target.with_root_scope(|scope| match scope {
+                PythonMarkerScope::Environment => RegistryRootScope::Environment,
+                PythonMarkerScope::Dependency { requested_extras } => {
+                    RegistryRootScope::ProjectExtras(
+                        requested_extras
+                            .iter()
+                            .map(|value| (*value).to_owned())
+                            .collect(),
+                    )
+                }
+                PythonMarkerScope::Lock {
+                    selected_extras,
+                    dependency_groups,
+                } => RegistryRootScope::Lock {
+                    extras: selected_extras
+                        .iter()
+                        .map(|value| (*value).to_owned())
+                        .collect(),
+                    groups: dependency_groups
+                        .iter()
+                        .map(|value| (*value).to_owned())
+                        .collect(),
+                },
+            }),
+            semantics: target.semantics(),
+            supported: target.supported().clone(),
+            deadline,
+            marker_limits: Default::default(),
+            plan: NativePlan { selected },
+            owners,
+            policy_notices: BTreeMap::new(),
+            usage: RegistryDepotUsage {
+                retained_bytes,
+                retained_utf8,
+                steps: 0,
+                projects: 0,
+                metadata: metadata_count,
+                policy_work: 0,
+                policy_utf8: 0,
+            },
+        })
+    }
 }
 impl RegistryPreparedPlan<'_> {
     pub(crate) fn policy_notices(&self, key: CandidateKey) -> &[PolicyNotice] {

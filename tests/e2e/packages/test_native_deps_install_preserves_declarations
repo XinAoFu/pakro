@@ -15,20 +15,27 @@ dependencies = ["z-root==1.0"]
 TOML
 cat >project/pakro.lock <<'TOML'
 lockfile_version = 3
-# User lock bytes and comments must remain exactly intact.
+# Unrelated lock bytes and comments must remain exactly intact.
 [tools]
+[future]
+value = 'preserved-native-value'
 TOML
 cd project
-before="$(cksum pakro.toml pyproject.toml pakro.lock)"
+before="$(cksum pakro.toml pyproject.toml)"
 pakro deps install
-[[ $(cksum pakro.toml pyproject.toml pakro.lock) == "$before" ]] || fail "deps install edited declaration or lock bytes"
+[[ $(cksum pakro.toml pyproject.toml) == "$before" ]] || fail "deps install edited declaration bytes"
+grep -Fq '# Unrelated lock bytes and comments must remain exactly intact.' pakro.lock || fail 'deps install removed native lock comments'
+grep -Fq "value = 'preserved-native-value'" pakro.lock || fail 'deps install removed unknown native lock content'
+grep -Fq '[python]' pakro.lock || fail 'deps install did not generate the exact Python graph'
+lock_after_install="$(cksum pakro.lock)"
 requests_before="$(f3_request_count)"
 pakro deps install
 [[ $(f3_request_count) == "$requests_before" ]] || fail "repeated deps install fetched a complete existing closure"
+[[ $(cksum pakro.lock) == "$lock_after_install" ]] || fail 'repeated deps install rewrote the exact lock'
 eval "$(pakro activate bash)"
 eval "$(pakro hook-env -s bash --force)"
 assert "python -m z_root" 'shared-dependency:pth-visible'
 assert "z-root-cli" 'shared-dependency:pth-visible'
-[[ $(cksum pakro.toml pyproject.toml pakro.lock) == "$before" ]] || fail "directory selection edited declarations"
+[[ $(cksum pakro.toml pyproject.toml) == "$before" && $(cksum pakro.lock) == "$lock_after_install" ]] || fail "directory selection edited declarations or the exact lock"
 [[ ! -d .venv && ! -d .pakro/venvs ]] || fail "deps install created a project runtime copy"
 f3_assert_no_manager

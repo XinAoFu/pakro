@@ -5,7 +5,6 @@ use crate::env;
 mod clear;
 mod path;
 mod prune;
-mod task;
 
 /// Manage the pakro cache
 ///
@@ -22,7 +21,6 @@ enum Commands {
     Clear(clear::CacheClear),
     Path(path::CachePath),
     Prune(prune::CachePrune),
-    Task(task::CacheTask),
 }
 
 impl Commands {
@@ -31,7 +29,6 @@ impl Commands {
             Self::Clear(cmd) => cmd.run().await,
             Self::Path(cmd) => cmd.run(),
             Self::Prune(cmd) => cmd.run(),
-            Self::Task(cmd) => cmd.run().await,
         }
     }
 }

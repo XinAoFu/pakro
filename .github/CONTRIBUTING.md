@@ -1,6 +1,12 @@
 # Development
 
-Build, test and generation commands are documented in [README](../README.md).
+Read [AGENTS.md](../AGENTS.md), the [architecture](../docs/Pakro主架构文件与Agent规则.md)
+and the [current plan](../docs/PLAN.md) before changing this repository.
 
-Read the current [handoff](../docs/devlog/HANDOFF.md) before development. Requirements,
-architecture, plans, decisions and development logs are kept in [docs/devlog](../docs/devlog/).
+Build and test directly with Cargo. Run a retained CLI test through
+`bash tests/e2e/run_test <test-path>` after building the executable.
+The [README](../README.md) lists the commands and current capability limits.
+Do not invoke the removed product task runner to build or test Pakro.
+
+Long checks are run by the user in a terminal. Each agent check group has a
+600-second wall-clock limit; the automatic multiprocess runner remains disabled.

@@ -85,13 +85,6 @@ impl PackageManifest {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct BlobManifest {
-    pub artifact: String,
-    pub filename: String,
-    pub storage: StorageManifest,
-}
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(crate) struct LayoutManifest {
     pub language: [u8; 32],
     pub graph: [u8; 32],
@@ -122,13 +115,6 @@ pub(crate) fn package_name(key: &[u8; 32]) -> String {
 }
 pub(crate) fn layout_name(key: &[u8; 32]) -> String {
     format!("layout-{}.json", hex::encode(key))
-}
-pub(crate) fn blob_key(digest: &pakro_store::Digest) -> [u8; 32] {
-    use sha2::{Digest as _, Sha256};
-    Sha256::digest(digest.to_string().as_bytes()).into()
-}
-pub(crate) fn blob_name(digest: &pakro_store::Digest) -> String {
-    format!("blob-{}.json", hex::encode(blob_key(digest)))
 }
 pub(crate) fn read_json<T: DeserializeOwned>(
     context: &OperationContext,
@@ -169,12 +155,6 @@ pub(crate) fn read_package(
     key: &[u8; 32],
 ) -> Result<Option<PackageManifest>> {
     read_json(context, &package_name(key))
-}
-pub(crate) fn read_blob_manifest(
-    context: &OperationContext,
-    digest: &pakro_store::Digest,
-) -> Result<Option<BlobManifest>> {
-    read_json(context, &blob_name(digest))
 }
 pub(crate) fn enumerate_published(context: &OperationContext) -> Result<Vec<PackageManifest>> {
     context.checkpoint()?;

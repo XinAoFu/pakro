@@ -31,6 +31,7 @@ pub struct PythonProjectInstall {
     observed: ObservedProjectInputs,
     version: String,
     roots: Vec<(String, String)>,
+    extra: Vec<PackageInstallRequest>,
 }
 
 impl PythonProjectInstall {
@@ -49,8 +50,8 @@ impl PythonProjectInstall {
         })
     }
 
-    /// Called only after explicit installation intent. Preparation never edits
-    /// project declarations or its lock; all associations use the one catalog.
+    /// Explicit intent may produce a lock with the same catalog commit.
+    /// Existing precise locks replay without edits; declarations stay intact.
     pub fn install(
         self,
         config: std::sync::Arc<crate::config::Config>,
@@ -60,13 +61,37 @@ impl PythonProjectInstall {
     }
 
     fn install_version(
-        self,
+        mut self,
         version: String,
         config: std::sync::Arc<crate::config::Config>,
     ) -> futures_util::future::BoxFuture<'static, Result<()>> {
         Box::pin(async move {
             self.context.checkpoint()?;
             self.observed.recheck()?;
+            // Preparation also serves dry-run and admission. Recovery belongs
+            // only here, after the CLI has accepted actual execution.
+            if let Some(refreshed) =
+                super::shared::lock_transaction::recover_project_lock_and_observe(
+                    &self.context,
+                    &self.observed,
+                )?
+            {
+                ensure!(
+                    super::query::snapshot::effective_python_declaration(&refreshed).as_deref()
+                        == Some(self.version.as_str()),
+                    "project Python declaration changed during recovery"
+                );
+                ensure!(
+                    project_roots(&refreshed, &self.version, &self.extra)? == self.roots,
+                    "project direct roots changed during recovery"
+                );
+                preflight_project_lock(&self.context, &refreshed, &self.version, &self.roots)?;
+                self.observed = refreshed;
+            }
+            super::shared::lock_transaction::ensure_project_consistent(
+                &self.context,
+                &self.observed,
+            )?;
             let request = super::shared::exact_version::exact_python_request(&version)?;
             let pin = crate::libraries::project::runtime_pin::observed_runtime_pin(
                 &self.observed,
@@ -97,15 +122,13 @@ pub(crate) fn project_plan(
     };
     super::shared::exact_version::exact_python_request(&version)?;
     let roots = project_roots(&observed, &version, extra)?;
-    ensure!(
-        !context.policy().locked || roots.is_empty(),
-        "locked shared package installation is not supported yet; refusing to resolve again"
-    );
+    preflight_project_lock(&context, &observed, &version, &roots)?;
     Ok(Some(PythonProjectInstall {
         context,
         observed,
         version,
         roots,
+        extra: extra.to_vec(),
     }))
 }
 
@@ -203,6 +226,56 @@ pub fn prepare_current_project(
     project_plan(context, observed, extra)
 }
 
+fn preflight_project_lock(
+    context: &OperationContext,
+    observed: &ObservedProjectInputs,
+    version: &str,
+    roots: &[(String, String)],
+) -> Result<()> {
+    let request = super::shared::exact_version::exact_python_request(version)?;
+    let native = crate::libraries::project::runtime_pin::observed_runtime_pin(observed, &request)?;
+    let path = project_lock_path(observed)?;
+    let model = observed
+        .document(&path)
+        .map(|bytes| {
+            crate::packages::python_resolution::lock_session::decode_root(bytes, Default::default())
+        })
+        .transpose()?
+        .flatten();
+    if context.policy().locked {
+        ensure!(
+            native.is_some() && model.is_some(),
+            "strict Python restore requires the complete runtime source and package graph in pakro.lock"
+        );
+    }
+    if let Some(model) = model {
+        super::install::lock_document::validate_declarations(observed, &model)?;
+        let sources = context.python_sources()?;
+        for pin in model.pins() {
+            ensure!(sources.registries.iter().any(|registry| {
+                registry.id().as_str() == pin.file().registry_id()
+                    && crate::packages::python_resolution::lock_model::canonical_registry_base_fingerprint(registry.canonical_base()) == *pin.file().canonical_base_fingerprint()
+            }), "strict Python lock requires an unsupported or changed registry source");
+        }
+        let raw = roots
+            .iter()
+            .map(|(name, version)| format!("{name}=={version}"))
+            .collect::<Vec<_>>();
+        ensure!(
+            model
+                .graphs()
+                .iter()
+                .any(|graph| graph.root_declarations() == raw),
+            "strict Python lock differs from the complete current direct roots"
+        );
+        ensure!(
+            native.is_some(),
+            "strict Python lock is missing its exact runtime source"
+        );
+    }
+    Ok(())
+}
+
 fn capture_install_context() -> Result<OperationContext> {
     let settings = crate::config::Settings::get();
     capture_install_context_using(
@@ -241,7 +314,7 @@ fn capture_install_context_using(
             writes: AllowedWrites {
                 libraries: true,
                 project_selection: true,
-                lockfile: false,
+                lockfile: !settings.locked,
                 declarations: false,
             },
         },
@@ -274,6 +347,10 @@ pub fn install_exact_python<'a>(
             {
                 return project.install_version(version.to_owned(), config).await;
             }
+            ensure!(
+                !context.policy().locked,
+                "strict Python restore cannot select an explicit runtime outside the locked project declaration"
+            );
         }
         ensure!(
             extra.is_empty(),
@@ -294,7 +371,8 @@ async fn install_project_packages(
     use crate::libraries::project::repository::ProjectRepository;
     use crate::programs::query::snapshot::{SelectionReport, open_query_context, select_existing};
     use crate::programs::shared::commit::{
-        commit_package_selection, prepare_package_selection_commit,
+        commit_package_selection, commit_package_selection_with_lock, commit_selection,
+        commit_selection_with_lock, prepare_package_selection_commit, prepare_selection_commit,
     };
     context.checkpoint()?;
     observed.recheck()?;
@@ -302,13 +380,42 @@ async fn install_project_packages(
     let SelectionReport::Selected(candidate) = select_existing(&query)? else {
         eyre::bail!("the exact project Python is missing, ambiguous or damaged after installation");
     };
+    let lock_path = project_lock_path(observed)?;
+    let root = crate::packages::python_resolution::lock_session::BoundPythonLock::acquire(
+        &lock_path,
+        Default::default(),
+        context.policy().deadline,
+    )?;
+    let strict = context.policy().locked || root.model().is_some();
     if roots.is_empty() {
         let language = LanguageRepository::open_readonly(context)?
             .acquire_by_key(candidate.key())?
             .context("project Python is not Ready")?;
         check_requires_python(observed, &language)?;
+        let bytes = if strict {
+            super::install::lock::validate_project_lock(&root, &language, roots)?;
+            None
+        } else {
+            let graph = crate::packages::python_environment::model::PackageGraphRecord {
+                roots: vec![],
+                nodes: vec![],
+                edges: vec![],
+            };
+            let model =
+                super::install::lock::project_lock_model(&root, &language, &graph, roots, &[])?;
+            Some(super::install::lock_document::prepare_document(
+                &root, observed, &language, model,
+            )?)
+        };
         drop(language);
-        super::install::selection::apply_directory_selection(context, observed, &candidate)?;
+        root.recheck()?;
+        drop(root);
+        let prepared = prepare_selection_commit(context, observed, &candidate)?;
+        if let Some(bytes) = bytes {
+            commit_selection_with_lock(prepared, &lock_path, &bytes)?;
+        } else {
+            commit_selection(prepared)?;
+        }
         return Ok(());
     }
     let sources = context.python_sources()?;
@@ -323,13 +430,19 @@ async fn install_project_packages(
             registry.canonical_base(),
         ),
     )];
-    let lock_path = project_lock_path(observed)?;
-    let root = crate::packages::python_resolution::lock_session::BoundPythonLock::acquire(
-        &lock_path,
-        Default::default(),
-        context.policy().deadline,
-    )?;
     observed.recheck()?;
+    let expected_graph = if strict {
+        let language = LanguageRepository::open_readonly(context)?
+            .acquire_by_key(candidate.key())?
+            .context("project Python is not Ready")?;
+        let graph = super::install::lock::validate_project_lock(&root, &language, roots)?;
+        Some(super::install::lock::portable_graph(
+            root.model().context("strict graph model is missing")?,
+            graph,
+        )?)
+    } else {
+        None
+    };
     let requested: Vec<_> = roots
         .iter()
         .map(|(name, version)| (name.as_str(), version.as_str()))
@@ -339,6 +452,15 @@ async fn install_project_packages(
         .matching_package_graphs(candidate.key().fingerprint(), &requested)?;
     let mut ready = Vec::new();
     for graph in existing {
+        if let Some(expected) = &expected_graph {
+            if graph.fingerprint() != expected.fingerprint()? {
+                continue;
+            }
+        } else if graph.nodes().iter().any(|node| node.pin.build.is_some()) {
+            // Historical source receipts lack the complete original build
+            // observations needed to produce the first portable strict lock.
+            continue;
+        }
         let validation = graph
             .validate_pins(&root, &allowed)
             .and_then(|()| graph.validate_observed_pins(observed, &allowed));
@@ -371,22 +493,45 @@ async fn install_project_packages(
             nodes: graph.nodes().to_vec(),
             edges: graph.edges().to_vec(),
         };
+        let bytes = if strict {
+            None
+        } else {
+            let model = super::install::lock::project_lock_model(
+                &root,
+                lease.language_lease(),
+                &record,
+                roots,
+                &[],
+            )?;
+            Some(super::install::lock_document::prepare_document(
+                &root,
+                observed,
+                lease.language_lease(),
+                model,
+            )?)
+        };
         drop(lease);
-        commit_package_selection(prepare_package_selection_commit(
+        root.recheck()?;
+        drop(root);
+        let prepared = prepare_package_selection_commit(
             context,
             observed,
             *candidate.key(),
             *graph.layout(),
             record,
-        )?)?;
-        root.recheck()?;
+        )?;
+        if let Some(bytes) = bytes {
+            commit_package_selection_with_lock(prepared, &lock_path, &bytes)?;
+        } else {
+            commit_package_selection(prepared)?;
+        }
         return Ok(());
     }
     let language = LanguageRepository::open_readonly(context)?
         .acquire_by_key(candidate.key())?
         .context("project Python is not Ready")?;
     check_requires_python(observed, &language)?;
-    resolve_and_commit(context, observed, language, &root, &requested).await
+    resolve_and_commit(context, observed, language, root, &requested).await
 }
 
 pub(crate) fn check_requires_python(
@@ -414,7 +559,7 @@ async fn resolve_and_commit(
     context: &OperationContext,
     observed: &ObservedProjectInputs,
     language: crate::libraries::language::lease::LanguageLease,
-    root: &crate::packages::python_resolution::lock_session::BoundPythonLock,
+    root: crate::packages::python_resolution::lock_session::BoundPythonLock,
     roots: &[(&str, &str)],
 ) -> Result<()> {
     use crate::packages::python_resolution::candidate_policy::{
@@ -424,7 +569,8 @@ async fn resolve_and_commit(
         RegistryDepotContext, RegistryEndpoint, RegistryRootScope,
     };
     use crate::programs::shared::commit::{
-        commit_package_selection, prepare_package_selection_commit,
+        commit_package_selection, commit_package_selection_with_lock,
+        prepare_package_selection_commit,
     };
     use pakro_index::artifact::NetworkPolicy;
     use pakro_index::python_source::AuthScopeKey;
@@ -499,7 +645,7 @@ async fn resolve_and_commit(
     let graph = super::install::resolve::resolve_exact_roots(
         context,
         &language,
-        root,
+        &root,
         roots,
         registry_context,
     )
@@ -507,6 +653,25 @@ async fn resolve_and_commit(
     let facts = graph.package_facts(&language)?;
     let instances: Vec<_> = facts.iter().map(|fact| fact.key).collect();
     let record = graph.projection(&instances)?;
+    let strict = context.policy().locked || root.model().is_some();
+    let bytes = if strict {
+        None
+    } else {
+        let owned_roots = roots
+            .iter()
+            .map(|(name, version)| ((*name).to_owned(), (*version).to_owned()))
+            .collect::<Vec<_>>();
+        let model = super::install::lock::project_lock_model(
+            &root,
+            &language,
+            &record,
+            &owned_roots,
+            graph.builds(),
+        )?;
+        Some(super::install::lock_document::prepare_document(
+            &root, observed, &language, model,
+        )?)
+    };
     let graph_key = graph.fingerprint()?;
     let (sources, evidence) = graph.into_sources()?;
     ensure!(
@@ -533,10 +698,16 @@ async fn resolve_and_commit(
     drop(layout);
     let language_key = language.key();
     drop(language);
+    root.recheck()?;
+    drop(evidence);
+    drop(root);
     let prepared =
         prepare_package_selection_commit(context, observed, language_key, layout_key, record)?;
-    evidence.recheck(tokio::time::Instant::from_std(context.policy().deadline))?;
-    commit_package_selection(prepared)?;
+    if let Some(bytes) = bytes {
+        commit_package_selection_with_lock(prepared, &project_lock_path(observed)?, &bytes)?;
+    } else {
+        commit_package_selection(prepared)?;
+    }
     Ok(())
 }
 
@@ -770,6 +941,38 @@ mod tests {
         assert_eq!(request.version(), "3.13.16");
         assert_eq!(request.roots, vec![("demo".into(), "1.0".into())]);
         assert!(!root.join("data").exists());
+    }
+
+    #[test]
+    fn p2_locked_project_without_complete_lock_refuses_before_library_writes() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let project = root.join("project");
+        std::fs::create_dir(&project).unwrap();
+        std::fs::write(
+            project.join("pakro.toml"),
+            "[tools]\npython='3.13.16'\n[packages.\"python@3.13.16\"]\ndemo='1.0'\n",
+        )
+        .unwrap();
+        let mut settings = crate::config::Settings::default();
+        settings.locked = true;
+        settings.http_timeout = "10s".into();
+        settings.http_download_timeout = "1m".into();
+        let context =
+            capture_install_context_using(&settings, root.join("data"), root.join("cache"))
+                .unwrap();
+        let mut discovery = FrozenConfigDiscovery::new(vec!["pakro.toml".into()]);
+        discovery.ceiling_paths = vec![root.clone()];
+        let observed = observe_project(
+            &project,
+            ReadPolicy::new(discovery, context.policy().deadline),
+        )
+        .unwrap();
+        let error = project_plan(context, observed, &[]).err().unwrap();
+        assert!(format!("{error:#}").contains("complete runtime source"));
+        assert!(!root.join("data").exists());
+        assert!(!root.join("cache").exists());
+        assert_eq!(std::fs::read_dir(&project).unwrap().count(), 1);
     }
 }
 

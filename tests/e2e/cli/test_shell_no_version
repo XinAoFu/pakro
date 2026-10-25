@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-
-export __PAKRO_DIFF="[]"
-
-# pakro shell without a version should error
-assert_fail "pakro shell node"
-assert_fail_contains "pakro shell node" "no version specified for tool node"

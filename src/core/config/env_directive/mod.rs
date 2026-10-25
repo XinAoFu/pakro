@@ -14,7 +14,6 @@ use itertools::Itertools;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::{Debug, Display, Formatter};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::{cmp::PartialEq, sync::Arc};
 
 use super::{Config, Settings};
@@ -23,8 +22,6 @@ pub(crate) use pakro_util::env_value::EnvValue;
 mod file;
 mod path;
 mod source;
-#[path = "../../../../runtimes/environment/venv.rs"]
-pub(crate) mod venv;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) enum RequiredValue {
@@ -142,14 +139,7 @@ pub enum EnvDirective {
         format: Option<AgeFormat>,
         options: EnvDirectiveOptions,
     },
-    PythonVenv {
-        path: String,
-        create: bool,
-        python: Option<String>,
-        uv_create_args: Option<Vec<String>>,
-        python_create_args: Option<Vec<String>>,
-        options: EnvDirectiveOptions,
-    },
+
     Module(String, toml::Value, EnvDirectiveOptions),
 }
 
@@ -164,7 +154,6 @@ impl EnvDirective {
             | EnvDirective::Path(_, opts)
             | EnvDirective::Source(_, opts)
             | EnvDirective::Age { options: opts, .. }
-            | EnvDirective::PythonVenv { options: opts, .. }
             | EnvDirective::Module(_, _, opts) => opts,
         }
     }
@@ -204,29 +193,6 @@ impl Display for EnvDirective {
                 write!(f, ")")
             }
             EnvDirective::Module(name, _, _) => write!(f, "module {name}"),
-            EnvDirective::PythonVenv {
-                path,
-                create,
-                python,
-                uv_create_args,
-                python_create_args,
-                ..
-            } => {
-                write!(f, "python venv path={}", display_path(path))?;
-                if *create {
-                    write!(f, " create")?;
-                }
-                if let Some(python) = python {
-                    write!(f, " python={python}")?;
-                }
-                if let Some(args) = uv_create_args {
-                    write!(f, " uv_create_args={args:?}")?;
-                }
-                if let Some(args) = python_create_args {
-                    write!(f, " python_create_args={args:?}")?;
-                }
-                Ok(())
-            }
         }
     }
 }
@@ -304,45 +270,12 @@ pub(crate) enum ToolsFilter {
     NonToolsOnly,
     Both,
     /// `tools = true` directives, but only plain `Val` (`KEY = value`) entries.
-    /// Env *modules* (PythonVenv/Module/Source/File/Path) are skipped because they
+    /// Env *modules* (Module/Source/File/Path) are skipped because they
     /// may reference tools outside a partial (dependency) toolset and would error.
     /// Used by `dependency_env` so a dependent tool's install sees `tools = true`
     /// value vars like `CLOUDSDK_PYTHON = "{{ tools.python.path }}/..."`. (#10282)
     ToolsOnlyVals,
 }
-
-static OCI_ENV_SATISFIES_REQUIRED: AtomicBool = AtomicBool::new(false);
-
-/// Let `[oci.env]` satisfy `required` env vars for the rest of this process.
-///
-/// `pakro oci` bakes `[oci.env]` into the image, so a `required` var it defines
-/// has a value in the image and needn't exist on the build host. Set before the
-/// config loads: `[env]` is validated as part of loading it.
-pub fn oci_env_satisfies_required() {
-    OCI_ENV_SATISFIES_REQUIRED.store(true, Ordering::Relaxed);
-}
-
-/// Whether [`oci_env_satisfies_required`] was called. Env resolved this way
-/// isn't valid for a command that enforces `required`, so it must not be cached.
-pub(crate) fn is_oci_env_satisfying_required() -> bool {
-    OCI_ENV_SATISFIES_REQUIRED.load(Ordering::Relaxed)
-}
-
-/// Keys the project's `[oci.env]` sections define. Global and system configs
-/// are left out: `pakro oci` doesn't bake their `[oci]` unless asked to.
-fn oci_env_keys(config: &Config) -> BTreeSet<String> {
-    if !is_oci_env_satisfying_required() {
-        return BTreeSet::new();
-    }
-    config
-        .config_files
-        .values()
-        .filter(|cf| cf.project_root().is_some())
-        .filter_map(|cf| cf.oci_config())
-        .flat_map(|oci| oci.env.into_keys())
-        .collect()
-}
-
 pub(crate) struct EnvResolveOptions {
     pub vars: bool,
     pub tools: ToolsFilter,
@@ -435,13 +368,6 @@ impl EnvResults {
                 && (!crate::config::is_global_config(source)
                     || matches!(directive, EnvDirective::Source(..)))
         };
-        // Choose the last venv among directives that survive the safe-mode filter,
-        // so a dropped project venv can't cause an operator's global venv to be
-        // skipped as "not the last one".
-        let last_python_venv = input.iter().rev().find_map(|(d, source)| match d {
-            EnvDirective::PythonVenv { .. } if !dropped_in_safe_mode(d, source) => Some(d),
-            _ => None,
-        });
         let filtered_input = input
             .iter()
             .fold(Vec::new(), |mut acc, (directive, source)| {
@@ -462,13 +388,6 @@ impl EnvResults {
                     return acc;
                 }
 
-                if let Some(d) = &last_python_venv
-                    && matches!(directive, EnvDirective::PythonVenv { .. })
-                    && **d != *directive
-                {
-                    // skip venv directives if it's not the last one
-                    return acc;
-                }
                 acc.push((directive.clone(), source.clone()));
                 acc
             });
@@ -486,9 +405,7 @@ impl EnvResults {
                 !crate::config::readonly_invocation()
                     || !matches!(
                         &directive,
-                        EnvDirective::Source(..)
-                            | EnvDirective::Module(..)
-                            | EnvDirective::PythonVenv { create: true, .. }
+                        EnvDirective::Source(..) | EnvDirective::Module(..)
                     ),
                 "dynamic environment providers are unavailable during read-only target admission or local queries"
             );
@@ -775,41 +692,7 @@ impl EnvResults {
                         }
                     }
                 }
-                EnvDirective::PythonVenv {
-                    path,
-                    create,
-                    python,
-                    uv_create_args,
-                    python_create_args,
-                    options: _opts,
-                } => {
-                    let mut directive_ctx = EnvDirectiveContext {
-                        config,
-                        tera_ctx: &mut ctx,
-                        tera: &mut tera,
-                        results: &mut r,
-                        normalize_path,
-                        source: &source,
-                        exec_env: &env_vars,
-                        config_root: &config_root,
-                        toolset,
-                    };
-                    Self::venv(
-                        &mut directive_ctx,
-                        &mut env,
-                        path,
-                        create,
-                        venv::PythonVenvOptions {
-                            python,
-                            // filled in by `venv()` from the caller's toolset
-                            active_python: None,
-                            uv_create_args,
-                            python_create_args,
-                            require_uv: false,
-                        },
-                    )
-                    .await?;
-                }
+
                 EnvDirective::Module(name, _, _) => {
                     eyre::bail!(
                         "env module {name:?} is not supported: vfox support has been removed"
@@ -847,19 +730,12 @@ impl EnvResults {
         }
 
         let context_vars_for_validation = Self::context_vars(&ctx);
-        let oci_env_keys = if resolve_opts.vars {
-            BTreeSet::new()
-        } else {
-            oci_env_keys(config)
-        };
-
         // Validate required variables
         Self::validate_required_vars(
             &filtered_input_for_validation,
             required_env,
             &r,
             &context_vars_for_validation,
-            &oci_env_keys,
             resolve_opts.warn_on_missing_required,
             resolve_opts.vars,
         )?;
@@ -878,7 +754,6 @@ impl EnvResults {
         initial: &EnvMap,
         env_results: &EnvResults,
         context_vars: &EnvMap,
-        oci_env_keys: &BTreeSet<String>,
         warn_mode: bool,
         vars_mode: bool,
     ) -> eyre::Result<()> {
@@ -914,8 +789,7 @@ impl EnvResults {
 
             // Variable must be defined either:
             // 1. In the initial environment (before pakro runs), OR
-            // 2. In a config file processed later than the one declaring it as required, OR
-            // 3. In `[oci.env]`, when `pakro oci` is building the image
+            // 2. In a config file processed later than the one declaring it as required
             let is_predefined = initial.contains_key(&lookup);
 
             let resolved_values = if vars_mode {
@@ -932,13 +806,7 @@ impl EnvResults {
             let is_defined_in_context =
                 vars_mode && context_vars.get(&lookup).is_some_and(|v| !v.is_empty());
 
-            let is_defined_by_oci_env = oci_env_keys.contains(&lookup);
-
-            if !is_predefined
-                && !is_defined_later
-                && !is_defined_in_context
-                && !is_defined_by_oci_env
-            {
+            if !is_predefined && !is_defined_later && !is_defined_in_context {
                 let variable_kind = if vars_mode {
                     "variable"
                 } else {

@@ -16,17 +16,14 @@ use crate::config::env_directive::EnvDirective;
 use crate::config::provenance::ConfigProvenance;
 use crate::config::settings::IdiomaticVersionFileSettings;
 use crate::config::{AliasMap, CommandWrapper, Settings, SettingsExt, settings};
-use crate::deps::DepsConfig;
 use crate::errors::Error::UntrustedConfig;
 use crate::file::display_path;
 use crate::hash::hash_to_str;
 use crate::hooks::Hook;
 use crate::redactions::Redactions;
-use crate::task::{Task, TaskRustCacheConfig, TaskTemplate};
 use crate::toolset::{ToolRequest, ToolRequestSet, ToolSource, ToolVersionList, Toolset};
 use crate::ui::prompt::Confirmation;
 use crate::ui::{prompt, style};
-use crate::watch_files::WatchFile;
 use crate::{
     backend::{self, Backend},
     config, dirs, env, file, hash,
@@ -444,9 +441,7 @@ pub trait ConfigFile: Debug + Send + Sync {
     fn vars_entries(&self) -> Result<Vec<EnvDirective>> {
         Ok(Default::default())
     }
-    fn tasks(&self) -> Vec<&Task> {
-        Default::default()
-    }
+
     fn remove_tool(&self, ba: &BackendArg) -> eyre::Result<()>;
     fn replace_versions(&self, ba: &BackendArg, versions: Vec<ToolRequest>) -> eyre::Result<()>;
     fn save(&self) -> eyre::Result<()>;
@@ -479,20 +474,6 @@ pub trait ConfigFile: Debug + Send + Sync {
         None
     }
 
-    fn daemon_declarations(&self) -> IndexMap<String, crate::daemons::Declaration> {
-        IndexMap::new()
-    }
-
-    fn daemon_providers(&self) -> IndexMap<String, ::toml::Table> {
-        Default::default()
-    }
-    fn daemon_settings(&self) -> Option<crate::daemons::DaemonSettings> {
-        None
-    }
-    fn daemon_group_declarations(&self) -> IndexMap<String, crate::daemons::GroupDeclaration> {
-        IndexMap::new()
-    }
-
     fn shell_aliases(&self) -> eyre::Result<IndexMap<String, String>> {
         Ok(Default::default())
     }
@@ -501,45 +482,9 @@ pub trait ConfigFile: Debug + Send + Sync {
         Ok(Default::default())
     }
 
-    fn task_config(&self) -> &TaskConfig {
-        static DEFAULT_TASK_CONFIG: Lazy<TaskConfig> = Lazy::new(TaskConfig::default);
-        &DEFAULT_TASK_CONFIG
-    }
-
     fn tool_config(&self) -> &ToolConfig {
         static DEFAULT_TOOL_CONFIG: Lazy<ToolConfig> = Lazy::new(ToolConfig::default);
         &DEFAULT_TOOL_CONFIG
-    }
-
-    fn task_config_includes(&self) -> eyre::Result<Option<Vec<String>>> {
-        Ok(self.task_config().includes.clone())
-    }
-
-    /// The remote config fragments this file's `include` names.
-    fn remote_includes(&self) -> eyre::Result<Vec<String>> {
-        Ok(vec![])
-    }
-
-    /// A copy of this file with the fetched remote fragments (`(cache file,
-    /// body)`, in include order) merged in below its own entries.
-    fn with_remote_fragments(
-        &self,
-        _fragments: Vec<(PathBuf, String)>,
-    ) -> eyre::Result<Option<Arc<dyn ConfigFile>>> {
-        Ok(None)
-    }
-
-    /// The cache files of the fragments merged into this file.
-    fn included_paths(&self) -> Vec<PathBuf> {
-        vec![]
-    }
-
-    fn task_config_excludes(&self) -> eyre::Result<Option<Vec<String>>> {
-        Ok(self.task_config().excludes.clone())
-    }
-
-    fn task_templates(&self) -> IndexMap<String, TaskTemplate> {
-        IndexMap::new()
     }
 
     fn monorepo_root(&self) -> Option<bool> {
@@ -555,38 +500,12 @@ pub trait ConfigFile: Debug + Send + Sync {
         &DEFAULT_REDACTIONS
     }
 
-    fn watch_files(&self) -> Result<Vec<WatchFile>> {
-        Ok(Default::default())
-    }
-
     fn hooks(&self) -> Result<Vec<Hook>> {
         Ok(Default::default())
     }
 
-    fn deps_config(&self) -> Result<Option<DepsConfig>> {
-        Ok(None)
-    }
-
-    fn oci_config(&self) -> Option<crate::oci::OciConfig> {
-        None
-    }
-
     fn doctor_config(&self) -> crate::config::doctor::DoctorConfig {
         Default::default()
-    }
-
-    fn bootstrap_config(&self) -> Option<crate::system::BootstrapTomlConfig> {
-        None
-    }
-
-    fn dotfiles_config(&self) -> Option<crate::system::DotfilesTomlConfig> {
-        None
-    }
-
-    fn dotfile_groups_config(
-        &self,
-    ) -> Option<crate::system::dotfile_groups::DotfileGroupsTomlConfig> {
-        None
     }
 }
 
@@ -1625,22 +1544,6 @@ impl Hash for dyn ConfigFile {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.get_path().hash(state);
     }
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default)]
-pub struct TaskConfig {
-    pub cascade: Option<bool>,
-    pub includes: Option<Vec<String>>,
-    pub excludes: Option<Vec<String>>,
-    pub dir: Option<String>,
-    pub shell: Option<String>,
-    pub cache: Option<crate::task::TaskCacheConfig>,
-    pub rust_cache: Option<TaskRustCacheConfig>,
-    pub global_env: Vec<String>,
-    pub global_pass_through_env: Vec<String>,
-    pub global_inputs: Vec<String>,
-    pub input_groups: IndexMap<String, Vec<String>>,
 }
 
 /// Policy applied to tools declared by configs sharing this config's root.

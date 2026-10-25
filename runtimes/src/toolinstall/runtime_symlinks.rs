@@ -103,47 +103,6 @@ fn rebuild_symlinks_in_dir(
         .unwrap_or(&default_alias)
         .versions;
     let alias_names = configured_alias_names(aliases, installs_dir);
-    #[cfg(unix)]
-    if installs_dir.parent() == Some(crate::config::Settings::get().system_installs_dir())
-        && crate::system_install::needs_elevation(installs_dir)
-    {
-        // The root helper only creates, retargets and removes symlinks, so the
-        // pruning below is computed here and sent along with the desired links.
-        let remove = stale_generated_symlinks(backend, installs_dir, &symlinks, &alias_names)?
-            .into_iter()
-            .chain(missing_symlinks_in_dir(installs_dir)?)
-            .filter_map(|path| path.file_name().map(|n| n.to_string_lossy().to_string()))
-            .collect();
-        // A real directory in a generated selector slot (`latest`, a version
-        // prefix) that is not a concrete install is legacy stale state. Alias
-        // names are excluded: an alias may point at a real directory.
-        let namespace = generated_symlink_namespace(installs_dir);
-        let replace = symlinks
-            .iter()
-            .filter(|(from, to)| {
-                let path = installs_dir.join(from);
-                namespace.contains(*from)
-                    && !alias_names.contains(*from)
-                    && path.is_dir()
-                    && !is_runtime_symlink(&path)
-                    && path
-                        .file_name()
-                        .zip(to.file_name())
-                        .is_some_and(|(f, t)| f != t)
-                    && !concrete_installs.contains(*from)
-            })
-            .map(|(from, _)| from.clone())
-            .collect();
-        return crate::system_install::links(
-            installs_dir,
-            symlinks
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect(),
-            remove,
-            replace,
-        );
-    }
     let mut publication_lock = None;
     for (from, to) in &symlinks {
         let from_name = from.clone();

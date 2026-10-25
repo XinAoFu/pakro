@@ -6,8 +6,7 @@ use strum::EnumString;
 /// Answer pakro's hidden completion protocol with its runtime completion metadata.
 ///
 /// The tables compiled by usage-rs cover static commands, flags, choices, and path hints. pakro
-/// also augments those tables at runtime with `run=` completers and task commands mounted from
-/// `pakro tasks --usage`; those only exist in [`super::usage::completion_spec`]. Try that richer
+/// uses the retained command definitions from [`super::usage::completion_spec`]. Try that
 /// spec first, preserving its path fallback marker, then leave only unsupported requests to the
 /// compiled usage-rs tables.
 pub(crate) fn completion_request(argv: &[OsString]) -> Option<String> {

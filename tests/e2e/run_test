@@ -32,13 +32,7 @@ if [[ -n ${PAKRO_TEST_PITCHFORK:-} && -f $PAKRO_TEST_PITCHFORK ]]; then
 fi
 
 setup_isolated_env() {
-  # macOS's per-user TMPDIR can exceed Pitchfork's Unix socket path limit.
-  # Keep daemon fixtures short while preserving other tests' temporary roots.
-  if [[ $(os) == "macos" && $(basename "$TEST") == test_daemons* ]]; then
-    TEST_ISOLATED_DIR="$(mktemp --tmpdir=/tmp --directory "$(basename "$TEST").XXXXXX")"
-  else
-    TEST_ISOLATED_DIR="$(mktemp --tmpdir --directory "$(basename "$TEST").XXXXXX")"
-  fi
+  TEST_ISOLATED_DIR="$(mktemp -d "${TMPDIR:-/tmp}/$(basename "$TEST").XXXXXX")"
   if [[ $(os) == "macos" ]]; then
     TEST_ISOLATED_DIR="$(realpath "$TEST_ISOLATED_DIR")"
   fi

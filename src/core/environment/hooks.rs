@@ -136,8 +136,6 @@ pub(crate) enum HookDefItem {
         scripts: Vec<String>,
         shell: Option<String>,
     },
-    /// Task reference: `enter = { task = "setup" }`
-    TaskRef { task: String },
 }
 
 #[derive(Debug, Clone)]
@@ -222,11 +220,6 @@ impl HookDefItem {
                 action: script_hook_action(hook_type, scripts.join("\n"), shell, true),
                 global: false,
             },
-            HookDefItem::TaskRef { task } => Hook {
-                hook: hook_type,
-                action: HookAction::Task { task_name: task },
-                global: false,
-            },
         }
     }
 }
@@ -272,9 +265,6 @@ pub enum HookAction {
         script: String,
         shell: String,
     },
-    Task {
-        task_name: String,
-    },
 }
 
 impl Hook {
@@ -308,9 +298,6 @@ impl Hook {
             HookAction::CurrentShell { script, shell } => {
                 *script = render(script)?;
                 *shell = render(shell)?;
-            }
-            HookAction::Task { task_name } => {
-                *task_name = render(task_name)?;
             }
         }
         Ok(())
@@ -580,24 +567,6 @@ async fn run_matched_hook(
     }
     let hook_type = hook.hook;
     match &hook.action {
-        HookAction::Task { task_name } => {
-            if let Err(e) = execute_task(
-                config,
-                ts,
-                roots.config,
-                roots.project,
-                hook,
-                task_name,
-                installed_tools,
-            )
-            .await
-            {
-                warn!(
-                    "{hook_type} hook in {} failed: {e}",
-                    roots.project.display()
-                );
-            }
-        }
         HookAction::CurrentShell { script, .. } => {
             let mut out = String::new();
             if let Some(shell) = shell {
@@ -652,9 +621,6 @@ async fn run_matched_hook(
 
 fn preview_matched_hook(root: &Path, hook: &Hook) -> Result<()> {
     let action = match &hook.action {
-        HookAction::Task { task_name } => shell_words::join(
-            once("pakro".to_string()).chain(task_hook_args(root, hook.hook, task_name)),
-        ),
         HookAction::CurrentShell { script, .. } => script.clone(),
         HookAction::Run { shell, .. } => {
             let Some(run) = hook.action.run_for_current_platform() else {
@@ -852,72 +818,6 @@ async fn execute(
     Ok(())
 }
 
-async fn execute_task(
-    config: &Arc<Config>,
-    ts: &Toolset,
-    config_root: &Path,
-    project_root: &Path,
-    hook: &Hook,
-    task_name: &str,
-    installed_tools: Option<&[InstalledToolInfo]>,
-) -> Result<()> {
-    let pakro_bin = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("pakro"));
-
-    let mut env = if hook.hook == Hooks::Preinstall {
-        ts.full_env_without_tools(config).await?
-    } else {
-        ts.full_env(config).await?
-    };
-    if let Some(cwd) = dirs::CWD.as_ref() {
-        env.insert(
-            "PAKRO_ORIGINAL_CWD".to_string(),
-            cwd.to_string_lossy().to_string(),
-        );
-    }
-    env.insert(
-        "PAKRO_PROJECT_ROOT".to_string(),
-        project_root.to_string_lossy().to_string(),
-    );
-    env.insert(
-        "PAKRO_CONFIG_ROOT".to_string(),
-        config_root.to_string_lossy().to_string(),
-    );
-    if let Some((Some(old), _new)) = hook_env::dir_change() {
-        env.insert(
-            "PAKRO_PREVIOUS_DIR".to_string(),
-            old.to_string_lossy().to_string(),
-        );
-    }
-    if let Some(tools) = installed_tools
-        && let Ok(json) = serde_json::to_string(tools)
-    {
-        env.insert("PAKRO_INSTALLED_TOOLS".to_string(), json);
-    }
-    env.insert("PAKRO_NO_HOOKS".to_string(), "1".to_string());
-
-    cmd(
-        pakro_bin,
-        task_hook_args(project_root, hook.hook, task_name),
-    )
-    .stdout_to_stderr()
-    .full_env(env)
-    .run()?;
-    Ok(())
-}
-
-fn task_hook_args(root: &Path, hook: Hooks, task_name: &str) -> Vec<String> {
-    let mut args = vec![
-        "--cd".to_string(),
-        root.to_string_lossy().into_owned(),
-        "run".to_string(),
-    ];
-    if hook == Hooks::Preinstall {
-        args.push("--skip-tools".to_string());
-    }
-    args.push(task_name.to_string());
-    args
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -996,24 +896,6 @@ mod tests {
             serde_json::to_value(info).unwrap()["install_path"],
             r"C:\Data Root\pakro\installs\opencodex\2.59.0"
         );
-    }
-
-    #[test]
-    fn preinstall_task_skips_tool_installation() {
-        assert_eq!(
-            task_hook_args(Path::new("project"), Hooks::Preinstall, "credentials"),
-            ["--cd", "project", "run", "--skip-tools", "credentials"]
-        );
-    }
-
-    #[test]
-    fn other_task_hooks_keep_normal_tool_handling() {
-        for hook in [Hooks::Enter, Hooks::Leave, Hooks::Cd, Hooks::Postinstall] {
-            assert_eq!(
-                task_hook_args(Path::new("project"), hook, "setup"),
-                ["--cd", "project", "run", "setup"]
-            );
-        }
     }
 
     #[test]

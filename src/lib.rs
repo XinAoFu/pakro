@@ -1,4 +1,4 @@
-//! pakro's core: config, toolsets, backends, tasks and everything else the
+//! pakro's core: project configuration, shared libraries and the services the
 //! command line is built on. The `pakro` binary (`src/main.rs` and `cli/src/commands/`)
 //! is the only intended consumer; this is not a stable public API.
 //!
@@ -67,7 +67,7 @@ pub use crate::result::Result;
 pub use pakro_util::exit::request as request_exit;
 
 // Environment and shell-hook machinery (`environment/`): env var helpers, the
-// hook-env protocol, env diffing, watch files, direnv, uv venv integration.
+// hook-env protocol, env diffing, watch files and direnv.
 
 #[path = "core/environment/direnv.rs"]
 pub mod direnv;
@@ -81,13 +81,11 @@ pub mod hook_env;
 pub mod hooks;
 #[path = "core/environment/path_env.rs"]
 pub mod path_env;
-#[path = "../runtimes/environment/uv.rs"]
-mod uv;
 #[path = "core/environment/watch_files.rs"]
 pub mod watch_files;
 
 // Tool installation machinery (`toolinstall/`): backend install context,
-// pre-install orchestration, system package fallbacks, runtime symlinks.
+// pre-install orchestration and runtime symlinks.
 
 #[path = "../runtimes/src/toolinstall/install_before.rs"]
 pub mod install_before;
@@ -99,9 +97,6 @@ pub(crate) mod install_rollback;
 pub mod python_runtime;
 #[path = "../runtimes/src/toolinstall/runtime_symlinks.rs"]
 pub mod runtime_symlinks;
-#[cfg(unix)]
-#[path = "../runtimes/src/toolinstall/system_install.rs"]
-pub mod system_install;
 #[path = "../runtimes/src/toolinstall/tool_purgatory.rs"]
 pub mod tool_purgatory;
 #[path = "../runtimes/src/toolinstall/tool_stub.rs"]
@@ -189,10 +184,6 @@ pub mod args;
 pub mod backend;
 #[path = "core/config/mod.rs"]
 pub mod config;
-#[path = "core/daemons/mod.rs"]
-pub mod daemons;
-#[path = "../packages/deps/mod.rs"]
-pub mod deps;
 pub mod frontend;
 #[path = "../runtimes/src/install_layout/mod.rs"]
 pub mod install_layout;
@@ -200,10 +191,6 @@ pub mod install_layout;
 pub(crate) mod libraries;
 #[path = "core/lockfile/mod.rs"]
 pub mod lockfile;
-#[path = "../runtimes/src/oci/mod.rs"]
-pub mod oci;
-#[path = "core/otel/mod.rs"]
-pub mod otel;
 #[path = "../packages/src/mod.rs"]
 pub mod packages;
 #[path = "../runtimes/src/plugins/mod.rs"]
@@ -212,10 +199,6 @@ pub mod plugins;
 pub mod programs;
 #[path = "../cli/src/shell/mod.rs"]
 pub mod shell;
-#[path = "core/system/mod.rs"]
-pub mod system;
-#[path = "core/task/mod.rs"]
-pub mod task;
 #[path = "../runtimes/src/toolset/mod.rs"]
 pub mod toolset;
 #[path = "../cli/src/ui/mod.rs"]

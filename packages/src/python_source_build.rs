@@ -14,7 +14,9 @@ use sha2::{Digest as _, Sha256};
 
 use crate::artifact_snapshot::{VerifiedArtifact, spool_observed_reader, spool_verified_reader};
 use crate::libraries::language::lease::LanguageLease;
-use crate::packages::python_environment::model::{SourceBuildInput, SourceBuildRecord};
+use crate::packages::python_environment::model::{
+    SourceBuildInput, SourceBuildObservation, SourceBuildRecord,
+};
 use crate::packages::python_environment::prefix::verify::{
     PrefixInventoryLimits, TreeInventory, observe_tree_inventory,
 };
@@ -267,6 +269,10 @@ impl SourceBuildSession {
         mut self,
         environment: BuildEnvironment,
     ) -> Result<CompletedSourceBuild> {
+        ensure!(
+            self.last_requirements.is_some(),
+            "source build requirements were not observed"
+        );
         let response = self
             .hook(&environment, "prepare_metadata_for_build_wheel", None)
             .await?;
@@ -430,6 +436,14 @@ impl SourceBuildSession {
             output_digest: archive.digest().to_string(),
             output_size: archive.size(),
             metadata_sha256: Sha256::digest(archive.manifest().core_metadata().raw()).into(),
+            observation: Some(SourceBuildObservation {
+                initial_requirements: self.extracted.initial_requirements.clone(),
+                initial_inputs: self.previous_inputs.clone(),
+                dynamic_requirements: self
+                    .last_requirements
+                    .clone()
+                    .context("source build requirements were not observed")?,
+            }),
         };
         record.fingerprint()?;
         drop(environment);

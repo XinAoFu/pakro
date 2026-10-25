@@ -34,9 +34,9 @@ fn charge(used: &mut usize, bytes: usize, maximum: usize) -> Result<(), LockedGr
         .ok_or(LockedGraphError::Limit)?;
     Ok(())
 }
-fn retain_metadata(
+pub(super) fn retain_metadata(
     used: &mut usize,
-    owner: &LockedWheelCandidate<'_>,
+    owner: &RegistryMetadataOwner<'_>,
     maximum: usize,
 ) -> Result<(), LockedGraphError> {
     // Bound the directly retained archive metadata and projected text before
@@ -122,6 +122,9 @@ async fn work<'lock, 'config>(
         clock(replay.context.deadline)?;
         let binding = &replay.nodes[index];
         let key = binding.key;
+        if replay.owners.contains_key(&key) || replay.builds.contains_key(&key) {
+            continue;
+        }
         let root = replay.root;
         let pin = binding.pin;
         let endpoint = &replay.context.endpoints[binding.endpoint];
@@ -180,6 +183,7 @@ async fn work<'lock, 'config>(
                 if owner.pin().id() != pin.id() {
                     return Err(LockedGraphError::GraphMismatch);
                 }
+                let owner = RegistryMetadataOwner::Locked(owner);
                 retain_metadata(
                     &mut replay.retained_utf8,
                     &owner,
@@ -190,7 +194,26 @@ async fn work<'lock, 'config>(
                 }
             }
             LockedMetadataState::NeedsBuild(source) => {
-                if source.pin().id() != pin.id() || replay.builds.insert(key, source).is_some() {
+                if source.pin().id() != pin.id() {
+                    return Err(LockedGraphError::GraphMismatch);
+                }
+                if let Some(archive) =
+                    build::cached_output(root, pin, &replay.target, &replay.context)?
+                {
+                    let record = build::expected(root, pin)?.clone();
+                    let built = super::super::registry_depot::ReplayedBuiltRegistryWheel::from_locked_output(
+                        source, archive, record, limits.metadata,
+                    ).map_err(|_| LockedGraphError::BuildMismatch)?;
+                    let owner = RegistryMetadataOwner::Built(built);
+                    retain_metadata(
+                        &mut replay.retained_utf8,
+                        &owner,
+                        limits.max_retained_utf8_bytes,
+                    )?;
+                    if replay.owners.insert(key, owner).is_some() {
+                        return Err(LockedGraphError::GraphMismatch);
+                    }
+                } else if replay.builds.insert(key, source).is_some() {
                     return Err(LockedGraphError::GraphMismatch);
                 }
             }
@@ -277,6 +300,7 @@ async fn work<'lock, 'config>(
         context,
         owners,
         bindings,
+        retained_utf8,
         ..
     } = replay;
     Ok(LockedGraphPreparation::Ready(LockedPreparedPlan {
@@ -289,6 +313,7 @@ async fn work<'lock, 'config>(
         bindings,
         derived,
         deadline: context.deadline,
+        retained_utf8,
     }))
 }
 fn compare(

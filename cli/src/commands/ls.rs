@@ -119,18 +119,6 @@ pub(crate) struct Ls {
     #[usage(long, conflicts = &["current", "global", "local", "prunable"])]
     all_sources: bool,
 
-    /// List tools from every [monorepo].config_roots config root
-    ///
-    /// Uses the active PAKRO_ENV and requires monorepo_root = true plus explicit
-    /// [monorepo].config_roots in the monorepo root config.
-    #[usage(
-        long,
-        env = "PAKRO_MONOREPO",
-        verbatim_doc_comment,
-        conflicts = &["all_sources", "prunable"]
-    )]
-    monorepo: bool,
-
     /// Don't display headers
     #[usage(long, alias = "no-headers", verbatim_doc_comment, conflicts = &["json"])]
     no_header: bool,
@@ -251,8 +239,7 @@ impl Ls {
             || self.local
             || self.prunable
             || self.outdated
-            || self.all_sources
-            || self.monorepo;
+            || self.all_sources;
         ensure!(
             !special,
             "this shared-library query does not support legacy grouping, global/local, remote comparison or prune filters"
@@ -551,18 +538,12 @@ impl Ls {
         config: &Arc<Config>,
         exclude_python: bool,
     ) -> Result<Vec<RuntimeRow<'_>>> {
-        let mut trs = if self.monorepo {
-            config.monorepo_union_tool_request_set().await?
-        } else {
-            config.get_tool_request_set().await?.clone()
-        };
+        let mut trs = config.get_tool_request_set().await?.clone();
         if self.global {
             trs = trs
                 .iter()
                 .filter(|(.., ts)| match ts {
-                    ToolSource::PakroToml(p) | ToolSource::PakroTomlDaemon(p) => {
-                        config::is_global_config(p)
-                    }
+                    ToolSource::PakroToml(p) => config::is_global_config(p),
                     _ => false,
                 })
                 .map(|(fa, tv, ts)| (fa.clone(), tv.clone(), ts.clone()))
@@ -573,7 +554,7 @@ impl Ls {
                 .filter(|(.., ts)| {
                     matches!(
                         ts,
-                        ToolSource::PakroToml(p) | ToolSource::PakroTomlDaemon(p)
+                        ToolSource::PakroToml(p)
                         | ToolSource::IdiomaticVersionFile(p)
                         | ToolSource::ToolVersions(p)
                         if !config::is_global_config(p)

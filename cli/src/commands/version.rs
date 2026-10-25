@@ -129,7 +129,6 @@ impl Version {
         } else {
             show_version()?;
             show_latest().await;
-            show_version_hint();
         }
         Ok(())
     }
@@ -182,78 +181,6 @@ pub(crate) async fn show_latest() {
             warn!("{}", upgrade_instructions_or_hint());
         }
     }
-}
-
-#[derive(Debug, PartialEq)]
-enum VersionHint {
-    AutoUpdate,
-    Homebrew,
-    OptimizedBinary,
-    OptimizedBinaryWindows,
-}
-
-fn select_version_hint(
-    self_update_available: bool,
-    auto_update: bool,
-    homebrew: bool,
-    windows: bool,
-) -> Option<VersionHint> {
-    if self_update_available {
-        (!auto_update).then_some(VersionHint::AutoUpdate)
-    } else if homebrew {
-        Some(VersionHint::Homebrew)
-    } else if windows {
-        Some(VersionHint::OptimizedBinaryWindows)
-    } else {
-        Some(VersionHint::OptimizedBinary)
-    }
-}
-
-pub(crate) fn show_auto_update_hint() {
-    let Ok(settings) = Settings::try_get() else {
-        return;
-    };
-    if select_version_hint(
-        SelfUpdate::is_available(),
-        settings.auto_update,
-        false,
-        cfg!(windows),
-    ) == Some(VersionHint::AutoUpdate)
-    {
-        hint!(
-            "auto_update",
-            "keep pakro updated automatically with",
-            "pakro settings auto_update=true"
-        );
-    }
-}
-
-pub(crate) fn show_version_hint() {
-    if SelfUpdateSource::current()
-        .require_release_identity()
-        .is_err()
-    {
-        return;
-    }
-    let Ok(settings) = Settings::try_get() else {
-        return;
-    };
-    match select_version_hint(
-        SelfUpdate::is_available(),
-        settings.auto_update,
-        is_homebrew_install(),
-        cfg!(windows),
-    ) {
-        Some(VersionHint::AutoUpdate) => show_auto_update_hint(),
-        Some(_) => warn!("{}", upgrade_instructions_or_hint()),
-        None => {}
-    }
-}
-
-fn is_homebrew_install() -> bool {
-    std::fs::canonicalize(&*env::PAKRO_BIN)
-        .ok()
-        .is_some_and(|path| path.components().any(|part| part.as_os_str() == "Cellar"))
 }
 
 pub(crate) async fn check_for_new_version(cache_duration: Duration) -> Option<String> {
@@ -650,31 +577,6 @@ mod tests {
         assert_eq!(
             cached_release_index(&p, HOUR),
             Cached::Fresh(Some("v0.0.1 100".to_string()))
-        );
-    }
-
-    #[test]
-    fn version_hint_promotes_auto_update_for_official_binaries() {
-        assert_eq!(
-            select_version_hint(true, false, false, false),
-            Some(VersionHint::AutoUpdate)
-        );
-        assert_eq!(select_version_hint(true, true, false, false), None);
-    }
-
-    #[test]
-    fn version_hint_promotes_optimized_binaries_for_package_installs() {
-        assert_eq!(
-            select_version_hint(false, false, true, false),
-            Some(VersionHint::Homebrew)
-        );
-        assert_eq!(
-            select_version_hint(false, false, false, false),
-            Some(VersionHint::OptimizedBinary)
-        );
-        assert_eq!(
-            select_version_hint(false, false, false, true),
-            Some(VersionHint::OptimizedBinaryWindows)
         );
     }
 }

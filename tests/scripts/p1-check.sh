@@ -64,10 +64,13 @@ case "$p1_mode" in
   --build) cargo build -p pakro --bin pakro --all-features;;
   --lib) p1_filter p1_; p1_filter programs::directory::tests::; p1_filter programs::install::apply::tests::;;
   --cli-unit)
-    cargo test -p pakro --bin pakro --all-features p1_ -- --list >"$CARGO_TARGET_DIR/p1-cli-registered.txt" 2>&1
+    cargo test -p pakro --bin pakro --all-features cli:: -- --list >"$CARGO_TARGET_DIR/p1-cli-registered.txt" 2>&1
     cat "$CARGO_TARGET_DIR/p1-cli-registered.txt"
     p1_verify_manifest "$CARGO_TARGET_DIR/p1-cli-registered.txt" bin
-    cargo test -p pakro --bin pakro --all-features p1_ -- --nocapture;;
+    while read -r package target name; do
+      [[ "$package" == pakro && "$target" == bin ]] || continue
+      cargo test -p pakro --bin pakro --all-features "$name" -- --exact --nocapture
+    done <tests/scripts/p1-test-cases.txt;;
   --e2e-empty)
     for case in test_p1_shared_python_empty_queries test_p1_python_write_admission test_p1_readonly_initialization test_p1_non_python_command_dispatch test_p1_query_option_admission; do
       tests/e2e/run_test "tests/e2e/cli/$case"

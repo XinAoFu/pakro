@@ -21,27 +21,19 @@ use versions::Versioning;
 use crate::args::BackendArg;
 use crate::backend::unalias_backend;
 use crate::config::config_file::{
-    ConfigFile, TaskConfig, ToolConfig, config_trust_root, is_ignored, trust, trust_check,
+    ConfigFile, ToolConfig, config_trust_root, is_ignored, trust, trust_check,
 };
 use crate::config::config_file::{config_root, toml::deserialize_arr};
-use crate::config::env_directive::{
-    AgeFormat, EnvDirective, EnvDirectiveOptions, EnvValue, RequiredValue,
-};
+use crate::config::env_directive::{AgeFormat, EnvDirective, EnvDirectiveOptions, EnvValue};
 use crate::config::settings::SettingsPartial;
 use crate::config::{Alias, AliasMap, CommandWrapper, Config, Settings};
-use crate::deps::{DepsConfig, DepsTemplateContext};
 use crate::env_diff::EnvMap;
 use crate::file::{create_dir_all, display_path};
 use crate::hooks::{Hook, HookDef, Hooks};
-use crate::oci::OciConfig;
 use crate::redactions::Redactions;
 use crate::registry::REGISTRY;
-use crate::system::{BootstrapTomlConfig, DotfilesTomlConfig, PackageTomlConfig};
-use crate::task::workspace::WorkspaceProjectOverride;
-use crate::task::{Task, TaskTemplate, TaskTomlBoolPresence};
 use crate::tera::{BASE_CONTEXT, contains_template_syntax, get_tera, render_str};
 use crate::toolset::{ToolRequest, ToolRequestSet, ToolSource, ToolVersionOptions};
-use crate::watch_files::WatchFile;
 use crate::{env, file};
 
 use super::diagnostic::toml_parse_error;
@@ -414,12 +406,6 @@ pub struct PakroToml {
     #[serde(skip)]
     path: PathBuf,
     #[serde(default, deserialize_with = "deserialize_arr")]
-    include: Vec<String>,
-    /// The cache files of the remote `include` fragments merged into this
-    /// config, so `hook-env` notices when one is refreshed.
-    #[serde(skip)]
-    included_paths: Vec<PathBuf>,
-    #[serde(default, deserialize_with = "deserialize_arr")]
     env_file: Vec<String>,
     #[serde(default, deserialize_with = "deserialize_arr")]
     dotenv: Vec<String>,
@@ -434,14 +420,6 @@ pub struct PakroToml {
     #[serde(default)]
     shell_alias: IndexMap<String, String>,
     #[serde(default)]
-    daemons: IndexMap<String, crate::daemons::Declaration>,
-    #[serde(default)]
-    daemons_settings: Option<crate::daemons::DaemonSettings>,
-    #[serde(default)]
-    daemon_providers: IndexMap<String, toml::Table>,
-    #[serde(default)]
-    daemon_groups: IndexMap<String, crate::daemons::GroupDeclaration>,
-    #[serde(default)]
     wrappers: IndexMap<String, CommandWrapper>,
     #[serde(skip)]
     doc: Mutex<OnceCell<DocumentMut>>,
@@ -454,34 +432,14 @@ pub struct PakroToml {
     #[serde(default)]
     redactions: Redactions,
     #[serde(default)]
-    task_config: TaskConfig,
-    #[serde(default)]
     tool_config: ToolConfig,
     #[serde(default)]
-    tasks: Tasks,
-    #[serde(default)]
-    task_templates: TaskTemplates,
-    #[serde(default)]
-    watch_files: Vec<WatchFile>,
-    #[serde(default)]
-    deps: Option<DepsConfig>,
-    #[serde(default)]
-    oci: Option<OciConfig>,
-    #[serde(default)]
-    bootstrap: Option<BootstrapTomlConfig>,
-    #[serde(default)]
     doctor: crate::config::doctor::DoctorConfig,
-    #[serde(default)]
-    dotfiles: Option<DotfilesTomlConfig>,
-    #[serde(default)]
-    dotfile_groups: Option<crate::system::dotfile_groups::DotfileGroupsTomlConfig>,
-    #[serde(default)]
-    history: Option<crate::system::history::config::HistoryTomlConfig>,
     #[serde(default, deserialize_with = "deserialize_vars")]
     vars: EnvList,
     #[serde(default)]
     settings: SettingsPartial,
-    /// Marks this config as a monorepo root, enabling target path syntax for tasks
+    /// Marks this config as a monorepo root for lockfile discovery.
     #[serde(default)]
     monorepo_root: Option<bool>,
     /// Legacy name for monorepo_root, retained during its deprecation period
@@ -533,34 +491,20 @@ where
 }
 
 #[derive(Debug, Default, Clone)]
-pub(crate) struct Tasks(pub BTreeMap<String, Task>);
-
-#[derive(Debug, Default, Clone)]
-pub(crate) struct TaskTemplates(pub IndexMap<String, TaskTemplate>);
-
-#[derive(Debug, Default, Clone)]
 pub struct EnvList(pub Vec<EnvDirective>);
 
 /// Configuration for the [monorepo] section in pakro.toml.
 #[derive(Debug, Default, Clone, Deserialize)]
 pub struct MonorepoConfig {
-    /// Explicit list of config roots for monorepo task discovery.
+    /// Explicit list of config roots for monorepo lockfile discovery.
     /// Supports single-level glob patterns (*).
     pub config_roots: Option<Vec<String>>,
-    /// Short names for configured monorepo task roots.
+    /// Short names for configured monorepo roots.
     #[serde(default)]
     pub path_aliases: BTreeMap<String, String>,
     /// Use a single lockfile at the monorepo root for descendant config roots.
     /// None follows the rollout default; true opts in, false keeps colocated locks.
     pub lockfile: Option<bool>,
-    /// Explicit additions, removals, and overrides for provider-inferred projects.
-    // Consumed when workspace providers are connected to task loading.
-    #[allow(dead_code)]
-    #[serde(default)]
-    pub projects: BTreeMap<String, WorkspaceProjectOverride>,
-    /// Experimental task defaults applied by task name across workspace projects.
-    #[serde(default)]
-    pub task_defaults: IndexMap<String, TaskTemplate>,
 }
 
 impl EnvList {
@@ -617,50 +561,6 @@ impl PakroToml {
     pub fn from_file(path: &Path) -> eyre::Result<Self> {
         let body = file::read_to_string(path)?;
         Self::from_str(&body, path)
-    }
-
-    /// Merge the remote `include` fragments (`(cache file, body)`, in the order
-    /// they were listed) into a copy of this config. A fragment becomes part of
-    /// the including file, so trust, config root, lockfile and every path that
-    /// is resolved from this file apply to it unchanged, and it is never
-    /// written back. Later fragments outrank earlier ones, and this file
-    /// outranks them all.
-    pub(crate) fn with_remote_fragments(
-        &self,
-        fragments: Vec<(PathBuf, String)>,
-    ) -> eyre::Result<Self> {
-        let mut merged = self.clone();
-        for (cache, body) in fragments.iter().rev() {
-            let fragment = Self::parse_remote_fragment(body, &self.path)?;
-            merged.merge_fragment_below(fragment);
-            merged.included_paths.push(cache.clone());
-        }
-        Ok(merged)
-    }
-
-    /// Decode one remote fragment, which must be usable with this pakro: a
-    /// `min_version` it does not meet counts like any other reason it cannot
-    /// load. Trust is not checked: the including file was loaded first, and
-    /// `include` is not something a config can use without trust.
-    pub(crate) fn parse_remote_fragment(body: &str, including: &Path) -> eyre::Result<Self> {
-        if let Ok(toml::Value::Table(table)) = toml::from_str::<toml::Value>(body) {
-            // Only what is resolved from the merged config. `[settings]` and the
-            // monorepo keys are read before any include exists, tasks are
-            // discovered from files, and the system sections (dotfiles,
-            // daemons, ...) are loaded per file.
-            if let Some(key) = unsupported_fragment_key(&table) {
-                eyre::bail!(
-                    "`{key}` is not supported in a config include (supported: {}; share \
-                     tasks with `task_config.includes`)",
-                    REMOTE_FRAGMENT_ALLOWED[1..].join(", ")
-                );
-            }
-        }
-        let fragment = Self::parse_body(body, including, false)?;
-        if let Some(spec) = &fragment.min_version {
-            crate::config::Config::enforce_min_version_spec(spec)?;
-        }
-        Ok(fragment)
     }
 
     pub(super) fn validate_static_include(body: &str) -> Result<(), super::StaticConfigError> {
@@ -825,70 +725,13 @@ impl PakroToml {
         })
     }
 
-    /// Add the entries of `fragment` below this file's own.
-    fn merge_fragment_below(&mut self, fragment: Self) {
-        fn below<T>(own: &mut Vec<T>, mut lower: Vec<T>) {
-            lower.append(own);
-            *own = lower;
-        }
-        fn fill<K: std::hash::Hash + Eq, V>(own: &mut IndexMap<K, V>, lower: IndexMap<K, V>) {
-            for (key, value) in lower {
-                own.entry(key).or_insert(value);
-            }
-        }
-        // Values rank by position, the later the stronger, so shared ones go
-        // first. A PATH entry is the opposite: the earlier one is found first,
-        // so shared directories go after this file's own.
-        // `env_path` is emitted ahead of every `[env]` entry, so a shared one
-        // would beat this file's `_.path`; it joins the shared directives after
-        // this file's own instead, exactly as `env_entries` would emit it.
-        let (shared_paths, shared_rest): (Vec<_>, Vec<_>) = fragment
-            .env_path
-            .into_iter()
-            .map(|path| EnvDirective::Path(path, Default::default()))
-            .chain(fragment.env.0)
-            .partition(|directive| matches!(directive, EnvDirective::Path(..)));
-        below(&mut self.env.0, shared_rest);
-        self.env.0.extend(shared_paths);
-        below(&mut self.vars.0, fragment.vars.0);
-        fill_aliases(&mut self.alias, fragment.alias);
-        fill_aliases(&mut self.tool_alias, fragment.tool_alias);
-        fill(&mut self.shell_alias, fragment.shell_alias);
-        fill(&mut self.wrappers, fragment.wrappers);
-        // both run: the shared hooks first, then this file's
-        for (hook, shared) in fragment.hooks {
-            match self.hooks.entry(hook) {
-                indexmap::map::Entry::Occupied(mut own) => {
-                    let mine = own.get().clone();
-                    own.insert(shared.then(mine));
-                }
-                indexmap::map::Entry::Vacant(slot) => {
-                    slot.insert(shared);
-                }
-            }
-        }
-        for (name, url) in fragment.plugins {
-            self.plugins.entry(name).or_insert(url);
-        }
-        let mut tools = self.tools.lock().unwrap();
-        fill(&mut tools, fragment.tools.into_inner().unwrap());
-    }
-
-    /// Decode a proposed configuration without trusting, evaluating, or
-    /// activating it. Only static declarations may be inspected on this
-    /// value; normal loading still goes through `from_str` and its trust gate.
-    pub(crate) fn for_history_preflight(body: &str, path: &Path) -> eyre::Result<Self> {
-        let mut parsed: Self = toml::from_str(body)?;
-        parsed.path = path.to_path_buf();
-        Ok(parsed)
-    }
-
     /// Decode only the static monorepo declarations of a config, without
     /// trusting or evaluating it, applying the same legacy
     /// `experimental_monorepo_root` alias as normal loading. The deprecation
     /// warning is left to normal loading.
     pub(crate) fn for_monorepo_inspection(body: &str, path: &Path) -> eyre::Result<Self> {
-        let mut parsed = Self::for_history_preflight(body, path)?;
+        let mut parsed: Self = toml::from_str(body)?;
+        parsed.path = path.to_path_buf();
         if let Some(legacy_monorepo_root) = parsed.experimental_monorepo_root.take() {
             parsed.monorepo_root.get_or_insert(legacy_monorepo_root);
         }
@@ -947,11 +790,6 @@ impl PakroToml {
             .insert("config_source", &config_root::config_source(path));
         rf.update_context_env(env::PRISTINE_ENV.clone());
         rf.path = path.to_path_buf();
-        let project_root = rf.project_root().map(|p| p.to_path_buf());
-        for task in rf.tasks.0.values_mut() {
-            task.config_source.clone_from(&rf.path);
-            task.config_root = project_root.clone();
-        }
         // trace!("{}", rf.dump()?);
         Ok(rf)
     }
@@ -966,7 +804,7 @@ impl PakroToml {
     /// Whether this config body can be loaded without trusting the file.
     ///
     /// Safe configs cannot execute code or change pakro's behavior beyond
-    /// requesting tool versions and defining tasks, so there is nothing to
+    /// requesting tool versions, so there is nothing to
     /// gate behind a trust prompt. Anything else — env vars, hooks, settings,
     /// aliases, templates, tool options like `postinstall`/`install_env` —
     /// still requires trust.
@@ -1164,195 +1002,6 @@ impl PakroToml {
                 env_tbl.insert_formatted(&Key::from(*k), toml_edit::table());
             }
             env_tbl = env_tbl.get_mut(k).unwrap().as_table_mut().unwrap();
-        }
-        Ok(())
-    }
-
-    /// Set `[bootstrap.packages]."<manager>:<package>" = "<version>"`,
-    /// creating the tables as needed ("latest" means no pin)
-    pub fn update_bootstrap_package(&mut self, spec: &str, version: &str) -> eyre::Result<()> {
-        let packages = &mut self.bootstrap.get_or_insert_with(Default::default).packages;
-        let (preserve_options, reset_absent) = match packages.get_mut(spec) {
-            Some(PackageTomlConfig::Options(options)) => {
-                options.version = version.to_string();
-                let reset_absent =
-                    options.state == crate::system::PackageDesiredStateTomlConfig::Absent;
-                options.state = crate::system::PackageDesiredStateTomlConfig::Present;
-                (true, reset_absent)
-            }
-            _ => {
-                packages.insert(
-                    spec.to_string(),
-                    PackageTomlConfig::Version(version.to_string()),
-                );
-                (false, false)
-            }
-        };
-        let mut doc = self.doc_mut()?;
-        let bootstrap = doc
-            .get_mut()
-            .unwrap()
-            .entry("bootstrap")
-            .or_insert_with(table)
-            .as_table_mut()
-            .unwrap();
-        // don't render an empty [bootstrap] header above [bootstrap.packages]
-        bootstrap.set_implicit(true);
-        let packages = bootstrap
-            .entry("packages")
-            .or_insert_with(table)
-            .as_table_mut()
-            .unwrap();
-        if preserve_options && let Some(item) = packages.get_mut(spec) {
-            if let Some(options) = item.as_value_mut().and_then(Value::as_inline_table_mut) {
-                options.insert("version", Value::from(version));
-                if reset_absent {
-                    options.insert("state", Value::from("present"));
-                }
-                return Ok(());
-            }
-            if item.as_table().is_some() {
-                insert_preserving_decor(item, "version", value(version));
-                if reset_absent {
-                    insert_preserving_decor(item, "state", value("present"));
-                }
-                return Ok(());
-            }
-        }
-        let key = get_key_with_decor(packages, spec);
-        let value_decor = get_value_decor(packages, spec);
-        let mut item = toml_edit::value(version);
-        set_value_decor(&mut item, &value_decor);
-        packages.insert_formatted(&key, item);
-        Ok(())
-    }
-
-    /// Update a package while inheriting table-form options when this file does not declare it.
-    #[cfg(unix)]
-    pub fn update_bootstrap_package_with_fallback(
-        &mut self,
-        spec: &str,
-        version: &str,
-        fallback: Option<&PackageTomlConfig>,
-    ) -> eyre::Result<()> {
-        let is_missing = self
-            .bootstrap
-            .as_ref()
-            .is_none_or(|bootstrap| !bootstrap.packages.contains_key(spec));
-        if is_missing
-            && let Some(PackageTomlConfig::Options(options)) = fallback
-            && (!options.os.is_empty()
-                || !options.env.is_empty()
-                || options.adopt.is_some()
-                || options.appdir.is_some())
-        {
-            let mut options = options.clone();
-            options.version = version.to_string();
-            options.state = crate::system::PackageDesiredStateTomlConfig::Present;
-            self.bootstrap
-                .get_or_insert_with(Default::default)
-                .packages
-                .insert(
-                    spec.to_string(),
-                    PackageTomlConfig::Options(options.clone()),
-                );
-
-            let mut doc = self.doc_mut()?;
-            let bootstrap = doc
-                .get_mut()
-                .unwrap()
-                .entry("bootstrap")
-                .or_insert_with(table)
-                .as_table_mut()
-                .unwrap();
-            bootstrap.set_implicit(true);
-            let packages = bootstrap
-                .entry("packages")
-                .or_insert_with(table)
-                .as_table_mut()
-                .unwrap();
-            let mut value = InlineTable::new();
-            value.insert("version", Value::from(version));
-            if !options.os.is_empty() {
-                let mut os = Array::new();
-                os.extend(options.os);
-                value.insert("os", Value::Array(os));
-            }
-            if !options.env.is_empty() {
-                let mut env = Array::new();
-                env.extend(options.env);
-                value.insert("env", Value::Array(env));
-            }
-            if let Some(adopt) = options.adopt {
-                value.insert("adopt", Value::from(adopt));
-            }
-            if let Some(appdir) = &options.appdir {
-                value.insert("appdir", Value::from(appdir));
-            }
-            packages.insert(spec, Item::Value(Value::InlineTable(value)));
-            return Ok(());
-        }
-        self.update_bootstrap_package(spec, version)
-    }
-
-    /// Set `[bootstrap.brew.taps]."<owner>/<tap>" = "<url>"`, creating the
-    /// tables as needed. Only used by the `#[cfg(unix)]` brew CLI commands.
-    #[cfg(unix)]
-    pub fn update_bootstrap_brew_tap(&mut self, tap: &str, url: &str) -> eyre::Result<()> {
-        self.bootstrap
-            .get_or_insert_with(Default::default)
-            .brew
-            .taps
-            .insert(tap.to_string(), url.to_string());
-        let mut doc = self.doc_mut()?;
-        let bootstrap = doc
-            .get_mut()
-            .unwrap()
-            .entry("bootstrap")
-            .or_insert_with(table)
-            .as_table_mut()
-            .unwrap();
-        bootstrap.set_implicit(true);
-        let brew = bootstrap
-            .entry("brew")
-            .or_insert_with(table)
-            .as_table_mut()
-            .unwrap();
-        brew.set_implicit(true);
-        let taps = brew
-            .entry("taps")
-            .or_insert_with(table)
-            .as_table_mut()
-            .unwrap();
-        let key = get_key_with_decor(taps, tap);
-        let value_decor = get_value_decor(taps, tap);
-        let mut item = toml_edit::value(url);
-        set_value_decor(&mut item, &value_decor);
-        taps.insert_formatted(&key, item);
-        Ok(())
-    }
-
-    #[cfg(unix)]
-    pub fn remove_bootstrap_brew_tap(&mut self, tap: &str) -> eyre::Result<()> {
-        if let Some(bootstrap) = &mut self.bootstrap {
-            bootstrap.brew.taps.shift_remove(tap);
-        }
-        let mut doc = self.doc_mut()?;
-        let doc = doc.get_mut().unwrap();
-        if let Some(bootstrap) = doc.get_mut("bootstrap").and_then(|v| v.as_table_mut())
-            && let Some(brew) = bootstrap.get_mut("brew").and_then(|v| v.as_table_mut())
-            && let Some(taps) = brew.get_mut("taps").and_then(|v| v.as_table_mut())
-        {
-            taps.remove(tap);
-            if taps.is_empty() {
-                brew.remove("taps");
-                if brew.is_empty() {
-                    bootstrap.remove("brew");
-                    if bootstrap.is_empty() {
-                        doc.remove("bootstrap");
-                    }
-                }
-            }
         }
         Ok(())
     }
@@ -1641,21 +1290,6 @@ impl ConfigFile for PakroToml {
             .collect()
     }
 
-    fn daemon_declarations(&self) -> IndexMap<String, crate::daemons::Declaration> {
-        self.daemons.clone()
-    }
-
-    fn daemon_providers(&self) -> IndexMap<String, toml::Table> {
-        self.daemon_providers.clone()
-    }
-
-    fn daemon_settings(&self) -> Option<crate::daemons::DaemonSettings> {
-        self.daemons_settings.clone()
-    }
-    fn daemon_group_declarations(&self) -> IndexMap<String, crate::daemons::GroupDeclaration> {
-        self.daemon_groups.clone()
-    }
-
     fn env_entries(&self) -> eyre::Result<Vec<EnvDirective>> {
         self.warn_deprecated_env_keys();
         let env_entries = self.env.0.iter().cloned();
@@ -1680,14 +1314,6 @@ impl ConfigFile for PakroToml {
 
     fn vars_entries(&self) -> eyre::Result<Vec<EnvDirective>> {
         Ok(self.vars.0.clone())
-    }
-
-    fn tasks(&self) -> Vec<&Task> {
-        self.tasks.0.values().collect()
-    }
-
-    fn task_templates(&self) -> IndexMap<String, TaskTemplate> {
-        self.task_templates.0.clone()
     }
 
     fn remove_tool(&self, fa: &BackendArg) -> eyre::Result<()> {
@@ -2068,58 +1694,8 @@ impl ConfigFile for PakroToml {
         Ok(self.wrappers.clone())
     }
 
-    fn task_config(&self) -> &TaskConfig {
-        &self.task_config
-    }
-
     fn tool_config(&self) -> &ToolConfig {
         &self.tool_config
-    }
-
-    fn remote_includes(&self) -> eyre::Result<Vec<String>> {
-        self.include
-            .iter()
-            .map(|include| self.parse_template(include))
-            .collect()
-    }
-
-    fn with_remote_fragments(
-        &self,
-        fragments: Vec<(PathBuf, String)>,
-    ) -> eyre::Result<Option<Arc<dyn ConfigFile>>> {
-        Ok(Some(Arc::new(PakroToml::with_remote_fragments(
-            self, fragments,
-        )?)))
-    }
-
-    fn included_paths(&self) -> Vec<PathBuf> {
-        self.included_paths.clone()
-    }
-
-    fn task_config_includes(&self) -> eyre::Result<Option<Vec<String>>> {
-        self.task_config
-            .includes
-            .as_ref()
-            .map(|includes| {
-                includes
-                    .iter()
-                    .map(|include| self.parse_template(include))
-                    .collect()
-            })
-            .transpose()
-    }
-
-    fn task_config_excludes(&self) -> eyre::Result<Option<Vec<String>>> {
-        self.task_config
-            .excludes
-            .as_ref()
-            .map(|excludes| {
-                excludes
-                    .iter()
-                    .map(|exclude| self.parse_template(exclude))
-                    .collect()
-            })
-            .transpose()
     }
 
     fn monorepo_root(&self) -> Option<bool> {
@@ -2132,36 +1708,6 @@ impl ConfigFile for PakroToml {
 
     fn redactions(&self) -> &Redactions {
         &self.redactions
-    }
-
-    fn watch_files(&self) -> eyre::Result<Vec<WatchFile>> {
-        self.watch_files
-            .iter()
-            .map(|wf| {
-                Ok(WatchFile {
-                    patterns: wf
-                        .patterns
-                        .iter()
-                        .map(|p| self.parse_template(p))
-                        .collect::<eyre::Result<Vec<String>>>()?,
-                    run: wf
-                        .run
-                        .as_ref()
-                        .map(|r| self.parse_template(r))
-                        .transpose()?,
-                    shell: wf
-                        .shell
-                        .as_ref()
-                        .map(|s| self.parse_template(s))
-                        .transpose()?,
-                    task: wf
-                        .task
-                        .as_ref()
-                        .map(|t| self.parse_template(t))
-                        .transpose()?,
-                })
-            })
-            .collect()
     }
 
     fn hooks(&self) -> eyre::Result<Vec<Hook>> {
@@ -2181,51 +1727,8 @@ impl ConfigFile for PakroToml {
             .collect())
     }
 
-    fn deps_config(&self) -> eyre::Result<Option<DepsConfig>> {
-        let Some(mut deps) = self.deps.clone() else {
-            return Ok(None);
-        };
-        let context = self.template_context();
-        for (provider_id, provider) in &mut deps.providers {
-            provider.template_context = Some(DepsTemplateContext {
-                config_path: self.path.clone(),
-                provider_id: provider_id.clone(),
-                context: context.clone(),
-            });
-            provider.validate_template_syntax()?;
-        }
-        Ok(Some(deps))
-    }
-
-    fn oci_config(&self) -> Option<OciConfig> {
-        self.oci.clone()
-    }
-
     fn doctor_config(&self) -> crate::config::doctor::DoctorConfig {
         self.doctor.clone()
-    }
-
-    fn bootstrap_config(&self) -> Option<BootstrapTomlConfig> {
-        self.bootstrap.clone()
-    }
-
-    fn dotfiles_config(&self) -> Option<DotfilesTomlConfig> {
-        self.dotfiles.clone()
-    }
-
-    fn dotfile_groups_config(
-        &self,
-    ) -> Option<crate::system::dotfile_groups::DotfileGroupsTomlConfig> {
-        self.dotfile_groups.clone()
-    }
-}
-
-impl PakroToml {
-    /// `[history]` as declared by this file.
-    pub(crate) fn history_config(
-        &self,
-    ) -> Option<crate::system::history::config::HistoryTomlConfig> {
-        self.history.clone()
     }
 }
 
@@ -2362,9 +1865,6 @@ impl Debug for PakroToml {
         if !self.plugins.is_empty() {
             d.field("plugins", &self.plugins);
         }
-        if self.task_config.includes.is_some() {
-            d.field("task_config", &self.task_config);
-        }
         d.finish()
     }
 }
@@ -2376,8 +1876,6 @@ impl Clone for PakroToml {
             min_version: self.min_version.clone(),
             context: self.context.clone(),
             path: self.path.clone(),
-            include: self.include.clone(),
-            included_paths: self.included_paths.clone(),
             env_file: self.env_file.clone(),
             dotenv: self.dotenv.clone(),
             env: self.env.clone(),
@@ -2385,29 +1883,15 @@ impl Clone for PakroToml {
             alias: self.alias.clone(),
             tool_alias: self.tool_alias.clone(),
             shell_alias: self.shell_alias.clone(),
-            daemons: self.daemons.clone(),
-            daemons_settings: self.daemons_settings.clone(),
-            daemon_providers: self.daemon_providers.clone(),
-            daemon_groups: self.daemon_groups.clone(),
             wrappers: self.wrappers.clone(),
             doc: Mutex::new(self.doc.lock().unwrap().clone()),
             hooks: self.hooks.clone(),
             tools: Mutex::new(self.tools.lock().unwrap().clone()),
             redactions: self.redactions.clone(),
             plugins: self.plugins.clone(),
-            tasks: self.tasks.clone(),
-            task_templates: self.task_templates.clone(),
-            task_config: self.task_config.clone(),
             tool_config: self.tool_config.clone(),
             settings: self.settings.clone(),
-            watch_files: self.watch_files.clone(),
-            deps: self.deps.clone(),
-            oci: self.oci.clone(),
-            bootstrap: self.bootstrap.clone(),
             doctor: self.doctor.clone(),
-            dotfiles: self.dotfiles.clone(),
-            dotfile_groups: self.dotfile_groups.clone(),
-            history: self.history.clone(),
             vars: self.vars.clone(),
             monorepo_root: self.monorepo_root,
             experimental_monorepo_root: self.experimental_monorepo_root,
@@ -2622,21 +2106,6 @@ impl<'de> de::Deserialize<'de> for EnvList {
                                 }
                             }
 
-                            struct EnvDirectivePythonVenv {
-                                path: String,
-                                create: bool,
-                                python: Option<String>,
-                                uv_create_args: Option<Vec<String>>,
-                                python_create_args: Option<Vec<String>>,
-                            }
-
-                            #[derive(Deserialize, Default)]
-                            #[serde(deny_unknown_fields)]
-                            struct EnvDirectivePython {
-                                #[serde(default)]
-                                venv: Option<EnvDirectivePythonVenv>,
-                            }
-
                             // Reuses `deserialize_arr` so each of `path`/`file`/`source`
                             // accepts either a single value or a list, while
                             // `ParsedEnvBlock` below iterates the `_` table in the order
@@ -2646,95 +2115,6 @@ impl<'de> de::Deserialize<'de> for EnvList {
                                 #[serde(deserialize_with = "deserialize_arr")]
                                 Vec<PakroTomlEnvDirective>,
                             );
-
-                            impl<'de> de::Deserialize<'de> for EnvDirectivePythonVenv {
-                                fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-                                where
-                                    D: Deserializer<'de>,
-                                {
-                                    struct EnvDirectivePythonVenvVisitor;
-
-                                    impl<'de> Visitor<'de> for EnvDirectivePythonVenvVisitor {
-                                        type Value = EnvDirectivePythonVenv;
-                                        fn expecting(
-                                            &self,
-                                            formatter: &mut Formatter,
-                                        ) -> std::fmt::Result
-                                        {
-                                            formatter.write_str("python venv directive")
-                                        }
-
-                                        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-                                        where
-                                            E: de::Error,
-                                        {
-                                            Ok(EnvDirectivePythonVenv {
-                                                path: v.into(),
-                                                create: false,
-                                                python: None,
-                                                uv_create_args: None,
-                                                python_create_args: None,
-                                            })
-                                        }
-
-                                        fn visit_map<M>(
-                                            self,
-                                            mut map: M,
-                                        ) -> Result<Self::Value, M::Error>
-                                        where
-                                            M: de::MapAccess<'de>,
-                                        {
-                                            let mut path = None;
-                                            let mut create = false;
-                                            let mut python = None;
-                                            let mut uv_create_args = None;
-                                            let mut python_create_args = None;
-                                            while let Some(key) = map.next_key::<String>()? {
-                                                match key.as_str() {
-                                                    "path" => {
-                                                        path = Some(map.next_value()?);
-                                                    }
-                                                    "create" => {
-                                                        create = map.next_value()?;
-                                                    }
-                                                    "python" => {
-                                                        python = Some(map.next_value()?);
-                                                    }
-                                                    "uv_create_args" => {
-                                                        uv_create_args = Some(map.next_value()?);
-                                                    }
-                                                    "python_create_args" => {
-                                                        python_create_args =
-                                                            Some(map.next_value()?);
-                                                    }
-                                                    _ => {
-                                                        return Err(de::Error::unknown_field(
-                                                            &key,
-                                                            &["path", "create"],
-                                                        ));
-                                                    }
-                                                }
-                                            }
-                                            let path = path
-                                                .ok_or_else(|| de::Error::missing_field("path"))?;
-                                            Ok(EnvDirectivePythonVenv {
-                                                path,
-                                                create,
-                                                python,
-                                                uv_create_args,
-                                                python_create_args,
-                                            })
-                                        }
-                                    }
-
-                                    const FIELDS: &[&str] = &["path", "create"];
-                                    deserializer.deserialize_struct(
-                                        "PythonVenv",
-                                        FIELDS,
-                                        EnvDirectivePythonVenvVisitor,
-                                    )
-                                }
-                            }
 
                             fn flatten_directives<F>(
                                 directives: Vec<PakroTomlEnvDirective>,
@@ -2758,12 +2138,9 @@ impl<'de> de::Deserialize<'de> for EnvList {
                             // sub-keys (`path`/`file`/`source`/modules) so that a later
                             // directive's template can reference a variable exported by
                             // an earlier one — e.g. `_.path` using a var from `_.source`
-                            // (discussion #3783). `python.venv` is applied last
-                            // regardless of position: it is a tools-phase directive whose
-                            // PATH conventionally comes after tool paths.
+                            // (discussion #3783).
                             struct ParsedEnvBlock {
                                 directives: Vec<EnvDirective>,
-                                venv: Option<EnvDirectivePythonVenv>,
                             }
 
                             impl<'de> Deserialize<'de> for ParsedEnvBlock {
@@ -2789,7 +2166,6 @@ impl<'de> de::Deserialize<'de> for EnvList {
                                             M: de::MapAccess<'de>,
                                         {
                                             let mut directives = vec![];
-                                            let mut venv = None;
                                             while let Some(key) = map.next_key::<String>()? {
                                                 match key.as_str() {
                                                     "path" => {
@@ -2810,11 +2186,7 @@ impl<'de> de::Deserialize<'de> for EnvList {
                                                             EnvDirective::Source,
                                                         ));
                                                     }
-                                                    "python" => {
-                                                        venv = map
-                                                            .next_value::<EnvDirectivePython>()?
-                                                            .venv;
-                                                    }
+
                                                     _ => {
                                                         let mut value =
                                                             map.next_value::<toml::Value>()?;
@@ -2844,7 +2216,7 @@ impl<'de> de::Deserialize<'de> for EnvList {
                                                     }
                                                 }
                                             }
-                                            Ok(ParsedEnvBlock { directives, venv })
+                                            Ok(ParsedEnvBlock { directives })
                                         }
                                     }
                                     deserializer.deserialize_map(ParsedEnvBlockVisitor)
@@ -2853,21 +2225,6 @@ impl<'de> de::Deserialize<'de> for EnvList {
 
                             let block = map.next_value::<ParsedEnvBlock>()?;
                             env.extend(block.directives);
-                            if let Some(venv) = block.venv {
-                                env.push(EnvDirective::PythonVenv {
-                                    path: venv.path,
-                                    create: venv.create,
-                                    python: venv.python,
-                                    uv_create_args: venv.uv_create_args,
-                                    python_create_args: venv.python_create_args,
-                                    options: EnvDirectiveOptions {
-                                        tools: true,
-                                        redact: Some(false),
-                                        required: RequiredValue::False,
-                                        expand: false,
-                                    },
-                                });
-                            }
                         }
                         _ => {
                             #[derive(Deserialize)]
@@ -3156,157 +2513,6 @@ impl<'de> de::Deserialize<'de> for PakroTomlTool {
     }
 }
 
-struct TaskBoolPresenceMapAccess<'a, M> {
-    inner: M,
-    presence: &'a mut TaskTomlBoolPresence,
-}
-
-impl<'de, M> de::MapAccess<'de> for TaskBoolPresenceMapAccess<'_, M>
-where
-    M: de::MapAccess<'de>,
-{
-    type Error = M::Error;
-
-    fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
-    where
-        K: de::DeserializeSeed<'de>,
-    {
-        let Some(key) = self.inner.next_key::<String>()? else {
-            return Ok(None);
-        };
-        self.presence.record(&key);
-        seed.deserialize(de::value::StringDeserializer::<M::Error>::new(key))
-            .map(Some)
-    }
-
-    fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
-    where
-        V: de::DeserializeSeed<'de>,
-    {
-        self.inner.next_value_seed(seed)
-    }
-
-    fn size_hint(&self) -> Option<usize> {
-        self.inner.size_hint()
-    }
-}
-
-impl<'de> de::Deserialize<'de> for Tasks {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: de::Deserializer<'de>,
-    {
-        struct TasksVisitor;
-
-        impl<'de> Visitor<'de> for TasksVisitor {
-            type Value = Tasks;
-            fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
-                formatter.write_str("task, string, or array of strings")
-            }
-
-            fn visit_map<M>(self, mut map: M) -> std::result::Result<Self::Value, M::Error>
-            where
-                M: de::MapAccess<'de>,
-            {
-                struct TaskDef(Task);
-                impl<'de> de::Deserialize<'de> for TaskDef {
-                    fn deserialize<D>(deserializer: D) -> std::result::Result<TaskDef, D::Error>
-                    where
-                        D: de::Deserializer<'de>,
-                    {
-                        struct TaskDefVisitor;
-                        impl<'de> Visitor<'de> for TaskDefVisitor {
-                            type Value = TaskDef;
-                            fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
-                                formatter.write_str("task definition")
-                            }
-
-                            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-                            where
-                                E: de::Error,
-                            {
-                                Ok(TaskDef(Task {
-                                    run: vec![crate::task::RunEntry::Script(v.to_string())],
-                                    ..Default::default()
-                                }))
-                            }
-
-                            fn visit_seq<S>(self, mut seq: S) -> Result<Self::Value, S::Error>
-                            where
-                                S: de::SeqAccess<'de>,
-                            {
-                                let mut run = vec![];
-                                while let Some(s) = seq.next_element::<crate::task::RunEntry>()? {
-                                    run.push(s);
-                                }
-                                Ok(TaskDef(Task {
-                                    run,
-                                    ..Default::default()
-                                }))
-                            }
-
-                            fn visit_map<M>(self, map: M) -> Result<Self::Value, M::Error>
-                            where
-                                M: de::MapAccess<'de>,
-                            {
-                                let mut presence = TaskTomlBoolPresence::default();
-                                let map = TaskBoolPresenceMapAccess {
-                                    inner: map,
-                                    presence: &mut presence,
-                                };
-                                let mut task =
-                                    Task::deserialize(de::value::MapAccessDeserializer::new(map))?;
-                                task.toml_bool_presence = presence;
-                                Ok(TaskDef(task))
-                            }
-                        }
-                        deserializer.deserialize_any(TaskDefVisitor)
-                    }
-                }
-                let mut tasks = BTreeMap::new();
-                while let Some(name) = map.next_key::<String>()? {
-                    let mut task = map.next_value::<TaskDef>()?.0;
-                    task.name.clone_from(&name);
-                    tasks.insert(name, task);
-                }
-                Ok(Tasks(tasks))
-            }
-        }
-
-        deserializer.deserialize_any(TasksVisitor)
-    }
-}
-
-impl<'de> de::Deserialize<'de> for TaskTemplates {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: de::Deserializer<'de>,
-    {
-        struct TaskTemplatesVisitor;
-
-        impl<'de> Visitor<'de> for TaskTemplatesVisitor {
-            type Value = TaskTemplates;
-            fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
-                formatter.write_str("map of task template names to template definitions")
-            }
-
-            fn visit_map<M>(self, mut map: M) -> std::result::Result<Self::Value, M::Error>
-            where
-                M: de::MapAccess<'de>,
-            {
-                let mut templates = IndexMap::new();
-                while let Some(name) = map.next_key::<String>()? {
-                    let template: TaskTemplate = map.next_value()?;
-                    templates.insert(name, template);
-                }
-                Ok(TaskTemplates(templates))
-            }
-        }
-
-        deserializer.deserialize_any(TaskTemplatesVisitor)
-    }
-}
-
 impl<'de> de::Deserialize<'de> for BackendArg {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -3396,9 +2602,8 @@ impl<'de> de::Deserialize<'de> for Alias {
 ///   or alter the install environment. Options can also ride in the key
 ///   (`"tool[postinstall=...]" = "1"`), so keys with inline options are
 ///   excluded too.
-/// - `[tasks]` definitions are inert until the user explicitly runs one
 /// - no Tera template syntax anywhere — templates render while config and
-///   tasks load and can run arbitrary commands via exec()
+///   values load and can run arbitrary commands via exec()
 fn is_safe_config_body(body: &str) -> bool {
     // Fast reject: literal Tera delimiters in the raw text.
     if contains_template_syntax(body) {
@@ -3412,12 +2617,12 @@ fn is_safe_config_body(body: &str) -> bool {
     // e.g. `"{{ exec(...) }}"` becomes `{{ exec(...) }}`
     // after parsing and would still render via Tera. Re-check every decoded
     // string (keys and values, at any depth) so no exec()-capable template
-    // can slip through into tool versions or task fields.
+    // can slip through into tool versions.
     if toml_table_has_template(&table) {
         return false;
     }
     table.iter().all(|(key, value)| match key.as_str() {
-        "min_version" | "tasks" => true,
+        "min_version" => true,
         "tools" => value.as_table().is_some_and(|tools| {
             tools.iter().all(|(tool, version)| {
                 !tool.contains('[')
@@ -3452,20 +2657,6 @@ fn toml_table_has_template(table: &toml::Table) -> bool {
         .any(|(k, v)| contains_template_syntax(k) || toml_value_has_template(v))
 }
 
-/// Merge version aliases per tool: a name this file defines overrides the same
-/// name in `lower`, but the other names `lower` defines for that tool stay.
-fn fill_aliases(own: &mut AliasMap, lower: AliasMap) {
-    for (tool, lower) in lower {
-        let alias = own.entry(tool).or_default();
-        if alias.backend.is_none() {
-            alias.backend = lower.backend;
-        }
-        for (name, version) in lower.versions {
-            alias.versions.entry(name).or_insert(version);
-        }
-    }
-}
-
 fn is_tools_sorted(tools: &IndexMap<BackendArg, PakroTomlToolList>) -> bool {
     let mut last = None;
     for k in tools.keys() {
@@ -3491,7 +2682,6 @@ mod tests {
 
     use crate::dirs;
     use crate::file;
-    use crate::task::Silent;
     use crate::test::replace_path;
     use crate::toolset::{CoreToolOptions, ToolRequest};
     use crate::{config::Config, dirs::CWD};
@@ -3533,88 +2723,6 @@ mod tests {
                 source
             );
         }
-    }
-
-    #[test]
-    fn test_parse_monorepo_project_overrides() {
-        let config = toml::from_str::<PakroToml>(indoc! {r#"
-            [monorepo.projects."node:app"]
-            root = "apps/app"
-            metadata = { kind = "frontend" }
-            depends = ["node:lib"]
-            depends_add = ["cargo:core"]
-            depends_remove = ["node:legacy"]
-
-            [monorepo.projects."node:legacy"]
-            remove = true
-        "#})
-        .unwrap();
-        let projects = &config.monorepo.unwrap().projects;
-        let app = projects.get("node:app").unwrap();
-
-        assert_eq!(app.root.as_deref(), Some(Path::new("apps/app")));
-        assert_eq!(
-            app.metadata
-                .as_ref()
-                .unwrap()
-                .get("kind")
-                .map(String::as_str),
-            Some("frontend")
-        );
-        assert_eq!(app.depends, Some(BTreeSet::from(["node:lib".to_string()])));
-        assert_eq!(app.depends_add, BTreeSet::from(["cargo:core".to_string()]));
-        assert_eq!(
-            app.depends_remove,
-            BTreeSet::from(["node:legacy".to_string()])
-        );
-        assert!(projects.get("node:legacy").unwrap().remove);
-    }
-
-    #[test]
-    fn test_task_toml_boolean_overlay_presence() {
-        let Tasks(mut tasks) = toml::from_str(
-            r#"
-            [explicit]
-            hide = false
-            raw = false
-            raw_args = false
-            interactive = false
-            quiet = false
-            silent = false
-
-            [omitted]
-            description = "no boolean overrides"
-            "#,
-        )
-        .unwrap();
-
-        let script_task = || Task {
-            hide: true,
-            raw: true,
-            raw_args: true,
-            interactive: true,
-            quiet: true,
-            silent: Silent::Bool(true),
-            ..Default::default()
-        };
-
-        let mut explicit = script_task();
-        explicit.merge_toml_overlay(tasks.remove("explicit").unwrap());
-        assert!(!explicit.hide);
-        assert!(!explicit.raw);
-        assert!(!explicit.raw_args);
-        assert!(!explicit.interactive);
-        assert!(!explicit.quiet);
-        assert_eq!(explicit.silent, Silent::Off);
-
-        let mut omitted = script_task();
-        omitted.merge_toml_overlay(tasks.remove("omitted").unwrap());
-        assert!(omitted.hide);
-        assert!(omitted.raw);
-        assert!(omitted.raw_args);
-        assert!(omitted.interactive);
-        assert!(omitted.quiet);
-        assert_eq!(omitted.silent, Silent::Bool(true));
     }
 
     #[tokio::test]
@@ -3848,465 +2956,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_bootstrap_packages() {
-        let _config = Config::get().await.unwrap();
-        let p = CWD.as_ref().unwrap().join(".test.pakro.toml");
-        file::write(
-            &p,
-            r#"
-        [bootstrap.packages]
-        "apt:libssl-dev" = "latest"
-        "apt:curl" = "8.5.0-2"
-        "brew:postgresql@17" = "latest"
-        "brew-cask:1password" = { version = "latest", os = "macos", env = "work", adopt = true }
-        "brew-cask:font-example" = { os = ["linux", "macos"] }
-        "future-manager:whatever" = "latest"
-
-        [bootstrap.brew]
-        adopt = true
-
-        [bootstrap.brew.taps]
-        "railwaycat/emacsmacport" = "https://github.com/railwaycat/homebrew-emacsmacport"
-
-        [bootstrap.repos]
-        "~/src/dotfiles" = { url = "https://github.com/jdx/dotfiles.git", ref = "main" }
-
-        [bootstrap.hooks.pre-packages]
-        run = "echo preparing"
-
-        [bootstrap.hooks.post-tools]
-        run = ["echo one", "echo two"]
-        "#,
-        )
-        .unwrap();
-        let cf = PakroToml::from_file(&p).unwrap();
-        let system = cf.bootstrap_config().unwrap();
-        assert_eq!(
-            system.packages.get("apt:libssl-dev").unwrap().version(),
-            "latest"
-        );
-        assert!(matches!(
-            system.packages.get("brew-cask:1password"),
-            Some(crate::system::PackageTomlConfig::Options(options))
-                if options.adopt == Some(true) && options.env == ["work"]
-        ));
-        assert_eq!(
-            system.packages.get("apt:curl").unwrap().version(),
-            "8.5.0-2"
-        );
-        assert_eq!(
-            system.packages.get("brew:postgresql@17").unwrap().version(),
-            "latest"
-        );
-        assert_eq!(
-            system
-                .packages
-                .get("brew-cask:1password")
-                .unwrap()
-                .version(),
-            "latest"
-        );
-        assert_eq!(
-            system
-                .packages
-                .get("brew-cask:font-example")
-                .unwrap()
-                .version(),
-            "latest"
-        );
-        assert_eq!(
-            system.brew.taps.get("railwaycat/emacsmacport").unwrap(),
-            "https://github.com/railwaycat/homebrew-emacsmacport"
-        );
-        assert_eq!(system.brew.adopt, Some(true));
-        let repo = system.repos.get("~/src/dotfiles").unwrap();
-        assert_eq!(
-            repo.url.as_deref(),
-            Some("https://github.com/jdx/dotfiles.git")
-        );
-        assert_eq!(repo.git_ref.as_deref(), Some("main"));
-        assert!(system.hooks.get("pre-packages").unwrap().is_table());
-        assert!(system.hooks.get("post-tools").unwrap().is_table());
-        assert_eq!(system.user.login_shell, None);
-        // unknown managers parse fine (forward compatibility)
-        assert_eq!(
-            system
-                .packages
-                .get("future-manager:whatever")
-                .unwrap()
-                .version(),
-            "latest"
-        );
-
-        // no [bootstrap] section -> None
-        file::write(&p, "[tools]\n").unwrap();
-        let cf = PakroToml::from_file(&p).unwrap();
-        assert!(cf.bootstrap_config().is_none());
-        file::remove_file(&p).unwrap();
-    }
-
-    #[test]
-    fn test_bootstrap_brew_adopt_is_not_reported_as_unknown() {
-        let des = toml::Deserializer::parse(
-            r#"
-            [bootstrap.brew]
-            adopt = true
-            "#,
-        )
-        .unwrap();
-        let mut ignored = Vec::new();
-        let _: PakroToml = serde_ignored::deserialize(des, |path| ignored.push(path.to_string()))
-            .expect("config should deserialize");
-        assert!(ignored.is_empty(), "unexpected ignored fields: {ignored:?}");
-    }
-
-    #[tokio::test]
-    async fn test_bootstrap_login_shell() {
-        let _config = Config::get().await.unwrap();
-        let p = CWD.as_ref().unwrap().join(".test.pakro.toml");
-        file::write(
-            &p,
-            r#"
-        [bootstrap.user]
-        login_shell = "/bin/zsh"
-        "#,
-        )
-        .unwrap();
-        let cf = PakroToml::from_file(&p).unwrap();
-        let system = cf.bootstrap_config().unwrap();
-        assert_eq!(system.user.login_shell.as_deref(), Some("/bin/zsh"));
-        file::remove_file(&p).unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_bootstrap_pakro_shell_activate() {
-        let _config = Config::get().await.unwrap();
-        let p = CWD.as_ref().unwrap().join(".test.pakro.toml");
-        file::write(
-            &p,
-            r#"
-        [bootstrap.pakro_shell_activate]
-        zsh = true
-        bash = false
-        fish = {enabled = true}
-        "#,
-        )
-        .unwrap();
-        let cf = PakroToml::from_file(&p).unwrap();
-        let system = cf.bootstrap_config().unwrap();
-        assert_eq!(
-            system.pakro_shell_activate.get("zsh"),
-            Some(&toml::Value::Boolean(true))
-        );
-        assert_eq!(
-            system.pakro_shell_activate.get("bash"),
-            Some(&toml::Value::Boolean(false))
-        );
-        assert!(system.pakro_shell_activate.get("fish").unwrap().is_table());
-        file::remove_file(&p).unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_bootstrap_macos_defaults() {
-        let _config = Config::get().await.unwrap();
-        let p = CWD.as_ref().unwrap().join(".test.pakro.toml");
-        file::write(
-            &p,
-            r#"
-        [bootstrap.macos.defaults]
-        NSGlobalDomain = { KeyRepeat = 2, ApplePressAndHoldEnabled = false }
-        "com.apple.dock" = { autohide = true, tilesize = 48, magnification-scale = 1.5, orientation = "left", future-array = [1, 2] }
-
-        [bootstrap.macos.dock]
-        show_recents = false
-
-        [bootstrap.macos.finder]
-        show_all_files = true
-        preferred_view_style = "list"
-
-        [bootstrap.macos.keyboard]
-        initial_key_repeat = 15
-
-        [bootstrap.macos.trackpad]
-        tap_to_click = true
-        "#,
-        )
-        .unwrap();
-        let cf = PakroToml::from_file(&p).unwrap();
-        let system = cf.bootstrap_config().unwrap();
-        let global = system.macos.defaults.get("NSGlobalDomain").unwrap();
-        assert_eq!(global.get("KeyRepeat").unwrap(), &toml::Value::Integer(2));
-        assert_eq!(
-            global.get("ApplePressAndHoldEnabled").unwrap(),
-            &toml::Value::Boolean(false)
-        );
-        let dock = system.macos.defaults.get("com.apple.dock").unwrap();
-        assert_eq!(dock.get("autohide").unwrap(), &toml::Value::Boolean(true));
-        assert_eq!(dock.get("tilesize").unwrap(), &toml::Value::Integer(48));
-        assert_eq!(
-            dock.get("magnification-scale").unwrap(),
-            &toml::Value::Float(1.5)
-        );
-        assert_eq!(
-            dock.get("orientation").unwrap(),
-            &toml::Value::String("left".into())
-        );
-        assert!(dock.get("future-array").unwrap().is_array());
-        assert_eq!(
-            system.macos.dock.get("show_recents").unwrap(),
-            &toml::Value::Boolean(false)
-        );
-        assert_eq!(
-            system.macos.finder.get("show_all_files").unwrap(),
-            &toml::Value::Boolean(true)
-        );
-        assert_eq!(
-            system.macos.finder.get("preferred_view_style").unwrap(),
-            &toml::Value::String("list".into())
-        );
-        assert_eq!(
-            system.macos.keyboard.get("initial_key_repeat").unwrap(),
-            &toml::Value::Integer(15)
-        );
-        assert_eq!(
-            system.macos.trackpad.get("tap_to_click").unwrap(),
-            &toml::Value::Boolean(true)
-        );
-        file::remove_file(&p).unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_bootstrap_macos_launchd_agents() {
-        let _config = Config::get().await.unwrap();
-        let p = CWD.as_ref().unwrap().join(".test.pakro.toml");
-        file::write(
-            &p,
-            r#"
-        [bootstrap.macos.launchd.agents.my-sync]
-        program = "~/.local/bin/my-sync"
-        args = ["--watch"]
-        run_at_load = true
-        start_interval = 300
-        throttle_interval = 60
-        start_calendar_interval = { hour = 2, minute = 0 }
-        queue_directories = ["~/Library/Queues/my-sync"]
-        environment = { PATH = "/usr/bin:/bin" }
-        working_directory = "~"
-        stdout_path = "~/Library/Logs/my-sync.log"
-        kickstart = true
-
-        [bootstrap.macos.launchd.agents.my-backup]
-        program = "~/.local/bin/my-backup"
-        start_calendar_interval = [{ hour = 3 }, { hour = 12, weekday = 1 }]
-        "#,
-        )
-        .unwrap();
-        let cf = PakroToml::from_file(&p).unwrap();
-        let system = cf.bootstrap_config().unwrap();
-        let agent = system.macos.launchd.agents.get("my-sync").unwrap();
-        assert_eq!(agent.program.as_deref(), Some("~/.local/bin/my-sync"));
-        assert_eq!(agent.args, vec!["--watch"]);
-        assert!(agent.run_at_load);
-        assert_eq!(agent.start_interval, Some(300));
-        assert_eq!(agent.throttle_interval, Some(60));
-        assert_eq!(agent.queue_directories, vec!["~/Library/Queues/my-sync"]);
-        let crate::system::launchd::LaunchdCalendarIntervals::Single(interval) =
-            agent.start_calendar_interval.as_ref().unwrap()
-        else {
-            panic!("expected single calendar interval");
-        };
-        assert_eq!(interval.hour, Some(2));
-        assert_eq!(interval.minute, Some(0));
-        assert_eq!(
-            agent.environment.get("PATH").map(String::as_str),
-            Some("/usr/bin:/bin")
-        );
-        assert_eq!(agent.working_directory.as_deref(), Some("~"));
-        assert_eq!(
-            agent.stdout_path.as_deref(),
-            Some("~/Library/Logs/my-sync.log")
-        );
-        assert!(agent.kickstart);
-        let backup = system.macos.launchd.agents.get("my-backup").unwrap();
-        let crate::system::launchd::LaunchdCalendarIntervals::Multiple(intervals) =
-            backup.start_calendar_interval.as_ref().unwrap()
-        else {
-            panic!("expected multiple calendar intervals");
-        };
-        assert_eq!(intervals.len(), 2);
-        assert_eq!(intervals[0].hour, Some(3));
-        assert_eq!(intervals[1].hour, Some(12));
-        assert_eq!(intervals[1].weekday, Some(1));
-        file::remove_file(&p).unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_update_bootstrap_package() {
-        let _config = Config::get().await.unwrap();
-        let p = CWD.as_ref().unwrap().join(".test.pakro.toml");
-        // creates [bootstrap.packages] when absent, preserves other sections
-        file::write(&p, "[tools]\njq = \"latest\"\n").unwrap();
-        let mut cf = PakroToml::from_file(&p).unwrap();
-        cf.update_bootstrap_package("apt:curl", "latest").unwrap();
-        cf.update_bootstrap_package("brew:postgresql@17", "latest")
-            .unwrap();
-        // overrides an existing pin in place
-        cf.update_bootstrap_package("apt:curl", "8.5.0-2").unwrap();
-        assert_snapshot!(cf.dump().unwrap(), @r#"
-        [tools]
-        jq = "latest"
-
-        [bootstrap.packages]
-        "apt:curl" = "8.5.0-2"
-        "brew:postgresql@17" = "latest"
-        "#);
-        let system = cf.bootstrap_config().unwrap();
-        assert_eq!(
-            system.packages.get("apt:curl").unwrap().version(),
-            "8.5.0-2"
-        );
-        file::remove_file(&p).unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_update_bootstrap_package_preserves_options() {
-        let _config = Config::get().await.unwrap();
-        let p = CWD
-            .as_ref()
-            .unwrap()
-            .join(".bootstrap-package-options.pakro.toml");
-        file::write(
-            &p,
-            formatdoc! {r#"
-            [bootstrap.packages]
-            "brew:ripgrep" = {{ version = "14.0.0", os = ["macos"], env = "work" }} # keep me
-            "apt:curl" = "8.5.0"
-            "pacman:libreoffice-fresh" = {{ state = "absent" }}
-
-            [bootstrap.packages."brew:fd"]
-            version = "10.0.0" # keep version comment
-            os = ["macos"] # keep selector comment
-            "#},
-        )
-        .unwrap();
-        let mut cf = PakroToml::from_file(&p).unwrap();
-        cf.update_bootstrap_package("brew:ripgrep", "latest")
-            .unwrap();
-        cf.update_bootstrap_package("brew:fd", "latest").unwrap();
-        cf.update_bootstrap_package("pacman:libreoffice-fresh", "latest")
-            .unwrap();
-        #[cfg(unix)]
-        {
-            let inherited = cf
-                .bootstrap_config()
-                .unwrap()
-                .packages
-                .get("brew:ripgrep")
-                .unwrap()
-                .clone();
-            cf.update_bootstrap_package_with_fallback("brew:bat", "latest", Some(&inherited))
-                .unwrap();
-            #[cfg(unix)]
-            {
-                let inherited_without_selector =
-                    PackageTomlConfig::Options(crate::system::PackageOptionsTomlConfig {
-                        version: "1.0.0".to_string(),
-                        os: vec![],
-                        env: vec![],
-                        adopt: None,
-                        appdir: None,
-                        state: crate::system::PackageDesiredStateTomlConfig::Present,
-                        url: None,
-                        sha256: None,
-                        artifact: None,
-                    });
-                cf.update_bootstrap_package_with_fallback(
-                    "brew:tree",
-                    "latest",
-                    Some(&inherited_without_selector),
-                )
-                .unwrap();
-                let inherited_with_appdir =
-                    PackageTomlConfig::Options(crate::system::PackageOptionsTomlConfig {
-                        version: "1.0.0".to_string(),
-                        os: vec![],
-                        env: vec![],
-                        adopt: None,
-                        appdir: Some("/Applications".to_string()),
-                        state: crate::system::PackageDesiredStateTomlConfig::Present,
-                        url: None,
-                        sha256: None,
-                        artifact: None,
-                    });
-                cf.update_bootstrap_package_with_fallback(
-                    "brew-cask:1password",
-                    "latest",
-                    Some(&inherited_with_appdir),
-                )
-                .unwrap();
-            }
-        }
-
-        let dump = cf.dump().unwrap();
-        assert!(
-            dump.contains(
-                r#""brew:ripgrep" = { version = "latest", os = ["macos"], env = "work" } # keep me"#
-            ),
-            "package selectors and comments should survive: {dump}"
-        );
-        assert!(
-            dump.contains(r#"version = "latest" # keep version comment"#),
-            "nested package version comments should survive: {dump}"
-        );
-        assert!(
-            dump.contains(r#"os = ["macos"] # keep selector comment"#),
-            "nested package selectors should survive: {dump}"
-        );
-        assert!(
-            dump.contains(
-                r#""pacman:libreoffice-fresh" = { state = "present", version = "latest" }"#
-            ),
-            "using an absent package should make it present: {dump}"
-        );
-        #[cfg(unix)]
-        assert!(
-            dump.contains(r#""brew:bat" = { version = "latest", os = ["macos"], env = ["work"] }"#),
-            "inherited package selectors should be written locally: {dump}"
-        );
-        #[cfg(unix)]
-        assert!(
-            dump.contains(r#""brew:tree" = "latest""#),
-            "an inherited options table without selectors should use scalar form: {dump}"
-        );
-        #[cfg(unix)]
-        assert!(
-            dump.contains(
-                r#""brew-cask:1password" = { version = "latest", appdir = "/Applications" }"#
-            ),
-            "an inherited appdir should be written locally: {dump}"
-        );
-        #[cfg(unix)]
-        PakroToml::from_str(&dump, &p).expect("updated package config should parse");
-        assert!(matches!(
-            cf.bootstrap_config()
-                .unwrap()
-                .packages
-                .get("brew:ripgrep"),
-            Some(PackageTomlConfig::Options(options)) if options.version == "latest" && options.os == ["macos"]
-        ));
-        assert!(matches!(
-            cf.bootstrap_config().unwrap().packages.get("brew:fd"),
-            Some(PackageTomlConfig::Options(options)) if options.version == "latest" && options.os == ["macos"]
-        ));
-        #[cfg(unix)]
-        assert!(matches!(
-            cf.bootstrap_config().unwrap().packages.get("brew:bat"),
-            Some(PackageTomlConfig::Options(options)) if options.version == "latest" && options.os == ["macos"]
-        ));
-        file::remove_file(&p).unwrap();
-    }
-
-    #[tokio::test]
     async fn test_core_options_do_not_normalize_version_placeholder() {
         let _config = Config::get().await.unwrap();
         let p = CWD.as_ref().unwrap().join(".test.pakro.toml");
@@ -4489,30 +3138,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_task_env_and_vars_arrays_invalid() {
-        for field in ["env", "vars"] {
-            let config = formatdoc! {r#"
-                [tasks.example]
-                run = "echo ok"
-                {field} = [{{ FOO = "bar" }}]
-            "#};
-            assert!(
-                toml::from_str::<PakroToml>(&config).is_err(),
-                "expected task {field} array to be rejected"
-            );
-
-            let config = formatdoc! {r#"
-                [task_templates.example]
-                {field} = [{{ FOO = "bar" }}]
-            "#};
-            assert!(
-                toml::from_str::<PakroToml>(&config).is_err(),
-                "expected task template {field} array to be rejected"
-            );
-        }
-    }
-
     #[tokio::test]
     async fn test_path_dirs() {
         let _config = Config::get().await.unwrap();
@@ -4634,112 +3259,6 @@ mod tests {
         let cf: Box<dyn ConfigFile> = Box::new(cf);
         assert_snapshot!(cf);
         file::remove_file(&p).unwrap();
-    }
-
-    #[test]
-    fn test_tasks_confirm_parses() {
-        let body = r#"
-[tasks.deploy]
-confirm = { message = "Are you sure you want to deploy to ({{ env.HOME }})?", default = "no" }
-run = 'echo " $usage_environment"'
-"#;
-
-        let path = std::path::Path::new("/tmp/pakro.toml");
-        let rf = PakroToml::from_str(body, path).unwrap();
-        let task = rf.tasks.0.get("deploy").expect("deploy task should exist");
-
-        assert!(matches!(
-            task.confirm,
-            Some(crate::task::TaskConfirm::Options { .. })
-        ));
-    }
-
-    #[test]
-    fn test_task_confirm_custom_labels_parse() {
-        let body = r#"
-[tasks.deploy]
-confirm = { message = "Deploy to prod?", yes = "Deploy", no = "Cancel" }
-run = 'echo deploy'
-"#;
-
-        let path = std::path::Path::new("/tmp/pakro.toml");
-        let rf = PakroToml::from_str(body, path).unwrap();
-        let task = rf.tasks.0.get("deploy").expect("deploy task should exist");
-
-        assert_eq!(
-            task.confirm,
-            Some(crate::task::TaskConfirm::Options {
-                message: "Deploy to prod?".to_string(),
-                default: None,
-                yes: Some("Deploy".to_string()),
-                no: Some("Cancel".to_string()),
-            })
-        );
-    }
-
-    #[test]
-    fn test_task_templates_confirm_parses() {
-        let body = r#"
-[task_templates.deploy]
-confirm = { message = "Are you sure?", default = "no" }
-run = 'echo "template"'
-"#;
-
-        let path = std::path::Path::new("/tmp/pakro.toml");
-        let rf = PakroToml::from_str(body, path).unwrap();
-        let template = rf
-            .task_templates
-            .0
-            .get("deploy")
-            .expect("deploy template should exist");
-
-        assert!(matches!(
-            template.confirm,
-            Some(crate::task::TaskConfirm::Options { .. })
-        ));
-    }
-
-    #[test]
-    fn test_task_sources_single_string() {
-        let body = r#"
-[tasks.build]
-sources = "src/**/*.rs"
-outputs = ["target/debug/mycli"]
-run = "cargo build"
-"#;
-
-        let path = std::path::Path::new("/tmp/pakro.toml");
-        let rf = PakroToml::from_str(body, path).unwrap();
-        let task = rf.tasks.0.get("build").expect("build task should exist");
-
-        assert_eq!(
-            task.sources,
-            vec!["src/**/*.rs".to_string()],
-            "single string sources should be wrapped in a vec"
-        );
-    }
-
-    #[test]
-    fn test_task_template_sources_single_string() {
-        let body = r#"
-[task_templates.build]
-sources = "src/**/*.rs"
-run = "cargo build"
-"#;
-
-        let path = std::path::Path::new("/tmp/pakro.toml");
-        let rf = PakroToml::from_str(body, path).unwrap();
-        let template = rf
-            .task_templates
-            .0
-            .get("build")
-            .expect("build template should exist");
-
-        assert_eq!(
-            template.sources,
-            vec!["src/**/*.rs".to_string()],
-            "single string sources should be wrapped in a vec"
-        );
     }
 
     #[tokio::test]
@@ -5288,66 +3807,6 @@ run = "cargo build"
         "#);
     }
 
-    #[test]
-    fn test_deps_config_renders_templates_and_shell_env() {
-        let config = parse(
-            indoc! {r#"
-            [env]
-            DEPS_SUFFIX = "expanded"
-
-            [deps.setup]
-            run = "echo {{ config_root }} $DEPS_SUFFIX"
-            sources = ["{{ config_root }}/input-$DEPS_SUFFIX"]
-            outputs = ["$DEPS_SUFFIX/output"]
-            env = { ROOT = "{{ config_root }}", SUFFIX = "$DEPS_SUFFIX" }
-            dir = "{{ config_root }}/$DEPS_SUFFIX"
-            description = "setup-$DEPS_SUFFIX"
-            depends = ["dependency-$DEPS_SUFFIX"]
-            timeout = "{{ 2 + 3 }}s"
-        "#}
-            .to_string(),
-        );
-
-        let deps = config.deps_config().unwrap().unwrap();
-        let provider = deps.providers["setup"].rendered(&BTreeMap::new()).unwrap();
-        let config_root = CWD.as_ref().unwrap().to_string_lossy();
-        assert_eq!(
-            provider.run.as_deref(),
-            Some(format!("echo {config_root} $DEPS_SUFFIX").as_str())
-        );
-        assert_eq!(
-            provider.sources,
-            Some(vec![format!("{config_root}/input-expanded")])
-        );
-        assert_eq!(provider.outputs, Some(vec!["expanded/output".to_string()]));
-        assert_eq!(provider.env["ROOT"], config_root);
-        assert_eq!(provider.env["SUFFIX"], "expanded");
-        assert_eq!(
-            provider.dir.as_deref(),
-            Some(format!("{config_root}/expanded").as_str())
-        );
-        assert_eq!(provider.description.as_deref(), Some("setup-expanded"));
-        assert_eq!(provider.depends, ["dependency-expanded"]);
-        assert_eq!(provider.timeout.as_deref(), Some("5s"));
-    }
-
-    #[test]
-    fn test_deps_config_reports_template_errors_with_field_context() {
-        let config = parse(
-            indoc! {r#"
-            [deps.setup]
-            run = "echo ok"
-            sources = ["{{ invalid("]
-        "#}
-            .to_string(),
-        );
-
-        let err = config.deps_config().unwrap_err().to_string();
-        assert!(err.contains("deps provider \"setup\""), "{err}");
-        assert!(err.contains("field \"sources[0]\""), "{err}");
-        assert!(err.contains(".test.pakro.toml"), "{err}");
-    }
-
     fn parse(s: String) -> PakroToml {
         let p = CWD.as_ref().unwrap().join(".test.pakro.toml");
         file::write(&p, s).unwrap();
@@ -5374,7 +3833,7 @@ run = "cargo build"
     #[test]
     fn test_is_safe_config_body() {
         assert!(is_safe_config_body(""));
-        // fetching a URL on load is something only a trusted config may ask for
+        // Includes are not an inert tool-version declaration.
         assert!(!is_safe_config_body("include = [\"oci::r/x@sha256:0\"]\n"));
         assert!(is_safe_config_body(indoc! {r#"
         min_version = "2024.1.1"
@@ -5383,17 +3842,6 @@ run = "cargo build"
         python = ["3.11", "3.12"]
         "cargo:eza" = "latest"
         "#}));
-        // tasks are inert until the user explicitly runs one
-        assert!(is_safe_config_body(indoc! {r#"
-        [tasks.build]
-        run = "cargo build"
-        dir = "src"
-        env = { FOO = "bar" }
-        [tasks.test]
-        depends = ["build"]
-        run = ["cargo test"]
-        "#}));
-
         // templates can execute commands
         assert!(!is_safe_config_body(indoc! {r#"
         [tools]
@@ -5417,28 +3865,15 @@ run = "cargo build"
         [tools]
         "github:owner/repo[api_url=http://example.com/api/v3]" = "latest"
         "#}));
-        // tasks with templates render (and can exec) while loading
-        assert!(!is_safe_config_body(indoc! {r#"
-        [tasks.build]
-        run = "cargo build"
-        description = "{{ exec(command='echo hi') }}"
-        "#}));
         // escaped Tera delimiters ({ == '{', } == '}') decode to
         // `{{ exec(...) }}` after TOML parsing and must not bypass the check
         assert!(!is_safe_config_body(
             "[tools]\nnode = \"\\u007b\\u007b exec(command='echo 20') \\u007d\\u007d\"\n"
         ));
-        assert!(!is_safe_config_body(
-            "[tasks.build]\nrun = \"cargo build\"\ndescription = \"\\u007b\\u007b exec(command='echo hi') \\u007d\\u007d\"\n"
-        ));
         // an escaped delimiter in a key must also be caught
-        assert!(!is_safe_config_body(
-            "[tasks]\n\"\\u007b\\u007b exec() \\u007d\\u007d\" = { run = \"x\" }\n"
-        ));
-        // anything beyond min_version/tools/tasks requires trust
+        // Anything beyond min_version/tools requires trust.
         for body in [
             "[env]\nFOO = \"bar\"",
-            "[task_config]\nincludes = [\"tasks.toml\"]",
             "[hooks]\nenter = \"echo hi\"",
             "[settings]\nparanoid = false",
             "[alias]\nnode = \"asdf:foo/bar\"",
@@ -5512,107 +3947,6 @@ run = "cargo build"
             Some(""),
             "an empty user-provided bin_path should clear the registry default"
         );
-    }
-
-    #[tokio::test]
-    async fn test_remote_fragments_merge_below_the_including_file() {
-        let _config = Config::get().await.unwrap();
-        let cf = parse(formatdoc! {r#"
-            [tools]
-            node = "22"
-
-            [env]
-            OWN = "1"
-            _.path = ["own-bin"]
-
-            [hooks]
-            enter = "echo own"
-
-            [tool_alias.node.versions]
-            mine = "22"
-        "#});
-        let (first, second) = (
-            PathBuf::from("/cache/a.toml"),
-            PathBuf::from("/cache/b.toml"),
-        );
-        let merged = cf
-            .with_remote_fragments(vec![
-                (
-                    first.clone(),
-                    "env_path = [\"first-bin\"]\n\n[tools]\nnode = \"20\"\npython = \"3.12\"\n\n[env]\nFIRST = \"1\"\n"
-                        .to_string(),
-                ),
-                (
-                    second.clone(),
-                    "[tools]\npython = \"3.11\"\n\n[env]\nSECOND = \"1\"\n_.path = [\"second-bin\"]\n\n[hooks]\nenter = \"echo shared\"\n\n[tool_alias.node.versions]\nmine = \"20\"\nshared = \"20\"\n"
-                        .to_string(),
-                ),
-            ])
-            .unwrap();
-
-        let trs = merged.to_tool_request_set().unwrap();
-        let versions = |short: &str| {
-            trs.tools
-                .iter()
-                .find(|(ba, _)| ba.short == short)
-                .map(|(_, reqs)| reqs.iter().map(|r| r.version()).collect_vec())
-        };
-        // the including file wins, then the later fragment
-        assert_eq!(versions("node"), Some(vec!["22".to_string()]));
-        assert_eq!(versions("python"), Some(vec!["3.11".to_string()]));
-        // lower entries come first so the ones after them override
-        let keys = merged
-            .env_entries()
-            .unwrap()
-            .into_iter()
-            .filter_map(|e| match e {
-                EnvDirective::Val(key, ..) => Some(key),
-                _ => None,
-            })
-            .collect_vec();
-        assert_eq!(keys, ["FIRST", "SECOND", "OWN"]);
-        // PATH is the other way round: this file's directories are found first
-        let paths = merged
-            .env_entries()
-            .unwrap()
-            .into_iter()
-            .filter_map(|e| match e {
-                EnvDirective::Path(path, _) => Some(path),
-                _ => None,
-            })
-            .collect_vec();
-        assert_eq!(paths, ["own-bin", "second-bin", "first-bin"]);
-        // both files' hooks run, and a shared alias survives one of the same tool
-        assert_eq!(merged.hooks().unwrap().len(), 2);
-        let aliases = merged.aliases().unwrap();
-        let node = &aliases["node"].versions;
-        assert_eq!(node["mine"], "22");
-        assert_eq!(node["shared"], "20");
-        // it is still the including file: same path, source and lockfile
-        assert_eq!(merged.get_path(), cf.get_path());
-        assert_eq!(merged.source(), cf.source());
-        assert_eq!(merged.included_paths(), vec![second, first]);
-        // and what gets written back is untouched
-        assert_eq!(merged.dump().unwrap(), cf.dump().unwrap());
-    }
-
-    #[test]
-    fn test_remote_fragment_rejects_what_cannot_apply() {
-        let including = Path::new("/work/project/pakro.toml");
-        for (body, key) in [
-            ("include = [\"oci::r/x@sha256:0\"]\n", "include"),
-            ("[settings]\nexperimental = true\n", "settings"),
-            ("monorepo_root = true\n", "monorepo_root"),
-            ("[tasks.a]\nrun = \"echo\"\n", "tasks"),
-            ("[dotfiles]\n", "dotfiles"),
-            ("[daemons.a]\ncommand = \"x\"\n", "daemons"),
-            ("[redactions]\nenv = [\"X\"]\n", "redactions"),
-        ] {
-            let err = PakroToml::parse_remote_fragment(body, including)
-                .unwrap_err()
-                .to_string();
-            assert!(err.contains(key) && err.contains("not supported"), "{err}");
-        }
     }
 
     #[tokio::test]
@@ -6343,66 +4677,6 @@ run = "cargo build"
     }
 
     #[tokio::test]
-    async fn test_update_bootstrap_package_preserves_comments() {
-        // https://github.com/jdx/mise/discussions/4797
-        let _config = Config::get().await.unwrap();
-        let p = CWD.as_ref().unwrap().join(".bootstrap-comments.pakro.toml");
-        file::write(
-            &p,
-            formatdoc! {r#"
-            [bootstrap.packages]
-            # keep this comment
-            "apt:curl" = "8.5.0" # keep me
-            "#},
-        )
-        .unwrap();
-        let mut cf = PakroToml::from_file(&p).unwrap();
-        cf.update_bootstrap_package("apt:curl", "8.6.0").unwrap();
-
-        let dump = cf.dump().unwrap();
-        assert!(
-            dump.contains("# keep this comment"),
-            "comment above the package should survive: {dump}"
-        );
-        assert!(
-            dump.contains(r#""apt:curl" = "8.6.0" # keep me"#),
-            "comment after the package version should survive: {dump}"
-        );
-        file::remove_file(&p).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn test_update_bootstrap_brew_tap_preserves_comments() {
-        // https://github.com/jdx/mise/discussions/4797
-        let _config = Config::get().await.unwrap();
-        let p = CWD.as_ref().unwrap().join(".brew-tap-comments.pakro.toml");
-        file::write(
-            &p,
-            formatdoc! {r#"
-            [bootstrap.brew.taps]
-            # keep this comment
-            "acme/tools" = "https://example.com/old.git" # keep me
-            "#},
-        )
-        .unwrap();
-        let mut cf = PakroToml::from_file(&p).unwrap();
-        cf.update_bootstrap_brew_tap("acme/tools", "https://example.com/new.git")
-            .unwrap();
-
-        let dump = cf.dump().unwrap();
-        assert!(
-            dump.contains("# keep this comment"),
-            "comment above the tap should survive: {dump}"
-        );
-        assert!(
-            dump.contains(r#""acme/tools" = "https://example.com/new.git" # keep me"#),
-            "comment after the tap url should survive: {dump}"
-        );
-        file::remove_file(&p).unwrap();
-    }
-
-    #[tokio::test]
     async fn test_replace_versions_omits_empty_os() {
         let _config = Config::get().await.unwrap();
         let p = CWD.as_ref().unwrap().join(".replace-empty-os.pakro.toml");
@@ -6441,152 +4715,6 @@ run = "cargo build"
         let dump = cf.dump().unwrap();
         assert!(dump.contains(r#"dummy = "1.0.1""#));
         assert!(!dump.contains("os"), "empty os should not be written back");
-        file::remove_file(&p).unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_bootstrap_linux_systemd_units() {
-        let _config = Config::get().await.unwrap();
-        let p = CWD.as_ref().unwrap().join(".test.pakro.toml");
-        file::write(
-            &p,
-            r#"
-        [bootstrap.linux.systemd.units.my-sync]
-        description = "sync files"
-        after = ["network-online.target"]
-        wants = ["network-online.target"]
-        requires = ["credentials.service"]
-        exec_start = "~/.local/bin/my-sync --watch"
-        type = "oneshot"
-        remain_after_exit = true
-        exec_stop = "~/.local/bin/my-sync --stop"
-        timeout_start_sec = "120"
-        timeout_stop_sec = "30"
-        no_new_privileges = true
-        private_tmp = true
-        environment = { PATH = "/usr/bin:/bin" }
-        environment_file = ["-%h/.config/my-sync.env"]
-        nice = 10
-        umask = "0007"
-        working_directory = "~"
-        restart = "on-failure"
-        restart_sec = "5s"
-        standard_output = "append:%h/.local/state/my-sync.log"
-        wanted_by = ["default.target"]
-
-        [bootstrap.linux.systemd.units.my-sync-timer]
-        on_boot_sec = "2min"
-        on_unit_active_sec = "10min"
-        on_unit_inactive_sec = "5min"
-        on_calendar = "hourly"
-        randomized_delay_sec = "30s"
-        accuracy_sec = "1s"
-        persistent = true
-        unit = "dev.pakro.my-sync.service"
-        "#,
-        )
-        .unwrap();
-        let cf = PakroToml::from_file(&p).unwrap();
-        let system = cf.bootstrap_config().unwrap();
-        let unit = system.linux.systemd.units.get("my-sync").unwrap();
-        assert_eq!(unit.description.as_deref(), Some("sync files"));
-        assert_eq!(unit.after, vec!["network-online.target"]);
-        assert_eq!(unit.wants, vec!["network-online.target"]);
-        assert_eq!(unit.requires, vec!["credentials.service"]);
-        assert_eq!(
-            unit.exec_start.as_deref(),
-            Some("~/.local/bin/my-sync --watch")
-        );
-        assert_eq!(unit.service_type.as_deref(), Some("oneshot"));
-        assert_eq!(unit.remain_after_exit, Some(true));
-        assert_eq!(
-            unit.exec_stop.as_deref(),
-            Some("~/.local/bin/my-sync --stop")
-        );
-        assert_eq!(unit.timeout_start_sec.as_deref(), Some("120"));
-        assert_eq!(unit.timeout_stop_sec.as_deref(), Some("30"));
-        assert_eq!(unit.no_new_privileges, Some(true));
-        assert_eq!(unit.private_tmp, Some(true));
-        assert_eq!(
-            unit.environment.get("PATH").map(String::as_str),
-            Some("/usr/bin:/bin")
-        );
-        assert_eq!(unit.environment_file, vec!["-%h/.config/my-sync.env"]);
-        assert_eq!(unit.nice, Some(10));
-        assert_eq!(unit.umask.as_deref(), Some("0007"));
-        assert_eq!(unit.working_directory.as_deref(), Some("~"));
-        assert_eq!(unit.restart.as_deref(), Some("on-failure"));
-        assert_eq!(unit.restart_sec.as_deref(), Some("5s"));
-        assert_eq!(
-            unit.standard_output.as_deref(),
-            Some("append:%h/.local/state/my-sync.log")
-        );
-        assert_eq!(
-            unit.wanted_by.as_deref(),
-            Some(["default.target".to_string()].as_slice())
-        );
-        let timer = system.linux.systemd.units.get("my-sync-timer").unwrap();
-        assert_eq!(timer.on_boot_sec.as_deref(), Some("2min"));
-        assert_eq!(timer.on_unit_active_sec.as_deref(), Some("10min"));
-        assert_eq!(timer.on_unit_inactive_sec.as_deref(), Some("5min"));
-        assert_eq!(timer.on_calendar.as_deref(), Some("hourly"));
-        assert_eq!(timer.randomized_delay_sec.as_deref(), Some("30s"));
-        assert_eq!(timer.accuracy_sec.as_deref(), Some("1s"));
-        assert_eq!(timer.persistent, Some(true));
-        assert_eq!(timer.unit.as_deref(), Some("dev.pakro.my-sync.service"));
-        file::remove_file(&p).unwrap();
-    }
-
-    #[cfg(target_os = "linux")]
-    #[tokio::test]
-    async fn test_bootstrap_linux_firewall() {
-        let _config = Config::get().await.unwrap();
-        let p = CWD.as_ref().unwrap().join(".test-firewall.pakro.toml");
-        file::write(
-            &p,
-            r#"
-        [bootstrap.linux.firewall]
-        backend = "nftables"
-        state = "enabled"
-        default_incoming = "deny"
-        default_outgoing = "allow"
-        exclusive = false
-
-        [[bootstrap.linux.firewall.rules]]
-        name = "https"
-        port = 443
-        protocol = "tcp"
-        action = "allow"
-
-        [[bootstrap.linux.firewall.rules]]
-        name = "admin"
-        port = "2200-2205"
-        protocol = "tcp"
-        source = "203.0.113.0/24"
-        interface = "eth0"
-        action = "allow"
-        "#,
-        )
-        .unwrap();
-        let cf = PakroToml::from_file(&p).unwrap();
-        let firewall = cf.bootstrap_config().unwrap().linux.firewall.unwrap();
-        assert_eq!(
-            firewall.backend,
-            Some(crate::system::firewall::FirewallBackend::Nftables)
-        );
-        assert_eq!(firewall.rules.len(), 2);
-        assert_eq!(firewall.rules[0].name, "https");
-        assert!(matches!(
-            firewall.rules[0].port,
-            Some(crate::system::firewall::FirewallPortToml::Single(443))
-        ));
-        assert!(matches!(
-            firewall.rules[1].port,
-            Some(crate::system::firewall::FirewallPortToml::Range(ref range))
-                if range == "2200-2205"
-        ));
-        assert_eq!(firewall.rules[1].source.as_deref(), Some("203.0.113.0/24"));
-        assert_eq!(firewall.rules[1].interface.as_deref(), Some("eth0"));
         file::remove_file(&p).unwrap();
     }
 }

@@ -11,8 +11,8 @@ pakro lib programs::query::paths::tests::p1_frozen_environment_and_backend_alias
 pakro lib programs::query::paths::tests::p1_local_prefix_ambiguity_and_invalid_filters_never_choose_a_build
 pakro lib programs::shared::python_entry::tests::p1_decoded_backend_identity_controls_admission
 pakro lib programs::shared::python_entry::tests::p1_provider_ids_cover_python_adapters_without_scanning_scripts
-pakro bin cli::tests::p1_local_query_startup_is_selected_from_parsed_commands
-pakro bin cli::tests::p1_install_into_admission_rejects_every_decoded_backend
+pakro bin cli::tests::retained_directory_and_exact_install_entry_points_parse
+pakro bin cli::tests::retired_commands_are_not_public_entry_points
 pakro lib toolset::toolset_install::tests::p1_unknown_dependency_metadata_refuses_the_batch_before_plugin_setup
 pakro lib backend::tests::p1_direct_python_force_stops_before_backend_preparation
 pakro lib backend::tests::p1_direct_python_postinstall_stops_before_environment_or_script
@@ -34,3 +34,6 @@ pakro lib programs::query::paths::tests::p1_backend_option_alias_remains_python_
 # explicit comparison: programs::directory::tests::resource_comparison::p1_resource_same_configuration_entrypoints (ignored; frozen port)
 e2e tests/e2e/cli/test_p1_expanded_python_admission
 e2e tests/e2e/cli/test_p1_shared_command_priority
+
+pakro bin cli::tests::recovery_preflight_is_scoped_to_explicit_install
+pakro bin cli::command_effects::tests::retained_commands_have_exact_effect_coverage

@@ -2,7 +2,6 @@
 
 use eyre::{Context, Result, bail, eyre};
 use serde_json::{Map, Value, json};
-use std::collections::{BTreeSet, VecDeque};
 use std::fs;
 use std::path::Path;
 
@@ -27,11 +26,9 @@ fn main() -> Result<()> {
         Value::Object(build_settings(settings, "")?),
     );
 
-    let task_schema = build_task_schema(&schema)?;
     let rc_schema = build_rc_schema(settings)?;
     for (path, value) in [
         ("src/schema/pakro.json", schema),
-        ("src/schema/pakro-task.json", task_schema),
         ("src/schema/pakrorc.json", rc_schema),
     ] {
         let output = format!("{}\n", serde_json::to_string_pretty(&value)?);
@@ -138,53 +135,6 @@ fn build_settings(table: &Map<String, Value>, prefix: &str) -> Result<Map<String
     Ok(settings)
 }
 
-fn referenced_defs(schema: &Value, root: &Value) -> Result<Map<String, Value>> {
-    let defs = schema
-        .get("$defs")
-        .and_then(Value::as_object)
-        .ok_or_else(|| eyre!("src/schema/pakro.json is missing $defs"))?;
-    let mut queued = VecDeque::from([root]);
-    let mut seen = BTreeSet::new();
-    let mut picked = Map::new();
-    while let Some(value) = queued.pop_front() {
-        match value {
-            Value::Array(values) => queued.extend(values),
-            Value::Object(object) => {
-                if let Some(reference) = object.get("$ref").and_then(Value::as_str) {
-                    if let Some(path) = reference.strip_prefix("#/$defs/") {
-                        let key = path.split('/').next().unwrap_or_default();
-                        let definition = defs
-                            .get(key)
-                            .ok_or_else(|| eyre!("src/schema/pakro.json is missing $defs.{key}"))?;
-                        if seen.insert(key.to_owned()) {
-                            picked.insert(key.to_owned(), definition.clone());
-                            queued.push_back(definition);
-                        }
-                    } else if reference.starts_with("#/") {
-                        bail!("unsupported local JSON schema ref: {reference}");
-                    }
-                }
-                queued.extend(object.values());
-            }
-            _ => {}
-        }
-    }
-    Ok(picked)
-}
-
-fn build_task_schema(schema: &Value) -> Result<Value> {
-    let mut task_schema = json!({
-        "$id": "urn:pakro:schema:pakro-task.json",
-        "$schema": schema["$schema"],
-        "title": "pakro-task-schema",
-        "type": "object",
-        "description": "Config file for included pakro tasks (https://mise.jdx.dev/tasks/#task-configuration)",
-        "additionalProperties": { "$ref": "#/$defs/task" },
-    });
-    task_schema["$defs"] = Value::Object(referenced_defs(schema, &task_schema)?);
-    Ok(task_schema)
-}
-
 fn build_rc_schema(settings: &Map<String, Value>) -> Result<Value> {
     let mut properties = Map::new();
     for (key, value) in settings {
@@ -261,24 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn task_schema_closes_recursive_refs_and_excludes_unused_definitions() {
-        let schema = json!({ "$defs": {
-            "task": { "allOf": [{ "$ref": "#/$defs/shared" }, { "$ref": "#/$defs/shared/properties/x" }] },
-            "shared": { "properties": { "x": { "$ref": "#/$defs/task" } } },
-            "unused": { "type": "string" },
-        } });
-        let generated = build_task_schema(&schema).unwrap();
-        let defs = generated["$defs"].as_object().unwrap();
-        assert_eq!(defs.len(), 2);
-        assert!(defs.contains_key("task") && defs.contains_key("shared"));
-        assert!(!defs.contains_key("unused"));
-    }
-
-    #[test]
-    fn invalid_refs_and_unknown_types_fail_before_writing_schemas() {
-        let schema = json!({ "$defs": {} });
-        assert!(referenced_defs(&schema, &json!({ "$ref": "#/$defs/missing" })).is_err());
-        assert!(referenced_defs(&schema, &json!({ "$ref": "#/properties/task" })).is_err());
+    fn unknown_types_and_missing_descriptions_fail_before_writing_schemas() {
         assert!(
             build_element(
                 "bad",

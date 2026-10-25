@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-
-# .tool-versions files can't define tasks, so plain ones should never
-# trigger a trust error in the task runner.
-
-export PAKRO_TRUSTED_CONFIG_PATHS=""
-
-echo "tiny 3.1.0" >.tool-versions
-assert_not_contains "PAKRO_YES=0 pakro task ls" "not trusted"

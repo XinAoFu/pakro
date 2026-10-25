@@ -11,7 +11,6 @@ use crate::file::display_path;
 pub enum ToolSource {
     ToolVersions(PathBuf),
     PakroToml(PathBuf),
-    PakroTomlDaemon(PathBuf),
     IdiomaticVersionFile(PathBuf),
     ToolStub(PathBuf),
     Argument,
@@ -25,7 +24,6 @@ impl Display for ToolSource {
         match self {
             ToolSource::ToolVersions(path) => write!(f, "{}", display_path(path)),
             ToolSource::PakroToml(path) => write!(f, "{}", display_path(path)),
-            ToolSource::PakroTomlDaemon(path) => write!(f, "{} [daemons]", display_path(path)),
             ToolSource::IdiomaticVersionFile(path) => write!(f, "{}", display_path(path)),
             ToolSource::ToolStub(path) => write!(f, "{}", display_path(path)),
             ToolSource::Argument => write!(f, "--runtime"),
@@ -39,7 +37,7 @@ impl ToolSource {
     pub fn path(&self) -> Option<&Path> {
         match self {
             ToolSource::ToolVersions(path) => Some(path),
-            ToolSource::PakroToml(path) | ToolSource::PakroTomlDaemon(path) => Some(path),
+            ToolSource::PakroToml(path) => Some(path),
             ToolSource::IdiomaticVersionFile(path) => Some(path),
             ToolSource::ToolStub(path) => Some(path),
             _ => None,
@@ -54,10 +52,6 @@ impl ToolSource {
             },
             ToolSource::PakroToml(path) => indexmap! {
                 "type".to_string() => "pakro.toml".to_string(),
-                "path".to_string() => path.to_string_lossy().to_string(),
-            },
-            ToolSource::PakroTomlDaemon(path) => indexmap! {
-                "type".to_string() => "pakro.toml-daemon".to_string(),
                 "path".to_string() => path.to_string_lossy().to_string(),
             },
             ToolSource::IdiomaticVersionFile(path) => indexmap! {
@@ -96,10 +90,6 @@ impl Serialize for ToolSource {
             }
             ToolSource::PakroToml(path) => {
                 s.serialize_field("type", "pakro.toml")?;
-                s.serialize_field("path", path)?;
-            }
-            ToolSource::PakroTomlDaemon(path) => {
-                s.serialize_field("type", "pakro.toml-daemon")?;
                 s.serialize_field("path", path)?;
             }
             ToolSource::IdiomaticVersionFile(path) => {

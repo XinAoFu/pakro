@@ -26,7 +26,7 @@ fn settings_toml_path() -> PathBuf {
         assert!(
             packaged.exists(),
             "settings.toml not found. Outside the pakro workspace, copy its settings.toml into {} \
-             before packaging (packaging/tasks/release-plz does this when publishing).",
+             before packaging.",
             manifest_dir.display()
         );
         packaged

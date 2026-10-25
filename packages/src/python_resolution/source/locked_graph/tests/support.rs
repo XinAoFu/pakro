@@ -136,6 +136,20 @@ pub(super) fn write_graph(
     roots: &[(usize, &str)],
     edges: &[(&str, &str, &str)],
 ) -> (BoundPythonLock, GroupKey) {
+    write_graph_with_builds(fixture, target, originals, specs, roots, edges, &[])
+}
+pub(super) fn write_graph_with_builds(
+    fixture: &Fixture,
+    target: &FrozenRegistryTarget,
+    originals: &[&str],
+    specs: &[Spec],
+    roots: &[(usize, &str)],
+    edges: &[(&str, &str, &str)],
+    builds: &[(
+        PinId,
+        crate::packages::python_environment::model::SourceBuildRecord,
+    )],
+) -> (BoundPythonLock, GroupKey) {
     let limits = LockModelLimits::default();
     let key = GroupKey::new("", "main", *target.fingerprint(), limits).unwrap();
     let pins = specs
@@ -175,7 +189,7 @@ pub(super) fn write_graph(
         nodes: &nodes,
         edges: &edges,
     };
-    let model = PythonLockModel::from_parts(&pins, &[graph], limits)
+    let model = PythonLockModel::from_parts_with_builds(&pins, &[graph], builds, limits)
         .expect("the independent locked graph must be structurally closed");
     fs::write(
         &fixture.lock_path,

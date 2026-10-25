@@ -1,512 +1,157 @@
-use std::collections::HashSet;
-use std::str::FromStr;
-use std::sync::Arc;
-
 use crate::args::{BackendArg, ToolArg};
-use crate::config::Settings;
-use crate::config::{Config, SettingsExt};
-use crate::errors::split_install_result;
-use crate::hooks::Hooks;
-use crate::install_before::resolve_cli_minimum_release_age;
-use crate::packages::install::{PackageRuntimeBinding, snapshot_runtime_bindings};
-use crate::task::TaskLoadContext;
-use crate::task::task_context_builder::TaskContextBuilder;
-use crate::task::task_tool_installer::TaskToolInstaller;
-use crate::toolset::{
-    InstallOptions, ResolveOptions, ToolRequest, ToolRequestSet, ToolSource, ToolVersionOptions,
-    Toolset, ToolsetBuilder, ensure_compatible_install_requests, tool_env_vars,
-};
-use crate::ui::install_progress::install_progress;
-use crate::ui::multi_progress_report::MultiProgressReport;
-use crate::ui::progress_report::ProgressIcon;
-use crate::ui::resolve_progress;
-use crate::{config, env, exit, hooks};
-use eyre::Result;
-use itertools::Itertools;
-use jiff::Timestamp;
-use path_absolutize::Absolutize;
-use std::path::PathBuf;
+use crate::config::{Config, Settings};
+use crate::packages::PackageInstallRequest;
+use eyre::{Result, ensure};
+use std::str::FromStr;
 
-/// Install a tool version
-///
-/// Installs a tool version under the pakro data directory, by default
-/// `~/.local/share/pakro/installs/<TOOL>/<VERSION>`.
-/// Installing alone does not add the tool to your config, so a tool that is not
-/// already configured will not be on PATH.
-/// To install and activate in one command, use `pakro use`, which also writes the version to
-/// the selected project config so the tool is active in that configuration scope.
-/// To run a tool once without touching any config, use `pakro exec <TOOL>@<VERSION> -- <COMMAND>`.
-///
-/// Tools are installed in parallel. To disable, set `--jobs=1` or `PAKRO_JOBS=1`.
+/// Install the exact Python and package versions declared by this project.
+/// Contents are shared in the Pakro library; project declarations are not edited.
 #[derive(Debug, Default, usage_rs::Args)]
 #[usage(
     visible_alias = "i",
     verbatim_doc_comment,
-    example(
-        r###"pakro install node@20.0.0  # install a specific node version
-pakro install node@20      # install the latest node 20.x
-pakro install node         # install the version specified in pakro.toml
-pakro install              # install everything specified in pakro.toml
-pakro install --include-lazy # also install tools configured for lazy installation
-pakro install --include-task-tools # also install tools required by tasks"###
-    )
+    example("pakro install python@3.13.16"),
+    example("pakro install"),
+    example("pakro install --dry-run")
 )]
 pub(crate) struct Install {
-    /// Tool(s) to install
-    /// e.g.: node@20
-    #[usage(value_name = "TOOL@VERSION")]
+    #[usage(value_name = "PYTHON@VERSION")]
     tool: Option<Vec<ToolArg>>,
-
-    /// One read-only expansion reused by the eventual legacy installer.
-    #[usage(skip)]
-    expanded_inputs: tokio::sync::OnceCell<ExpandedInstallInputs>,
-
-    /// Force reinstall even if already installed
-    /// With no tools specified, reinstall all configured tools
-    #[usage(long, short, verbatim_doc_comment)]
-    force: bool,
-
-    /// Number of jobs to run in parallel
-    /// Values below 1 are treated as 1
-    /// Defaults to the `jobs` setting
-    #[usage(long, short, env = "PAKRO_JOBS", verbatim_doc_comment)]
-    jobs: Option<usize>,
-
-    /// Show what would be installed without actually installing
-    #[usage(long, short = 'n', verbatim_doc_comment)]
+    #[usage(long, short = 'n')]
     dry_run: bool,
-
-    /// Restore only the four known changed Python 3.11.17+20261013 bytecode files
-    ///
-    /// Requires an explicit full Python version and the exact shared-language
-    /// instance. Uses the verified local archive, without installing packages.
-    /// Combine with --dry-run to check and preview without changing files.
-    #[usage(long, value_name = "INSTANCE", verbatim_doc_comment)]
+    /// Restore only the previously approved four bytecode files in one exact instance.
+    #[usage(long, value_name = "INSTANCE")]
     restore_bytecode: Option<String>,
-
-    /// Show installation output
-    ///
-    /// This argument will print backend output such as download, configuration, and compilation output.
-    #[usage(long, short, action = usage_rs::ArgAction::Count)]
-    verbose: u8,
-
-    /// Like --dry-run but exits with code 1 if there are tools to install
-    ///
-    /// This is useful for scripts to check if tools need to be installed.
-    #[usage(long, verbatim_doc_comment)]
-    dry_run_code: bool,
-
-    /// Also install tools required by tasks in the current scope
-    ///
-    /// This prepares task tools without running task commands or dependencies.
-    /// Combine with --monorepo to include tasks from every configured root.
-    #[usage(long, verbatim_doc_comment)]
-    include_task_tools: bool,
-
-    /// Also install tools configured with `lazy = true`
-    ///
-    /// By default, a bare `pakro install` leaves lazy tools for first-command installation.
-    #[usage(long, verbatim_doc_comment)]
-    include_lazy: bool,
-
-    /// Only install versions released before this date or older than this duration
-    ///
-    /// Supports absolute dates like "2024-06-01" and relative durations like "90d" or "1y".
-    #[usage(long, alias = "before", verbatim_doc_comment)]
-    minimum_release_age: Option<String>,
-
-    /// Install tools from every [monorepo].config_roots config root
-    ///
-    /// Uses the active PAKRO_ENV and requires monorepo_root = true plus explicit
-    /// [monorepo].config_roots in the monorepo root config.
-    #[usage(long, env = "PAKRO_MONOREPO", verbatim_doc_comment)]
-    monorepo: bool,
-
-    /// Connect backend install command stdin/stdout/stderr directly to the terminal.
-    /// Implies `--jobs=1`
-    #[usage(long, overrides = "jobs")]
+    #[usage(long, short, env = "PAKRO_JOBS")]
+    jobs: Option<usize>,
+    #[usage(long)]
     raw: bool,
-
-    /// Install tool(s) to a shared directory
-    ///
-    /// Installs to the specified directory instead of the default install location.
-    /// May require elevated permissions depending on the path.
-    #[usage(long, verbatim_doc_comment, value_hint = ValueHint::DirPath, conflicts = "system")]
-    shared: Option<PathBuf>,
-
-    /// Install tool(s) to the system-wide shared directory
-    ///
-    /// Installs to /usr/local/share/pakro/installs (or PAKRO_SYSTEM_DATA_DIR/installs).
-    /// On Unix, binary-download backends invoke sudo to publish into protected
-    /// system directories unless system_packages.sudo is disabled. Run pakro as
-    /// your user, without sudo.
-    #[usage(long, verbatim_doc_comment, conflicts = "shared")]
-    system: bool,
-
-    /// Skip confirmation when installing missing plugin system dependencies.
-    /// Set internally by `pakro bootstrap --yes`; not a user-facing flag.
-    #[usage(skip)]
-    yes: bool,
 }
 
-#[derive(Clone)]
-struct ExpandedInstallInputs {
-    monorepo: Option<Arc<config::MonorepoUnion>>,
-    task_requests: Vec<ToolRequest>,
+struct Input {
+    exact: Option<String>,
+    extra: Vec<PackageInstallRequest>,
 }
-
-impl std::fmt::Debug for ExpandedInstallInputs {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("ExpandedInstallInputs")
-            .field("monorepo", &self.monorepo.is_some())
-            .field("task_request_count", &self.task_requests.len())
-            .finish()
-    }
-}
-
 impl Install {
-    /// a bare `pakro install` (install everything missing from config), as run
-    /// by `pakro bootstrap`
-    pub(crate) fn new_bare(dry_run: bool, yes: bool) -> Self {
-        Self {
-            dry_run,
-            yes,
-            ..Default::default()
-        }
-    }
-
-    pub(super) fn inherit_root_admission_flags(&mut self, force: bool, dry_run: bool) {
-        self.force |= force;
+    pub(super) fn inherit_root_dry_run(&mut self, dry_run: bool) {
         self.dry_run |= dry_run;
     }
-
-    pub(crate) fn inherit_root_yes(&mut self, yes: bool) {
-        self.yes |= yes;
-    }
-
-    pub(super) fn is_bytecode_recovery(&self) -> bool {
-        self.restore_bytecode.is_some()
-    }
-
-    pub(super) fn inherit_recovery_flags(
-        &mut self,
-        dry_run: bool,
-        force: bool,
-        raw: bool,
-        jobs: Option<usize>,
-    ) {
+    pub(super) fn inherit_recovery_flags(&mut self, dry_run: bool, raw: bool, jobs: Option<usize>) {
         self.dry_run |= dry_run;
-        self.force |= force;
         self.raw |= raw;
         self.jobs = self.jobs.or(jobs);
     }
-
-    pub(super) fn is_dry_run(&self) -> bool {
-        self.dry_run || self.dry_run_code
-    }
-
-    /// Admission runs during read-only startup, before maintenance or Config tracking.
-    pub(super) async fn preflight(&self) -> Result<()> {
-        if self.is_bytecode_recovery() {
-            return Ok(());
-        }
-        use crate::programs::python::is_python_backend;
-        let tools = self.tool.as_deref().unwrap_or(&[]);
-        let bound_python = crate::packages::request::CLI_PACKAGE_ARGS
-            .get()
-            .is_some_and(|requests| {
-                requests
-                    .iter()
-                    .any(|request| request.runtime_name == "python")
-            });
-        let config = Config::get().await?;
-        // Expansion is part of admission, not work to postpone until after
-        // auto-update, migration, cache pruning or tracking have run.
-        self.expanded_install_inputs(&config).await?;
-        let explicit_python = tools.iter().any(|tool| is_python_backend(&tool.ba));
-        let requests = config.get_tool_request_set().await?;
-        let declared_python = requests
-            .iter()
-            .any(|(backend, _, _)| is_python_backend(backend));
-        // Unknown tool names are the existing bare-package syntax. Bind them
-        // with the same parser as run(), before allowing maintenance or writes.
-        let runtimes: Vec<_> = requests
-            .iter()
-            .filter_map(|(backend, versions, _)| {
-                (is_python_backend(backend) || backend.short == "node")
-                    .then(|| {
-                        versions.first().map(|version| {
-                            (
-                                if is_python_backend(backend) {
-                                    "python".to_owned()
-                                } else {
-                                    backend.short.clone()
-                                },
-                                version.version().to_string(),
-                            )
-                        })
-                    })
-                    .flatten()
-            })
-            .collect();
-        let positional_version = matches!(tools, [first, second] if is_python_backend(&first.ba)
-            && first.version.is_none() && second.version.is_none()
-            && crate::programs::directory::is_exact_python_version(&second.short));
-        let package_tools = if positional_version {
-            tools[..1].to_vec()
-        } else {
-            tools.to_vec()
-        };
-        let (kept, packages) =
-            crate::packages::split_bare_packages(package_tools, &runtimes, |name| {
-                BackendArg::from_str(name)
-                    .ok()
-                    .and_then(|backend| backend.backend().ok())
-                    .is_some()
-            })
-            .map_err(|error| eyre::eyre!("{error}"))?;
-        // Check actual indirect runtime requirements before startup maintenance,
-        // including requests without an explicit version and config options.
-        for tool in kept.iter().filter(|tool| !is_python_backend(&tool.ba)) {
-            let request = match &tool.tvr {
-                Some(request) => request.clone(),
-                None => ToolRequest::new(tool.ba.clone(), "latest", ToolSource::Argument)?,
-            };
-            Toolset::ensure_python_install_admission(&request)?;
-        }
-        for (backend, versions, _) in requests.iter() {
-            if !is_python_backend(backend)
-                && (tools.is_empty() || kept.iter().any(|tool| tool.ba.short == backend.short))
+    async fn input(&self) -> Result<Input> {
+        let config = super::read_config_for_admission().await?;
+        let tools = self.tool.clone().unwrap_or_default();
+        let exact = match tools.as_slice() {
+            [one] if crate::programs::python::is_python_backend(&one.ba) => one.version.clone(),
+            [one, two]
+                if crate::programs::python::is_python_backend(&one.ba)
+                    && one.version.is_none()
+                    && two.version.is_none() =>
             {
-                for request in versions {
-                    Toolset::ensure_python_install_admission(request)?;
-                }
-            }
-        }
-        // The legacy tail installs every effective config package group, not
-        // only packages belonging to the tools named on the command line.
-        // Admit the actual route before startup maintenance or runtime writes.
-        let shared_exact_route = positional_version
-            || matches!(tools, [tool] if is_python_backend(&tool.ba) && tool.version.is_some());
-        let shared_project_route = !shared_exact_route
-            && declared_python
-            && (kept.is_empty()
-                || matches!(kept.as_slice(), [tool] if is_python_backend(&tool.ba) && tool.version.is_none()));
-        let shared_route = shared_exact_route || shared_project_route;
-        let configured_python_packages = config.config_files.values().any(|file| {
-            file.to_package_requests()
-                .iter()
-                .any(|request| request.runtime_name == "python")
-        });
-        eyre::ensure!(
-            self.is_dry_run()
-                || shared_route
-                || (!configured_python_packages
-                    && !bound_python
-                    && !packages
-                        .iter()
-                        .any(|request| request.runtime_name == "python")),
-            "Python package groups would enter the unsupported legacy package installation path; \
-             refusing the complete request before any effect"
-        );
-        eyre::ensure!(
-            !explicit_python || shared_route,
-            "shared Python installation supports one Python target per request; \
-             refusing an unsupported legacy installation batch before any effect"
-        );
-        let touches_python = explicit_python
-            || bound_python
-            || packages
-                .iter()
-                .any(|request| request.runtime_name == "python")
-            || (tools.is_empty() && declared_python);
-        if !touches_python {
-            return Ok(());
-        }
-        eyre::ensure!(
-            !self.force && !self.system && self.shared.is_none(),
-            "shared Python installs do not support force or alternate install destinations"
-        );
-        eyre::ensure!(
-            !self.monorepo && !self.include_task_tools,
-            "shared Python installation does not support monorepo or task-tool expansion"
-        );
-        eyre::ensure!(
-            positional_version || kept.iter().all(|tool| is_python_backend(&tool.ba)),
-            "install the non-Python tools explicitly; mixed Python installation is not supported"
-        );
-        for tool in tools.iter().filter(|tool| is_python_backend(&tool.ba)) {
-            if let Some(version) = &tool.version {
-                eyre::ensure!(
-                    crate::programs::directory::is_exact_python_version(version),
-                    "python {version:?} is not a complete exact version"
-                );
-            }
-            eyre::ensure!(
-                tool.ba.opts.is_none(),
-                "shared Python installs do not support legacy tool options"
-            );
-        }
-        // A legacy postinstall hook would otherwise be silently dropped by
-        // the shared path or run later against immutable library contents.
-        for (backend, versions, _) in requests.iter() {
-            if is_python_backend(backend) {
-                for request in versions {
-                    eyre::ensure!(
-                        request.options().postinstall().is_none(),
-                        "Python postinstall is not supported by the shared Python installation path"
-                    );
-                }
-            }
-        }
-        if tools.is_empty() {
-            eyre::ensure!(
-                requests
-                    .iter()
-                    .all(|(backend, _, _)| is_python_backend(backend)),
-                "install the declared non-Python tools explicitly; mixed Python installation is not supported"
-            );
-        }
-        let mut extras = packages;
-        extras.extend(
-            crate::packages::request::CLI_PACKAGE_ARGS
-                .get()
-                .into_iter()
-                .flatten()
-                .cloned(),
-        );
-        let project = crate::programs::python::prepare_current_project(&extras)?;
-        eyre::ensure!(
-            (!shared_project_route && extras.is_empty()) || project.is_some(),
-            "Python package installation requires a matching declared project Python"
-        );
-        if !extras.is_empty() && shared_exact_route {
-            let version = if positional_version {
-                tools[1].short.as_str()
-            } else {
-                tools[0]
-                    .version
-                    .as_deref()
-                    .expect("one exact Python target")
-            };
-            eyre::ensure!(
-                extras.iter().all(|request| request.runtime_name != "python"
-                    || request.runtime_version == version),
-                "Python package bindings must match the explicit Python target"
-            );
-        }
-        Ok(())
-    }
-
-    #[async_backtrace::framed]
-    pub async fn run(mut self) -> Result<()> {
-        // Recovery is deliberately independent of project discovery, legacy
-        // migration, remote resolution, and install/package expansion.
-        if let Some(instance) = &self.restore_bytecode {
-            return self.run_bytecode_recovery(instance);
-        }
-        self.preflight().await?;
-        // F2 exact-Python fast path (D10): one explicit python request with a
-        // complete version enters before the legacy migration, task-tool
-        // collection or any remote resolution; incomplete versions are
-        // rejected here before anything is fetched or written. Both the
-        // `python@3.13.16` and the `python 3.13.16` spellings qualify.
-        let exact_python_version: Option<String> = match self.tool.as_deref().unwrap_or(&[]) {
-            [single] if crate::programs::python::is_python_backend(&single.ba) => {
-                single.version.clone()
-            }
-            [first, second]
-                if crate::programs::python::is_python_backend(&first.ba)
-                    && first.version.is_none()
-                    && second.version.is_none() =>
-            {
-                Some(second.short.clone())
+                Some(two.short.clone())
             }
             _ => None,
         };
-        if let Some(version) = exact_python_version {
-            eyre::ensure!(
-                crate::programs::directory::is_exact_python_version(&version),
-                "python {version:?} is not a complete exact version; \
-                 write the full version, e.g. pakro install python 3.13.16"
+        let mut extra = crate::packages::request::CLI_PACKAGE_ARGS
+            .get()
+            .cloned()
+            .unwrap_or_default();
+        if exact.is_none() {
+            let requests = config.get_tool_request_set().await?;
+            let runtimes = requests
+                .iter()
+                .filter_map(|(backend, requests, _)| {
+                    crate::programs::python::is_python_backend(backend)
+                        .then(|| {
+                            requests
+                                .first()
+                                .map(|request| ("python".to_owned(), request.version().to_owned()))
+                        })
+                        .flatten()
+                })
+                .collect::<Vec<_>>();
+            let (kept, bare) =
+                crate::packages::split_bare_packages(tools.clone(), &runtimes, |name| {
+                    BackendArg::from_str(name)
+                        .ok()
+                        .and_then(|backend| backend.backend().ok())
+                        .is_some()
+                })
+                .map_err(|error| eyre::eyre!("{error}"))?;
+            ensure!(
+                kept.is_empty()
+                    || matches!(kept.as_slice(), [tool] if crate::programs::python::is_python_backend(&tool.ba) && tool.version.is_none()),
+                "installation currently supports one shared Python target or its exact package pins"
             );
-            return self.run_exact_python_install(Config::get().await?).await;
+            extra.extend(bare);
         }
-        let config = Config::get().await?;
-        // bare package names (`pakro install numpy@1.26.4`) bind to the sole
-        // package-capable runtime declared in config
-        let bare_pins = self.split_bare_packages(&config).await?;
-        #[cfg(unix)]
-        if self.tool.as_deref().is_none_or(|tools| {
-            tools.is_empty()
-                || matches!(tools, [tool] if crate::programs::python::is_python_backend(&tool.ba) && tool.version.is_none())
-        }) {
-            let mut extras = bare_pins.clone();
-            extras.extend(
-                crate::packages::request::CLI_PACKAGE_ARGS
-                    .get()
-                    .cloned()
-                    .unwrap_or_default(),
+        ensure!(
+            extra.iter().all(|request| request.runtime_name == "python"),
+            "only shared Python package bindings are supported"
+        );
+        for tool in tools
+            .iter()
+            .filter(|tool| crate::programs::python::is_python_backend(&tool.ba))
+        {
+            ensure!(
+                tool.ba.opts.is_none() && tool.ba.full() == tool.ba.full_without_opts(),
+                "Python installation options are not supported"
             );
-            if let Some(project) = crate::programs::python::prepare_current_project(&extras)? {
-                eyre::ensure!(
-                    !self.force && !self.system && self.shared.is_none(),
-                    "shared Python installs do not support force or alternate install destinations"
-                );
-                eyre::ensure!(
-                    project.only_python_tools() || self.tool.is_some(),
-                    "install the declared non-Python tools explicitly; this shared project path currently prepares Python only"
-                );
-                eyre::ensure!(
-                    !self.monorepo && !self.include_task_tools,
-                    "shared Python project installation does not support monorepo or task-tool expansion"
-                );
-                if self.is_dry_run() {
-                    pakroprintln!(
-                        "Would install the declared Python {} and its exact project packages",
-                        project.version()
-                    );
-                    return Ok(());
-                }
-                return project.install(config).await;
-            }
         }
-        if !self.is_dry_run() && !Settings::get().generate_lockfiles() {
-            crate::lockfile::migrate_monorepo_lockfiles(&config, false)?;
+        if let Some(version) = &exact {
+            ensure!(
+                crate::programs::directory::is_exact_python_version(version),
+                "Python installation requires a complete exact version, e.g. 3.13.16"
+            );
         }
-        let task_requests = self.collect_task_tool_requests(&config).await?;
-        crate::plugins::warn_plugin_drift(&config);
-        let runtime_bindings = match &self.tool {
-            Some(runtime) => {
-                let original_tool_args = env::TOOL_ARGS.read().unwrap().clone();
-                env::TOOL_ARGS.write().unwrap().clone_from(runtime);
-                self.install_runtimes(config.clone(), runtime, original_tool_args, task_requests)
-                    .await?
-            }
-            None => {
-                self.install_missing_runtimes(config.clone(), task_requests)
-                    .await?
-            }
-        };
-        self.install_config_packages(&config, bare_pins, &runtime_bindings)
-            .await?;
-        self.hint_missing_system_packages().await;
+        let project = crate::programs::python::prepare_current_project(&extra)?;
+        if exact.is_none() {
+            let project = project.ok_or_else(|| eyre::eyre!("declare an exact Python version in pakro.toml before installing project packages"))?;
+            ensure!(
+                project.only_python_tools(),
+                "this installation path prepares Python-only project declarations"
+            );
+        }
+        Ok(Input { exact, extra })
+    }
+    pub(super) async fn preflight(&self) -> Result<()> {
+        if self.restore_bytecode.is_none() {
+            self.input().await?;
+        }
         Ok(())
     }
-
+    pub(crate) async fn run(self) -> Result<()> {
+        if let Some(instance) = &self.restore_bytecode {
+            return self.run_bytecode_recovery(instance);
+        }
+        let input = self.input().await?;
+        let config = Config::get().await?;
+        if let Some(version) = input.exact {
+            if self.dry_run {
+                pakroprintln!("Would install Python {version} and its matching declared packages");
+                return Ok(());
+            }
+            crate::programs::python::install_exact_python(&version, config, &input.extra).await
+        } else {
+            let project = crate::programs::python::prepare_current_project(&input.extra)?
+                .ok_or_else(|| eyre::eyre!("the project no longer declares Python"))?;
+            if self.dry_run {
+                pakroprintln!(
+                    "Would install the declared Python {} and its exact project packages",
+                    project.version()
+                );
+                return Ok(());
+            }
+            project.install(config).await
+        }
+    }
     fn run_bytecode_recovery(&self, instance: &str) -> Result<()> {
         eyre::ensure!(
-            !self.force
-                && !self.system
-                && self.shared.is_none()
-                && !self.monorepo
-                && !self.include_task_tools
-                && !self.include_lazy
-                && !self.raw
-                && !self.dry_run_code
+            !self.raw
                 && self.jobs.is_none()
-                && self.minimum_release_age.is_none()
                 && crate::packages::request::CLI_PACKAGE_ARGS
                     .get()
                     .is_none_or(Vec::is_empty),
@@ -576,956 +221,5 @@ impl Install {
             report.unchanged_entries
         );
         Ok(())
-    }
-
-    /// F2 exact-Python install: the gated request drives the real native
-    /// fetch, provenance verification and R06 publication through the
-    /// single-tool install machinery (unique-build selection included), then
-    /// links the surrounding project through the same F1 selection chain.
-    #[async_backtrace::framed]
-    async fn run_exact_python_install(&self, config: Arc<Config>) -> Result<()> {
-        let version = match self.tool.as_deref().unwrap_or(&[]) {
-            [single] => single.version.as_deref().expect("exact Python request"),
-            [first, second] if first.version.is_none() && second.version.is_none() => {
-                second.short.as_str()
-            }
-            _ => unreachable!("the fast path validated one python request"),
-        };
-        eyre::ensure!(
-            !self.force && !self.system && self.shared.is_none(),
-            "shared Python installs do not support force or alternate install destinations"
-        );
-        if self.is_dry_run() {
-            // Validate the package declarations before any library writes.
-            crate::programs::python::prepare_current_project(&[])?;
-            pakroprintln!("Would install Python {version}");
-            return Ok(());
-        }
-        #[cfg(unix)]
-        return crate::programs::python::install_exact_python(
-            version,
-            config,
-            crate::packages::request::CLI_PACKAGE_ARGS
-                .get()
-                .map(Vec::as_slice)
-                .unwrap_or(&[]),
-        )
-        .await;
-        #[cfg(not(unix))]
-        eyre::bail!("shared Python installation requires macOS or Linux")
-    }
-
-    async fn install_config_packages(
-        &self,
-        config: &Arc<Config>,
-        bare_pins: Vec<crate::packages::PackageInstallRequest>,
-        runtimes: &[PackageRuntimeBinding],
-    ) -> Result<()> {
-        if self.is_dry_run() {
-            return Ok(());
-        }
-        let settings = Settings::get();
-        let policy = crate::packages::install::PackageInvocationPolicy {
-            locked: settings.locked,
-            offline: settings.offline(),
-        };
-        let downloaded =
-            crate::packages::install::install_config_packages(config, bare_pins, runtimes, policy)
-                .await?;
-        if downloaded > 0 {
-            info!("installed {downloaded} package artifact(s) into the pakro store");
-        }
-        Ok(())
-    }
-
-    /// Moves unknown-as-tool arguments out of `self.tool`, turning them into
-    /// package pins bound to the single package-capable runtime in config.
-    async fn split_bare_packages(
-        &mut self,
-        config: &Arc<Config>,
-    ) -> Result<Vec<crate::packages::PackageInstallRequest>> {
-        let Some(tools) = self.tool.take() else {
-            return Ok(vec![]);
-        };
-        let runtimes: Vec<(String, String)> = config
-            .get_tool_request_set()
-            .await?
-            .iter()
-            .filter_map(|(ba, requests, _source)| {
-                if !matches!(ba.short.as_str(), "python" | "node") {
-                    return None;
-                }
-                // only exact runtime versions can host package groups
-                requests
-                    .first()
-                    .map(|r| r.version().to_string())
-                    .filter(|v| !v.contains(['<', '>', '=', '^', '~', ':']))
-                    .map(|v| (ba.short.clone(), v))
-            })
-            .collect();
-        let (kept, pins) = crate::packages::split_bare_packages(tools, &runtimes, |short| {
-            crate::args::BackendArg::from_str(short)
-                .ok()
-                .and_then(|ba| ba.backend().ok())
-                .is_some()
-        })
-        .map_err(|e| eyre::eyre!("{e}"))?;
-        self.tool = (!kept.is_empty()).then_some(kept);
-        Ok(pins)
-    }
-
-    async fn expanded_install_inputs<'a>(
-        &'a self,
-        config: &Arc<Config>,
-    ) -> Result<&'a ExpandedInstallInputs> {
-        self.expanded_inputs
-            .get_or_try_init(|| async {
-                let previous = crate::config::readonly_invocation();
-                crate::config::set_readonly_invocation(true);
-                let result = self.read_expanded_install_inputs(config).await;
-                crate::config::set_readonly_invocation(previous);
-                result
-            })
-            .await
-    }
-
-    async fn read_expanded_install_inputs(
-        &self,
-        config: &Arc<Config>,
-    ) -> Result<ExpandedInstallInputs> {
-        let monorepo = if self.monorepo {
-            Some(Arc::new(config.monorepo_union().await?))
-        } else {
-            None
-        };
-        if let Some(union) = &monorepo {
-            eyre::ensure!(
-                union.tool_request_set.unknown_tools.is_empty(),
-                "expanded installation has unknown tool targets; refusing before any effect"
-            );
-            // Migration covers the whole union even when CLI tools filter the
-            // runtime installation. P1 cannot admit a Python-containing union.
-            for (_, requests, _) in union.tool_request_set.iter() {
-                for request in requests {
-                    Toolset::ensure_python_install_admission(request)?;
-                }
-            }
-            eyre::ensure!(
-                !union.config_files.values().any(|file| file
-                    .to_package_requests()
-                    .iter()
-                    .any(|request| request.runtime_name == "python")),
-                "Python package groups in an expanded monorepo are not supported; refusing before any effect"
-            );
-        }
-        let task_requests = if self.include_task_tools {
-            let task_context = self.monorepo.then(TaskLoadContext::all);
-            let tasks = config.tasks_with_context(task_context.as_ref()).await?;
-            let context_builder = TaskContextBuilder::new();
-            let installer = TaskToolInstaller::new(&context_builder, &[]);
-            let requests = installer
-                .collect_tool_requests(config, tasks.values())
-                .await?;
-            for request in &requests {
-                Toolset::ensure_python_install_admission(request)?;
-            }
-            requests
-        } else {
-            vec![]
-        };
-        Ok(ExpandedInstallInputs {
-            monorepo,
-            task_requests,
-        })
-    }
-
-    async fn collect_task_tool_requests(&self, config: &Arc<Config>) -> Result<Vec<ToolRequest>> {
-        Ok(self
-            .expanded_install_inputs(config)
-            .await?
-            .task_requests
-            .clone())
-    }
-
-    /// one-time hint when `[bootstrap.packages]` entries are missing — pakro
-    /// never installs system packages implicitly
-    async fn hint_missing_system_packages(&self) {
-        // the status queries spawn package-manager processes; skip them
-        // entirely once the hint has been shown (or is disabled)
-        if !crate::hint::hint_would_display("system_packages_missing") {
-            return;
-        }
-        let Ok(config) = Config::get().await else {
-            return;
-        };
-        // a contradictory declaration is reported by the commands that act
-        // on packages; a passing hint stays quiet about it
-        let Ok(mgrs) = crate::system::packages_from_config(&config) else {
-            return;
-        };
-        if mgrs.is_empty() {
-            return;
-        }
-        // when everything is satisfied the hint never fires, so also
-        // throttle the checks to once per day — but only while the set of
-        // packages that would actually be checked is unchanged, so editing
-        // [bootstrap.packages] or widening system_packages.managers re-checks
-        // immediately
-        let mut available = std::collections::HashSet::new();
-        for mp in &mgrs {
-            if !mp.disabled && mp.manager.unavailable_reason_async().await.is_none() {
-                available.insert(mp.manager.name().to_string());
-            }
-        }
-        let fingerprint = mgrs
-            .iter()
-            .filter(|mp| available.contains(mp.manager.name()))
-            .flat_map(|mp| {
-                mp.requests
-                    .iter()
-                    .map(move |r| format!("{}:{}", mp.manager.name(), r))
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        let checked = crate::dirs::STATE.join("system-packages-checked");
-        if checked
-            .metadata()
-            .ok()
-            .and_then(|m| m.modified().ok())
-            .and_then(|t| t.elapsed().ok())
-            .is_some_and(|age| age < std::time::Duration::from_secs(24 * 60 * 60))
-            && crate::file::read_to_string(&checked).is_ok_and(|prev| prev == fingerprint)
-        {
-            return;
-        }
-        let mut missing = 0;
-        let mut all_queries_ok = true;
-        for mp in mgrs {
-            if !available.contains(mp.manager.name()) {
-                continue;
-            }
-            match mp
-                .manager
-                .installed_with_options(&mp.requests, &mp.options)
-                .await
-            {
-                Ok(statuses) => {
-                    missing += statuses
-                        .iter()
-                        .filter(|s| {
-                            s.request.desired
-                                == crate::system::packages::PackageDesiredState::Present
-                                && !s.state.is_installed()
-                                && !s.state.is_unavailable()
-                        })
-                        .count();
-                }
-                // a transient query failure must not start the 24h throttle
-                Err(_) => all_queries_ok = false,
-            }
-        }
-        if all_queries_ok {
-            let _ = crate::file::write(&checked, &fingerprint);
-        }
-        if missing > 0 {
-            hint!(
-                "system_packages_missing",
-                "{missing} system package(s) from [bootstrap.packages] are missing. Install them with",
-                "pakro bootstrap packages apply"
-            );
-        }
-    }
-
-    #[async_backtrace::framed]
-    async fn install_runtimes(
-        &self,
-        config: Arc<Config>,
-        runtimes: &[ToolArg],
-        original_tool_args: Vec<ToolArg>,
-        task_requests: Vec<ToolRequest>,
-    ) -> Result<Vec<PackageRuntimeBinding>> {
-        let monorepo_union = self
-            .expanded_install_inputs(&config)
-            .await?
-            .monorepo
-            .clone();
-        let mut install_config = self
-            .effective_config(&config, monorepo_union.as_deref())
-            .await?;
-        crate::lockfile::warn_outdated_lockfiles(&install_config);
-        let base_trs = match &monorepo_union {
-            Some(union) => union.tool_request_set.clone(),
-            None => config.get_tool_request_set().await?.clone(),
-        };
-        let trs = extend_tool_request_set(base_trs.clone(), &task_requests);
-
-        // Expand wildcards (e.g., "github:*") to actual ToolArgs from config
-        let mut has_unmatched_wildcard = false;
-        let expanded_runtimes: Vec<ToolArg> = runtimes
-            .iter()
-            .flat_map(|ta| {
-                if let Some(backend_prefix) = ta.ba.short.strip_suffix(":*") {
-                    // Find all tools in config with this backend prefix
-                    let matching: Vec<_> = trs
-                        .tools
-                        .keys()
-                        .filter(|ba| {
-                            ba.short.starts_with(&format!("{backend_prefix}:"))
-                                && ba.tool_name != "*"
-                        })
-                        .filter_map(|ba| ToolArg::from_str(&ba.short).ok())
-                        .collect();
-                    if matching.is_empty() {
-                        warn!("no tools found in config matching {}", ta.ba.short);
-                        has_unmatched_wildcard = true;
-                    }
-                    return matching;
-                }
-                vec![ta.clone()]
-            })
-            .collect();
-
-        // If only wildcards were provided and none matched, exit early
-        if expanded_runtimes.is_empty() && has_unmatched_wildcard {
-            return Ok(Vec::new());
-        }
-
-        let tools: HashSet<String> = expanded_runtimes
-            .iter()
-            .map(|ta| ta.ba.short.clone())
-            .collect();
-        // Collect set of tools that appear in any config file or in a
-        // PAKRO_<TOOL>_VERSION env var. We can't use trs.sources here because
-        // load_runtime_args overrides the underlying source with
-        // ToolSource::Argument whenever the user passes TOOL@VERSION, so config-
-        // and env-sourced tools become indistinguishable from CLI-only ones.
-        let configured_config_files = match &monorepo_union {
-            Some(union) => union.config_files.clone(),
-            None => config.config_files.clone(),
-        };
-        let configured_tools: HashSet<String> = configured_config_files
-            .values()
-            .filter_map(|cf| cf.to_tool_request_set().ok())
-            .flat_map(|cf_trs| cf_trs.tools.into_keys().map(|ba| ba.short.clone()))
-            .chain(tool_env_vars().map(|(name, _, _)| name))
-            .chain(task_requests.iter().map(|tr| tr.ba().short.clone()))
-            .collect();
-        let configured_ts = ToolsetBuilder::new()
-            .with_config_files(configured_config_files)
-            .build_unresolved(&install_config)?;
-        let inactive_tools: Vec<String> = tools
-            .iter()
-            .filter(|t| !configured_tools.contains(*t))
-            .cloned()
-            .collect();
-        let mut ts: Toolset = trs.filter_by_tool(tools).into();
-        extend_toolset(&mut ts, &task_requests);
-        let mut tool_versions =
-            self.get_requested_tool_versions(&ts, &configured_ts, &expanded_runtimes)?;
-        tool_versions.extend(task_requests);
-        dedup_tool_requests(&mut tool_versions);
-        ensure_compatible_install_requests(&tool_versions)?;
-        let package_owner_config = Arc::clone(&install_config);
-        let (mut versions, install_error) = if tool_versions.is_empty() {
-            warn!("no runtimes to install");
-            warn!("specify a version with `pakro install <TOOL>@<VERSION>`");
-            (vec![], Ok(()))
-        } else {
-            if let Some(monorepo_union) = &monorepo_union {
-                Toolset::ensure_config_plugins_installed_from_urls(
-                    &config,
-                    &monorepo_union.repo_urls,
-                    self.is_dry_run(),
-                )
-                .await?;
-            }
-            split_install_result(
-                ts.install_all_versions(&mut install_config, tool_versions, &self.install_opts()?)
-                    .await,
-            )
-        };
-        let mut package_bindings =
-            snapshot_runtime_bindings(&package_owner_config, &versions, Settings::get().locked);
-        // Tools that actually installed successfully. `versions` is mutated
-        // below (retained to current versions for the lockfile/shim rebuild),
-        // so capture the set now for the "installed but not activated" warning.
-        let installed_shorts: HashSet<String> = versions
-            .iter()
-            .filter(|tv| tv.install_satisfied != Some(true))
-            .map(|tv| tv.short().to_string())
-            .collect();
-        // In dry-run mode, check if any tools would be installed before filtering
-        if self.is_dry_run() {
-            if self.dry_run_code {
-                let has_work = versions.iter().any(|tv| tv.install_satisfied != Some(true));
-                if has_work {
-                    return Err(exit::request(1));
-                }
-            }
-            return install_error.map(|()| package_bindings);
-        }
-
-        versions.retain(|tv| tv.install_satisfied != Some(true));
-
-        if install_error.is_ok() || !versions.is_empty() {
-            // because we may be installing a tool that is not in config, we need to restore the original tool args and reset everything
-            env::TOOL_ARGS
-                .write()
-                .unwrap()
-                .clone_from(&original_tool_args);
-            let config = Config::reset().await?;
-            let rebuild_config = self.effective_config(&config, None).await?;
-            let ts_owned;
-            let ts = if self.monorepo {
-                ts_owned =
-                    Self::resolved_toolset_from_trs(&rebuild_config, base_trs.clone()).await?;
-                &ts_owned
-            } else {
-                rebuild_config
-                    .get_toolset_with_opts(&ResolveOptions::without_lockfile_warnings())
-                    .await?
-            };
-            let current_versions = ts.list_current_versions();
-            package_bindings.extend(snapshot_runtime_bindings(
-                &rebuild_config,
-                &current_versions
-                    .iter()
-                    .map(|(_, tv)| tv.clone())
-                    .collect::<Vec<_>>(),
-                Settings::get().locked,
-            ));
-            // Match the configured package and options, not graph identity: accepting
-            // an edited sidecar deliberately changes the installed graph identity.
-            versions.retain(|tv| {
-                current_versions.iter().any(|(_, cv)| {
-                    tv.ba() == cv.ba()
-                        && tv.version == cv.version
-                        && tv.request.options() == cv.request.options()
-                })
-            });
-
-            config::rebuild_shims_and_runtime_symlinks(
-                &rebuild_config,
-                ts,
-                &versions,
-                crate::lockfile::LockfileUpdateMode::Normal,
-            )
-            .await?;
-        }
-
-        // Warn about tools that were installed but not in any config file.
-        // Restrict to tools that actually installed — a tool whose install
-        // failed is already reported by `install_error` below, and also
-        // claiming it was "installed but not activated" would be misleading.
-        let inactive_tools: Vec<String> = inactive_tools
-            .into_iter()
-            .filter(|t| installed_shorts.contains(t))
-            .collect();
-        if !inactive_tools.is_empty() {
-            let tool_list = inactive_tools.join(", ");
-            let use_cmds: Vec<String> = inactive_tools
-                .iter()
-                .map(|t| format!("  pakro use {t}"))
-                .collect();
-            warn!(
-                "{tool_list} installed but not activated — {} not in any config file.\nTo install and activate, run:\n{}",
-                if inactive_tools.len() == 1 {
-                    "it is"
-                } else {
-                    "they are"
-                },
-                use_cmds.join("\n"),
-            );
-        }
-
-        install_error?;
-        Ok(package_bindings)
-    }
-
-    fn install_opts(&self) -> Result<InstallOptions> {
-        let install_dir = if self.system {
-            #[cfg(unix)]
-            if crate::system_install::under_sudo() {
-                warn!(
-                    "running pakro with sudo can leave root-owned files in your home directory; run pakro as your user and it will invoke sudo only to publish into the system directory"
-                );
-            }
-            Some(Settings::get().system_installs_dir().to_path_buf())
-        } else {
-            self.shared.clone()
-        }
-        .map(|path| path.absolutize().map(|path| path.into_owned()))
-        .transpose()?;
-        Ok(InstallOptions {
-            force: self.force,
-            jobs: self.jobs,
-            raw: self.raw,
-            missing_args_only: false,
-            include_lazy: self.tool.is_some() || self.include_lazy,
-            resolve_options: ResolveOptions {
-                use_locked_version: true,
-                latest_versions: true,
-                latest_versions_for_all_requests: false,
-                latest_versions_for_arguments_only: false,
-                resolve_rolling_channels: false,
-                prefer_exact_version: false,
-                before_date: self.get_before_date()?,
-                before_date_from_default: false,
-                filter_installed_versions_by_release_date: false,
-                offline: false,
-                refresh_remote_versions: false,
-                inactive: false,
-                warn_not_in_lockfile: true,
-            },
-            dry_run: self.is_dry_run(),
-            locked: Settings::get().locked,
-            install_dir,
-            yes: self.yes || Settings::get().yes,
-            explicit_yes: self.yes,
-            ..Default::default()
-        })
-    }
-
-    /// Get the minimum_release_age cutoff from the CLI --minimum-release-age flag only.
-    /// Per-tool and global setting fallbacks are handled in ToolRequest::resolve.
-    fn get_before_date(&self) -> Result<Option<Timestamp>> {
-        resolve_cli_minimum_release_age(self.minimum_release_age.as_deref())
-    }
-
-    fn get_requested_tool_versions(
-        &self,
-        ts: &Toolset,
-        configured_ts: &Toolset,
-        runtimes: &[ToolArg],
-    ) -> Result<Vec<ToolRequest>> {
-        let mut requests = vec![];
-        for ta in ToolArg::double_tool_condition(runtimes)? {
-            match ta.tvr {
-                // user provided an explicit version
-                Some(tv) => {
-                    let configured = configured_ts
-                        .versions
-                        .get(ta.ba.as_ref())
-                        .map(|tvl| tvl.requests.as_slice())
-                        .unwrap_or_default();
-                    requests.push(ToolsetBuilder::bind_runtime_request(
-                        tv,
-                        configured,
-                        self.install_opts()?.resolve_options.use_locked_version,
-                    ));
-                }
-                None => {
-                    match ts.versions.get(ta.ba.as_ref()) {
-                        // the tool is in config so fetch the params from config
-                        // this may match multiple versions of one tool (e.g.: python)
-                        Some(tvl) => {
-                            for tvr in &tvl.requests {
-                                requests.push(tvr.clone());
-                            }
-                        }
-                        // In normal install mode, a bare tool absent from config defaults to
-                        // @latest. In monorepo mode, bare tools are filters over the union.
-                        None => {
-                            if self.monorepo {
-                                continue;
-                            }
-                            let tvr =
-                                ToolRequest::new(ta.ba.clone(), "latest", ToolSource::Argument)?;
-                            requests.push(tvr);
-                        }
-                    }
-                }
-            }
-        }
-        Ok(requests)
-    }
-
-    async fn install_missing_runtimes(
-        &self,
-        config: Arc<Config>,
-        task_requests: Vec<ToolRequest>,
-    ) -> eyre::Result<Vec<PackageRuntimeBinding>> {
-        let monorepo_union = self
-            .expanded_install_inputs(&config)
-            .await?
-            .monorepo
-            .clone();
-        let base_trs = measure!("get_tool_request_set", {
-            match &monorepo_union {
-                Some(union) => union.tool_request_set.clone(),
-                None => config.get_tool_request_set().await?.clone(),
-            }
-        });
-        let trs = extend_tool_request_set(base_trs.clone(), &task_requests);
-        let install_candidates = trs
-            .tools
-            .values()
-            .flatten()
-            .filter(|tr| tr.is_os_supported() && !matches!(tr, ToolRequest::System { .. }))
-            .cloned()
-            .collect_vec();
-        ensure_compatible_install_requests(&install_candidates)?;
-        let mut install_config = self
-            .effective_config(&config, monorepo_union.as_deref())
-            .await?;
-        crate::lockfile::warn_outdated_lockfiles(&install_config);
-
-        // Install plugins from [plugins] config section first
-        // This must happen before checking for missing tools so env-only plugins get installed
-        if let Some(monorepo_union) = &monorepo_union {
-            Toolset::ensure_config_plugins_installed_from_urls(
-                &config,
-                &monorepo_union.repo_urls,
-                self.is_dry_run(),
-            )
-            .await?;
-        } else {
-            Toolset::ensure_config_plugins_installed(&config, self.is_dry_run()).await?;
-        }
-
-        // Check for tools that don't exist in the registry
-        // These were tracked during build() before being filtered out
-        for ba in &trs.unknown_tools {
-            // This will error with a proper message like "tool not found in pakro tool registry"
-            ba.backend()?;
-        }
-        let opts = self.install_opts()?;
-        let install_candidates = install_candidates
-            .into_iter()
-            .filter(|tr| self.include_lazy || tr.options().lazy != Some(true))
-            .collect_vec();
-        let mut progress = (!opts.raw && !opts.dry_run)
-            .then(|| {
-                install_progress(
-                    &MultiProgressReport::get(),
-                    install_candidates
-                        .iter()
-                        .map(|tr| (tr.to_string(), tr.to_string())),
-                )
-            })
-            .flatten();
-        let package_owner_config = Arc::clone(&install_config);
-        let mut package_bindings = Vec::new();
-        let requests = measure!("fetching install runtimes", {
-            if self.force {
-                install_candidates
-            } else {
-                let mut missing = vec![];
-                for tr in install_candidates {
-                    let reporter = progress
-                        .as_ref()
-                        .and_then(|p| p.start_tool(&tr.to_string()));
-                    let satisfied = resolve_progress::scope(
-                        reporter.as_ref().map(|p| p.reporter()),
-                        tr.is_install_satisfied(&install_config),
-                    )
-                    .await;
-                    // An installation that already satisfies the request is still recorded
-                    // by the install layout (its version link, a lockfile pin); a preview
-                    // never writes.
-                    if satisfied && !opts.dry_run {
-                        let actual = tr
-                            .resolve(
-                                &install_config,
-                                &ResolveOptions {
-                                    offline: true,
-                                    ..Default::default()
-                                },
-                            )
-                            .await?;
-                        package_bindings.extend(snapshot_runtime_bindings(
-                            &package_owner_config,
-                            &[actual],
-                            Settings::get().locked,
-                        ));
-                        tr.note_layout_use(&install_config).await;
-                    }
-                    if satisfied && tr.options().postinstall().is_none_or(|(_, always)| !always) {
-                        if let Some(reporter) = reporter {
-                            reporter.finish_with_icon(
-                                "already installed".into(),
-                                ProgressIcon::Skipped,
-                            );
-                            reporter.complete(None);
-                        }
-                    } else {
-                        if let Some(progress) = &progress {
-                            progress.queue_tool(&tr.to_string());
-                        }
-                        missing.push(tr);
-                    }
-                }
-                missing
-            }
-        });
-        let has_work = !requests.is_empty();
-        let (versions, install_error) = if requests.is_empty() {
-            if let Some(mut progress) = progress.take() {
-                progress.finish(vec![]);
-            }
-            measure!("run_postinstall_hook", {
-                info!("all tools are installed");
-                // Nothing was installed, but postinstall still runs (idempotent
-                // project setup relies on it); PAKRO_INSTALLED_TOOLS is [] so hooks
-                // can guard on actual installs. (#10574)
-                let ts_owned;
-                let ts = if self.is_dry_run() {
-                    // Preview mode only needs the hook-selection context. Avoid
-                    // resolving the full toolset solely to describe the hook.
-                    ts_owned = Toolset::from(base_trs.clone());
-                    &ts_owned
-                } else if self.monorepo || self.include_task_tools {
-                    ts_owned =
-                        Self::resolved_toolset_from_trs(&install_config, trs.clone()).await?;
-                    &ts_owned
-                } else {
-                    install_config
-                        .get_toolset_with_opts(&ResolveOptions::without_lockfile_warnings())
-                        .await?
-                };
-                hooks::run_one_hook_with_context(
-                    &install_config,
-                    ts,
-                    Hooks::Postinstall,
-                    None,
-                    Some(&[]),
-                    self.is_dry_run(),
-                    false,
-                )
-                .await;
-                (vec![], Ok(()))
-            })
-        } else {
-            let mut ts = Toolset::from(trs.clone());
-            measure!("install_all_versions", {
-                split_install_result(
-                    ts.install_all_versions_with_progress(
-                        &mut install_config,
-                        requests,
-                        &opts,
-                        progress,
-                    )
-                    .await,
-                )
-            })
-        };
-        package_bindings.extend(snapshot_runtime_bindings(
-            &package_owner_config,
-            &versions,
-            Settings::get().locked,
-        ));
-        if self.is_dry_run() {
-            if self.dry_run_code
-                && has_work
-                && versions.iter().any(|tv| tv.install_satisfied != Some(true))
-            {
-                return Err(exit::request(1));
-            }
-            return install_error.map(|()| package_bindings);
-        }
-
-        // An `always` postinstall on an existing tool is a successful request,
-        // but no installation needs a shim or lockfile rebuild.
-        let versions = versions
-            .into_iter()
-            .filter(|tv| tv.install_satisfied != Some(true))
-            .collect::<Vec<_>>();
-        if install_error.is_ok() || !versions.is_empty() {
-            measure!("rebuild_shims_and_runtime_symlinks", {
-                let rebuild_config = self.effective_config(&install_config, None).await?;
-                let ts_owned;
-                let ts = if self.monorepo {
-                    ts_owned =
-                        Self::resolved_toolset_from_trs(&rebuild_config, base_trs.clone()).await?;
-                    &ts_owned
-                } else {
-                    rebuild_config
-                        .get_toolset_with_opts(&ResolveOptions::without_lockfile_warnings())
-                        .await?
-                };
-                let current_versions = ts.list_current_versions();
-                let versions = versions
-                    .iter()
-                    .filter(|tv| {
-                        current_versions.iter().any(|(_, current)| {
-                            tv.ba() == current.ba()
-                                && tv.version == current.version
-                                && tv.request.options() == current.request.options()
-                        })
-                    })
-                    .cloned()
-                    .collect::<Vec<_>>();
-                config::rebuild_shims_and_runtime_symlinks(
-                    &rebuild_config,
-                    ts,
-                    &versions,
-                    crate::lockfile::LockfileUpdateMode::Normal,
-                )
-                .await?;
-            });
-        }
-        install_error?;
-        Ok(package_bindings)
-    }
-
-    async fn effective_config(
-        &self,
-        config: &Arc<Config>,
-        monorepo_union: Option<&config::MonorepoUnion>,
-    ) -> Result<Arc<Config>> {
-        if !self.monorepo {
-            return Ok(config.clone());
-        }
-        let config_files = match monorepo_union {
-            Some(union) => union.config_files.clone(),
-            None => self
-                .expanded_install_inputs(config)
-                .await?
-                .monorepo
-                .as_ref()
-                .ok_or_else(|| {
-                    eyre::eyre!("monorepo installation is missing its admitted input plan")
-                })?
-                .config_files
-                .clone(),
-        };
-        config.with_config_files(config_files)
-    }
-
-    async fn resolved_toolset_from_trs(
-        config: &Arc<Config>,
-        trs: ToolRequestSet,
-    ) -> Result<Toolset> {
-        let mut ts: Toolset = trs.into();
-        ts.resolve_with_opts(config, &ResolveOptions::without_lockfile_warnings())
-            .await?;
-        Ok(ts)
-    }
-}
-
-type ToolRequestIdentity = (String, String, ToolVersionOptions);
-
-fn tool_request_identity(request: &ToolRequest) -> ToolRequestIdentity {
-    (request.ba().full(), request.version(), request.options())
-}
-
-fn extend_tool_request_set(
-    mut requests: ToolRequestSet,
-    additional: &[ToolRequest],
-) -> ToolRequestSet {
-    let mut seen = requests
-        .tools
-        .values()
-        .flatten()
-        .map(tool_request_identity)
-        .collect::<HashSet<_>>();
-    for request in additional {
-        if seen.insert(tool_request_identity(request)) {
-            requests.add_version(request.clone(), request.source());
-        }
-    }
-    requests
-}
-
-fn dedup_tool_requests(requests: &mut Vec<ToolRequest>) {
-    let mut seen = HashSet::new();
-    requests.retain(|request| seen.insert(tool_request_identity(request)));
-}
-
-fn extend_toolset(toolset: &mut Toolset, additional: &[ToolRequest]) {
-    let mut seen = toolset
-        .versions
-        .values()
-        .flat_map(|versions| &versions.requests)
-        .map(tool_request_identity)
-        .collect::<HashSet<_>>();
-    for request in additional {
-        if seen.insert(tool_request_identity(request)) {
-            toolset.add_version(request.clone());
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::args::BackendArg;
-    use crate::toolset::parse_tool_options;
-
-    #[test]
-    fn explicit_install_request_borrows_config_owner_through_actual_entry() {
-        let backend = Arc::new(BackendArg::new("python".into(), Some("core:python".into())));
-        let owner = ToolSource::PakroToml("/owner/pakro.toml".into());
-        let mut configured_ts = Toolset::new(owner.clone());
-        configured_ts.add_version(ToolRequest::new(backend, "3.10.14", owner).unwrap());
-
-        let install = Install::default();
-        let args = [ToolArg::from_str("python@3.10.14").unwrap()];
-        let mut argument_ts = Toolset::new(ToolSource::Argument);
-        argument_ts.add_version(args[0].tvr.clone().unwrap());
-
-        let requests = install
-            .get_requested_tool_versions(&argument_ts, &configured_ts, &args)
-            .unwrap();
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].source(), &ToolSource::Argument);
-        assert!(format!("{:?}", requests[0]).contains("/owner/pakro.toml"));
-
-        let unowned = install
-            .get_requested_tool_versions(&argument_ts, &Toolset::new(ToolSource::Argument), &args)
-            .unwrap();
-        assert!(format!("{:?}", unowned[0]).contains("NoOwner"));
-    }
-
-    fn request(version: &str, options: &str, source: ToolSource) -> ToolRequest {
-        ToolRequest::new_with_options(
-            Arc::new(BackendArg::new(
-                "tiny".to_string(),
-                Some("asdf:mise-plugins/mise-tiny".to_string()),
-            )),
-            version,
-            parse_tool_options(options),
-            source,
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn root_yes_is_explicit_install_consent() {
-        let mut install = Install::default();
-        install.inherit_root_yes(true);
-
-        let options = install.install_opts().unwrap();
-        assert!(options.yes);
-        assert!(options.explicit_yes);
-    }
-
-    #[test]
-    fn task_request_union_deduplicates_identical_requests_across_sources() {
-        let configured = request("1.0.0", "", ToolSource::Argument);
-        let task = request(
-            "1.0.0",
-            "",
-            ToolSource::PakroToml(PathBuf::from("pakro.toml")),
-        );
-        let mut requests = ToolRequestSet::new();
-        requests.add_version(configured.clone(), configured.source());
-
-        let requests = extend_tool_request_set(requests, &[task]);
-
-        assert_eq!(requests.tools.values().flatten().count(), 1);
-    }
-
-    #[test]
-    fn task_request_union_preserves_versions_and_options() {
-        let configured = request("1.0.0", "flavor=one", ToolSource::Argument);
-        let task_version = request("2.0.0", "flavor=one", ToolSource::Argument);
-        let task_options = request("1.0.0", "flavor=two", ToolSource::Argument);
-        let mut requests = ToolRequestSet::new();
-        requests.add_version(configured.clone(), configured.source());
-
-        let requests = extend_tool_request_set(requests, &[task_version, task_options]);
-
-        assert_eq!(requests.tools.values().flatten().count(), 3);
     }
 }

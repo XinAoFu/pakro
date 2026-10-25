@@ -672,9 +672,6 @@ pub static NO_COLOR: Lazy<bool> = Lazy::new(|| var("NO_COLOR").is_ok_and(|v| !v.
 /// Force progress bars even in non-TTY (for debugging)
 pub static PAKRO_FORCE_PROGRESS: Lazy<bool> = Lazy::new(|| var_is_true("PAKRO_FORCE_PROGRESS"));
 
-/// Whether an AI coding agent is driving this process.
-pub static AI_AGENT: Lazy<bool> = Lazy::new(pakro_agent_env::is_agent);
-
 pub static PYENV_ROOT: Lazy<PathBuf> =
     Lazy::new(|| var_path("PYENV_ROOT").unwrap_or_else(|| HOME.join(".pyenv")));
 

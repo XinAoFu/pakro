@@ -52,7 +52,7 @@ impl Shell for Xonsh {
             from xonsh.built_ins import XSH
 
             def _pakro(args):
-              if args and args[0] in ('deactivate', 'shell', 'sh'):
+              if args and args[0] == 'deactivate':
                 execx($(pakro @(args)))
               else:
                 pakro @(args)

@@ -14,9 +14,6 @@ pub(crate) mod shared;
 #[cfg(unix)]
 pub(crate) mod uninstall;
 
-pub use install::request::{
-    InstallCommandIntent, InstallRequest, InvocationInputs, InvocationSnapshot, normalize_intent,
-};
 pub use shared::context::{
     OperationContext, OperationContextInputs, PythonSourceInputs, capture_operation_context,
 };
@@ -24,7 +21,4 @@ pub use shared::errors::{MissingOperationInput, OperationError};
 pub use shared::policy::{AllowedWrites, OperationPolicy, RequestBudget, RequestLimit};
 pub use shared::report::{
     InterruptedOperation, OperationEffects, OperationReport, OperationState, OperationTermination,
-};
-pub use shared::types::{
-    DeclarationEditIntent, DeclarationOperation, DeclarationTarget, RuntimeCandidate,
 };

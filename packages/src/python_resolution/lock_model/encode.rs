@@ -76,7 +76,19 @@ pub(super) fn projection(
         body: String::new(),
         maximum: limits.max_document_bytes,
     };
-    output.raw("[python]\nschema = 2\n")?;
+    output.raw(
+        if model.builds.is_empty() && model.declaration_fingerprint.is_none() {
+            "[python]\nschema = 2\n"
+        } else {
+            "[python]\nschema = 3\n"
+        },
+    )?;
+    if let Some(fingerprint) = &model.declaration_fingerprint {
+        output.bytes("declaration_fingerprint", fingerprint)?;
+    }
+    if model.builds.is_empty() && model.declaration_fingerprint.is_some() {
+        output.raw("builds = []\n")?;
+    }
     if model.pins.is_empty() {
         output.raw("pins = []\n")?;
     }
@@ -161,5 +173,9 @@ pub(super) fn projection(
             output.field("declaration", &edge.declaration)?;
         }
     }
+    builds::write(&mut output, &model.builds)?;
     Ok(output.body)
 }
+
+#[path = "encode/builds.rs"]
+mod builds;

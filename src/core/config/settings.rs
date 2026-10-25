@@ -384,42 +384,6 @@ fn normalize_hidden_config_aliases(mut partial: SettingsPartial) -> SettingsPart
             partial.minimum_release_age = Some(v);
         }
     }
-    if let Some(v) = partial.task.cache_remote_mode.take() {
-        warn_deprecated("task.cache_remote_mode");
-        if partial.task.cache.remote_mode.is_none() {
-            partial.task.cache.remote_mode = Some(v);
-        }
-    }
-    if let Some(v) = partial.task.cache_remote_namespace.take() {
-        warn_deprecated("task.cache_remote_namespace");
-        if partial.task.cache.remote_namespace.is_none() {
-            partial.task.cache.remote_namespace = Some(v);
-        }
-    }
-    if let Some(v) = partial.task.cache_remote_oidc_audience.take() {
-        warn_deprecated("task.cache_remote_oidc_audience");
-        if partial.task.cache.remote_oidc_audience.is_none() {
-            partial.task.cache.remote_oidc_audience = Some(v);
-        }
-    }
-    if let Some(v) = partial.task.cache_remote_token.take() {
-        warn_deprecated("task.cache_remote_token");
-        if partial.task.cache.remote_token.is_none() {
-            partial.task.cache.remote_token = Some(v);
-        }
-    }
-    if let Some(v) = partial.task.cache_remote_token_file.take() {
-        warn_deprecated("task.cache_remote_token_file");
-        if partial.task.cache.remote_token_file.is_none() {
-            partial.task.cache.remote_token_file = Some(v);
-        }
-    }
-    if let Some(v) = partial.task.cache_remote_url.take() {
-        warn_deprecated("task.cache_remote_url");
-        if partial.task.cache.remote_url.is_none() {
-            partial.task.cache.remote_url = Some(v);
-        }
-    }
     partial
 }
 
@@ -542,45 +506,6 @@ fn resolve_aqua_registry_paths(settings: &mut toml::Table, path: &Path) {
         {
             *entry = toml::Value::String(resolved);
         }
-    }
-}
-
-/// Resolve task discovery exclusions while the settings file that declared them is still known.
-/// Once settings layers are merged, a relative `PathBuf` no longer carries enough information to
-/// distinguish two config roots.
-fn resolve_task_disable_paths(settings: &mut toml::Table, path: &Path) {
-    let config_root = crate::config::config_file::config_root::config_root(path);
-    let resolve = |paths: &mut Vec<toml::Value>| {
-        for entry in paths {
-            let Some(value) = entry.as_str() else {
-                continue;
-            };
-            let value = Path::new(value);
-            if value.is_absolute() || value == Path::new("~") || value.starts_with("~/") {
-                continue;
-            }
-            let joined = config_root.join(value);
-            let resolved = joined
-                .absolutize()
-                .map(|path| path.into_owned())
-                .unwrap_or(joined);
-            *entry = toml::Value::String(resolved.to_string_lossy().into_owned());
-        }
-    };
-
-    if let Some(paths) = settings
-        .get_mut("task")
-        .and_then(toml::Value::as_table_mut)
-        .and_then(|task| task.get_mut("disable_paths"))
-        .and_then(toml::Value::as_array_mut)
-    {
-        resolve(paths);
-    }
-    if let Some(paths) = settings
-        .get_mut("task_disable_paths")
-        .and_then(toml::Value::as_array_mut)
-    {
-        resolve(paths);
     }
 }
 
@@ -750,11 +675,6 @@ pub trait SettingsExt: Sized {
 
     fn cache_prune_age_duration(&self) -> Option<Duration>;
 
-    fn upgrade_prune_after_duration(&self) -> eyre::Result<Duration>;
-
-    #[cfg(feature = "self_update")]
-    fn auto_update_check_duration(&self) -> eyre::Result<Duration>;
-
     fn fetch_remote_versions_timeout(&self) -> Duration;
 
     /// duration that remote version cache is kept for
@@ -786,8 +706,6 @@ pub trait SettingsExt: Sized {
     fn aqua_registry_cache_ttl(&self) -> Duration;
 
     fn registry_cache_ttl(&self) -> Duration;
-
-    fn task_timeout_duration(&self) -> Option<Duration>;
 
     fn default_inline_shell(&self) -> Result<Vec<String>>;
 
@@ -956,7 +874,6 @@ impl SettingsExt for Settings {
             // never rewritten.
             resolve_aqua_registry_paths(settings, path);
             resolve_age_paths(settings, path)?;
-            resolve_task_disable_paths(settings, path);
         }
         let deprecated = deprecated_settings_in_toml_config(&raw);
         let settings_file: SettingsFile = raw.try_into()?;
@@ -1051,7 +968,6 @@ impl SettingsExt for Settings {
             "all_compile".to_string(),
             toml::Value::Boolean(self.all_compile()),
         );
-        redact_settings_table(&mut table);
         Ok(table)
     }
 
@@ -1061,15 +977,6 @@ impl SettingsExt for Settings {
         // Truncating to whole seconds would give a sub-second age that meaning
         // instead of the aggressive prune it asks for.
         if age.is_zero() { None } else { Some(age) }
-    }
-
-    fn upgrade_prune_after_duration(&self) -> eyre::Result<Duration> {
-        duration::parse_duration(&self.upgrade.prune_after)
-    }
-
-    #[cfg(feature = "self_update")]
-    fn auto_update_check_duration(&self) -> eyre::Result<Duration> {
-        duration::parse_duration(&self.auto_update_check_duration)
     }
 
     fn fetch_remote_versions_timeout(&self) -> Duration {
@@ -1121,13 +1028,6 @@ impl SettingsExt for Settings {
             .transpose()
             .unwrap()
             .unwrap_or(duration::HOURLY)
-    }
-
-    fn task_timeout_duration(&self) -> Option<Duration> {
-        self.task
-            .timeout
-            .as_ref()
-            .and_then(|s| duration::parse_duration(s).ok())
     }
 
     fn default_inline_shell(&self) -> Result<Vec<String>> {
@@ -1366,51 +1266,8 @@ impl SettingsInternal for Settings {
                 self.minimum_release_age = Some(v);
             }
         }
-        // Migrate task_* settings to task.* (must run before auto_install override below)
-        if let Some(v) = self.task_disable_paths.take()
-            && !v.is_empty()
-        {
-            warn_deprecated("task_disable_paths");
-            self.task.disable_paths.extend(v);
-        }
-        if let Some(v) = self.task_output.take() {
-            warn_deprecated("task_output");
-            self.task.output = Some(v);
-        }
-        if let Some(v) = self.task_remote_no_cache {
-            warn_deprecated("task_remote_no_cache");
-            self.task.remote_no_cache = Some(v);
-        }
-        if let Some(v) = self.task_run_auto_install {
-            warn_deprecated("task_run_auto_install");
-            self.task.run_auto_install = v;
-        }
-        if let Some(v) = self.task_show_full_cmd {
-            warn_deprecated("task_show_full_cmd");
-            self.task.show_full_cmd = v;
-        }
-        if let Some(v) = self.task_skip.take()
-            && !v.is_empty()
-        {
-            warn_deprecated("task_skip");
-            self.task.skip.extend(v);
-        }
-        if let Some(v) = self.task_skip_depends {
-            warn_deprecated("task_skip_depends");
-            self.task.skip_depends = v;
-        }
-        if let Some(v) = self.task_timeout.take() {
-            warn_deprecated("task_timeout");
-            self.task.timeout = Some(v);
-        }
-        if let Some(v) = self.task_timings {
-            warn_deprecated("task_timings");
-            self.task.timings = Some(v);
-        }
         if !self.auto_install {
-            self.exec_auto_install = false;
             self.not_found_auto_install = false;
-            self.task.run_auto_install = false;
         }
         if let Some(go_default_packages_file) = &self.go_default_packages_file {
             self.go.default_packages_file = go_default_packages_file.clone();
@@ -1493,14 +1350,7 @@ fn load() -> Result<Arc<Settings>> {
         settings.color = false;
     }
     normalize_verbosity(&mut settings);
-    if settings.python.uv_venv_auto.is_legacy_true() {
-        deprecated_at!(
-            "2026.7.0",
-            "2027.7.0",
-            "python.uv_venv_auto.true",
-            "python.uv_venv_auto=true is deprecated. Use python.uv_venv_auto=\"create|source\" or \"source\" instead."
-        );
-    }
+
     if !settings.color {
         console::set_colors_enabled(false);
         console::set_colors_enabled_stderr(false);
@@ -1524,7 +1374,7 @@ fn load() -> Result<Arc<Settings>> {
     if pakro_util::testing::in_tests() {
         settings.experimental = true;
     }
-    trace!("Settings: {:#?}", redacted_settings_for_debug(&settings));
+    trace!("Settings: {:#?}", &settings);
     let settings = Arc::new(settings);
     let system_installs_changed = settings.system_installs_dir() != *env::PAKRO_SYSTEM_INSTALLS_DIR;
     if system_installs_changed {
@@ -1532,14 +1382,6 @@ fn load() -> Result<Arc<Settings>> {
     }
     time!("try_get done");
     Ok(settings)
-}
-
-fn redacted_settings_for_debug(settings: &Settings) -> Settings {
-    let mut debug_settings = settings.clone();
-    if debug_settings.task.cache.remote_token.is_some() {
-        debug_settings.task.cache.remote_token = Some("[redacted]".to_string());
-    }
-    debug_settings
 }
 
 pub(crate) const DEFAULT_NODE_MIRROR_URL: &str = "https://nodejs.org/dist/";
@@ -1882,45 +1724,6 @@ mod tests {
     }
 
     #[test]
-    fn debug_settings_redact_remote_cache_token() {
-        let mut settings = Settings::default();
-        settings.task.cache.remote_token = Some("super-secret-token".to_string());
-
-        let debug = format!("{:?}", redacted_settings_for_debug(&settings));
-
-        assert!(!debug.contains("super-secret-token"));
-        assert!(debug.contains("[redacted]"));
-    }
-
-    #[test]
-    fn settings_dictionary_redacts_remote_cache_token() {
-        let mut settings = Settings::default();
-        settings.task.cache.remote_token = Some("super-secret-token".to_string());
-
-        let table = settings.as_dict().unwrap();
-        let encoded = toml::to_string(&table).unwrap();
-
-        assert!(!encoded.contains("super-secret-token"));
-        assert!(encoded.contains("[redacted]"));
-    }
-
-    #[test]
-    fn settings_partial_dictionary_omits_empty_nested_groups() {
-        let settings = toml::from_str::<toml::Value>("[task.cache]")
-            .unwrap()
-            .as_table()
-            .unwrap()
-            .clone();
-        let partial = settings_partial_from_table(settings);
-
-        assert!(
-            !Settings::partial_as_dict(&partial)
-                .unwrap()
-                .contains_key("task")
-        );
-    }
-
-    #[test]
     fn settings_partial_dictionary_preserves_empty_map_values() {
         let settings = toml::from_str::<toml::Value>("url_replacements = {}")
             .unwrap()
@@ -2005,36 +1808,6 @@ mod tests {
         assert_eq!(partial.default_tool_versions_filename, None);
     }
 
-    #[test]
-    fn test_parse_settings_file_resolves_task_disable_paths_from_config_root() {
-        let dir = tempfile::tempdir().unwrap();
-        let config_dir = dir.path().join(".pakro");
-        std::fs::create_dir_all(&config_dir).unwrap();
-        let path = config_dir.join("config.toml");
-        let absolute = dir.path().join("absolute");
-        std::fs::write(
-            &path,
-            format!(
-                r#"
-                [settings.task]
-                disable_paths = ["tasks/generated", '{}']
-                "#,
-                absolute.display()
-            ),
-        )
-        .unwrap();
-
-        let partial = Settings::parse_settings_file(&path).unwrap();
-
-        assert_eq!(
-            partial.task.disable_paths,
-            Some(BTreeSet::from([
-                dir.path().join("tasks/generated"),
-                absolute,
-            ]))
-        );
-    }
-
     /// Unlike `global_only`, being in the *global* config does not rescue these — the loader
     /// has read the file by the time the value would be applied either way.
     #[test]
@@ -2076,24 +1849,6 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_settings_file_strips_local_history_describe_command() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".pakro.toml");
-        std::fs::write(
-            &path,
-            r#"
-            [settings.history]
-            describe_command = "cat dotfiles"
-            "#,
-        )
-        .unwrap();
-
-        let partial = Settings::parse_settings_file(&path).unwrap();
-
-        assert_eq!(partial.history.describe_command, None);
-    }
-
-    #[test]
     fn test_parse_settings_file_strips_local_self_update_sources() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("pakro.toml");
@@ -2131,28 +1886,6 @@ mod tests {
         assert_eq!(
             partial.forgejo.credential_command.as_deref(),
             Some("echo forgejo-token")
-        );
-    }
-
-    #[test]
-    fn test_global_config_preserves_history_describe_command() {
-        let path = Path::new("/tmp/global-config.toml");
-        let mut settings = toml::from_str::<toml::Value>(
-            r#"
-            [history]
-            describe_command = "cat dotfiles"
-            "#,
-        )
-        .unwrap()
-        .as_table()
-        .unwrap()
-        .clone();
-        strip_local_only_settings(&mut settings, path, true);
-        let partial = settings_partial_from_table(settings);
-
-        assert_eq!(
-            partial.history.describe_command.as_deref(),
-            Some("cat dotfiles")
         );
     }
 
@@ -2593,20 +2326,6 @@ mod tests {
     }
 
     #[test]
-    fn test_three_level_task_cache_setting() {
-        let settings = Settings::builder().load().unwrap();
-        assert_eq!(
-            settings.task.cache.remote_mode,
-            crate::cache::CacheRemoteMode::ReadWrite
-        );
-
-        let meta = SETTINGS_META
-            .get("task.cache.remote_mode")
-            .expect("task.cache.remote_mode setting should exist");
-        assert_eq!(meta.env, Some("PAKRO_TASK_CACHE_REMOTE_MODE"));
-    }
-
-    #[test]
     fn test_offline_setting_enables_offline() {
         let _settings = crate::test::SettingsGuard::lock();
         let mut partial = SettingsPartial::empty();
@@ -2694,36 +2413,6 @@ mod tests {
         Settings::reset(Some(partial));
         let settings = Settings::get();
         assert_eq!(settings.minimum_release_age.as_deref(), Some("3d"));
-    }
-
-    #[test]
-    fn test_task_cache_hidden_aliases_map_to_nested_settings() {
-        let settings_file: SettingsFile = toml::from_str(
-            r#"
-            [settings.task]
-            cache_remote_mode = "read-only"
-            cache_remote_token = "secret"
-            cache_remote_url = "https://old.example.com"
-
-            [settings.task.cache]
-            remote_url = "https://new.example.com"
-            "#,
-        )
-        .unwrap();
-
-        let partial = normalize_hidden_config_aliases(settings_file.settings);
-        assert_eq!(partial.task.cache_remote_mode, None);
-        assert_eq!(partial.task.cache_remote_token, None);
-        assert_eq!(partial.task.cache_remote_url, None);
-        assert_eq!(
-            partial.task.cache.remote_mode,
-            Some(crate::cache::CacheRemoteMode::ReadOnly)
-        );
-        assert_eq!(
-            partial.task.cache.remote_url.as_deref(),
-            Some("https://new.example.com")
-        );
-        assert_eq!(partial.task.cache.remote_token.as_deref(), Some("secret"));
     }
 
     #[test]

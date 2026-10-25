@@ -48,10 +48,7 @@ impl Shell for Elvish {
 
               if (not (or (has-value $a -h) (has-value $a --help))) {{
                 var command = $a[0]
-                if (==s $command shell) {{
-                  try {{ eval ((external {exe}) $@a) }} catch {{ }}
-                  return
-                }} elif (==s $command deactivate) {{
+                if (==s $command deactivate) {{
                   deactivate
                   return
                 }} elif (==s $command activate) {{

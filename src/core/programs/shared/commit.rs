@@ -1,12 +1,12 @@
 //! Single-catalog commit of one project registration and its selection.
 //!
-//! Reuses the R05 lock and CAS core over one internal catalog. F1 deliberately
-//! creates no general multi-file WAL subsystem: a registration and selection
-//! become durable in one CAS step, and the previous selection stays intact
-//! until that step succeeds. Protections are taken in project → object SH →
-//! catalog order and rechecked after waiting.
+//! Reuses the R05 lock and CAS core over one internal catalog. P2 adds an
+//! optional durable lock-document journal around that same catalog commit;
+//! declaration editing remains outside this phase. Protections are taken in
+//! project → object SH → document guard → catalog order and rechecked after
+//! waiting. A document written before catalog publication is PendingRecovery.
 
-use eyre::{ContextCompat, Result, ensure};
+use eyre::{Context, ContextCompat, Result, ensure};
 use pakro_store::control::lease::ObjectLease;
 use pakro_store::control::lease::StableLock;
 use pakro_store::control::{ControlLimits, FileIdentity};
@@ -105,6 +105,19 @@ pub(crate) fn prepare_selection_commit<'a>(
 pub(crate) fn commit_selection(
     prepared: PreparedSelectionCommit<'_>,
 ) -> Result<SelectionCommitReceipt> {
+    commit_selection_inner(prepared, None)
+}
+pub(crate) fn commit_selection_with_lock(
+    prepared: PreparedSelectionCommit<'_>,
+    path: &std::path::Path,
+    bytes: &[u8],
+) -> Result<SelectionCommitReceipt> {
+    commit_selection_inner(prepared, Some((path, bytes)))
+}
+fn commit_selection_inner(
+    prepared: PreparedSelectionCommit<'_>,
+    document: Option<(&std::path::Path, &[u8])>,
+) -> Result<SelectionCommitReceipt> {
     let PreparedSelectionCommit {
         observed,
         context,
@@ -126,6 +139,7 @@ pub(crate) fn commit_selection(
         let control = writer.control(ControlLimits::default())?;
         control.acquire_project(&lock)?
     };
+    super::lock_transaction::ensure_project_consistent(&context, observed)?;
     // Object SH second: re-verify Ready and hold the real lease across the
     // catalog replacement.
     let languages = LanguageRepository::open_readonly(&context)?;
@@ -147,6 +161,44 @@ pub(crate) fn commit_selection(
     );
     observed.recheck()?;
     let transaction = Uuid::now_v7();
+    if let Some((_, bytes)) = document {
+        validate_lock_document(
+            observed,
+            bytes,
+            &lease,
+            &crate::packages::python_environment::model::PackageGraphRecord {
+                roots: Vec::new(),
+                nodes: Vec::new(),
+                edges: Vec::new(),
+            },
+        )?;
+    } else {
+        validate_observed_lock_documents(
+            observed,
+            &lease,
+            &crate::packages::python_environment::model::PackageGraphRecord {
+                roots: Vec::new(),
+                nodes: Vec::new(),
+                edges: Vec::new(),
+            },
+        )?;
+    }
+    let pending = document
+        .map(|(path, bytes)| {
+            super::lock_transaction::PendingLockCommit::apply(
+                &context,
+                observed,
+                writer.clone(),
+                identity.as_uuid(),
+                transaction,
+                expected.revision(),
+                super::lock_transaction::project_state(repository.model(), identity.as_uuid()),
+                vec![language_digest(language_key.fingerprint())],
+                path,
+                bytes,
+            )
+        })
+        .transpose()?;
     repository
         .model_mut()
         .register_project(identity.as_uuid(), &root, &declaration)?;
@@ -154,7 +206,25 @@ pub(crate) fn commit_selection(
     repository
         .model_mut()
         .apply_language_selection(&key, &expected, &language, transaction)?;
+    if pending.is_some() {
+        super::lock_transaction::commit_cutpoint("before-catalog");
+    }
+    if let Some(pending) = &pending {
+        pending
+            .recheck_inputs(observed)
+            .wrap_err("PendingRecovery: project inputs changed after lock publication")?;
+    } else {
+        observed.recheck()?;
+    }
     repository.commit_model()?;
+    if pending.is_some() {
+        super::lock_transaction::commit_cutpoint("after-catalog");
+    }
+    if let Some(pending) = pending {
+        pending.finalize().wrap_err(
+            "project selection committed; PendingRecovery: lock transaction finalization failed",
+        )?;
+    }
     let revision = repository.model().snapshot(&key).revision();
     lease.check_binding()?;
     Ok(SelectionCommitReceipt { revision })
@@ -163,7 +233,7 @@ pub(crate) fn commit_selection(
 /// Opens the per-project stable lock: an established lock is reopened by its
 /// real inode, a first registration creates it exactly once, and an
 /// interrupted or foreign file is never silently recreated.
-fn open_project_lock(
+pub(super) fn open_project_lock(
     writer: &pakro_store::control::StoreWriter,
     identity: &ProjectIdentity,
 ) -> Result<StableLock> {
@@ -192,6 +262,12 @@ pub(crate) fn declaration_digest(observed: &ObservedProjectInputs) -> String {
     use sha2::Digest as _;
     let mut hash = sha2::Sha256::new();
     for path in observed.paths() {
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "lock")
+        {
+            continue;
+        }
         hash.update(path.as_os_str().as_encoded_bytes());
         hash.update([0]);
         if let Some(bytes) = observed.document(path) {
@@ -302,6 +378,19 @@ pub(crate) fn prepare_package_selection_commit<'a>(
 pub(crate) fn commit_package_selection(
     prepared: PreparedPackageSelectionCommit<'_>,
 ) -> Result<SelectionCommitReceipt> {
+    commit_package_selection_inner(prepared, None)
+}
+pub(crate) fn commit_package_selection_with_lock(
+    prepared: PreparedPackageSelectionCommit<'_>,
+    path: &std::path::Path,
+    bytes: &[u8],
+) -> Result<SelectionCommitReceipt> {
+    commit_package_selection_inner(prepared, Some((path, bytes)))
+}
+fn commit_package_selection_inner(
+    prepared: PreparedPackageSelectionCommit<'_>,
+    document: Option<(&std::path::Path, &[u8])>,
+) -> Result<SelectionCommitReceipt> {
     use crate::packages::python_environment::model::{GenerationRecord, InputKind, InputReference};
     use pakro_store::Digest;
     let PreparedPackageSelectionCommit {
@@ -325,6 +414,7 @@ pub(crate) fn commit_package_selection(
         let control = writer.control(ControlLimits::default())?;
         control.acquire_project(&lock)?
     };
+    super::lock_transaction::ensure_project_consistent(&context, observed)?;
     observed.recheck()?;
     let layout = crate::libraries::package::lease::acquire_layout(&context, layout_key)?
         .context("selected package layout is not Ready")?;
@@ -399,6 +489,64 @@ pub(crate) fn commit_package_selection(
     );
     observed.recheck()?;
     let limits = repository.model().limits();
+    let transaction = Uuid::now_v7();
+    if let Some((_, bytes)) = document {
+        validate_lock_document(observed, bytes, layout.language_lease(), &graph)?;
+    } else {
+        validate_observed_lock_documents(observed, layout.language_lease(), &graph)?;
+    }
+    let pending = document
+        .map(|(path, bytes)| {
+            let mut references = vec![
+                language_digest(language_key.fingerprint()),
+                language_digest(layout_key),
+            ];
+            for node in &graph.nodes {
+                references.push(language_digest(node.instance));
+                references.push(language_digest(
+                    *crate::packages::python_resolution::lock_model::PinId::parse_hex(
+                        &node.source_pin,
+                    )?
+                    .as_bytes(),
+                ));
+                references.push(node.artifact.clone());
+                if let Some(build) = &node.pin.build {
+                    references.push(language_digest(build.request_id));
+                    references.push(build.source_digest.clone());
+                    references.push(build.output_digest.clone());
+                    for input in build.inputs.iter().chain(
+                        build
+                            .observation
+                            .iter()
+                            .flat_map(|observation| &observation.initial_inputs),
+                    ) {
+                        references.push(language_digest(
+                            *crate::packages::python_resolution::lock_model::PinId::parse_hex(
+                                &input.source_pin,
+                            )?
+                            .as_bytes(),
+                        ));
+                        references.push(input.source_digest.clone());
+                        references.push(input.output_digest.clone());
+                    }
+                }
+            }
+            references.sort_unstable();
+            references.dedup();
+            super::lock_transaction::PendingLockCommit::apply(
+                &context,
+                observed,
+                writer.clone(),
+                identity.as_uuid(),
+                transaction,
+                expected.revision(),
+                super::lock_transaction::project_state(repository.model(), identity.as_uuid()),
+                references,
+                path,
+                bytes,
+            )
+        })
+        .transpose()?;
     let mut inputs = vec![InputReference::new(
         InputKind::Language,
         Digest::Sha256(language_key.fingerprint()),
@@ -430,12 +578,125 @@ pub(crate) fn commit_package_selection(
     clear_other_default_targets(repository.model_mut(), &key)?;
     repository
         .model_mut()
-        .apply_selection(&key, &expected, Some(&allocation), Uuid::now_v7())?;
+        .apply_selection(&key, &expected, Some(&allocation), transaction)?;
     layout.check_binding()?;
+    if pending.is_some() {
+        super::lock_transaction::commit_cutpoint("before-catalog");
+    }
+    if let Some(pending) = &pending {
+        pending
+            .recheck_inputs(observed)
+            .wrap_err("PendingRecovery: project inputs changed after lock publication")?;
+    } else {
+        observed.recheck()?;
+    }
     repository.commit_model()?;
+    if pending.is_some() {
+        super::lock_transaction::commit_cutpoint("after-catalog");
+    }
+    if let Some(pending) = pending {
+        pending.finalize().wrap_err(
+            "project selection committed; PendingRecovery: lock transaction finalization failed",
+        )?;
+    }
     Ok(SelectionCommitReceipt {
         revision: repository.model().snapshot(&key).revision(),
     })
+}
+
+fn validate_observed_lock_documents(
+    observed: &ObservedProjectInputs,
+    language: &crate::libraries::language::lease::LanguageLease,
+    graph: &crate::packages::python_environment::model::PackageGraphRecord,
+) -> Result<()> {
+    let mut count = 0;
+    for path in observed.paths().filter(|path| {
+        path.extension()
+            .is_some_and(|extension| extension == "lock")
+    }) {
+        let bytes = observed
+            .document(path)
+            .context("observed lock document is missing")?;
+        if crate::packages::python_resolution::lock_session::decode_root(bytes, Default::default())?
+            .is_none()
+        {
+            continue;
+        }
+        count += 1;
+        ensure!(
+            count == 1,
+            "selection commit requires one applicable exact Python lock"
+        );
+        validate_lock_document(observed, bytes, language, graph)
+            .wrap_err("selection commit differs from the observed precise project lock")?;
+    }
+    Ok(())
+}
+
+fn validate_lock_document(
+    observed: &ObservedProjectInputs,
+    bytes: &[u8],
+    language: &crate::libraries::language::lease::LanguageLease,
+    graph: &crate::packages::python_environment::model::PackageGraphRecord,
+) -> Result<()> {
+    let native = crate::lockfile::Lockfile::parse_observed(bytes)?;
+    let model =
+        crate::packages::python_resolution::lock_session::decode_root(bytes, Default::default())?
+            .context("prepared project lock has no exact Python graph")?;
+    crate::programs::install::lock_document::validate_declarations(observed, &model)?;
+    let mut roots: Vec<_> = graph
+        .roots
+        .iter()
+        .map(|index| {
+            let node = graph
+                .nodes
+                .get(*index)
+                .context("prepared graph root is missing")?;
+            Ok((node.name.clone(), node.version.clone()))
+        })
+        .collect::<Result<_>>()?;
+    roots.sort();
+    let locked =
+        crate::programs::install::lock::validate_project_lock_model(&model, language, &roots)?;
+    ensure!(
+        crate::programs::install::lock::portable_graph(&model, locked)?.fingerprint()?
+            == graph.fingerprint()?,
+        "prepared lock differs from the actual selected complete package graph"
+    );
+    let version = language.lock_version()?;
+    let source = language.source_pin()?;
+    let target = crate::backend::platform_target::PlatformTarget::from_current().to_key();
+    let mut matching = native
+        .tools()
+        .get("python")
+        .into_iter()
+        .flatten()
+        .filter(|entry| entry.version == version);
+    let entry = matching
+        .next()
+        .context("prepared lock omits its exact runtime version and build")?;
+    ensure!(
+        matching.next().is_none()
+            && entry.options.is_empty()
+            && entry
+                .backend
+                .as_deref()
+                .is_none_or(|backend| matches!(backend, "core:python" | "python")),
+        "prepared runtime lock has ambiguous or unsupported entries"
+    );
+    let pin = entry
+        .platforms
+        .get(&target)
+        .context("prepared lock omits its actual runtime target")?;
+    ensure!(
+        pin.install.is_none() && pin.conda_deps.is_none() && pin.additional_artifacts.is_empty(),
+        "prepared native runtime lock contains unsupported install, Conda or additional-artifact inputs"
+    );
+    ensure!(
+        pin.url == source.url && pin.checksum == source.checksum,
+        "prepared native runtime lock differs from its actual protected source"
+    );
+    Ok(())
 }
 
 #[cfg(test)]

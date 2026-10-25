@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# A genuine unfinished lock/catalog operation must survive preview and
+# unsupported-option rejection byte-for-byte until explicit installation.
+mkdir project
+cat >project/pakro.toml <<'TOML'
+[tools]
+python = '3.13.16'
+TOML
+cat >project/pakro.lock <<'TOML'
+# original native lock
+lockfile_version=4
+[future]
+state='old'
+TOML
+export CARGO_TARGET_DIR="$ROOT/target"
+export CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
+export PAKRO_AUTO_UPDATE=0 PAKRO_CACHE_PRUNE_AGE=0
+export PAKRO_P2_PENDING_PROJECT="$PWD/project"
+export PAKRO_P2_PENDING_DATA_ROOT="$PAKRO_DATA_DIR"
+export PAKRO_P2_PENDING_CACHE_ROOT="$PAKRO_CACHE_DIR"
+p2_stage_log="$TMPDIR/p2-pending-stage.log"
+(cd "$ROOT" && cargo test -p pakro --lib --all-features \
+  programs::shared::lock_transaction::preflight_stage::stage_pending_preflight_readonly \
+  -- --exact --ignored --nocapture) >"$p2_stage_log" 2>&1 || { cat "$p2_stage_log"; fail 'could not stage genuine pending transaction'; }
+grep -Fq 'P2_PENDING_PREFLIGHT_STAGED' "$p2_stage_log" || fail 'pending transaction helper did not execute'
+grep -Fxq "P2_PENDING_PREFLIGHT_DATA_ROOT=$PAKRO_DATA_DIR" "$p2_stage_log" || fail 'pending helper used a different data root'
+grep -Fxq "P2_PENDING_PREFLIGHT_CACHE_ROOT=$PAKRO_CACHE_DIR" "$p2_stage_log" || fail 'pending helper used a different cache root'
+python3 -B - "$PAKRO_P2_PENDING_PROJECT" "$PAKRO_DATA_DIR" <<'PY'
+import hashlib, json, sys, uuid
+from pathlib import Path
+project, data = (Path(value).resolve(strict=True) for value in sys.argv[1:])
+journals = list((data / 'projects/.control/journals').glob('p2-lock-*'))
+assert len(journals) == 1, 'the CLI data root must contain the actual pending transaction'
+record = json.loads(journals[0].read_text())
+identity = bytearray(hashlib.sha256(b'pakro.project-root.v1' + str(project).encode()).digest()[:16])
+identity[6] = (identity[6] & 15) | 80
+identity[8] = (identity[8] & 63) | 128
+assert record['project'] == str(uuid.UUID(bytes=bytes(identity))), 'pending transaction belongs to a different project'
+assert Path(record['path']).resolve(strict=True) == project / 'pakro.lock', 'pending transaction names a different lock'
+print('P2 pending stage uses the real CLI project identity, lock and data root')
+PY
+p2_preflight_snapshot() {
+  python3 - "$PAKRO_P2_PENDING_PROJECT" "$PAKRO_DATA_DIR" "$PAKRO_CACHE_DIR" <<'PY'
+import hashlib, json, os, stat, sys
+from pathlib import Path
+result = []
+for label, raw in enumerate(sys.argv[1:]):
+    root = Path(raw)
+    for path in [root] + sorted(root.rglob('*')) if root.exists() else []:
+        info = path.lstat()
+        row = [label, str(path.relative_to(root)), info.st_mode, info.st_dev, info.st_ino, info.st_mtime_ns]
+        if stat.S_ISLNK(info.st_mode): row.append(os.readlink(path))
+        elif stat.S_ISREG(info.st_mode): row.append(hashlib.sha256(path.read_bytes()).hexdigest())
+        result.append(row)
+print(json.dumps(result, separators=(',', ':')))
+PY
+}
+p2_preflight_before="$(p2_preflight_snapshot)"
+assert_succeed '(cd project && pakro install --dry-run)'
+[[ $(p2_preflight_snapshot) == "$p2_preflight_before" ]] || fail 'dry-run recovered or modified the pending transaction'
+assert_fail_contains '(cd project && pakro install --force) 2>&1' '--force'
+[[ $(p2_preflight_snapshot) == "$p2_preflight_before" ]] || fail 'force rejection recovered or modified the pending transaction'
+assert_fail_contains '(cd project && pakro install --system) 2>&1' '--system'
+[[ $(p2_preflight_snapshot) == "$p2_preflight_before" ]] || fail 'destination rejection recovered or modified the pending transaction'
+assert_fail_contains '(cd project && pakro where python) 2>&1' 'PendingRecovery'
+[[ $(p2_preflight_snapshot) == "$p2_preflight_before" ]] || fail 'query recovered or modified the pending transaction'
+printf 'P2_PENDING_PREFLIGHT_READONLY_PASSED\n'

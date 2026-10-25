@@ -7,11 +7,23 @@ use pakro_store::control::{ControlLimits, ControlNamespace, ReadStore, WriterCon
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 fn project_references(context: &OperationContext, target: [u8; 32]) -> Result<BTreeSet<String>> {
-    Ok(ProjectRepository::open_readonly(context)?
+    let repository = ProjectRepository::open_readonly(context)?;
+    project_references_from_snapshot(context, target, &repository)
+}
+fn project_references_from_snapshot(
+    context: &OperationContext,
+    target: [u8; 32],
+    repository: &ProjectRepository,
+) -> Result<BTreeSet<String>> {
+    let mut references: BTreeSet<String> = repository
         .read_views()
         .reference_chains(target)?
         .into_iter()
-        .collect())
+        .collect();
+    references.extend(
+        crate::programs::shared::lock_transaction::pending_reference_chains(context, target)?,
+    );
+    Ok(references)
 }
 
 fn retained_references(
@@ -91,7 +103,17 @@ fn retained_references(
 }
 
 pub(crate) fn references(context: &OperationContext, target: [u8; 32]) -> Result<Vec<String>> {
-    let mut users = project_references(context, target)?;
+    let repository = ProjectRepository::open_readonly(context)?;
+    references_with_project_snapshot(context, target, &repository)
+}
+/// Inventory rows use one committed catalog rather than combining a
+/// project's old and new selections across separate per-object reads.
+pub(crate) fn references_with_project_snapshot(
+    context: &OperationContext,
+    target: [u8; 32],
+    repository: &ProjectRepository,
+) -> Result<Vec<String>> {
+    let mut users = project_references_from_snapshot(context, target, repository)?;
     if let Some(read) = ReadStore::open_readonly(
         &manifest::store_path(context),
         crate::libraries::package::lease::uid(),

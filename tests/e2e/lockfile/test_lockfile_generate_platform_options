@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-
-export PAKRO_LOCKFILE_MODE=generate
-# shellcheck source=tests/e2e/lockfile/test_lockfile_platform_option_variants
-source "${TEST_ROOT}/lockfile/test_lockfile_platform_option_variants"

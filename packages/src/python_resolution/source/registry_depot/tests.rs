@@ -349,6 +349,16 @@ impl Fixture {
     }
     fn no_publish(&self) {
         assert!(!self.root.path().join("pakro.lock").exists());
+        self.no_environment_publish();
+    }
+    fn no_publish_with_existing_lock(&self, expected: &[u8]) {
+        assert_eq!(
+            std::fs::read(self.root.path().join("pakro.lock")).unwrap(),
+            expected
+        );
+        self.no_environment_publish();
+    }
+    fn no_environment_publish(&self) {
         for path in ["refs", "environment", "journal", "catalog"] {
             assert!(!self.root.path().join(path).exists());
         }

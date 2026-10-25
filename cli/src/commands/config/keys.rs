@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn top_level_keys_come_from_the_schema() {
         let keys = values("", None);
-        for key in ["env", "tools", "tasks", "settings", "vars"] {
+        for key in ["env", "tools", "settings", "vars"] {
             assert!(keys.contains(&key.to_string()), "{key} missing: {keys:?}");
         }
         let tools = candidates("to", None)
@@ -206,7 +206,7 @@ mod tests {
         assert!(keys.contains(&"settings.python".to_string()), "{keys:?}");
         let python = values("settings.python.", None);
         assert!(
-            python.contains(&"settings.python.uv_venv_auto".to_string()),
+            python.contains(&"settings.python.precompiled_flavor".to_string()),
             "{python:?}"
         );
     }
@@ -234,19 +234,9 @@ mod tests {
     fn user_named_keys_come_from_the_file() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("pakro.toml");
-        std::fs::write(
-            &file,
-            "[tools]\nnode = \"22\"\n[tasks.build]\nrun = \"make\"\n[env]\nFOO = \"1\"\n",
-        )
-        .unwrap();
+        std::fs::write(&file, "[tools]\nnode = \"22\"\n[env]\nFOO = \"1\"\n").unwrap();
         assert_eq!(values("tools.", Some(&file)), vec!["tools.node"]);
         assert_eq!(values("env.", Some(&file)), vec!["env.FOO", "env._"]);
-        let build = values("tasks.build.", Some(&file));
-        assert!(build.contains(&"tasks.build.run".to_string()), "{build:?}");
-        assert!(
-            build.contains(&"tasks.build.depends".to_string()),
-            "{build:?}"
-        );
     }
 
     #[test]

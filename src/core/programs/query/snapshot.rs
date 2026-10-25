@@ -12,6 +12,10 @@ use crate::libraries::language::identity::LanguageKey;
 use crate::libraries::project::snapshot::ObservedProjectInputs;
 use crate::programs::shared::context::OperationContext;
 
+#[cfg(test)]
+#[path = "snapshot/lock_tests.rs"]
+mod lock_tests;
+
 #[derive(Debug, Error)]
 pub(crate) enum QueryError {
     #[error(transparent)]
@@ -104,6 +108,8 @@ pub(crate) fn open_query_context<'a>(
 ) -> Result<QueryContext<'a>, QueryError> {
     context.checkpoint()?;
     observed.recheck()?;
+    crate::programs::shared::lock_transaction::ensure_project_consistent(context, observed)
+        .map_err(|error| QueryError::Unreadable(format!("{error:#}")))?;
     Ok(QueryContext {
         context: context.clone(),
         observed,
@@ -117,14 +123,68 @@ pub(crate) fn select_existing(query: &QueryContext<'_>) -> Result<SelectionRepor
     select_target(query, None)
 }
 
+/// Decode only bytes held by the readonly project observation. Explicit
+/// queries for a different runtime retain their independent inventory scope.
+pub(crate) fn project_lock_for_query(
+    observed: &ObservedProjectInputs,
+    target: Option<&str>,
+) -> eyre::Result<Option<crate::packages::python_resolution::lock_model::PythonLockModel>> {
+    if target.is_some() && effective_python_declaration(observed).as_deref() != target {
+        return Ok(None);
+    }
+    observed.recheck()?;
+    let mut model = None;
+    for path in observed.paths().filter(|path| {
+        path.extension()
+            .is_some_and(|extension| extension == "lock")
+    }) {
+        let Some(candidate) = crate::packages::python_resolution::lock_session::decode_root(
+            observed
+                .document(path)
+                .ok_or_else(|| eyre::eyre!("observed lock bytes are missing"))?,
+            Default::default(),
+        )?
+        else {
+            continue;
+        };
+        eyre::ensure!(
+            model.is_none(),
+            "strict Python queries require one applicable exact lock document"
+        );
+        crate::programs::install::lock_document::validate_declarations(observed, &candidate)?;
+        model = Some(candidate);
+    }
+    observed.recheck()?;
+    Ok(model)
+}
+
 /// An explicit prefix is a local inventory filter only. Project declarations
 /// still require a complete exact version and never acquire a latest release.
 pub(crate) fn select_target(
     query: &QueryContext<'_>,
     target: Option<&str>,
 ) -> Result<SelectionReport, QueryError> {
+    let report = select_target_inner(query, target)?;
+    query.observed.recheck()?;
+    crate::programs::shared::lock_transaction::ensure_project_consistent(
+        &query.context,
+        query.observed,
+    )
+    .map_err(|error| QueryError::Unreadable(format!("{error:#}")))?;
+    Ok(report)
+}
+
+fn select_target_inner(
+    query: &QueryContext<'_>,
+    target: Option<&str>,
+) -> Result<SelectionReport, QueryError> {
     query.context.checkpoint()?;
     query.observed.recheck()?;
+    crate::programs::shared::lock_transaction::ensure_project_consistent(
+        &query.context,
+        query.observed,
+    )
+    .map_err(|error| QueryError::Unreadable(format!("{error:#}")))?;
     if target.is_none()
         && let Some(backend) = effective_python_backend_options(query.observed)
     {

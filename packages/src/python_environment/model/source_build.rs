@@ -138,6 +138,53 @@ impl SourceBuildRecord {
                     .ok_or_else(|| eyre::eyre!("source build text budget exceeded"))?;
             }
         }
+        if let Some(observation) = &self.observation {
+            ensure!(
+                observation.initial_inputs.len() <= MAX_BUILD_INPUTS,
+                "initial build input limit exceeded"
+            );
+            let mut initial_names = BTreeSet::new();
+            for initial in &observation.initial_inputs {
+                initial.content_pin()?;
+                ensure!(
+                    initial_names.insert(&initial.name),
+                    "duplicate initial build input"
+                );
+                let mut expected = initial.clone();
+                expected.advertised = false;
+                ensure!(
+                    self.inputs.iter().any(|input| {
+                        let mut final_input = input.clone();
+                        final_input.advertised = false;
+                        final_input == expected
+                    }),
+                    "initial build input is absent from the final environment"
+                );
+            }
+            for requirements in [
+                &observation.initial_requirements,
+                &observation.dynamic_requirements,
+            ] {
+                ensure!(
+                    requirements.len() <= MAX_BUILD_INPUTS,
+                    "build requirement count exceeded"
+                );
+                for requirement in requirements {
+                    bytes = bytes
+                        .checked_add(requirement.len())
+                        .filter(|n| *n <= MAX_BUILD_TEXT)
+                        .ok_or_else(|| eyre::eyre!("source build text budget exceeded"))?;
+                    let parsed = pakro_index::python_requirements::parse_python_requirement(
+                        requirement,
+                        Default::default(),
+                    )?;
+                    ensure!(
+                        parsed.unresolved_reference().is_none(),
+                        "unsupported source build requirement source"
+                    );
+                }
+            }
+        }
         Ok(())
     }
     pub(super) fn validate_for_node(
@@ -161,6 +208,14 @@ impl SourceBuildRecord {
             input.advertised = false;
         }
         self.inputs.sort_by(|a, b| a.name.cmp(&b.name));
+        if let Some(observation) = &mut self.observation {
+            for input in &mut observation.initial_inputs {
+                input.advertised = false;
+            }
+            observation
+                .initial_inputs
+                .sort_by(|a, b| a.name.cmp(&b.name));
+        }
     }
     /// Receipt identity includes actual output; it is not an input-only BuildRequestId.
     pub(crate) fn fingerprint(&self) -> Result<[u8; 32]> {

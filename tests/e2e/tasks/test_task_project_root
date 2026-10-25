@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-
-pakro tasks add a:b:c --file -- echo \$PAKRO_PROJECT_ROOT
-assert "pakro a:b:c" "$PWD"

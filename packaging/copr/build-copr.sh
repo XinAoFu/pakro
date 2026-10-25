@@ -268,7 +268,6 @@ cp target/__BUILD_PROFILE__/pakro %{buildroot}%{_bindir}/
 
 # Install man page if available
 mkdir -p %{buildroot}%{_mandir}/man1
-cp cli/man/man1/pakro.1 %{buildroot}%{_mandir}/man1/
 
 # Install shell completions
 mkdir -p %{buildroot}%{_datadir}/bash-completion/completions
@@ -290,7 +289,6 @@ TOML
 %license LICENSE
 %doc README.md
 %{_bindir}/pakro
-%{_mandir}/man1/pakro.1*
 %{_datadir}/bash-completion/completions/pakro
 %{_datadir}/zsh/site-functions/_pakro
 %{_datadir}/fish/vendor_completions.d/pakro.fish

@@ -13,7 +13,7 @@ use thiserror::Error;
 
 type Result<T> = std::result::Result<T, WheelMetadataError>;
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub(super) enum WheelMetadataError {
+pub(crate) enum WheelMetadataError {
     #[error("wheel metadata limits must be positive")]
     InvalidLimits,
     #[error("wheel metadata byte identity is inconsistent")]
@@ -92,7 +92,7 @@ pub(super) fn inspect_projected_wheel(
 
 /// The actual output wheel uses the same dependency projection without
 /// pretending its generated filename/digest came from a registry wheel pin.
-pub(super) fn project_manifest_metadata(
+pub(crate) fn project_manifest_metadata(
     manifest: &WheelManifest,
     expected_project: &str,
     expected_version: &str,

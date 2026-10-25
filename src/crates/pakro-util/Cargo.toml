@@ -53,7 +53,6 @@ jiff = "0.2"
 junction = "2"
 log = "0.4"
 md-5 = "0.11"
-pakro-agent-env = { path = "../pakro-agent-env", version = "0.1" }
 pakro-cache-core = { path = "../pakro-cache-core", version = "0.1", default-features = false }
 pakro-settings = { path = "../pakro-settings", version = "2026" }
 pakro-sigstore = { path = "../pakro-sigstore", version = "0.1", default-features = false }

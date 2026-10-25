@@ -1,4 +1,3 @@
-pub(crate) mod declarations;
 pub(crate) mod identity;
 pub(crate) mod location;
 #[cfg(unix)]

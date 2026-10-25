@@ -5,7 +5,6 @@ use crate::toolset::env_cache::CachedEnv;
 use eyre::Result;
 use filetime::set_file_times;
 use heck::ToKebabCase;
-use itertools::Itertools;
 use walkdir::WalkDir;
 
 /// Delete all cache files
@@ -19,32 +18,10 @@ pub(super) struct CacheClear {
     /// Mark all cache files as old
     #[usage(long, hide = true)]
     outdate: bool,
-
-    /// Clear output cache entries for a task name or pattern
-    #[usage(long, conflicts = ["tool", "outdate"])]
-    task: Option<String>,
 }
 
 impl CacheClear {
     pub(super) async fn run(self) -> Result<()> {
-        if let Some(task_name) = &self.task {
-            let (config, tasks) = super::task::resolve_tasks(task_name).await?;
-            let mut entries = 0;
-            let mut size_bytes = 0_u64;
-            for task in &tasks {
-                let root = crate::task::task_source_checker::task_cwd(task, &config).await?;
-                let result = crate::task::task_cache::clear_task_cache(task, &root)?;
-                entries += result.entries;
-                size_bytes = size_bytes.saturating_add(result.size_bytes);
-            }
-            info!(
-                "task cache cleared for {}: {} entries, {}",
-                tasks.iter().map(|task| &task.display_name).join(", "),
-                entries,
-                bytesize::ByteSize::b(size_bytes).display().iec()
-            );
-            return Ok(());
-        }
         let cache_dirs = match &self.tool {
             Some(tools) => tools
                 .iter()
@@ -87,8 +64,6 @@ impl CacheClear {
             // Also clear env cache when clearing all caches
             if self.tool.is_none() {
                 CachedEnv::clear()?;
-                let task_cache_state = crate::dirs::STATE.join("task-artifacts");
-                handle_remove_result(&task_cache_state, remove_all_with_retry(&task_cache_state))?;
             }
             match &self.tool {
                 Some(tools) => info!("cache cleared for {}", tools.join(", ")),

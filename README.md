@@ -1,63 +1,101 @@
-# pakro
+# Pakro
 
-**2026-10-25用户确认：P1 本机 macOS arm64 产品验收通过，自动多进程运行器禁用。跨平台、完整ISAT业务和后续阶段边界保持，P2尚未开始。**
-面向 macOS 和 Linux 的开发环境命令行工具，负责语言运行时、项目依赖包、环境变量和任务执行。
+Pakro 用一个共享库管理语言运行时、依赖包和项目选择。项目保留源码和配置，相同的Python和兼容包由多个项目共用。
 
-## 目录
+当前核心是Python：精确安装、目录选用、wheel和限定纯Python源码包、关联查询、指定删除，以及统一精确锁和严格恢复。原P1/P2已通过本机macOS arm64验收；旧代码删剪已完成静态检查，本轮修改后的编译和行为验收尚未完成。Linux和其他平台组合、编译器源码后端、Conda直接管理及Java/Node新架构仍未完成。完整范围见[当前计划](docs/PLAN.md)。
 
-| 目录 | 职责 |
-| --- | --- |
-| `src/` | 程序入口、共享配置和服务、基础库、构建脚本及配置 Schema |
-| `cli/` | 终端命令、参数、Shell 集成、输出界面、补全和 manpage |
-| `runtimes/` | 语言与工具的版本解析、下载、安装、存储布局、链接和注册表 |
-| `packages/` | 包的索引、依赖解析、下载、内容存储、环境物化及宿主包管理 |
-| `tests/` | benchmarks、端到端测试、测试脚本和夹具 |
-| `packaging/` | 打包、安装、签名、发布配置及脚本 |
-| `docs/` | 仅保留 `devlog/` 中的需求、架构、计划、决策、开发日志和交接记录 |
+## 使用逻辑
 
-Cargo、pakro 和 Nix 的根入口，以及工具自动发现所需的隐藏配置，保留在根目录。
+开发者手动维护配置，Pakro负责读取、校验、安装和选用。配置不合理或与精确锁不一致时明确报错，不自动改配置、不静默修锁。进入目录只选已有内容，缺项需要你明确执行安装。
 
-## 命名与当前状态
+先将本机构建的`pakro`放入PATH。在Zsh的启动配置中加入一次：
 
-主命令、Cargo package 和 library 均为 `pakro`；自有 crate 使用 `pakro-*`。项目配置为 `pakro.toml`，工具锁为 `pakro.lock`，包图目前仍使用 `pakro.packages.lock` 边车；项目状态为 `.pakro/`，早期设置为 `.pakrorc.toml`。公开环境变量使用 `PAKRO_*`，内部协议使用 `__PAKRO_*`。
+```sh
+eval "$(pakro activate zsh)"
+```
 
-当前提供本地源码构建。独立发行仓库、下载域名和信任根尚未建立，产品自更新和默认远端自动下载暂不可用；保留的上游链接仅用于真实第三方来源、开发设施或历史验证资料。
+Bash使用`pakro activate bash`。这是Shell接入，不是每个项目都要创建或激活一套环境。
 
-截至2026-10-24，本机macOS arm64已完成Python共享语言库、目录选择、精确安装、wheel依赖图与共享布局、关联查询及指定删除；随后补齐限定registry纯Python源码包的无pip/uv构建，真实ISAT已由用户完成安装、环境选用及基础启动验收。严格包锁回放、配置/锁/关联联合事务、编译器源码后端、其他来源、Conda和Java/Node新架构仍未完成，Linux/PyPy完整矩阵未验收。
+在项目目录手动编写`pakro.toml`。下面展示配置格式，实际版本必须有匹配当前平台的制品；有多个发行build时需明确build：
 
-项目已确认先完成Python、再Java、最后Node的P1–P9顺序，整个项目停用dev-flow skill。[当前计划](docs/devlog/PLAN.md)记录P1本机macOS arm64产品验收通过及运行器禁用的收尾状态，P2尚未开始；当前能力、验收边界及R00–R45逐项对照见[架构阶段交叉盘点](docs/devlog/ARCHITECTURE-REVIEW-2026-10-24.md)。
+```toml
+[tools]
+python = "3.13.16+20261013"
 
-## 开发
+[packages."python@3.13.16+20261013"]
+idna = "3.10"
+```
 
-在仓库根目录执行：
+显式安装配置中的Python和包：
+
+```sh
+pakro install
+# 或安装项目声明的Python依赖：
+pakro deps install
+```
+
+安装成功后，目录接入会选中对应Python和包，可以正常执行`python`或包提供的命令。首次受支持安装生成统一`pakro.lock`；已有完整锁按原精确结果恢复，不重新挑版本。显式要求严格恢复：
+
+```sh
+PAKRO_LOCKED=1 pakro install
+```
+
+锁缺失、不完整或与当前声明不一致时会拒绝。手动修改配置后的重新锁定和旧关联释放流程仍待确认，不要把删除锁文件当作自动修复步骤。
+
+## 常用查询与删除
+
+```sh
+pakro current
+pakro where python
+pakro which python
+pakro env --json
+pakro project status
+pakro project ls
+pakro installs ls
+```
+
+这些本地查询不会偷偷下载或安装。`where`看Python实际安装根，`which`看当前命令入口；语言存在不代表项目全部包都已就绪。
+
+只删除明确指定的安装对象，例如：
+
+```sh
+pakro uninstall python@3.13.16 --dry-run
+pakro uninstall --package 'python@3.13.16+idna@3.10' --dry-run
+```
+
+预览确认后去掉`--dry-run`才执行删除。目标有多个实例时需使用`pakro installs ls`提供的完整`--instance`；仍被项目、依赖或在途操作使用时拒绝删除。卸载不修改项目配置，离开目录也不释放持久引用。批量prune尚未完成。
+
+## 构建与项目文件
+
+当前从本地源码构建；独立发行下载入口和自更新尚未建立：
 
 ```sh
 cargo build --all-features
 ./target/debug/pakro --help
+```
+
+| 路径 | 内容 |
+| --- | --- |
+| `src/` | 程序入口、配置、三库和核心程序 |
+| `cli/` | 命令、Shell接入和终端输出 |
+| `runtimes/` | 语言发行获取、校验和运行时适配 |
+| `packages/` | 包来源、依赖求解、构建、校验和共享布局 |
+| `tests/` | 回归用例、CLI测试和验证脚本 |
+| `packaging/` | 工程打包与发布资源 |
+| `docs/PLAN.md` | 唯一进度和实施计划 |
+
+开发检查直接使用Cargo和Shell，不调用产品任务命令：
+
+```sh
 cargo test --workspace --all-features
-cargo clippy --workspace --all-features --all-targets -- -D warnings
+cargo fmt --all -- --check
+cargo run -p pakro-settings --example render-schema
+# 先完成构建，再指定一个仍保留的CLI用例：
+bash tests/e2e/run_test cli/test_f1_directory_selection
 ```
 
-本地构建后，将 `target/debug` 加入当前终端的 PATH，再执行项目任务：
+需要真实发行归档的用例须按脚本提供输入。长验证由用户终端执行；本轮尚未执行上述构建和行为测试。GitHub仅保留手动调用的基础检查入口，未运行CI或发布。
 
-```sh
-export PATH="$PWD/target/debug:$PATH"
-pakro run build
-pakro run test:unit
-pakro run test:e2e --all
-pakro run lint
-```
+架构与工作规则见[主架构文件](docs/Pakro主架构文件与Agent规则.md)，Agent入口见[AGENTS.md](AGENTS.md)。Git提交和推送分别依据用户当次明确授权；验证规则和原基线证据见PLAN，不把旧测试通过当作当前清理后的通过。
 
-指定端到端测试时，将测试名称传给 `pakro run test:e2e`；测试由统一入口运行。
-
-生成 CLI usage 规格、Bash/Zsh/Fish 补全、manpage 和配置 Schema：
-
-```sh
-pakro run render
-```
-
-Schema 生成器使用 Rust；仓库不再维护文档网站或文档 Node 依赖。
-
-当前开发状态从 [交接记录](docs/devlog/HANDOFF.md) 开始阅读，详细档案位于 [docs/devlog](docs/devlog/)。
-
-项目使用 [MIT 许可证](LICENSE)。
+项目使用[MIT许可证](LICENSE)。

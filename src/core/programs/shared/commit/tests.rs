@@ -10,14 +10,20 @@ use crate::programs::query::snapshot::{SelectionReport, open_query_context, sele
 use pakro_index::python_source::{PythonRegistryId, PythonSourcePolicy};
 use std::time::{Duration, Instant};
 
+#[path = "p2_tests.rs"]
+mod p2_tests;
+
 fn context(root: &std::path::Path) -> OperationContext {
+    context_with_lock(root, false)
+}
+fn context_with_lock(root: &std::path::Path, lockfile: bool) -> OperationContext {
     use crate::programs::*;
     capture_operation_context(OperationContextInputs {
         settings: &crate::config::Settings::default(),
         policy: OperationPolicy {
             locked: false,
             offline: true,
-            deadline: Instant::now() + Duration::from_secs(120),
+            deadline: Instant::now() + Duration::from_secs(if lockfile { 300 } else { 120 }),
             budget: RequestBudget {
                 max_arguments: 8,
                 max_total_argument_bytes: 4096,
@@ -27,7 +33,7 @@ fn context(root: &std::path::Path) -> OperationContext {
             writes: AllowedWrites {
                 libraries: true,
                 project_selection: true,
-                lockfile: false,
+                lockfile,
                 declarations: false,
             },
         },

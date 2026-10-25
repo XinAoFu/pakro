@@ -15,12 +15,7 @@ use crate::env;
 #[cfg(windows)]
 use crate::file::MAX_PATH;
 use crate::platform::{ARCH, OS};
-use std::ffi::OsStr;
 use std::path::Path;
-use std::process::Command;
-use std::time::Duration;
-
-const AUTO_UPDATE_REEXEC_ENV: &str = "__PAKRO_AUTO_UPDATE_REEXEC";
 
 fn release_archive_name(version: &str, os: &str, arch: &str, build_target: &str) -> String {
     // Rust reports every 32-bit ARM target as `arm`, but our releases use `armv7`.
@@ -50,152 +45,10 @@ fn release_archive_asset(assets: &[ReleaseAsset], archive_name: &str) -> Option<
 
 pub(crate) use crate::upgrade_hint::{upgrade_instructions_or_hint, upgrade_instructions_text};
 
-/// Checks for and installs an update before an eligible interactive command.
-/// Failures are deliberately non-fatal so the requested command still runs.
-pub(crate) async fn maybe_auto_update(
-    args: &[String],
-    original_cwd: Option<&std::path::Path>,
-    command_eligible: bool,
-) -> Result<()> {
-    let Ok(settings) = Settings::try_get() else {
-        return Ok(());
-    };
-    if !auto_update_eligible(AutoUpdateContext {
-        enabled: settings.auto_update,
-        offline: settings.offline(),
-        prefer_offline: settings.prefer_offline(),
-        ci: settings.ci || ci_info::is_ci(),
-        attended: console::user_attended_stderr(),
-        already_reexecuted: env::var_os(AUTO_UPDATE_REEXEC_ENV).is_some(),
-        self_update_available: SelfUpdate::is_available(),
-        command_eligible,
-    }) {
-        return Ok(());
-    }
-
-    let lock_path = crate::dirs::CACHE.join("auto-update");
-    let update_lock = match crate::lock_file::LockFile::new(&lock_path).try_lock() {
-        Ok(Some(lock)) => lock,
-        Ok(None) => {
-            debug!("skipping auto-update because another pakro process is updating");
-            return Ok(());
-        }
-        Err(err) => {
-            debug!("automatic pakro update could not acquire its lock: {err:#}");
-            return Ok(());
-        }
-    };
-    let last_check_path = crate::dirs::CACHE.join("auto-update-last-check");
-    let check_duration = match settings.auto_update_check_duration() {
-        Ok(duration) => duration,
-        Err(err) => {
-            debug!("automatic pakro update has an invalid check duration: {err:#}");
-            return Ok(());
-        }
-    };
-    if !auto_update_check_due(&last_check_path, check_duration) {
-        return Ok(());
-    }
-    if let Err(err) = crate::file::write(&last_check_path, "") {
-        debug!("automatic pakro update could not record its check: {err:#}");
-        return Ok(());
-    }
-    // The marker above is the auto-update throttle. Bypass the separate shared
-    // version cache so a shorter-lived `pakro version` lookup cannot make this
-    // due check accept stale data and advance the marker for another interval.
-    let Some(version) = crate::cli::version::check_for_new_version(Duration::ZERO).await else {
-        return Ok(());
-    };
-
-    let update = SelfUpdate {
-        version: Some(version),
-        force: false,
-        yes: true,
-        no_plugins: true,
-        minimum_release_age: None,
-    };
-    if let Err(err) = update.run_with_age_policy(true).await {
-        debug!("automatic pakro update failed: {err:#}");
-        return Ok(());
-    }
-    drop(update_lock);
-    reexec(args, original_cwd)
-}
-
-/// Returns whether the automatic-update attempt marker has expired.
-fn auto_update_check_due(path: &std::path::Path, duration: Duration) -> bool {
-    crate::file::modified_duration(path).map_or(true, |age| age >= duration)
-}
-
-/// Runtime conditions that gate automatic updates.
-#[derive(Clone, Copy)]
-struct AutoUpdateContext {
-    enabled: bool,
-    offline: bool,
-    prefer_offline: bool,
-    ci: bool,
-    attended: bool,
-    already_reexecuted: bool,
-    self_update_available: bool,
-    command_eligible: bool,
-}
-
-/// Applies the automatic-update safety policy without side effects.
-fn auto_update_eligible(context: AutoUpdateContext) -> bool {
-    context.enabled
-        && !context.offline
-        && !context.prefer_offline
-        && !context.ci
-        && context.attended
-        && !context.already_reexecuted
-        && context.self_update_available
-        && context.command_eligible
-}
-
-/// Builds the replacement process with the original arguments, directory, and
-/// a recursion guard shared by every platform-specific re-exec path.
-fn build_reexec_command<I, S>(args: I, original_cwd: Option<&std::path::Path>) -> Command
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<OsStr>,
-{
-    let mut command = Command::new(&*env::PAKRO_BIN);
-    command.args(args).env(AUTO_UPDATE_REEXEC_ENV, "1");
-    if let Some(cwd) = original_cwd {
-        command.current_dir(cwd);
-    }
-    command
-}
-
-#[cfg(unix)]
-fn reexec(_args: &[String], original_cwd: Option<&std::path::Path>) -> Result<()> {
-    use std::os::unix::process::CommandExt;
-
-    let mut command = build_reexec_command(std::env::args_os().skip(1), original_cwd);
-    let err = command.exec();
-    warn!("pakro was updated but could not re-execute the command: {err}");
-    Ok(())
-}
-
-#[cfg(windows)]
-fn reexec(_args: &[String], original_cwd: Option<&std::path::Path>) -> Result<()> {
-    let mut command = build_reexec_command(std::env::args_os().skip(1), original_cwd);
-    let status = command.status()?;
-    Err(crate::request_exit(status.code().unwrap_or(1)))
-}
-
-#[cfg(not(any(unix, windows)))]
-fn reexec(args: &[String], original_cwd: Option<&std::path::Path>) -> Result<()> {
-    let mut command = build_reexec_command(&args[1..], original_cwd);
-    let status = command.status()?;
-    Err(crate::request_exit(status.code().unwrap_or(1)))
-}
-
 /// Update pakro itself
 ///
 /// Selects the newest stable release satisfying the minimum release age (24h by default).
 /// Explicit versions bypass the delay. Downloads binaries from GitHub Releases.
-/// By default, this will also update any installed plugins.
 /// Uses pakro's GitHub token resolution chain for authenticated requests.
 ///
 /// Packagers can disable this command so that pakro is updated through the
@@ -218,10 +71,6 @@ pub(crate) struct SelfUpdate {
     /// Skip confirmation prompt
     #[usage(long, short)]
     yes: bool,
-
-    /// Disable auto-updating plugins
-    #[usage(long)]
-    no_plugins: bool,
 }
 
 /// Whether replacing the running binary would destroy the install with `TEMP` set to `tmp`.
@@ -339,27 +188,6 @@ fn ends_with_separator(path: &std::path::Path) -> bool {
 fn current_exe_stem() -> Option<String> {
     let exe = std::env::current_exe().ok()?;
     exe.file_stem().and_then(|s| s.to_str()).map(str::to_owned)
-}
-
-/// Refresh the installed plugins, best effort.
-///
-/// This runs after the binary has already been replaced, so a failure here says nothing about
-/// whether the update worked. Propagating it made a successful update print `Updated pakro to X`
-/// and then exit non-zero, which reads as "the update failed" — on Windows that is a bad enough
-/// misreading to send someone looking for a pakro that is not broken. Warned about instead, the way
-/// the two housekeeping steps above it already are.
-///
-/// The message names the step because the error often cannot. `duct` attaches the command only
-/// when the child exits non-zero; a child that never starts comes back as the bare OS error, so an
-/// `ACCESS_DENIED` from spawning the freshly written binary arrives as nothing but
-/// "Access is denied. (os error 5)".
-///
-/// Takes the binary to run rather than reading [`env::PAKRO_BIN`] itself, so a test can drive the
-/// failure without a real update.
-fn update_plugins(bin: &std::path::Path) {
-    if let Err(err) = cmd!(bin, "plugins", "update").run() {
-        warn!("Failed to update plugins: {err}");
-    }
 }
 
 /// Whether a failed write probe of the install directory means the update cannot proceed.
@@ -564,10 +392,6 @@ impl SelfUpdate {
             }
         } else {
             pakroprintln!("pakro is already up to date");
-        }
-        crate::cli::version::show_auto_update_hint();
-        if !self.no_plugins {
-            update_plugins(&env::PAKRO_BIN);
         }
 
         Ok(())
@@ -1151,123 +975,6 @@ mod archive_tests {
                 .await
                 .is_err()
         );
-    }
-}
-
-#[cfg(test)]
-mod auto_update_tests {
-    use super::*;
-
-    fn eligible_context() -> AutoUpdateContext {
-        AutoUpdateContext {
-            enabled: true,
-            offline: false,
-            prefer_offline: false,
-            ci: false,
-            attended: true,
-            already_reexecuted: false,
-            self_update_available: true,
-            command_eligible: true,
-        }
-    }
-
-    #[test]
-    fn eligible_interactive_command_updates() {
-        assert!(auto_update_eligible(eligible_context()));
-    }
-
-    #[test]
-    fn safety_conditions_disable_auto_update() {
-        let context = eligible_context();
-        for ineligible in [
-            AutoUpdateContext {
-                enabled: false,
-                ..context
-            },
-            AutoUpdateContext {
-                offline: true,
-                ..context
-            },
-            AutoUpdateContext {
-                prefer_offline: true,
-                ..context
-            },
-            AutoUpdateContext {
-                ci: true,
-                ..context
-            },
-            AutoUpdateContext {
-                attended: false,
-                ..context
-            },
-            AutoUpdateContext {
-                already_reexecuted: true,
-                ..context
-            },
-            AutoUpdateContext {
-                self_update_available: false,
-                ..context
-            },
-        ] {
-            assert!(!auto_update_eligible(ineligible));
-        }
-    }
-
-    #[test]
-    fn ineligible_commands_do_not_update() {
-        assert!(!auto_update_eligible(AutoUpdateContext {
-            command_eligible: false,
-            ..eligible_context()
-        }));
-    }
-
-    #[test]
-    fn reexec_preserves_arguments_directory_and_guard() {
-        use std::ffi::OsString;
-
-        let cwd = std::path::Path::new("a directory");
-        let args = [OsString::from("install"), OsString::from("node@22 beta")];
-        let command = build_reexec_command(&args, Some(cwd));
-
-        assert_eq!(command.get_args().collect::<Vec<_>>(), args);
-        assert_eq!(command.get_current_dir(), Some(cwd));
-        assert!(command.get_envs().any(|(key, value)| {
-            key == AUTO_UPDATE_REEXEC_ENV && value == Some(OsStr::new("1"))
-        }));
-    }
-
-    #[test]
-    fn automatic_update_attempts_are_throttled() {
-        let temp = tempfile::tempdir().unwrap();
-        let marker = temp.path().join("last-check");
-        assert!(auto_update_check_due(&marker, Duration::from_secs(60)));
-        std::fs::write(&marker, "").unwrap();
-        assert!(!auto_update_check_due(&marker, Duration::from_secs(60)));
-        assert!(auto_update_check_due(&marker, Duration::ZERO));
-    }
-}
-
-#[cfg(test)]
-mod post_update_tests {
-    use super::*;
-
-    /// By the time plugins are refreshed the new binary is already in place, so a failure there
-    /// must not turn a successful update into a failed command. Driving a real spawn failure
-    /// rather than a stub: a binary that cannot be started is what Windows produces while an AV
-    /// scanner still holds the file pakro just wrote, and what discussion #8827 produces over SSH.
-    #[test]
-    fn a_plugins_update_that_cannot_run_is_not_fatal() {
-        let dir = tempfile::tempdir().unwrap();
-        let missing = dir.path().join("pakro-that-is-not-there");
-
-        // Control: without this the test would pass just as well on a spawn that quietly
-        // succeeded, and prove nothing. `run()` has to actually fail for the line below to mean
-        // anything.
-        assert!(cmd!(&missing, "plugins", "update").run().is_err());
-
-        // And the step swallows it. There is no error here to propagate — which is exactly what
-        // the `?` this replaces used to do.
-        update_plugins(&missing);
     }
 }
 

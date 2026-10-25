@@ -585,10 +585,22 @@ impl fmt::Debug for LockedGraph {
 }
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct PythonLockModel {
+    declaration_fingerprint: Option<[u8; 32]>,
     pins: Vec<ContentPin>,
     graphs: Vec<LockedGraph>,
+    builds: Vec<(
+        PinId,
+        crate::packages::python_environment::model::SourceBuildRecord,
+    )>,
 }
 impl PythonLockModel {
+    pub(crate) fn with_declaration_fingerprint(mut self, fingerprint: [u8; 32]) -> Self {
+        self.declaration_fingerprint = Some(fingerprint);
+        self
+    }
+    pub(crate) fn declaration_fingerprint(&self) -> Option<&[u8; 32]> {
+        self.declaration_fingerprint.as_ref()
+    }
     pub(crate) fn from_parts(
         pins: &[ContentPin],
         graphs: &[LockGraphInput<'_>],
@@ -716,8 +728,10 @@ impl PythonLockModel {
             return Err(LockModelError::Reference(LockReference::UnusedPin));
         }
         Ok(Self {
+            declaration_fingerprint: None,
             pins: by_pin.into_values().collect(),
             graphs: by_group.into_values().collect(),
+            builds: Vec::new(),
         })
     }
     pub(crate) fn pins(&self) -> &[ContentPin] {
@@ -1216,6 +1230,7 @@ fn validate_owned(model: &PythonLockModel, limits: LockModelLimits) -> LockModel
         }
         reachable(nodes.len(), &graph.roots, &graph.edges)?;
     }
+    source_builds::validate(model, &mut used, &mut usage, limits)?;
     if used.len() != pins.len() {
         return Err(LockModelError::Reference(LockReference::UnusedPin));
     }
@@ -1255,6 +1270,9 @@ impl<'de> DeserializeSeed<'de> for PythonLockSeed {
         decode::table(deserializer, self.limits)
     }
 }
+
+#[path = "lock_model/source_builds.rs"]
+mod source_builds;
 
 #[path = "lock_model/replace_group.rs"]
 mod replace_group;

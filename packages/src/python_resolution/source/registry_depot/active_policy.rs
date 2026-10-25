@@ -115,20 +115,21 @@ impl ActiveCandidatePolicy for RegistryActivePolicy<'_, '_, '_> {
             }
             ActiveCandidateAssessment::Reject => Ok(ActivePolicyDecision::Reject),
             ActiveCandidateAssessment::RejectWithAlternative(index) => {
-                let alternative = query
-                    .candidates
-                    .iter()
-                    .enumerate()
-                    .find(|(position, candidate)| {
-                        universe.file_index(*position) == Some(index)
-                            && knowledge[*position] == CandidateKnowledge::Compatible
-                            && candidate.candidate.key != query.selected
-                            && self.depot.files.get(&candidate.candidate.key).is_some_and(|file| {
-                                file.project == query.name && file.file_index == index
-                            })
-                    })
-                    .map(|(_, candidate)| candidate)
-                    .ok_or(ActivePolicyError::InvalidInput)?;
+                let alternative =
+                    query
+                        .candidates
+                        .iter()
+                        .enumerate()
+                        .find(|(position, candidate)| {
+                            universe.file_index(*position) == Some(index)
+                                && knowledge[*position] == CandidateKnowledge::Compatible
+                                && candidate.candidate.key != query.selected
+                                && self.depot.files.get(&candidate.candidate.key).is_some_and(
+                                    |file| file.project == query.name && file.file_index == index,
+                                )
+                        })
+                        .map(|(_, candidate)| candidate)
+                        .ok_or(ActivePolicyError::InvalidInput)?;
                 // The complete loop above already bound the candidate and
                 // metadata pointers to this project's actual retained owner.
                 Ok(ActivePolicyDecision::RejectWithAlternative(

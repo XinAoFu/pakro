@@ -24,7 +24,3 @@ schema.path = "./src/schema/pakro-settings.json"
 [rule.formatting]
 reorder_keys = true
 reorder_arrays = false
-
-[[rule]]
-include = ["runtimes/registry/daemon-presets/*.toml"]
-schema.path = "./src/schema/pakro-daemon-preset.json"

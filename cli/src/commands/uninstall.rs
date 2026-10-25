@@ -1,41 +1,12 @@
-use std::collections::HashSet;
-use std::sync::Arc;
-
-use console::style;
-use eyre::{Result, bail, eyre};
-use itertools::Itertools;
-
 use crate::args::ToolArg;
-use crate::backend::Backend;
-use crate::config::Config;
-use crate::toolset::{ToolRequest, ToolSource, ToolVersion, ToolsetBuilder};
-use crate::ui::install_progress::removal_progress;
-use crate::ui::multi_progress_report::MultiProgressReport;
-use crate::{config, dirs, exit, file};
-
-/// Remove installed tool versions
-///
-/// This only removes the installed version; it does not modify pakro.toml.
-/// Use `pakro unuse` to remove a tool from pakro.toml and uninstall it.
+use crate::exit;
+use eyre::{Result, bail, eyre};
+/// Remove one exact unused language or package instance from the shared library.
 #[derive(Debug, usage_rs::Args)]
-#[usage(
-    verbatim_doc_comment,
-    example(
-        r###"pakro uninstall node@18.0.0"###,
-        help = r###"uninstall a specific version"###
-    ),
-    example(
-        r###"pakro uninstall node"###,
-        help = r###"uninstall the current node version (if only one version is installed)"###
-    ),
-    example(
-        r###"pakro uninstall --all node"###,
-        help = r###"uninstall every installed version of node"###
-    )
-)]
+#[usage(verbatim_doc_comment)]
 pub(crate) struct Uninstall {
     /// Tool(s) to remove
-    #[usage(value_name = "INSTALLED_TOOL@VERSION", required_unless = ["all", "package"])]
+    #[usage(value_name = "INSTALLED_TOOL@VERSION", required_unless = "package")]
     installed_tool: Vec<ToolArg>,
 
     /// Exact bound package request, e.g. python@3.13.16+idna@3.10
@@ -49,10 +20,6 @@ pub(crate) struct Uninstall {
     /// Complete shared-library instance identity from pakro installs ls
     #[usage(long, value_name = "INSTANCE")]
     instance: Option<String>,
-
-    /// Delete all installed versions
-    #[usage(long, short)]
-    all: bool,
 
     /// Do not actually delete anything
     #[usage(long, short = 'n')]
@@ -69,168 +36,17 @@ impl Uninstall {
     pub(super) fn is_dry_run(&self) -> bool {
         self.dry_run || self.dry_run_code
     }
-
     pub(crate) async fn run(self) -> Result<()> {
-        if self.shared_library_uninstall()? {
-            return Ok(());
-        }
-        let config = Config::get().await?;
-        let tool_versions = if self.installed_tool.is_empty() && self.all {
-            self.get_all_tool_versions(&config).await?
-        } else {
-            self.get_requested_tool_versions(&config).await?
-        };
-        let tool_versions = tool_versions
-            .into_iter()
-            // Variants of one version (different install options) are different
-            // installations, told apart by where they live.
-            .unique_by(|(_, tv)| {
-                (
-                    tv.request.ba().short.clone(),
-                    tv.version.clone(),
-                    tv.install_path(),
-                )
-            })
-            .collect::<Vec<_>>();
-        // The version as the user wrote it is resolved with no install options, so
-        // under the identity layout it names a directory nothing was installed
-        // into when the installed copies carry options. Where a copy of the version
-        // exists, only existing copies are candidates.
-        let present: HashSet<(String, String)> = tool_versions
-            .iter()
-            .filter(|(_, tv)| file::entry_exists(tv.install_path()))
-            .map(|(_, tv)| (tv.ba().short.clone(), tv.version.clone()))
-            .collect();
-        let tool_versions = tool_versions
-            .into_iter()
-            .filter(|(_, tv)| {
-                file::entry_exists(tv.install_path())
-                    || !present.contains(&(tv.ba().short.clone(), tv.version.clone()))
-            })
-            .collect::<Vec<_>>();
-        if !self.all && tool_versions.len() > self.installed_tool.len() {
-            let variants = tool_versions
-                .iter()
-                .filter_map(|(_, tv)| {
-                    crate::install_layout::resolver::dir_name_of(&tv.install_path())
-                })
-                .collect_vec();
-            if variants.len() == tool_versions.len()
-                && tool_versions
-                    .iter()
-                    .map(|(_, tv)| (tv.ba().short.clone(), tv.version.clone()))
-                    .all_equal()
-            {
-                bail!(
-                    "{} installations match, installed with different options: {}\n\
-                     use --all to uninstall all of them",
-                    variants.len(),
-                    variants.join(", ")
-                );
-            }
-            bail!("multiple tools specified, use --all to uninstall all versions");
-        }
-        let removed_install_paths = tool_versions
-            .iter()
-            .map(|(_, tv)| tv.install_path())
-            .collect::<Vec<_>>();
-
-        let mpr = MultiProgressReport::get();
-        let mut to_remove = Vec::with_capacity(tool_versions.len());
-        for (plugin, tv) in tool_versions {
-            // `is_version_installed` resolves the install path, so it says no for a link whose
-            // target is gone -- and that entry is precisely what someone running `uninstall` is
-            // trying to get rid of. Refusing it left the name occupied with no command able to
-            // free it. It is still not *installed*: this only decides whether there is something
-            // here to remove.
-            if !plugin.is_version_installed(&config, &tv, true)
-                && !file::entry_exists(tv.install_path())
-            {
-                warn!("{} is not installed", tv.style());
-                continue;
-            }
-            to_remove.push((plugin, tv));
-        }
-        let has_work = !to_remove.is_empty();
-
-        // A dry run keeps its per-line report: it exists to be read.
-        let mut progress = if self.is_dry_run() {
-            None
-        } else {
-            removal_progress(
-                &mpr,
-                to_remove
-                    .iter()
-                    .map(|(_, tv)| (crate::cli::prune::removal_key(tv), tv.style())),
-            )
-        };
-        for (plugin, tv) in to_remove {
-            let key = crate::cli::prune::removal_key(&tv);
-            let tool = progress
-                .as_ref()
-                .and_then(|progress| progress.start_tool(&key));
-            let pr = match &tool {
-                Some(tool) => tool.reporter(),
-                None => mpr.add(&tv.style()),
-            };
-            let result = plugin
-                .uninstall_version(&config, &tv, pr.as_ref(), self.is_dry_run())
-                .await;
-            if let Some(tool) = &tool {
-                tool.complete(result.as_ref().err().map(|e| e.to_string()).as_deref());
-            }
-            if let Err(err) = result {
-                error!("{err}");
-                return Err(eyre!(err).wrap_err(format!("failed to uninstall {tv}")));
-            }
-            if self.is_dry_run() {
-                pr.finish_with_message("uninstalled (dry-run)".into());
-            } else {
-                // Removed on purpose: the requests it was selected for choose again.
-                crate::install_layout::resolver::forget_selections_of(&tv.install_path());
-                if let Err(err) = crate::tool_purgatory::forget_path(&tv.install_path()) {
-                    warn!("failed to clear tool purgatory entry: {err:#}");
-                }
-                if tool.is_none() {
-                    pr.finish_with_message("uninstalled".into());
-                }
-            }
-        }
-        if let Some(progress) = progress.as_mut() {
-            progress.finish(vec![]);
-        }
-
-        if self.is_dry_run() {
-            if self.dry_run_code && has_work {
-                return Err(exit::request(1));
-            }
-            return Ok(());
-        }
-
-        file::touch_dir(&dirs::DATA)?;
-        let config = Config::reset().await?;
-        let ts = config.get_toolset().await?;
-        config::rebuild_shims_and_runtime_symlinks_after_removal(
-            &config,
-            ts,
-            &removed_install_paths,
-        )
-        .await?;
-
+        self.shared_library_uninstall()?;
         Ok(())
     }
-
     fn shared_library_uninstall(&self) -> Result<bool> {
         let python: Vec<_> = self
             .installed_tool
             .iter()
-            .filter(|tool| tool.ba.short == "python")
+            .filter(|tool| crate::programs::python::is_python_backend(&tool.ba))
             .collect();
         if self.package.is_some() {
-            eyre::ensure!(
-                !self.all,
-                "--all cannot expand a shared package removal; specify one exact instance"
-            );
             let raw = self.package.as_deref().expect("checked package");
             let parsed =
                 crate::packages::request::parse_install_arg(raw).map_err(|error| eyre!(error))?;
@@ -276,17 +92,11 @@ impl Uninstall {
                 self.instance.is_none(),
                 "--instance requires an exact Python or --package target"
             );
-            if self.all && self.installed_tool.is_empty() {
-                eyre::ensure!(
-                    crate::programs::library::inventory()?.is_empty(),
-                    "--all cannot remove shared library objects; name one exact target and instance"
-                );
-            }
-            return Ok(false);
+            eyre::bail!("uninstall requires one exact shared Python or --package target");
         }
         eyre::ensure!(
-            !self.all && self.installed_tool.len() == 1,
-            "shared Python removal requires one exact target; --all cannot expand it"
+            self.installed_tool.len() == 1,
+            "shared Python removal requires one exact target"
         );
         let version = python[0]
             .tvr
@@ -315,85 +125,5 @@ impl Uninstall {
             return Err(exit::request(1));
         }
         Ok(true)
-    }
-
-    async fn get_all_tool_versions(
-        &self,
-        config: &Arc<Config>,
-    ) -> Result<Vec<(Arc<dyn Backend>, ToolVersion)>> {
-        let ts = ToolsetBuilder::new().build(config).await?;
-        let tool_versions = ts
-            .list_installed_versions(config)
-            .await?
-            .into_iter()
-            .collect::<Vec<_>>();
-        Ok(tool_versions)
-    }
-    async fn get_requested_tool_versions(
-        &self,
-        config: &Arc<Config>,
-    ) -> Result<Vec<(Arc<dyn Backend>, ToolVersion)>> {
-        let runtimes = ToolArg::double_tool_condition(&self.installed_tool)?;
-        let mut tool_versions = Vec::new();
-        for ta in runtimes {
-            let backend = ta.ba.backend()?;
-            let query = ta.tvr.as_ref().map(|tvr| tvr.version()).unwrap_or_default();
-            let installed_versions = backend.list_installed_versions();
-            let exact_match = installed_versions.iter().find(|v| v == &&query);
-            let matches = match exact_match {
-                Some(m) => vec![m],
-                None => installed_versions
-                    .iter()
-                    .filter(|v| v.starts_with(&query))
-                    .collect_vec(),
-            };
-
-            let mut tvs = Vec::new();
-
-            if let Some(tvr) = &ta.tvr {
-                tvs.push((
-                    backend.clone(),
-                    tvr.resolve(config, &Default::default()).await?,
-                ));
-            }
-
-            // Installations of a matching version that differ in install options
-            // share its name, so they are listed from their receipts.
-            for (name, dir) in crate::install_layout::resolver::installs_of(backend.ba()) {
-                if matches.iter().any(|m| **m == name) {
-                    let tvr = ToolRequest::new(backend.ba().clone(), &name, ToolSource::Unknown)?;
-                    let version = tvr.version();
-                    let mut tv = ToolVersion::new(tvr, version);
-                    tv.install_path = Some(dir);
-                    tvs.push((backend.clone(), tv));
-                }
-            }
-            tvs.extend(
-                matches
-                    .into_iter()
-                    .map(|v| {
-                        let tvr = ToolRequest::new(backend.ba().clone(), v, ToolSource::Unknown)?;
-                        // `request.version()`, not the raw name: a ref install is named
-                        // `ref-main` on disk and `ref:main` everywhere else.
-                        let version = tvr.version();
-                        let mut tv = ToolVersion::new(tvr, version);
-                        // The name came from a version link or a receipt, so it names an
-                        // exact installation, whatever options it was installed with.
-                        tv.install_path =
-                            crate::install_layout::resolver::physical_dir(backend.ba(), v);
-                        Ok((backend.clone(), tv))
-                    })
-                    .collect::<Result<Vec<_>>>()?,
-            );
-
-            if tvs.is_empty() {
-                warn!(
-                    "no versions found for {}",
-                    style(&backend).blue().for_stderr()
-                );
-            }
-            tool_versions.extend(tvs);
-        }
-        Ok(tool_versions)
     }
 }

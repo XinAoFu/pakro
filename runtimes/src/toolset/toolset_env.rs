@@ -15,7 +15,7 @@ use crate::path_env::PathEnv;
 use crate::toolset::Toolset;
 use crate::toolset::env_cache::{CachedEnv, compute_settings_hash, get_file_mtime};
 use crate::toolset::tool_request::ToolRequest;
-use crate::{env, file, github, parallel, uv};
+use crate::{env, file, github, parallel};
 
 /// PATH with pakro-managed install dirs filtered out. pakro re-adds the current
 /// toolset's bin dirs below, so a stale `installs/<tool>/<ver>/bin` left on PATH
@@ -409,42 +409,8 @@ impl Toolset {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
 
-        // Include the auto-sourced uv venv (uv.lock + resolved venv) in the key so a venv
-        // dir and a sibling sharing the same config files don't collide on one
-        // cache entry, which would leak the venv across directories.
-        let mut uv_venv_inputs: Vec<(PathBuf, u64)> = Vec::new();
-        if Settings::get().python.uv_venv_auto.should_source()
-            && let Some(uv_root) = uv::uv_root()
-        {
-            let lock = uv_root.join("uv.lock");
-            let venv = uv::uv_venv_path(config, &uv_root);
-            let lock_mtime = get_file_mtime(&lock).unwrap_or(0);
-            let venv_mtime = get_file_mtime(&venv).unwrap_or(0);
-            uv_venv_inputs.push((lock, lock_mtime));
-            uv_venv_inputs.push((venv, venv_mtime));
-        }
-
-        // Package venvs (ADR-0007): key on the venv root + mtime so a venv
-        // appearing (first install) or being re-materialized invalidates the
-        // cached env — PATH and VIRTUAL_ENV must pick it up immediately.
-        let mut package_venv_inputs: Vec<(PathBuf, u64)> = Vec::new();
-        for (_, bin) in crate::packages::venv_bin_dirs(config) {
-            if let Some(venv_root) = bin.parent() {
-                package_venv_inputs.push((
-                    venv_root.to_path_buf(),
-                    get_file_mtime(venv_root).unwrap_or(0),
-                ));
-            }
-        }
-
         Ok(CachedEnv::compute_cache_key(
-            &[
-                config_files,
-                config_lockfiles,
-                uv_venv_inputs,
-                package_venv_inputs,
-            ]
-            .concat(),
+            &[config_files, config_lockfiles].concat(),
             &tool_versions,
             &settings_hash,
             &base_path,
@@ -521,21 +487,7 @@ impl Toolset {
             .collect();
 
         env.extend(config.env().await?.clone());
-        if let Some(venv) = uv::uv_venv(config, self).await? {
-            for (k, v) in venv.env.clone() {
-                env.insert(k, v);
-            }
-        }
-        // ADR-0007: expose the materialized package venv the way a standard
-        // venv would — only when exactly one python group is active, and
-        // never overriding an explicitly configured uv venv
-        if !env.contains_key("VIRTUAL_ENV")
-            && let [(group, bin)] = crate::packages::venv_bin_dirs(config).as_slice()
-            && let Some(venv_root) = bin.parent()
-        {
-            trace!("package venv {group} active");
-            env.insert("VIRTUAL_ENV".into(), venv_root.display().to_string());
-        }
+
         self.prepend_packslip_manpaths(config, &mut env)?;
         for key in &config.env_results().await?.env_remove {
             env.remove(key);

@@ -47,6 +47,15 @@ impl BoundPythonLock {
         })
     }
 
+    pub(crate) fn source_build(
+        &self,
+        pin: PinId,
+    ) -> Option<&crate::packages::python_environment::model::SourceBuildRecord> {
+        self.model
+            .as_ref()
+            .and_then(|model| model.source_build(pin))
+    }
+
     pub(crate) fn model(&self) -> Option<&PythonLockModel> {
         self.model.as_ref()
     }

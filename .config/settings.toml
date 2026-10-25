@@ -1,5 +1,5 @@
 # This file generates code and documentation for settings in pakro
-# When this file is updated, run `pakro run render` to update generated files
+# When this file is updated, run `cargo run -p pakro-settings --example render-schema` to update generated files
 [activate_aggressive]
 description = "Pushes tools' bin-paths to the front of PATH instead of allowing modifications of PATH after activation to take precedence."
 docs = """
@@ -31,32 +31,12 @@ type = "Bool"
 
 [activate_shims]
 default = true
-description = "Allow full shell activation to add tool shims to PATH."
-docs = """
-Set to false to keep the user and system tool shim directories out of `PATH` during
-`pakro activate` and subsequent shell hooks, even when automatic installation or lazy tools
-would otherwise add them:
-
-```sh
-pakro settings set activate_shims false
-```
-
-Restart your shell after changing this setting. For an environment-variable override, set
-`PAKRO_ACTIVATE_SHIMS=false` before running `pakro activate`.
-
-Shims support missing-version auto-installation and first-use installation of lazy tools.
-Disabling them can prevent these commands from being found; use `pakro install` or `pakro exec`
-explicitly instead. Installed tools still get their real bin directories added to `PATH`.
-
-Configured command wrappers, such as `cargo` through [mr-boxington](https://github.com/jdx/mr-boxington), use a separate
-`command-wrappers/bin` directory and remain active. Explicit `pakro activate --shims` also
-continues to add shims regardless of this setting.
-"""
+description = "Control whether shell activation adds managed shim directories to PATH. Explicit installation remains separate from directory selection."
 env = "PAKRO_ACTIVATE_SHIMS"
 type = "Bool"
 
 [age.identity_files]
-description = "List of age identity files to use for decryption (encrypted shared dotfiles and the experimental `[env]` age directives)."
+description = "List of age identity files to use for decryption (the supported `[env]` age directives)."
 env = "PAKRO_AGE_IDENTITY_FILES"
 optional = true
 parse_env = "list_by_os_path_separator"
@@ -65,13 +45,13 @@ type = "ListPath"
 
 [age.key_file]
 default_docs = "~/.config/pakro/age.txt"
-description = "Path to the age private key file to use for encryption/decryption: the default recipient and identity for encrypted shared dotfiles and the key for the experimental `[env]` age directives."
+description = "Path to the age private key file to use for encryption/decryption: the identity for the supported `[env]` age directives."
 env = "PAKRO_AGE_KEY_FILE"
 optional = true
 type = "Path"
 
 [age.ssh_identity_files]
-description = "List of SSH identity files to use for age decryption (encrypted shared dotfiles and the experimental `[env]` age directives)."
+description = "List of SSH identity files to use for age decryption (the supported `[env]` age directives)."
 env = "PAKRO_AGE_SSH_IDENTITY_FILES"
 optional = true
 parse_env = "list_by_os_path_separator"
@@ -282,40 +262,17 @@ type = "Bool"
 
 [auto_install]
 default = true
-description = "Automatically install missing tools when running `pakro x`, `pakro run`, or as part of the 'not found' handler."
+description = "Legacy non-Python missing-command installation policy. Shared Python requires an explicit installation request."
 env = "PAKRO_AUTO_INSTALL"
 type = "Bool"
 
 [auto_install_disable_tools]
-description = "List of tools to skip automatically installing when running `pakro x`, `pakro run`, or as part of the 'not found' handler."
+description = "Tools excluded from the legacy non-Python missing-command installation policy."
 env = "PAKRO_AUTO_INSTALL_DISABLE_TOOLS"
 optional = true
 parse_env = "list_by_comma"
 rust_type = "Vec<String>"
 type = "ListString"
-
-[auto_update]
-default = false
-description = "Automatically update pakro before running eligible commands."
-docs = """
-When enabled, pakro periodically checks for a newer release before running commands that permit
-network access. If an update is available, pakro installs it without updating plugins, then re-runs
-the original command with the new binary.
-
-Automatic updates are skipped in CI, offline and prefer-offline modes, non-interactive sessions,
-shell integration commands, and installations whose packager disabled self-update. This setting is
-global-only so a project's configuration cannot opt users into replacing their pakro binary.
-"""
-env = "PAKRO_AUTO_UPDATE"
-global_only = true
-type = "Bool"
-
-[auto_update_check_duration]
-default = "7d"
-description = "How often to check for a new pakro release when auto-update is enabled."
-env = "PAKRO_AUTO_UPDATE_CHECK_DURATION"
-global_only = true
-type = "Duration"
 
 [cache_prune_age]
 default = "30d"
@@ -477,25 +434,7 @@ type = "Bool"
 
 [color_theme]
 default = "default"
-description = "Theme for interactive prompts (auto/default, charm, base16, catppuccin, dracula)"
-docs = """
-Sets the color theme for interactive prompts like `pakro run` task selection.
-Available themes:
-
-- `auto` (or `default`) - Auto-detect the terminal background (via `COLORFGBG`) and
-  use a light-friendly theme (`base16`) on light terminals, otherwise `charm`
-- `charm` - The charm theme, works well on dark terminals (no auto-detection)
-- `base16` - Base16 theme, works well on light terminals
-- `catppuccin` - Catppuccin theme
-- `dracula` - Dracula theme
-
-`default` is an alias for `auto`: when left unset (or set to `auto`/`default`), pakro
-auto-detects a light terminal background via `COLORFGBG` and switches to `base16` for
-readability. Set an explicit theme (e.g. `charm`) to disable auto-detection.
-
-When colors are disabled (`color=false`, `NO_COLOR`, or `CLICOLOR=0`), interactive
-prompts are rendered without any styling regardless of this setting.
-"""
+description = "Theme for interactive prompts."
 enum = ["auto", "default", "charm", "base16", "catppuccin", "dracula"]
 env = "PAKRO_COLOR_THEME"
 type = "String"
@@ -523,7 +462,7 @@ type = "Bool"
 
 [default_config_filename]
 default = "pakro.toml"
-description = "The default config filename read. `pakro use` and other commands that create new config files will use this value. This must be an env var."
+description = "Default project configuration filename to read."
 env = "PAKRO_DEFAULT_CONFIG_FILENAME"
 env_only = true
 type = "String"
@@ -574,31 +513,6 @@ enabled with [`auto_update`](#auto_update).
 """
 env = "PAKRO_DISABLE_UPDATE_WARNING"
 type = "Bool"
-
-[dotfiles.default_mode]
-default = "symlink"
-description = "Default mode for dotfile entries when mode is omitted. Options: `symlink`, `symlink-each`, `copy`, `template`."
-env = "PAKRO_DOTFILES_DEFAULT_MODE"
-type = "String"
-
-[dotfiles.relative_symlinks]
-default = false
-description = "Create dotfile symlinks with relative targets instead of absolute ones."
-docs = """
-Applies to `symlink` and `symlink-each` entries; an entry's `relative` key overrides it.
-Relative links keep working when the home directory is mounted at a different path on
-another machine or the tree is moved, as long as the target and source stay in the same
-place relative to each other. Ignored on Windows, where directory links are junctions,
-which cannot be relative.
-"""
-env = "PAKRO_DOTFILES_RELATIVE_SYMLINKS"
-type = "Bool"
-
-[dotfiles.root]
-default = "~/.dotfiles"
-description = "Root directory used for implied dotfile sources."
-env = "PAKRO_DOTFILES_ROOT"
-type = "Path"
 
 [dotnet.cli_telemetry_optout]
 description = "Set DOTNET_CLI_TELEMETRY_OPTOUT to opt out of .NET CLI telemetry."
@@ -710,45 +624,13 @@ type = "ListString"
 
 [env_cache]
 default = false
-description = "[experimental] Enable environment caching for nested pakro invocations"
-docs = """
-Cache computed environments (variables and PATH) to disk. This can reduce repeated work
-in nested commands such as `pakro x -- pakro env`.
-
-`pakro activate` and `pakro exec` establish a session key (`__PAKRO_ENV_CACHE_KEY`) inherited
-by child processes. Cache files are encrypted on disk; a process with the key can decrypt
-them. An unrelated session may have a different key and will recompute the environment.
-
-The cache key includes configuration paths and modification times, resolved tool versions,
-relevant settings, the base PATH, and the pakro version. Entries also expire after
-`env_cache_ttl`. Changes to dotenv files or sourced
-scripts may still leave a nested command using a cached environment; clear or disable the
-cache when those changes are not reflected.
-
-pakro does not cache secrets: a configuration with an `age` value, a sops-encrypted `_.file`, or
-a directive with `redact = true` is never written to the cache.
-
-Ordinary environment directives do not currently support a per-value `cacheable = false`
-option. Set `PAKRO_ENV_CACHE=0` before starting pakro when a command must recompute values.
-Changes in an external service do not invalidate the cache by themselves; choose a suitable
-TTL or disable caching for those workflows.
-
-See [Environment caching](/cache-behavior.html#environment-caching) for cache location
-and refresh behavior.
-"""
+description = "Enable caching of environment descriptions where supported. Read-only shared Python queries do not write this cache."
 env = "PAKRO_ENV_CACHE"
 type = "Bool"
 
 [env_cache_ttl]
 default = "1h"
-description = "TTL for cached environments"
-docs = """
-How long cached environments remain valid before being regenerated.
-Accepts duration strings like "1h", "30m", "1d".
-
-Even with a valid TTL, caches are still invalidated when config files,
-tool versions, settings, or watched files change.
-"""
+description = "Lifetime of cached environment descriptions."
 env = "PAKRO_ENV_CACHE_TTL"
 type = "Duration"
 
@@ -813,12 +695,6 @@ description = "Ubuntu release target to use for precompiled Erlang builds from b
 env = "PAKRO_ERLANG_PRECOMPILED_OS"
 optional = true
 type = "String"
-
-[exec_auto_install]
-default = true
-description = "Automatically install missing tools when running `pakro x`."
-env = "PAKRO_EXEC_AUTO_INSTALL"
-type = "Bool"
 
 [experimental]
 description = "Enable experimental pakro features which are incomplete or unstable—breakings changes may occur"
@@ -1298,111 +1174,6 @@ description = "Verify OpenPGP signatures for all tools (built-in, no external gp
 env = "PAKRO_GPG_VERIFY"
 optional = true
 type = "Bool"
-
-[history.allow_plaintext_history]
-default = false
-description = "Allow publishing history that contains unencrypted versions of files now marked for encryption."
-docs = """
-Skips the plaintext history check when manual commands or the history watcher publish or apply
-setup history. Older unencrypted contents can reach this machine or be published to the origin.
-New saves still follow each file's encryption policy. Set this in global settings, or use
-`pakro dot sync --allow-plaintext-history` for one publication.
-"""
-env = "PAKRO_HISTORY_ALLOW_PLAINTEXT_HISTORY"
-global_only = true
-type = "Bool"
-
-[history.describe_command]
-default = ""
-description = "A command that names commits the watcher saves (an agent, say): it gets one JSON object on stdin (uuid, trigger, the computed description, changed tracked paths, and a unified diff of changed unencrypted files, at most 64 KiB) and prints one line of at most 200 characters, which becomes the description. Empty: computed descriptions only."
-docs = """
-The checkpoint is saved before the command runs and keeps its computed description when the
-command fails, prints nothing, or takes longer than 30 seconds. It runs once per checkpoint the
-watcher saved, never per filesystem event or retry, one at a time. Excluded files are not
-captured or named, and encrypted files never have their contents sent.
-"""
-env = "PAKRO_HISTORY_DESCRIBE_COMMAND"
-global_only = true
-type = "String"
-
-[history.enabled]
-default = true
-description = "Record ordinary Git commits for explicitly tracked files around bootstrap operations and on explicit saves."
-docs = """
-With explicit enrollment or existing tracked history, `pakro bootstrap` and
-`pakro bootstrap <part> apply` record before/after commits. `pakro bootstrap dotfiles save`
-explicitly commits tracked changes. Git history lives under `$PAKRO_STATE_DIR/history/repo.git`;
-`pakro bootstrap dotfiles history` lists and compares its file versions. Bootstrap without
-tracking does not start a committed history, and dry runs never record. Set to `false` to
-turn recording off without deleting existing commits.
-"""
-env = "PAKRO_HISTORY_ENABLED"
-type = "Bool"
-
-[history.fetch_interval]
-default = "15m"
-description = "How often the history watcher fetches the origin branch. Values below one second use one second; use history.sync = 'manual' to disable automatic synchronization."
-env = "PAKRO_HISTORY_FETCH_INTERVAL"
-type = "Duration"
-
-[history.notify]
-default = true
-description = "Show a desktop notification when conflicts pause sharing for the setup. Enabled by default; retries stay silent until sharing recovers, and a notifier that is missing or failing never holds up history or sync."
-docs = """
-On Linux, notifications require `notify-send`. On macOS, allow notifications
-for pakro when prompted. Unofficial macOS builds, such as Homebrew, warn when
-connecting a setup repository because notifications are unavailable. Unsupported
-platforms log the conflict only.
-`pakro bootstrap dotfiles status` and `pakro doctor` show the same conflicts without notifications.
-"""
-env = "PAKRO_HISTORY_NOTIFY"
-type = "Bool"
-
-[history.sync]
-default = "sync"
-description = "What the history watcher does with a connected setup repository on its own: `sync` publishes after saves, fetches periodically, and applies incoming changes. Any conflict pauses publication and incoming application for the entire setup; local commits and fetching continue. `fetch-only` only fetches; `manual` does nothing automatically. `pakro bootstrap dotfiles sync` and `pull` work on request in every mode."
-docs = """
-Chosen and disclosed by `pakro bootstrap dotfiles origin set`. Publication happens at most every
-`history.sync_interval` after a save, fetching every `history.fetch_interval`; failures back
-off (one minute doubling to an hour) and local saves continue meanwhile. Applying never runs
-`pakro bootstrap`, installs packages, or renders templates: when incoming configuration
-changes declarations, `pakro bootstrap dotfiles status` says to run `pakro bootstrap`.
-"""
-enum = ["sync", "fetch-only", "manual"]
-env = "PAKRO_HISTORY_SYNC"
-type = "String"
-
-[history.sync_interval]
-default = "5m"
-description = "How soon after a save the history watcher publishes to the setup repository, at most this often."
-env = "PAKRO_HISTORY_SYNC_INTERVAL"
-type = "Duration"
-
-[history.watch.debounce]
-default = "2s"
-description = "How long a changed file must stay quiet before the history watcher saves it (the base autosave interval). A file that keeps changing is stretched on its own and never delays the others."
-env = "PAKRO_HISTORY_WATCH_DEBOUNCE"
-type = "Duration"
-
-[history.watch.max_interval]
-default = "24h"
-description = "The longest autosave interval the history watcher stretches a constantly changing file to. Sustained churn doubles a file's own interval up to this; a settled file is saved promptly again, and a sustained quiet period resets it."
-docs = """
-Ordinary edits are saved after `history.watch.debounce`. A file that keeps being rewritten is
-still saved periodically, ever more rarely, up to this interval; other files are never delayed
-by it. Constantly rewritten application state, logs, caches, and databases are better excluded
-(`pakro bootstrap dotfiles exclude`); a file that genuinely holds configuration but changes
-constantly can be tracked with `autosave = false` and saved explicitly. Nothing is excluded or
-switched to manual saving automatically.
-"""
-env = "PAKRO_HISTORY_WATCH_MAX_INTERVAL"
-type = "Duration"
-
-[history.watch.reconcile]
-default = "10m"
-description = "How often the history watcher rescans the whole tracked set for changes its watches missed. `0` disables periodic reconciliation (startup and configuration changes still reconcile)."
-env = "PAKRO_HISTORY_WATCH_RECONCILE"
-type = "Duration"
 
 [hook_env.cache_ttl]
 default = "0s"
@@ -2150,25 +1921,7 @@ type = "Bool"
 
 [not_found_auto_install]
 default = true
-description = "Set to false to disable the \"command not found\" handler to autoinstall missing tool versions."
-docs = """
-Set to false to disable the "command not found" handler to autoinstall missing tool versions.
-Disable this if experiencing strange behavior in your shell when a command is not found.
-
-The handler works out which tool provides a command from the `bins` metadata in pakro's registry, so
-it can install a tool that is configured but has never been installed — not only a missing version
-of a tool you already have.
-
-**Limitation**: this only covers tools pakro's registry knows. A tool configured by a raw backend
-spec (`github:owner/repo`, `cargo:…`, `gem:…`) carries no bin metadata, so a command name cannot be
-traced back to it. Install those explicitly instead — `pakro install`, or [`pakro x`](/cli/exec) to
-install and run in one step — since both materialise the whole configured toolset whatever the
-backend. By default, the tool also has to be configured in a config file that applies to the current
-directory. Set [`not_found_auto_install_registry`](#not_found_auto_install_registry) to install an
-unconfigured tool when a single registry entry provides the command.
-
-This also runs in shims.
-"""
+description = "Legacy non-Python missing-command installation policy; shared Python missing commands never authorize installation."
 env = "PAKRO_NOT_FOUND_AUTO_INSTALL"
 type = "Bool"
 
@@ -2202,55 +1955,6 @@ env = "PAKRO_NOT_FOUND_SYSTEM_FALLBACK"
 type = "Bool"
 
 
-[oci.default_from]
-default = "debian:bookworm-slim"
-description = "Default base image for `pakro oci build` when [oci].from is not set."
-docs = """
-Default base image reference used by `pakro oci build` when the `pakro.toml` does
-not set `[oci].from` and `--from` is not passed on the CLI. Must be a glibc-based
-image for most pakro tool installs (Node, Python, Ruby prebuilt binaries) to work.
-
-Common overrides:
-- `debian:bookworm-slim` (default) — glibc, ~30MB compressed
-- `ubuntu:24.04` — glibc, slightly larger, familiar
-- `gcr.io/distroless/cc-debian12` — glibc, no shell (not recommended for dev)
-
-Alpine-based images are **not** recommended because their musl libc breaks
-glibc-linked prebuilt binaries that most tools ship.
-"""
-env = "PAKRO_OCI_DEFAULT_FROM"
-type = "String"
-
-[oci.default_mount_point]
-default = "/pakro"
-description = "Path inside OCI images where pakro tools are installed."
-docs = """
-Path inside the built image where pakro tool installs and shims are placed.
-Defaults to `/pakro`. The resulting image sets `PAKRO_DATA_DIR` to this path.
-"""
-env = "PAKRO_OCI_DEFAULT_MOUNT_POINT"
-type = "String"
-
-[oci.insecure_registries]
-description = "Registries (host or host:port) contacted over plain HTTP instead of HTTPS."
-docs = """
-Registries that `pakro oci push` / `pakro oci build --from` contact over plain
-HTTP instead of HTTPS, matching docker's `insecure-registries` daemon option.
-Loopback registries (`localhost:5000`, `127.0.0.1:5000`) are always treated as
-insecure and don't need to be listed. Entries match on exact `host` or
-`host:port`:
-
-```toml
-[settings.oci]
-insecure_registries = ["registry.lan:5000", "10.0.0.8:5000"]
-```
-"""
-env = "PAKRO_OCI_INSECURE_REGISTRIES"
-optional = true
-parse_env = "list_by_comma"
-rust_type = "Vec<String>"
-type = "ListString"
-
 [offline]
 description = "Disable all HTTP requests. Tools will only use locally cached data."
 docs = """
@@ -2272,44 +1976,6 @@ description = "OS to use for precompiled binaries."
 env = "PAKRO_OS"
 optional = true
 type = "String"
-
-[otel.enabled]
-default = false
-description = "[experimental] Enable OpenTelemetry trace export for task executions."
-docs = """
-When `true`, pakro exports OpenTelemetry traces for `pakro run` executions, provided a
-traces endpoint is configured (`OTEL_EXPORTER_OTLP_ENDPOINT` or
-`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`).
-
-Configure the collector endpoint and other options using the standard OpenTelemetry
-environment variables (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`,
-`OTEL_SERVICE_NAME`, etc.).
-
-Log export (task stdout/stderr) is a separate, explicit opt-in — see `otel.logs`.
-
-This flag prevents pakro from unexpectedly emitting spans in environments that set
-`OTEL_EXPORTER_OTLP_ENDPOINT` for other tools.
-"""
-env = "PAKRO_OTEL_ENABLED"
-type = "Bool"
-
-[otel.logs]
-default = false
-description = "[experimental] Enable OpenTelemetry log export for task stdout/stderr."
-docs = """
-When `true` (and a logs endpoint is configured via `OTEL_EXPORTER_OTLP_ENDPOINT` or
-`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`), pakro exports each line of task stdout/stderr as
-an OTLP log record linked to the task span.
-
-This is a separate opt-in from `otel.enabled` because log export ships task output
-to the collector, which is a different trust boundary than traces — secrets that
-appear in stdout/stderr will leave the machine. It also changes task stdio behaviour:
-in `interleave`/`quiet` mode the child process's stdio is piped (not a TTY) so pakro
-can tee every line to the collector, which can affect `isatty()`-dependent behaviour
-(buffering, colour, progress bars, prompts).
-"""
-env = "PAKRO_OTEL_LOGS"
-type = "Bool"
 
 [override_config_filenames]
 default = []
@@ -2417,11 +2083,7 @@ global_only = true
 type = "Bool"
 
 [pin]
-description = "Default to pinning versions when running `pakro use` in pakro.toml files."
-docs = """
-This sets `--pin` by default when running `pakro use` in pakro.toml files. This can be overridden by
-passing `--fuzzy` on the command line.
-"""
+description = "Legacy non-Python version selection preference. Shared Python requires complete exact versions."
 env = "PAKRO_PIN"
 type = "Bool"
 
@@ -2568,63 +2230,13 @@ description = "URL to fetch pyenv from for compiling python with python-build."
 env = "PAKRO_PYENV_REPO"
 type = "String"
 
-[python.uv_venv_auto]
-default = false
-description = "Integrate with uv to manage project venvs when uv.lock is present."
-docs = """
-Controls how pakro handles uv project venvs when a uv.lock file is present.
-
-The legacy `true` value is deprecated: it warns since pakro 2026.7.0 and will be removed in
-pakro 2027.7.0. It is treated like "create|source", with one difference: pakro also exports
-`UV_PYTHON` to force uv to use the python version managed by pakro. Prefer "source" or
-"create|source".
-"""
-enum = [
-  { value = false, description = "disable uv venv integration" },
-  { value = "source", description = "only source an existing `.venv`" },
-  { value = "create|source", description = "create the venv if missing and source it" },
-  { value = true, description = "(create|source) with UV_PYTHON export (deprecated)" },
-]
-env = "PAKRO_PYTHON_UV_VENV_AUTO"
-rust_type = "PythonUvVenvAuto"
-type = "BoolOrString"
-
-[python.uv_venv_create_args]
-description = "Arguments to pass to uv when creating a venv."
-env = "PAKRO_PYTHON_UV_VENV_CREATE_ARGS"
-optional = true
-parse_env = "list_by_colon"
-rust_type = "Vec<String>"
-type = "ListString"
-
-[python.venv_create_args]
-description = "Arguments to pass to python when creating a venv. (not used for uv venv creation)"
-env = "PAKRO_PYTHON_VENV_CREATE_ARGS"
-optional = true
-parse_env = "list_by_colon"
-rust_type = "Vec<String>"
-type = "ListString"
-
-[python.venv_stdlib]
-description = "Prefer to use venv from Python's standard library."
-env = "PAKRO_VENV_STDLIB"
-type = "Bool"
-
 [quiet]
 description = "Suppress all output except errors."
 env = "PAKRO_QUIET"
 type = "Bool"
 
 [raw]
-description = "Connect stdin/stdout/stderr to child processes."
-docs = """
-Connect stdin/stdout/stderr to child processes.
-
-A raw command holds an exclusive lock for as long as it runs, so no other command runs alongside it.
-Enabling this globally therefore serializes task execution whatever `jobs` is set to: the parallel
-execution engine still schedules the tasks, but only one of them can be running a command at a time.
-`pakro run --raw` goes further and sets the scheduler itself to a single job.
-"""
+description = "Connect stdin/stdout/stderr to supported subprocesses without capturing their terminal output."
 env = "PAKRO_RAW"
 type = "Bool"
 
@@ -2794,65 +2406,9 @@ type = "Path"
 
 [safe]
 default = false
-description = "Prevent project configuration from executing code during config loading and version resolution."
-docs = """
-Safe mode is a hard boundary against repo-controlled code execution, designed for
-running pakro against untrusted project configuration — for example a bot that
-updates `pakro.lock` on pull request branches (`pakro lock --bump`), or CI jobs that
-resolve tool versions from configs the operator did not author.
-
-When enabled, pakro refuses (with an error, never a silent fallback) to:
-
-- run `exec()` or `read_file()` in config templates
-- run hooks
-- run tasks
-- execute asdf plugin scripts
-- install plugins
-
-It also ignores environment and shell configuration from project (non-global) config —
-`[env]` values, `_.path`, `_.file`, and `[shell_alias]` entries — since those would be
-applied to the host environment (env vars and aliases are emitted through `hook-env`) and
-to subprocesses pakro spawns during resolution, an indirect code-execution vector.
-Global/system config is operator-owned and still applies. `_.source` runs a shell script
-(code execution rather than env injection), so it is ignored regardless of source.
-
-Version resolution still works for every HTTP-based backend (core, aqua, github,
-gitlab, http, cargo, gem, dotnet) as well as `go` (which runs with
-`GOTOOLCHAIN=local` so a project `go.mod` cannot trigger a toolchain download).
-Refreshing `pakro.lock` and listing installed tools work normally.
-"""
+description = "Reject project-controlled code execution during configuration loading and version resolution."
 env = "PAKRO_SAFE"
 global_only = true
-type = "Bool"
-
-[sandbox.deny_all]
-default = false
-description = "Deny filesystem reads and writes, network access, and environment variable inheritance by default for `pakro run` and `pakro exec`."
-env = "PAKRO_SANDBOX_DENY_ALL"
-type = "Bool"
-
-[sandbox.deny_env]
-default = false
-description = "Deny environment variable inheritance by default for `pakro run` and `pakro exec`."
-env = "PAKRO_SANDBOX_DENY_ENV"
-type = "Bool"
-
-[sandbox.deny_net]
-default = false
-description = "Deny network access by default for `pakro run` and `pakro exec`."
-env = "PAKRO_SANDBOX_DENY_NET"
-type = "Bool"
-
-[sandbox.deny_read]
-default = false
-description = "Deny filesystem reads by default for `pakro run` and `pakro exec`."
-env = "PAKRO_SANDBOX_DENY_READ"
-type = "Bool"
-
-[sandbox.deny_write]
-default = false
-description = "Deny filesystem writes by default for `pakro run` and `pakro exec`."
-env = "PAKRO_SANDBOX_DENY_WRITE"
 type = "Bool"
 
 [self_update.api_url]
@@ -2882,7 +2438,7 @@ minimum_release_age = "7d"
 self_update.minimum_release_age = "24h"
 ```
 
-The bootstrap installer also accepts `PAKRO_SELF_UPDATE_MINIMUM_RELEASE_AGE`, falling back
+The standalone installer also accepts `PAKRO_SELF_UPDATE_MINIMUM_RELEASE_AGE`, falling back
 to `PAKRO_MINIMUM_RELEASE_AGE` and then `24h`. It reads environment variables, not TOML files,
 and supports integer durations in seconds (`s`), minutes (`m`), hours (`h`), days (`d`), or
 weeks (`w`). An explicit `PAKRO_VERSION` bypasses the delay.
@@ -2907,24 +2463,7 @@ global_only = true
 type = "String"
 
 [shared_install_dirs]
-description = "Additional read-only directories to search for installed tool versions."
-docs = """
-A list of additional directories to search for installed tool versions. These directories
-are checked after the primary install directory (`~/.local/share/pakro/installs`) when
-looking for installed tools. They are read-only—pakro will never install tools into these
-directories.
-
-The system directory `/usr/local/share/pakro/installs` (or `PAKRO_SYSTEM_DATA_DIR/installs`) is
-always checked automatically when it exists—you do not need to add it here. To populate it,
-run: `pakro install --system node@20`
-
-This is useful for shared environments like Docker containers or bastion hosts where a
-base set of tools is pre-installed in a shared location, and users can install additional
-tools in their own directory.
-
-Paths are separated by the OS path separator when using the environment variable,
-`pakro settings set`, or `pakro settings add` (`:` on Unix, `;` on Windows).
-"""
+description = "Additional existing shared tool installation directories."
 env = "PAKRO_SHARED_INSTALL_DIRS"
 optional = true
 parse_env = "list_by_os_path_separator"
@@ -3010,61 +2549,8 @@ optional = true
 type = "Path"
 
 [silent]
-description = "Suppress all `pakro run|watch` output except errors—including what tasks output."
+description = "Suppress output except errors."
 env = "PAKRO_SILENT"
-type = "Bool"
-
-[skills.auto_sync]
-default = false
-description = "Link the active tools' agent skills into the project after `pakro install` and `pakro use`."
-docs = """
-When on, pakro runs the equivalent of `pakro skills sync` after every install
-and after `pakro use` changes a version, so the links under
-[`skills.dir`](#skills.dir) always point at the versions that are active in
-the project. Only projects with a pakro config get links; nothing is written
-outside a project root. Links pakro made are the only ones it touches, and
-stale ones are removed only when [`skills.prune`](#skills.prune) is on.
-"""
-env = "PAKRO_SKILLS_AUTO_SYNC"
-type = "Bool"
-
-[skills.dir]
-default = ".claude/skills"
-description = "Where `pakro skills sync` links skills: a path under the project root, or under the home directory with `--global`."
-docs = """
-The directory an agent reads skills from, relative to the project root, or
-to the home directory for `pakro skills sync --global`. An absolute path is
-used as it is. `--dir` on the command line overrides it for one run. Set it
-to `.agents/skills` or wherever the agents you use look.
-"""
-env = "PAKRO_SKILLS_DIR"
-type = "String"
-
-[skills.fetch]
-default = true
-description = "Fetch the agent skills a tool's packslip declares when installing it."
-docs = """
-A packslip may declare agent skills beside the tool's executables. pakro
-fetches them at install time so every installed version carries its own
-copy. Turn this off to skip fetching skills during installation. This does not
-delete previously fetched skills or existing links. See
-[agent skills](/dev-tools/packslip-resources.html#skills) for synchronization
-and pruning.
-"""
-env = "PAKRO_SKILLS_FETCH"
-type = "Bool"
-
-[skills.prune]
-default = false
-description = "Remove links pakro made for skills that are no longer active when syncing."
-docs = """
-`pakro skills sync` leaves links for skills of versions that are no longer
-active unless told to prune them. This makes pruning the default, for the
-command and for [`skills.auto_sync`](#skills.auto_sync). Only links pakro
-made, recorded beside them and pointing into its installs directory, are
-ever removed.
-"""
-env = "PAKRO_SKILLS_PRUNE"
 type = "Bool"
 
 [slsa]
@@ -3132,12 +2618,6 @@ Disable tools with [`disable_tools`](#disable_tools).
 env = "PAKRO_STATUS_MESSAGE_MISSING_TOOLS"
 type = "String"
 
-[status.show_deps_stale]
-default = true
-description = "Show warning when deps providers have stale dependencies."
-env = "PAKRO_STATUS_SHOW_DEPS_STALE"
-type = "Bool"
-
 [status.show_env]
 description = "Show configured env vars when entering a directory with a pakro.toml file."
 env = "PAKRO_STATUS_MESSAGE_SHOW_ENV"
@@ -3174,596 +2654,19 @@ env_only = true
 optional = true
 type = "Path"
 
-[system_deps]
-default = "prompt"
-description = "How to handle a plugin's declared system dependencies before installing a tool."
-docs = """
-Controls what pakro does when a plugin declares system prerequisites (build tools,
-libraries, ...) via `PLUGIN.systemDependencies` and one or more are missing before
-the tool is compiled/installed.
-
-Detection is always the source of truth: a prerequisite that pakro can already find
-on the machine (via any means — Homebrew, apt, nix, MacPorts, from source) is never
-questioned. This setting only governs what happens for the *missing* subset:
-
-- `prompt` (default) — report the missing capabilities and offer to install them
-  via the first available system package manager. Falls back to `warn` when not
-  running interactively.
-- `auto` — install the missing packages without asking (implies the package
-  manager's own non-interactive install; may use sudo per `system_packages.sudo`).
-- `warn` — print the missing capabilities and copy-pasteable install commands, then
-  continue with the install anyway.
-- `ignore` — do nothing; skip the check entirely.
-
-Missing *optional* dependencies never prompt or fail — they surface as a single
-informational line regardless of this setting.
-"""
-enum = ["prompt", "auto", "warn", "ignore"]
-env = "PAKRO_SYSTEM_DEPS"
-rust_type = "SystemDepsMode"
-type = "String"
-
 [system_installs_dir]
-description = "Directory containing system tool installs."
-docs = """
-The destination used by `pakro install --system` and lazy tools declared in system config.
-Defaults to `$PAKRO_SYSTEM_DATA_DIR/installs`. The directory must be absolute after `~` expansion.
-"""
+description = "Directory containing existing system tool installations."
 env = "PAKRO_SYSTEM_INSTALLS_DIR"
 global_only = true
 optional = true
 type = "Path"
 
-[system_packages.managers]
-description = "Restrict which system package managers pakro will use."
-docs = """
-Restrict which system package managers pakro will use.
-
-By default pakro acts on every manager in `[bootstrap.packages]` that is available
-on the current machine. When more than one could apply (e.g. several package
-managers installed on one machine, or a shared config listing managers you
-don't want on this machine), set this to the subset you want:
-
-```toml
-[settings]
-system_packages.managers = ["apt"]
-```
-
-This composes well with platform-specific config files
-(`pakro.macos.toml`, `pakro.linux.toml`) for per-OS defaults.
-"""
-env = "PAKRO_SYSTEM_PACKAGES_MANAGERS"
-optional = true
-parse_env = "list_by_comma"
-rust_type = "Vec<String>"
-type = "ListString"
-
-[system_packages.sudo]
-default = true
-description = "Allow `pakro bootstrap` and `pakro install --system` to elevate with sudo when not running as root."
-docs = """
-Allow `pakro bootstrap` and `pakro install --system` to invoke sudo when root
-permissions are needed. Enabled by default.
-
-For bootstrap, elevation applies to explicit apply operations. For
-[`pakro install --system`](/dev-tools/index.html#system-installations), pakro
-prepares supported tools as your user and elevates only to write the installation
-and its links into protected system directories.
-
-Set this to `false` to disable automatic elevation. Operations that require root
-permissions then fail unless pakro is already running as root. Operations that do
-not need elevation, such as installing into a user-writable directory, still work.
-
-pakro logs each elevated command before running it. Interactive sessions can
-prompt for a sudo password; noninteractive sessions require sudo to work without
-a password prompt. When already running as root, pakro skips sudo.
-"""
-env = "PAKRO_SYSTEM_PACKAGES_SUDO"
-type = "Bool"
-
 [system_shims_dir]
-description = "Directory containing system shims."
-docs = """
-The system shim farm populated by `pakro reshim --system` and system installs.
-Defaults to `$PAKRO_SYSTEM_DATA_DIR/shims`. It may equal `shims_dir`; when it does, pakro reconciles
-one combined farm. The directory must be absolute after `~` expansion.
-"""
+description = "Directory containing existing system tool shims."
 env = "PAKRO_SYSTEM_SHIMS_DIR"
 global_only = true
 optional = true
 type = "Path"
-
-[task.auto_infer]
-default = []
-description = "[experimental] Workspace providers from which to automatically infer tasks."
-docs = """
-List the workspace provider languages whose ecosystem tasks pakro should import. For example,
-`["node"]` imports scripts from Node workspace `package.json` files. Inferred tasks use stable
-provider-scoped names and monorepo path aliases. Task inference is opt-in because ecosystem commands
-may overlap with explicit pakro tasks.
-"""
-env = "PAKRO_TASK_AUTO_INFER"
-parse_env = "set_by_comma"
-rust_type = "BTreeSet<String>"
-type = "SetString"
-
-[task.cache.audit_report]
-description = "[experimental] File to write the complete task cache audit report to."
-docs = """
-Write the complete report produced by [`cache.audit`](/tasks/task-configuration.html#cache) to this
-file as JSON Lines, one `{"task", "kind", "path"}` object per undeclared path. Console warnings
-remain limited to the first 20 paths per task.
-
-Truncation happens once per `pakro` invocation: the first audited task in each invocation truncates
-the file and later audited tasks in that invocation append to it, so one file holds that run's
-report for every audited task and a later run replaces it rather than adding to it. Cached tasks do
-not execute and write nothing, leaving an earlier report in place. Relative paths resolve against
-pakro's working directory.
-"""
-env = "PAKRO_TASK_CACHE_AUDIT_REPORT"
-optional = true
-type = "Path"
-
-[task.cache.remote_mode]
-default = "read-write"
-description = "[experimental] Remote task and action cache access mode."
-docs = """
-Control access to the remote cache used by task result and action caching:
-
-- `read-write` reads remote misses and uploads successful local results.
-- `read-only` reads remote misses without uploading results.
-- `write-only` uploads results without reading remote entries.
-
-The per-run `--task-cache=local-only` mode disables remote task-result access. Action-cache adapters
-may further restrict this mode. Remote writes are allowed only from protected-branch push pipelines
-in GitHub Actions and GitLab CI; pull requests, unprotected branches, other CI systems, and local
-developer runs are read-only. The server must independently enforce the same policy from verified
-OIDC claims.
-"""
-enum = ["read-write", "read-only", "write-only"]
-env = "PAKRO_TASK_CACHE_REMOTE_MODE"
-rust_type = "pakro_cache_core::RemoteCacheMode"
-type = "String"
-
-[task.cache.remote_namespace]
-description = "[experimental] Namespace sent to the remote build cache."
-docs = """
-Opaque repository or organization namespace used to isolate remote build-cache entries. This
-setting is required when [`task.cache.remote_url`](/configuration/settings.html#task.cache.remote_url) is configured.
-"""
-env = "PAKRO_TASK_CACHE_REMOTE_NAMESPACE"
-optional = true
-type = "String"
-
-[task.cache.remote_oidc_audience]
-description = "[experimental] Audience for an automatically acquired remote cache OIDC token."
-docs = """
-Acquire a short-lived OIDC token for this audience when running in a supported workload identity
-environment. GitHub Actions is supported through its OIDC request environment variables. This
-setting is global-only so shared project configuration cannot choose a token audience.
-"""
-env = "PAKRO_TASK_CACHE_REMOTE_OIDC_AUDIENCE"
-global_only = true
-optional = true
-type = "String"
-
-[task.cache.remote_token]
-description = "[experimental] Bearer token for remote build-cache authentication."
-docs = """
-Authenticate remote build-cache requests with an HTTP `Authorization: Bearer` header. Prefer the
-`PAKRO_TASK_CACHE_REMOTE_TOKEN` environment variable or a protected global configuration file; this
-setting is global-only so shared project configuration cannot supply credentials.
-"""
-env = "PAKRO_TASK_CACHE_REMOTE_TOKEN"
-global_only = true
-optional = true
-type = "String"
-
-[task.cache.remote_token_file]
-description = "[experimental] File containing a remote build-cache bearer token."
-docs = """
-Read the remote build-cache bearer token from this file before each request. This supports rotating
-credentials such as Kubernetes projected service account tokens. This setting is global-only so
-shared project configuration cannot select a credential file.
-"""
-env = "PAKRO_TASK_CACHE_REMOTE_TOKEN_FILE"
-global_only = true
-optional = true
-type = "Path"
-
-[task.cache.remote_url]
-description = "[experimental] Base URL for the remote build-cache service."
-docs = """
-Enable the versioned HTTP remote build-cache protocol at this base URL. Remote access also requires
-[`task.cache.remote_namespace`](/configuration/settings.html#task.cache.remote_namespace). Leave unset to use only local caches.
-"""
-env = "PAKRO_TASK_CACHE_REMOTE_URL"
-optional = true
-type = "Url"
-
-[task.cache.stats_report]
-description = "[experimental] File to write action-cache session statistics to."
-docs = """
-Write a versioned JSON report describing Rust action-cache activity, transfer volume, restored
-outputs, and phase timings. Timing values use nanoseconds. Concurrent phase timings are cumulative
-work time and can exceed the end-to-end `session_duration_ns`; `prefetch_duration_ns` is the sum of
-wall-clock durations for each task prefetch run.
-
-This is intended for CI qualification and benchmarking. Relative paths resolve against pakro's
-working directory. The report is replaced atomically after each `pakro run` invocation that creates
-an action-cache session.
-"""
-env = "PAKRO_TASK_CACHE_STATS_REPORT"
-optional = true
-type = "Path"
-
-[task.cache_dir]
-description = "[experimental] Directory for task output cache artifacts."
-docs = """
-Store task output cache artifacts in this directory instead of
-`PAKRO_CACHE_DIR/task-artifacts`. pakro stores the current artifact format in a
-versioned subdirectory and includes custom locations in `pakro cache clear` and
-manual and automatic cache pruning.
-"""
-env = "PAKRO_TASK_CACHE_DIR"
-optional = true
-type = "Path"
-
-[task.cache_max_age]
-description = "[experimental] Maximum age of task output cache entries since their last access."
-docs = """
-Remove task output cache entries that have not been accessed within this duration after a new entry
-is stored. This limit applies only to the task output cache and is independent of
-[`cache_prune_age`](/configuration/settings.html#cache_prune_age). Set to `0s` or leave unset to disable the age limit.
-"""
-env = "PAKRO_TASK_CACHE_MAX_AGE"
-optional = true
-type = "Duration"
-
-[task.cache_max_size]
-description = "[experimental] Maximum total size of task output cache entries."
-docs = """
-Keep the task output cache at or below this size by removing least-recently-accessed entries after a
-new entry is stored. Values accept SI or IEC units such as `500MB` or `2GiB`. Set to `0` or leave
-unset to disable the size limit.
-"""
-env = "PAKRO_TASK_CACHE_MAX_SIZE"
-optional = true
-type = "String"
-
-[task.cache_remote_mode]
-deprecated = "Use task.cache.remote_mode instead."
-deprecated_remove_at = "2027.8.0"
-deprecated_warn_at = "2027.2.0"
-description = "Compatibility alias for task.cache.remote_mode."
-enum = ["read-write", "read-only", "write-only"]
-hide = true
-optional = true
-rust_type = "pakro_cache_core::RemoteCacheMode"
-type = "String"
-
-[task.cache_remote_namespace]
-deprecated = "Use task.cache.remote_namespace instead."
-deprecated_remove_at = "2027.8.0"
-deprecated_warn_at = "2027.2.0"
-description = "Compatibility alias for task.cache.remote_namespace."
-hide = true
-optional = true
-type = "String"
-
-[task.cache_remote_oidc_audience]
-deprecated = "Use task.cache.remote_oidc_audience instead."
-deprecated_remove_at = "2027.8.0"
-deprecated_warn_at = "2027.2.0"
-description = "Compatibility alias for task.cache.remote_oidc_audience."
-global_only = true
-hide = true
-optional = true
-type = "String"
-
-[task.cache_remote_token]
-deprecated = "Use task.cache.remote_token instead."
-deprecated_remove_at = "2027.8.0"
-deprecated_warn_at = "2027.2.0"
-description = "Compatibility alias for task.cache.remote_token."
-global_only = true
-hide = true
-optional = true
-type = "String"
-
-[task.cache_remote_token_file]
-deprecated = "Use task.cache.remote_token_file instead."
-deprecated_remove_at = "2027.8.0"
-deprecated_warn_at = "2027.2.0"
-description = "Compatibility alias for task.cache.remote_token_file."
-global_only = true
-hide = true
-optional = true
-type = "Path"
-
-[task.cache_remote_url]
-deprecated = "Use task.cache.remote_url instead."
-deprecated_remove_at = "2027.8.0"
-deprecated_warn_at = "2027.2.0"
-description = "Compatibility alias for task.cache.remote_url."
-hide = true
-optional = true
-type = "Url"
-
-[task.disable_paths]
-default = []
-description = "Paths that pakro will not look for tasks in."
-docs = """
-Paths that pakro will not look for tasks in.
-
-Relative paths set in a config file are resolved from that file's config root. Relative paths from
-the environment are resolved from the invocation's working directory.
-
-Paths are separated by the OS path separator when using the environment variable,
-`pakro settings set`, or `pakro settings add` (`:` on Unix, `;` on Windows).
-"""
-env = "PAKRO_TASK_DISABLE_PATHS"
-parse_env = "list_by_os_path_separator"
-rust_type = "BTreeSet<PathBuf>"
-type = "ListPath"
-
-[task.disable_spec_from_run_scripts]
-default = false
-description = "Opt out of parsing task run scripts to infer the usage spec (arguments and flags). When enabled, pakro will derive the usage spec only from the `usage` field, ignoring any `arg()`, `option()`, or `flag()` templates used in run scripts. This can restore previous behavior and avoid the extra template pass over run scripts when collecting specs."
-docs = """
-When enabled, `arg()`, `option()`, and `flag()` Tera functions in run scripts will not contribute
-to the task's usage spec—only the explicit `usage` field is used.
-
-This is useful for:
-- Skipping the extra template pass over run scripts (performance)
-- Avoiding two-pass parsing quirks where template functions return empty strings during spec collection
-- Early opt-out before Tera template arguments are removed in 2026.11.0
-"""
-env = "PAKRO_TASK_DISABLE_SPEC_FROM_RUN_SCRIPTS"
-type = "Bool"
-
-[task.monorepo_depth]
-default = 5
-description = "Maximum depth to search for task files in monorepo subdirectories."
-docs = """
-When using monorepo mode (monorepo_root = true), this controls how deep
-pakro will search for task files in subdirectories.
-
-**Depth levels:**
-- 1 = immediate children only (monorepo_root/projects/)
-- 2 = grandchildren (monorepo_root/projects/frontend/)
-- 5 = default (5 levels deep)
-
-**Performance tip:** Reduce this value if you have a very large monorepo and notice
-slow task discovery. For example, if your projects are all at `projects/*`, set to 2.
-
-**Example:**
-```toml
-[settings]
-task.monorepo_depth = 3  # Only search 3 levels deep
-```
-
-Or via environment variable:
-```bash
-export PAKRO_TASK_MONOREPO_DEPTH=3
-```
-"""
-env = "PAKRO_TASK_MONOREPO_DEPTH"
-type = "Integer"
-
-[task.monorepo_exclude_dirs]
-default = []
-description = "Directory patterns to exclude when discovering monorepo subdirectories."
-docs = """
-If empty (default), uses default exclusions: node_modules, target, dist, build.
-If you specify any patterns, ONLY those patterns will be excluded (defaults are NOT included).
-For example, setting to [".temp", "vendor"] will exclude only those two directories.
-"""
-env = "PAKRO_TASK_MONOREPO_EXCLUDE_DIRS"
-parse_env = "list_by_comma"
-rust_type = "Vec<String>"
-type = "ListString"
-
-[task.monorepo_respect_gitignore]
-default = true
-description = "Whether to respect .gitignore files when discovering monorepo subdirectories."
-docs = """
-When enabled, pakro will skip directories that are ignored by .gitignore files
-when discovering tasks in a monorepo.
-"""
-env = "PAKRO_TASK_MONOREPO_RESPECT_GITIGNORE"
-type = "Bool"
-
-[task.output]
-description = "Change output style when executing tasks."
-docs = """
-Change output style when executing tasks. This controls the output of `pakro run`.
-
-This is the output *style* axis. Verbosity is a separate axis controlled by
-`task.quiet`/`silent` (as settings, `--quiet`/`--silent` flags, or per-task
-fields), so a style can be combined with quietness — e.g. `output = "prefix"`
-together with `task.quiet = true` keeps the task-name prefixes while suppressing
-pakro's own task messages. The `quiet` and `silent` *values* below are kept for
-backwards compatibility and bundle a style with that verbosity.
-
-::: warning Deprecated
-The `quiet` output value is deprecated. Warnings begin in pakro `2026.9.3`, and
-support will be removed in `2027.9.3`. For a global task default, use
-`task.output = "interleave"` with `task.quiet = true`. For an individual task,
-use `output = "interleave"` with `quiet = true`. On the command line, use
-`--output interleave --quiet`.
-:::
-"""
-enum = [
-  { value = "prefix", description = "(default if jobs > 1) print by line with the prefix of the task name" },
-  { value = "interleave", description = "(default if jobs == 1 or all tasks run sequentially) print output as it comes in" },
-  { value = "keep-order", description = "stream one task's output live while buffering others, printing in definition order as tasks complete" },
-  { value = "replacing", description = "replace stdout each time a line is printed-this uses similar logic as `pakro install`" },
-  { value = "timed", description = "only show stdout lines that take longer than 1s to complete" },
-  { value = "quiet", description = "deprecated: interleave task output and suppress pakro's own messages. Use `interleave` with the appropriate quiet setting or flag." },
-  { value = "silent", description = "print nothing from tasks or pakro (nulls stdout and stderr)" },
-]
-env = "PAKRO_TASK_OUTPUT"
-optional = true
-rust_type = "TaskOutput"
-type = "String"
-
-[task.quiet]
-default = false
-description = "Suppress pakro's own output while executing tasks."
-docs = """
-Suppress pakro's own output while executing tasks without affecting other pakro
-commands. Task stdout and stderr remain visible. This setting is independent of
-the `task.output` style, so it can be combined with `prefix`, `interleave`, or
-another output style.
-"""
-env = "PAKRO_TASK_QUIET"
-type = "Bool"
-
-[task.remote_no_cache]
-description = "Pakro will always fetch the latest tasks from the remote, by default the cache is used."
-env = "PAKRO_TASK_REMOTE_NO_CACHE"
-optional = true
-type = "Bool"
-
-[task.run_auto_install]
-default = true
-description = "Automatically install missing tools when executing tasks."
-env = "PAKRO_TASK_RUN_AUTO_INSTALL"
-type = "Bool"
-
-[task.show_full_cmd]
-description = "Disable truncation of command lines in task execution output. When true, the full command line will be shown."
-env = "PAKRO_TASK_SHOW_FULL_CMD"
-type = "Bool"
-
-[task.skip]
-default = []
-description = "Tasks to skip when running `pakro run`."
-env = "PAKRO_TASK_SKIP"
-parse_env = "set_by_comma"
-rust_type = "BTreeSet<String>"
-type = "SetString"
-
-[task.skip_depends]
-description = "Run only specified tasks skipping all dependencies."
-env = "PAKRO_TASK_SKIP_DEPENDS"
-type = "Bool"
-
-[task.source_freshness_equal_mtime_is_fresh]
-default = false
-description = "When source mtime equals output mtime, consider sources fresh (use <=). Default false uses strict < comparison."
-env = "PAKRO_TASK_SOURCE_FRESHNESS_EQUAL_MTIME_IS_FRESH"
-type = "Bool"
-
-[task.source_freshness_hash_contents]
-default = false
-description = "Use content hashing (blake3) instead of metadata for source freshness. More accurate but slower."
-env = "PAKRO_TASK_SOURCE_FRESHNESS_HASH_CONTENTS"
-type = "Bool"
-
-[task.timeout]
-description = "Default timeout for tasks."
-docs = """
-Sets a global default timeout for all tasks. Individual tasks can also specify their own `timeout`.
-
-When both a global timeout and a per-task timeout are set, the **shorter** of the two always wins—a
-per-task timeout cannot extend beyond the global timeout. The `--timeout` CLI flag overrides this
-global setting.
-"""
-env = "PAKRO_TASK_TIMEOUT"
-optional = true
-type = "Duration"
-
-[task.timings]
-description = "Show completion message with elapsed time for each task on `pakro run`. Default shows when output type is `prefix`."
-env = "PAKRO_TASK_TIMINGS"
-optional = true
-type = "Bool"
-
-[task_disable_paths]
-deprecated = "Use task.disable_paths instead."
-deprecated_remove_at = "2027.2.0"
-deprecated_warn_at = "2026.8.0"
-description = "Paths that pakro will not look for tasks in."
-hide = true
-optional = true
-rust_type = "BTreeSet<PathBuf>"
-type = "ListPath"
-
-[task_output]
-deprecated = "Use task.output instead."
-deprecated_remove_at = "2027.2.0"
-deprecated_warn_at = "2026.8.0"
-description = "Change output style when executing tasks."
-hide = true
-optional = true
-rust_type = "TaskOutput"
-type = "String"
-
-[task_remote_no_cache]
-deprecated = "Use task.remote_no_cache instead."
-deprecated_remove_at = "2027.2.0"
-deprecated_warn_at = "2026.8.0"
-description = "Pakro will always fetch the latest tasks from the remote, by default the cache is used."
-hide = true
-optional = true
-type = "Bool"
-
-[task_run_auto_install]
-deprecated = "Use task.run_auto_install instead."
-deprecated_remove_at = "2027.2.0"
-deprecated_warn_at = "2026.8.0"
-description = "Automatically install missing tools when executing tasks."
-hide = true
-optional = true
-type = "Bool"
-
-[task_show_full_cmd]
-deprecated = "Use task.show_full_cmd instead."
-deprecated_remove_at = "2027.2.0"
-deprecated_warn_at = "2026.8.0"
-description = "Disable truncation of command lines in task execution output. When true, the full command line will be shown."
-hide = true
-optional = true
-type = "Bool"
-
-[task_skip]
-deprecated = "Use task.skip instead."
-deprecated_remove_at = "2027.2.0"
-deprecated_warn_at = "2026.8.0"
-description = "Tasks to skip when running `pakro run`."
-hide = true
-optional = true
-rust_type = "BTreeSet<String>"
-type = "SetString"
-
-[task_skip_depends]
-deprecated = "Use task.skip_depends instead."
-deprecated_remove_at = "2027.2.0"
-deprecated_warn_at = "2026.8.0"
-description = "Run only specified tasks skipping all dependencies."
-hide = true
-optional = true
-type = "Bool"
-
-[task_timeout]
-deprecated = "Use task.timeout instead."
-deprecated_remove_at = "2027.2.0"
-deprecated_warn_at = "2026.8.0"
-description = "Default timeout for tasks. Can be overridden by individual tasks."
-hide = true
-optional = true
-type = "Duration"
-
-[task_timings]
-deprecated = "Use task.timings instead."
-deprecated_remove_at = "2027.2.0"
-deprecated_warn_at = "2026.8.0"
-description = "Show completion message with elapsed time for each task on `pakro run`. Default shows when output type is `prefix`."
-hide = true
-optional = true
-type = "Bool"
 
 [tera_v1]
 default = false
@@ -3820,7 +2723,7 @@ default = true
 description = "Truncate long terminal output to fit the available width."
 docs = """
 Set to `false` to preserve complete values in terminal-width-aware output such as table cells and
-task command lines. This does not disable safety limits on captured command output, HTTP response
+subprocess command lines. This does not disable safety limits on captured command output, HTTP response
 bodies, or history data.
 
 AI coding agents automatically receive untruncated presentation output regardless of this setting.
@@ -3857,40 +2760,6 @@ env = "PAKRO_UNIX_DEFAULT_INLINE_SHELL_ARGS"
 global_only = true
 type = "String"
 
-[upgrade.auto_prune]
-default = true
-description = "Schedule the version `pakro upgrade` replaced for pruning once the new one has installed."
-docs = """
-`pakro upgrade` schedules the version it upgraded away from for removal after
-[`upgrade.prune_after`](/configuration/settings.html#upgrade.prune_after). The install directory stays in place during that
-grace period so long-running processes can continue loading files from it. Set this to `false` when
-something outside of pakro resolves through that path permanently — a virtualenv built from a
-pakro-managed interpreter, for example — and the old version is left in place without a scheduled
-removal.
-
-Versions that another tracked config or tool stub still needs are kept regardless of this setting.
-Once such a version is due, pakro checks it again at most once a day, so it can be pruned up to a
-day after the last reference to it goes away.
-`pakro upgrade --prune` removes the replaced version immediately, and `--no-prune` leaves it in
-place without scheduling removal.
-"""
-env = "PAKRO_UPGRADE_AUTO_PRUNE"
-type = "Bool"
-
-[upgrade.prune_after]
-default = "24h"
-description = "Grace period before versions replaced by `pakro upgrade` are automatically pruned."
-docs = """
-Replaced tool versions remain at their original paths for this long before pakro removes them on a
-later invocation. This protects long-running commands that may continue loading files from an old
-install after an upgrade selects a new version.
-
-Set this to `0s` to make the next pakro invocation remove scheduled versions immediately. Use
-`pakro upgrade --prune` or `pakro prune` when removal must happen in the current invocation.
-"""
-env = "PAKRO_UPGRADE_PRUNE_AFTER"
-type = "Duration"
-
 [url_replacements]
 description = "Map of URL patterns to replacement URLs applied to all requests."
 docs = '''
@@ -3908,12 +2777,6 @@ env = "PAKRO_URL_REPLACEMENTS"
 optional = true
 parse_env = "parse_url_replacements"
 type = "IndexMap<String, String>"
-
-[use_file_shell_for_executable_tasks]
-default = false
-description = "Determines whether to use a specified shell for executing tasks in the tasks directory. When set to true, the shell defined in the file will be used, or the default shell specified by `windows_default_file_shell_args` or `unix_default_file_shell_args` will be applied. If set to false, tasks will be executed directly as programs."
-env = "PAKRO_USE_FILE_SHELL_FOR_EXECUTABLE_TASKS"
-type = "Bool"
 
 [use_versions_host]
 default = true
@@ -3998,21 +2861,7 @@ type = "ListString"
 
 [windows_powershell_no_profile]
 default = true
-description = "Pass `-NoProfile` to PowerShell (`pwsh`/`powershell`) shells that pakro spawns for tasks and inline commands, so startup profiles are skipped."
-docs = """
-When pakro runs a task or inline command through PowerShell, it passes
-`-NoProfile` so the shell does not load the user's PowerShell profile. This
-matches the non-interactive behavior of `sh -c` / `zsh -c` on Unix, which do not
-source interactive startup files.
-
-Profiles that mutate `PATH` — for example a pakro activation snippet that prepends
-the shims directory — can otherwise shadow a task's own installed tools and
-produce confusing `cannot find binary path` errors.
-
-Set to `false` if your tasks rely on side effects from your PowerShell profile
-(environment variables, functions, aliases). This only affects `pwsh` and
-`powershell`; it has no effect on `cmd` or on non-Windows shells.
-"""
+description = "Pass -NoProfile when spawning PowerShell for supported shell operations."
 env = "PAKRO_WINDOWS_POWERSHELL_NO_PROFILE"
 type = "Bool"
 

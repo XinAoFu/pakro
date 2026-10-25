@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+P2_ROOT_PACKAGE=z-root
+source "$TEST_DIR/p2_strict_lock_helpers.sh"

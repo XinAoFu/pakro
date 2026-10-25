@@ -19,12 +19,10 @@ class E2ERunnerTests(unittest.TestCase):
         extra_tests=(),
         args=(),
         release_skip=False,
-        task_args=None,
         jobs="2",
         names=None,
     ):
-        """Run tests/e2e/run_all_tests, or the `pakro run test:e2e` task script when
-        task_args is given. Records the executed test order in self.order."""
+        """Run tests/e2e/run_all_tests and record the executed order in self.order."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             e2e = root / "tests" / "e2e"
@@ -36,9 +34,6 @@ class E2ERunnerTests(unittest.TestCase):
             (scripts / "get-version.sh").write_text("echo test\n")
             if release_skip:
                 (root / ".release-skip-e2e").write_text("test\n")
-            task = root / "tests" / "tasks" / "test" / "e2e"
-            task.parent.mkdir(parents=True)
-            shutil.copyfile(ROOT / "tests" / "tasks" / "test" / "e2e", task)
             if names is None:
                 names = ("test_fail", "test_flaky", "test_pass", "test_skip_slow")
             for name in names + tuple(extra_tests):
@@ -87,10 +82,7 @@ exit "$status"
                 env["E2E_MAX_ATTEMPTS"] = str(attempts)
             if tranche is not None:
                 env.update(TEST_TRANCHE_COUNT="2", TEST_TRANCHE=str(tranche))
-            if task_args is None:
-                command = ["bash", str(e2e / "run_all_tests"), *args]
-            else:
-                command = ["bash", str(task), *task_args]
+            command = ["bash", str(e2e / "run_all_tests"), *args]
             result = subprocess.run(
                 command,
                 cwd=root,
@@ -155,33 +147,6 @@ exit "$status"
         result, counts, _ = self.run_runner(release_skip=True, args=("test_pass",))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(counts, {"test_pass": 1})
-
-    def test_task_forwards_matches_in_order_when_jobs_set(self):
-        result, counts, _ = self.run_runner(
-            task_args=("^test_skip_slow$", "^test_pass$"), jobs="1"
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.order, ["test_skip_slow", "test_pass"])
-        self.assertIn("E2E: ran 2 tests", result.stderr)
-
-    def test_task_runs_serially_without_jobs(self):
-        result, counts, _ = self.run_runner(
-            task_args=("^test_skip_slow$", "^test_pass$"), jobs=None
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.order, ["test_skip_slow", "test_pass"])
-        self.assertIn("[xtask:e2e] Running test: test_pass", result.stderr)
-        self.assertNotIn("E2E: ran", result.stderr)
-
-    def test_task_unmatched_pattern_fails_before_running(self):
-        for jobs in ("2", None):
-            with self.subTest(jobs=jobs):
-                result, counts, _ = self.run_runner(
-                    task_args=("^test_pass$", "nope"), jobs=jobs
-                )
-                self.assertEqual(result.returncode, 1)
-                self.assertIn("No test matches nope", result.stderr)
-                self.assertEqual(counts, {})
 
     def test_r00_empty_selection_is_not_success(self):
         cases = (

@@ -46,7 +46,7 @@ impl Shell for Zsh {
               shift
 
               case "$command" in
-              deactivate|shell|sh)
+              deactivate)
                 # if argv doesn't contains -h,--help
                 if [[ ! " $@ " =~ " --help " ]] && [[ ! " $@ " =~ " -h " ]]; then
                   eval "$(command {exe} "$command" "$@")"

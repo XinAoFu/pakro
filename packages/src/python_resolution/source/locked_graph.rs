@@ -2,12 +2,20 @@
 
 #[path = "locked_graph/begin.rs"]
 mod begin;
+#[path = "locked_graph/build.rs"]
+mod build;
+#[path = "locked_graph/build_inputs.rs"]
+mod build_inputs;
 #[path = "locked_graph/prepare.rs"]
 mod prepare;
 #[path = "locked_graph/target.rs"]
 mod target;
+pub(crate) use build_inputs::{
+    LockedBuildInputEvidence, LockedBuildInputPreparation, acquire_build_input,
+};
 pub(crate) use target::{FrozenRegistryTarget, FrozenTargetLimits};
 
+use super::registry_depot::{RegistryMetadataOwner, RegistryPreparedPlan};
 use super::replay::metadata::{LockedMetadataError, LockedWheelCandidate};
 use super::replay::{LockedRegistryArtifact, LockedReplayError};
 use super::*;
@@ -64,6 +72,10 @@ pub(crate) enum LockedGraphError {
     Metadata(LockedMetadataError),
     #[error("locked dependency closure failed: {0}")]
     Graph(GraphCheckError),
+    #[error("strict source replay is missing its exact build receipt")]
+    MissingBuild,
+    #[error("strict source replay differs from its locked inputs or actual output")]
+    BuildMismatch,
 }
 
 pub(crate) struct LockedRegistryEndpoint<'config> {
@@ -120,10 +132,11 @@ pub(crate) struct LockedRegistryReplay<'lock, 'config> {
     root_scopes: Option<Vec<OwnedRootMarkerScope>>,
     target: FrozenRegistryTarget,
     context: LockedGraphContext<'config>,
-    owners: BTreeMap<CandidateKey, LockedWheelCandidate<'lock>>,
+    owners: BTreeMap<CandidateKey, RegistryMetadataOwner<'lock>>,
     bindings: BTreeMap<String, CandidateKey>,
     nodes: Vec<LockedGraphNode<'lock>>,
     retained_utf8: usize,
+    retained_archive_bytes: u64,
     root_work: usize,
     builds: BTreeMap<CandidateKey, LockedRegistryArtifact<'lock>>,
 }
@@ -189,10 +202,11 @@ pub(crate) struct LockedPreparedPlan<'lock> {
     roots: Vec<PythonRequirementSyntax>,
     root_scopes: Option<Vec<OwnedRootMarkerScope>>,
     target: FrozenRegistryTarget,
-    owners: BTreeMap<CandidateKey, LockedWheelCandidate<'lock>>,
+    owners: BTreeMap<CandidateKey, RegistryMetadataOwner<'lock>>,
     bindings: BTreeMap<String, CandidateKey>,
     derived: DerivedGraphData,
     deadline: Instant,
+    retained_utf8: usize,
 }
 impl LockedPreparedPlan<'_> {
     pub(crate) fn root(&self) -> &BoundPythonLock {
@@ -214,7 +228,14 @@ impl LockedPreparedPlan<'_> {
         self.graph.runtime()
     }
     pub(crate) fn owner(&self, name: &str) -> Option<&LockedWheelCandidate<'_>> {
-        self.bindings.get(name).and_then(|key| self.owners.get(key))
+        match self
+            .bindings
+            .get(name)
+            .and_then(|key| self.owners.get(key))?
+        {
+            RegistryMetadataOwner::Locked(owner) => Some(owner),
+            _ => None,
+        }
     }
     pub(crate) fn node_key(&self, name: &str) -> Option<CandidateKey> {
         self.bindings.get(name).copied()
@@ -233,6 +254,28 @@ impl LockedPreparedPlan<'_> {
                 .map_err(|_| LockedGraphError::Revoked)?;
         }
         Ok(())
+    }
+}
+impl<'lock> LockedPreparedPlan<'lock> {
+    /// Continue the existing shared publication path with the owners that
+    /// passed strict replay. No candidate enumeration or solver is invoked.
+    pub(crate) fn into_registry_plan(
+        self,
+    ) -> Result<RegistryPreparedPlan<'lock>, LockedGraphError> {
+        self.recheck_for(self.root)?;
+        if Instant::now() >= self.deadline {
+            return Err(LockedGraphError::Deadline);
+        }
+        RegistryPreparedPlan::from_replayed(
+            self.root,
+            self.roots,
+            self.root_scopes,
+            self.target,
+            self.owners,
+            self.derived,
+            self.deadline,
+            self.retained_utf8,
+        )
     }
 }
 impl fmt::Debug for LockedPreparedPlan<'_> {

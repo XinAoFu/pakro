@@ -6,7 +6,7 @@ pub(crate) mod caller_deadline;
 pub(crate) mod locked_graph;
 pub(crate) mod registry_depot;
 pub(crate) mod replay;
-mod wheel_metadata;
+pub(crate) mod wheel_metadata;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::Arc;

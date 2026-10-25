@@ -260,6 +260,25 @@ fn new_inner<'lock, 'config>(
             .checked_add(pin.size())
             .filter(|total| *total <= limits.max_retained_archive_bytes)
             .ok_or(LockedGraphError::Limit)?;
+        if pin.file().kind() == RegistryArtifactKind::Sdist {
+            let record = root
+                .source_build(pin.id())
+                .ok_or(LockedGraphError::MissingBuild)?;
+            record
+                .validate()
+                .map_err(|_| LockedGraphError::BuildMismatch)?;
+            archive_bytes = archive_bytes
+                .checked_add(record.output_size)
+                .filter(|total| *total <= limits.max_retained_archive_bytes)
+                .ok_or(LockedGraphError::Limit)?;
+            charge(
+                &mut bytes,
+                serde_json::to_vec(record)
+                    .map_err(|_| LockedGraphError::BuildMismatch)?
+                    .len(),
+                limits.max_retained_utf8_bytes,
+            )?;
+        }
         for field in [node.name(), node.version()] {
             charge(&mut bytes, field.len(), limits.max_retained_utf8_bytes)?;
         }
@@ -407,6 +426,7 @@ fn new_inner<'lock, 'config>(
         bindings,
         nodes,
         retained_utf8: bytes,
+        retained_archive_bytes: archive_bytes,
         root_work,
         builds: BTreeMap::new(),
     })

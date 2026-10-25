@@ -99,7 +99,9 @@ async fn s4_reject_alternative_keeps_known_final_without_fetching_same_prereleas
         .await;
     let requests = peer.requests();
     assert!(
-        !requests.iter().any(|path| path == &format!("/files/{SOURCE}")),
+        !requests
+            .iter()
+            .any(|path| path == &format!("/files/{SOURCE}")),
         "an already observed eligible final must precede unknown same-prerelease source metadata: {requests:?}"
     );
     let result = ready(preparation.unwrap());

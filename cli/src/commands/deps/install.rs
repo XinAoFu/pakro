@@ -1,393 +1,41 @@
-use eyre::{Result, bail};
-
 use crate::config::Config;
-use crate::deps::{DepsEngine, DepsOptions, DepsProviderApplicability, DepsStepResult};
-use crate::toolset::{InstallOptions, Toolset, ToolsetBuilder};
-
-/// Install all project dependencies
-///
-/// Uses each provider's freshness rules to compare configured inputs and outputs,
-/// then runs its installation command when needed. `--force` bypasses that check;
-/// `--explain PROVIDER` shows why a provider is considered fresh or stale.
+use eyre::{Result, ensure};
+/// Install the exact Python and package versions declared by the current project.
 #[derive(Debug, usage_rs::Args)]
 #[usage(verbatim_doc_comment)]
 pub(crate) struct DepsInstall {
-    /// Provider to operate on (runs only this provider, or use with --explain)
-    pub provider: Option<String>,
-
-    /// Show why a provider is fresh or stale (requires a provider argument)
-    #[usage(long)]
-    pub explain: bool,
-
-    /// Force run all deps steps even if outputs are fresh
-    #[usage(long, short)]
-    pub force: bool,
-
-    /// Only check if deps install is needed, don't run commands
+    /// Optional explicit ecosystem selector: python.
+    provider: Option<String>,
     #[usage(long, short = 'n')]
-    pub dry_run: bool,
-
-    /// Show what deps providers are available
-    #[usage(long)]
-    pub list: bool,
-
-    /// Install dependencies from every [monorepo].config_roots config root
-    ///
-    /// Requires monorepo_root = true plus explicit [monorepo].config_roots in
-    /// the monorepo root config. Providers are named like //apps/api:uv.
-    #[usage(long, env = "PAKRO_MONOREPO", verbatim_doc_comment)]
-    pub monorepo: bool,
-
-    /// Run specific deps rule(s) only
-    #[usage(long)]
-    pub only: Option<Vec<String>>,
-
-    /// Skip specific deps rule(s)
-    #[usage(long)]
-    pub skip: Option<Vec<String>>,
+    dry_run: bool,
 }
-
 impl DepsInstall {
     pub(super) async fn preflight(&self) -> Result<()> {
-        if self.list || self.explain {
-            return Ok(());
-        }
-        let config = Config::get().await?;
-        let only: Vec<_> = self
-            .provider
-            .iter()
-            .chain(self.only.iter().flatten())
-            .cloned()
-            .collect();
-        let targets_python = only.is_empty()
-            || only
-                .iter()
-                .any(|id| crate::programs::python::is_python_provider(id));
-        if targets_python {
-            if let Some(project) = crate::programs::python::prepare_current_project(&[])? {
-                eyre::ensure!(
-                    !self.monorepo
-                        && !self.force
-                        && only.iter().all(|id| id == "python")
-                        && self.skip.as_ref().is_none_or(|skip| skip.is_empty()),
-                    "legacy Python dependency provider options are not supported by the shared Python path"
-                );
-                eyre::ensure!(
-                    project.only_python_tools(),
-                    "the shared dependency path currently supports Python-only project declarations"
-                );
-                return Ok(());
-            }
-        }
-        let union = if self.monorepo {
-            Some(config.monorepo_union().await?)
-        } else {
-            None
-        };
-        let engine = match &union {
-            Some(union) => DepsEngine::new_monorepo(&config, union.config_files.values().cloned())?,
-            None => DepsEngine::new(&config)?,
-        };
-        for provider in engine.list_providers() {
-            if (only.is_empty() || only.iter().any(|id| id == provider.id()))
-                && self
-                    .skip
-                    .as_ref()
-                    .is_none_or(|skip| !skip.iter().any(|id| id == provider.id()))
-            {
-                crate::programs::python::reject_python_provider_write(
-                    crate::programs::python::PythonWriteOperation::LegacyInstall,
-                    provider.id(),
-                )?;
-            }
-        }
-        for id in only {
-            crate::programs::python::reject_python_provider_write(
-                crate::programs::python::PythonWriteOperation::LegacyInstall,
-                &id,
-            )?;
-        }
+        ensure!(
+            self.provider
+                .as_deref()
+                .is_none_or(|provider| provider == "python"),
+            "dependency installation currently supports Python"
+        );
+        let project = crate::programs::python::prepare_current_project(&[])?
+            .ok_or_else(|| eyre::eyre!("the project must declare an exact Python version"))?;
+        ensure!(
+            project.only_python_tools(),
+            "dependency installation currently supports Python-only declarations"
+        );
         Ok(())
     }
-
     pub(super) async fn run(self) -> Result<()> {
         self.preflight().await?;
-        let config = Config::get().await?;
-        #[cfg(unix)]
-        if !self.list
-            && !self.explain
-            && !self.monorepo
-            && self
-                .provider
-                .as_deref()
-                .is_none_or(|provider| provider == "python")
-            && self
-                .only
-                .as_ref()
-                .is_none_or(|only| only.iter().all(|provider| provider == "python"))
-        {
-            if let Some(project) = crate::programs::python::prepare_current_project(&[])? {
-                eyre::ensure!(
-                    project.only_python_tools(),
-                    "the shared dependency path currently supports Python-only project declarations"
-                );
-                eyre::ensure!(
-                    self.provider
-                        .as_deref()
-                        .is_none_or(|provider| provider == "python")
-                        && self
-                            .only
-                            .as_ref()
-                            .is_none_or(|only| only.iter().all(|provider| provider == "python"))
-                        && self.skip.as_ref().is_none_or(|skip| skip.is_empty()),
-                    "the shared Python dependency path supports the declared Python packages; provider selectors require a supported native provider"
-                );
-                eyre::ensure!(
-                    !self.force,
-                    "shared Python dependencies do not support force replacement"
-                );
-                if self.dry_run {
-                    pakroprintln!(
-                        "Would install the declared Python {} and its exact project packages",
-                        project.version()
-                    );
-                    return Ok(());
-                }
-                return project.install(config).await;
-            }
-        }
-        let monorepo_union = if self.monorepo {
-            Some(config.monorepo_union().await?)
-        } else {
-            None
-        };
-        let engine = match &monorepo_union {
-            Some(union) => DepsEngine::new_monorepo(&config, union.config_files.values().cloned())?,
-            None => DepsEngine::new(&config)?,
-        };
-
-        if self.list {
-            self.list_providers(&engine)?;
-            return Ok(());
-        }
-
-        if self.explain && self.provider.is_none() {
-            bail!("--explain requires a provider argument, e.g.: pakro deps install npm --explain");
-        }
-
-        // If a provider is specified as a positional arg, treat it like --only.
-        let only = match (&self.provider, &self.only) {
-            (Some(p), None) => Some(vec![p.clone()]),
-            (Some(p), Some(list)) => {
-                let mut combined = list.clone();
-                if !combined.contains(p) {
-                    combined.push(p.clone());
-                }
-                Some(combined)
-            }
-            (None, only) => only.clone(),
-        };
-        let skip = self.skip.unwrap_or_default();
-
-        // Report an explicitly selected inactive provider before resolving or
-        // installing unrelated tools from the project toolset.
-        engine.validate_selection(only.as_deref(), &skip)?;
-
-        if self.explain {
-            let env = std::env::vars().collect();
-            return Self::explain_provider(
-                &engine,
-                self.provider.as_deref().expect("provider checked above"),
-                &env,
+        let project = crate::programs::python::prepare_current_project(&[])?
+            .ok_or_else(|| eyre::eyre!("the project no longer declares Python"))?;
+        if self.dry_run {
+            pakroprintln!(
+                "Would install the declared Python {} and its exact project packages",
+                project.version()
             );
-        }
-
-        // Build and install the effective toolset so package managers declared
-        // in monorepo config roots are available to their deps providers.
-        let mut install_config = match &monorepo_union {
-            Some(union) => config.with_config_files(union.config_files.clone())?,
-            None => config.clone(),
-        };
-        let mut ts = match &monorepo_union {
-            Some(union) => {
-                let mut ts: Toolset = union.tool_request_set.clone().into();
-                ts.versions
-                    .retain(|backend, _| !crate::programs::python::is_python_backend(backend));
-                ts
-            }
-            None => ToolsetBuilder::new()
-                .with_default_to_latest(true)
-                .build_unresolved(&install_config)?,
-        };
-
-        ts.versions
-            .retain(|backend, _| !crate::programs::python::is_python_backend(backend));
-        ts.resolve(&install_config).await?;
-
-        let install_opts = InstallOptions {
-            missing_args_only: false,
-            dry_run: self.dry_run,
-            ..Default::default()
-        };
-        ts.install_missing_versions(&mut install_config, &install_opts)
-            .await?;
-
-        // Get toolset environment with PATH
-        let (env, env_remove) = ts.env_with_path_and_removals(&install_config).await?;
-
-        let opts = DepsOptions {
-            dry_run: self.dry_run,
-            force: self.force,
-            only,
-            skip,
-            env,
-            env_remove,
-            ..Default::default()
-        };
-
-        let result = engine.run(opts).await?;
-
-        // Report results
-        for step in &result.steps {
-            match step {
-                DepsStepResult::Ran(id) => {
-                    info!("Installed: {}", id);
-                }
-                DepsStepResult::WouldRun(id, reason) => {
-                    info!("[dry-run] Would install: {} ({})", id, reason);
-                }
-                DepsStepResult::Fresh(id) => {
-                    debug!("Fresh: {}", id);
-                }
-                DepsStepResult::Skipped(id) => {
-                    debug!("Skipped: {}", id);
-                }
-                DepsStepResult::Failed(id) => {
-                    error!("Failed: {}", id);
-                }
-            }
-        }
-
-        if !result.had_work() && !self.dry_run {
-            info!("All dependencies are up to date");
-        }
-
-        Ok(())
-    }
-
-    fn explain_provider(
-        engine: &DepsEngine,
-        provider_id: &str,
-        effective_env: &std::collections::BTreeMap<String, String>,
-    ) -> Result<()> {
-        let Some(provider) = engine.find_provider(provider_id) else {
-            let available = engine
-                .list_providers()
-                .iter()
-                .map(|p| format!("  {}", p.id()))
-                .collect::<Vec<_>>()
-                .join("\n");
-            bail!("Provider '{provider_id}' not found.\n\nAvailable providers:\n{available}");
-        };
-
-        let applicability = provider.applicability();
-
-        // Header
-        pakroprintln!("Provider: {}", provider.id());
-        pakroprintln!("Auto: {}", if provider.is_auto() { "yes" } else { "no" });
-
-        // Sources
-        let sources = provider.sources();
-        pakroprintln!("Sources:");
-        for source in &sources {
-            let exists = source.exists();
-            let marker = if exists { "+" } else { "-" };
-            pakroprintln!("  {} {}", marker, crate::file::display_path(source));
-        }
-
-        // Outputs
-        let outputs = provider.outputs();
-        pakroprintln!("Outputs:");
-        for output in &outputs {
-            let exists = output.exists();
-            let marker = if exists { "+" } else { "-" };
-            pakroprintln!("  {} {}", marker, crate::file::display_path(output));
-        }
-
-        // Optional outputs (tracked but not required on first run)
-        let optional_outputs = provider.optional_outputs();
-        if !optional_outputs.is_empty() {
-            pakroprintln!("Optional outputs:");
-            for output in &optional_outputs {
-                let exists = output.exists();
-                let marker = if exists { "+" } else { "-" };
-                pakroprintln!("  {} {}", marker, crate::file::display_path(output));
-            }
-        }
-
-        // Command
-        if let Ok(cmd) = provider.install_command_with_env(effective_env) {
-            pakroprintln!("Command: {}", cmd.description);
-        }
-
-        // Verdict
-        pakroprintln!("");
-        if let DepsProviderApplicability::Inactive(reason) = applicability {
-            pakroprintln!("Status: inactive ({reason})");
-            bail!("provider '{}' is inactive: {reason}", provider.id());
-        }
-
-        let freshness = engine.check_provider_freshness(provider, effective_env)?;
-        if freshness.is_fresh() {
-            pakroprintln!("Status: fresh ({})", freshness.reason());
-        } else {
-            pakroprintln!("Status: stale ({})", freshness.reason());
-        }
-
-        if !freshness.is_fresh() {
-            bail!("provider '{}' is stale", provider.id());
-        }
-
-        Ok(())
-    }
-
-    fn list_providers(&self, engine: &DepsEngine) -> Result<()> {
-        let providers = engine.list_providers();
-
-        if providers.is_empty() {
-            pakroprintln!("No deps providers found for this project");
             return Ok(());
         }
-
-        pakroprintln!("Available deps providers:");
-        for provider in providers {
-            let sources = provider
-                .sources()
-                .iter()
-                .map(crate::file::display_path)
-                .collect::<Vec<_>>()
-                .join(", ");
-            let outputs = provider
-                .outputs()
-                .iter()
-                .chain(provider.optional_outputs().iter())
-                .map(crate::file::display_path)
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            pakroprintln!("  {}", provider.id());
-            match provider.applicability() {
-                DepsProviderApplicability::Applicable => {
-                    pakroprintln!("    status: active");
-                }
-                DepsProviderApplicability::Inactive(reason) => {
-                    pakroprintln!("    status: inactive ({reason})");
-                }
-            }
-            pakroprintln!("    sources: {}", sources);
-            pakroprintln!("    outputs: {}", outputs);
-        }
-
-        Ok(())
+        project.install(Config::get().await?).await
     }
 }

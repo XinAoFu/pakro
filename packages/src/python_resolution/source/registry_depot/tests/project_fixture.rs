@@ -56,6 +56,12 @@ impl ProjectRegistryFixture {
     /// on every real backend build, so a dynamic re-solve must reuse its first
     /// sealed output instead of quietly building a replacement.
     pub(crate) fn dynamic_source_dependency() -> (Self, Digest, Digest) {
+        Self::source_dependency(false)
+    }
+    pub(crate) fn deterministic_source_dependency() -> (Self, Digest, Digest) {
+        Self::source_dependency(true)
+    }
+    fn source_dependency(deterministic: bool) -> (Self, Digest, Digest) {
         fn source(name: &str, requires: &str, backend: &str) -> Vec<u8> {
             let project = format!(
                 "[build-system]\nrequires={requires}\nbuild-backend='backend'\nbackend-path=['.']\n"
@@ -95,13 +101,30 @@ def _wheel(directory, name, value):
             archive.writestr(member, data)
     return filename
 "#;
+        let value = if deterministic {
+            "'fixed source input'"
+        } else {
+            "os.urandom(16).hex()"
+        };
+        // This legitimate temporary output is larger than the compressed
+        // wheel. Strict replay must keep the ordinary worker file-size budget.
+        let intermediate = if deterministic {
+            "    pathlib.Path('intermediate.bin').write_bytes(b'x' * (64 * 1024))\n"
+        } else {
+            ""
+        };
         let counter_backend = format!(
-            "{WRITER}\ndef get_requires_for_build_wheel(config_settings=None): return []\ndef build_wheel(wheel_directory, config_settings=None, metadata_directory=None):\n    return _wheel(wheel_directory, 'counter_dep', os.urandom(16).hex())\n"
+            "{WRITER}\ndef get_requires_for_build_wheel(config_settings=None): return []\ndef build_wheel(wheel_directory, config_settings=None, metadata_directory=None):\n{intermediate}    return _wheel(wheel_directory, 'counter_dep', {value})\n"
         );
         let demo_backend = format!(
             "{WRITER}\ndef get_requires_for_build_wheel(config_settings=None):\n    import counter_dep\n    pathlib.Path('observed-counter.txt').write_text(counter_dep.VALUE)\n    return ['helper==1.0']\ndef build_wheel(wheel_directory, config_settings=None, metadata_directory=None):\n    import counter_dep, helper\n    assert counter_dep.VALUE == pathlib.Path('observed-counter.txt').read_text(), 'dynamic solve rebuilt the observed source dependency'\n    assert helper.VALUE == 42\n    return _wheel(wheel_directory, 'demo_pkg', counter_dep.VALUE)\n"
         );
         let demo = source("demo_pkg", "['counter-dep==1.0']", &demo_backend);
+        let other = source(
+            "other_pkg",
+            "['counter-dep==1.0']",
+            &demo_backend.replace("'demo_pkg'", "'other_pkg'"),
+        );
         let counter = source("counter_dep", "[]", &counter_backend);
         let helper = wheel("helper", "1.0", &[], "");
         let counter_digest = Digest::from_sha256_bytes(&counter);
@@ -109,10 +132,12 @@ def _wheel(directory, name, value):
         let mut demo_file = wire_file("demo_pkg-1.0.tar.gz");
         let mut counter_file = wire_file("counter_dep-1.0.tar.gz");
         let mut helper_file = wire_file("helper-1.0-py3-none-any.whl");
+        let mut other_file = wire_file("other_pkg-1.0.tar.gz");
         for (file, bytes) in [
             (&mut demo_file, &demo),
             (&mut counter_file, &counter),
             (&mut helper_file, &helper),
+            (&mut other_file, &other),
         ] {
             file["hashes"] = serde_json::json!({"sha256":hex::encode(Sha256::digest(bytes))});
         }
@@ -120,9 +145,13 @@ def _wheel(directory, name, value):
             "/simple/demo-pkg/" => Reply::page("demo-pkg", vec![demo_file.clone()]),
             "/simple/counter-dep/" => Reply::page("counter-dep", vec![counter_file.clone()]),
             "/simple/helper/" => Reply::page("helper", vec![helper_file.clone()]),
+            "/simple/other-pkg/" if deterministic => {
+                Reply::page("other-pkg", vec![other_file.clone()])
+            }
             "/files/demo_pkg-1.0.tar.gz" => Reply::file(&demo),
             "/files/counter_dep-1.0.tar.gz" => Reply::file(&counter),
             "/files/helper-1.0-py3-none-any.whl" => Reply::file(&helper),
+            "/files/other_pkg-1.0.tar.gz" if deterministic => Reply::file(&other),
             _ => Reply::missing(),
         });
         (
@@ -163,5 +192,8 @@ def _wheel(directory, name, value):
     }
     pub(crate) fn no_publish(&self) {
         self.fixture.no_publish();
+    }
+    pub(crate) fn no_publish_with_existing_lock(&self, expected: &[u8]) {
+        self.fixture.no_publish_with_existing_lock(expected);
     }
 }

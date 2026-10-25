@@ -25,6 +25,10 @@ use crate::programs::OperationContext;
 pub(crate) struct ClosedGraph<'root> {
     roots: Vec<PackageRoot>,
     graph: ClosedRegistryGraph<'root>,
+    builds: Vec<(
+        crate::packages::python_resolution::lock_model::PinId,
+        crate::packages::python_environment::model::SourceBuildRecord,
+    )>,
 }
 pub(crate) struct PackageRoot {
     name: String,
@@ -39,6 +43,14 @@ impl PackageRoot {
     }
 }
 impl<'root> ClosedGraph<'root> {
+    pub(crate) fn builds(
+        &self,
+    ) -> &[(
+        crate::packages::python_resolution::lock_model::PinId,
+        crate::packages::python_environment::model::SourceBuildRecord,
+    )] {
+        &self.builds
+    }
     pub(crate) fn roots(&self) -> &[PackageRoot] {
         &self.roots
     }
@@ -291,17 +303,20 @@ async fn resolve_registry_roots<'root>(
     registry.deadline = registry.deadline.min(context.policy().deadline);
     root.recheck()?;
     let declarations: Vec<_> = raw.iter().map(String::as_str).collect();
+    let mut budget = super::build::BuildBudget::new();
     let prepared = if let Some(language) = language {
-        super::build::prepare_registry(
-            context,
-            language,
-            root,
-            raw,
-            registry,
-            &mut super::build::BuildBudget::new(),
-            0,
-        )
-        .await?
+        if context.policy().locked || root.model().is_some_and(|model| !model.graphs().is_empty()) {
+            let owned_roots = roots
+                .iter()
+                .map(|(name, version)| ((*name).to_owned(), (*version).to_owned()))
+                .collect::<Vec<_>>();
+            super::lock::validate_project_lock(root, language, &owned_roots)?;
+            super::build::replay_registry(context, language, root, raw, registry, &mut budget, 0)
+                .await?
+        } else {
+            super::build::prepare_registry(context, language, root, raw, registry, &mut budget, 0)
+                .await?
+        }
     } else {
         let depot = ResolveRegistryDepot::new(root, &declarations, registry)?;
         let RegistryPreparation::Ready(prepared) = depot.prepare().await? else {
@@ -315,6 +330,7 @@ async fn resolve_registry_roots<'root>(
     Ok(ClosedGraph {
         roots: exact,
         graph,
+        builds: budget.records(),
     })
 }
 

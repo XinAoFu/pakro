@@ -18,7 +18,7 @@ mkdir -p "$RELEASE_DIR/$PAKRO_VERSION"
 curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 "$PAKRO_DOWNLOAD_BASE_URL/$PAKRO_VERSION/SHASUMS256.txt" >"$RELEASE_DIR/$PAKRO_VERSION/SHASUMS256.txt"
 ./packaging/scripts/render-install.sh >"$RELEASE_DIR/install.sh"
 chmod +x "$RELEASE_DIR/install.sh"
-pakro x shellcheck -- shellcheck "$RELEASE_DIR/install.sh"
+shellcheck "$RELEASE_DIR/install.sh"
 
 PAKRO_INSTALL_PATH="$RELEASE_DIR/pakro" "$RELEASE_DIR/install.sh"
 if [[ ! "$("$RELEASE_DIR/pakro" -v)" =~ ^${PAKRO_VERSION//v/} ]]; then

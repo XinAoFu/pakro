@@ -43,6 +43,7 @@ pub(crate) fn query_observed(
     let result = query_observed_inner(context, observed, request)?;
     context.checkpoint()?;
     observed.recheck()?;
+    crate::programs::shared::lock_transaction::ensure_project_consistent(context, observed)?;
     Ok(result)
 }
 
@@ -110,6 +111,19 @@ fn query_observed_inner(
             already_applied: false,
         });
     }
+    // A language path remains useful when package declarations need a new
+    // lock. Full environment selection must still match every locked root.
+    let locked_fingerprint = if let Some(model) =
+        super::snapshot::project_lock_for_query(observed, request.target.as_deref())?
+    {
+        let roots =
+            crate::programs::python::project_roots(observed, candidate.exact_version(), &[])?;
+        let locked =
+            crate::programs::install::lock::validate_project_lock_model(&model, &language, &roots)?;
+        Some(crate::programs::install::lock::portable_graph(&model, locked)?.fingerprint()?)
+    } else {
+        None
+    };
     if let Err(error) = crate::programs::python::check_requires_python(observed, &language) {
         if request.target.is_some() {
             return Ok(ObservedSelection {
@@ -163,6 +177,9 @@ fn query_observed_inner(
         let mut ready = Vec::new();
         for graph in graphs {
             context.checkpoint()?;
+            if locked_fingerprint.is_some_and(|expected| expected != graph.fingerprint()) {
+                continue;
+            }
             if let Err(error) = graph.validate_observed_pins(observed, &allowed) {
                 if error
                     .downcast_ref::<crate::libraries::project::package_graph::GraphPinMismatch>()

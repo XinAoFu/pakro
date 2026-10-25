@@ -107,7 +107,7 @@ impl Shell for Nushell {
           }}
 
           export def --env --wrapped main [command?: string, --help, ...rest: string] {{
-            let commands = ["deactivate", "shell", "sh"]
+            let commands = ["deactivate"]
 
             if ($command == null) {{
               ^"{exe}"

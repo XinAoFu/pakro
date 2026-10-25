@@ -81,7 +81,7 @@ impl MultiProgressReport {
         let force_progress = *env::PAKRO_FORCE_PROGRESS;
         // A terminal that records frames instead of redrawing them gets the
         // same append-only output as CI, for the same reason.
-        let ci = settings.ci || *env::AI_AGENT;
+        let ci = settings.ci;
 
         progress_trace!(
             "MultiProgressReport::new: raw={}, quiet={}, verbose={}, has_stderr={}, force_progress={}, ci={}",
@@ -147,7 +147,7 @@ impl MultiProgressReport {
     /// Depth of overlapping progress suspensions.
     ///
     /// For tests that need to observe that a caller holds its guard for a whole
-    /// scope — such as an elevated child's lifetime in [`crate::system::sudo`] —
+    /// scope — such as a child process lifetime —
     /// rather than only that it constructed one.
     #[cfg(test)]
     pub(crate) fn progress_suspension_depth(&self) -> usize {

@@ -1,13 +1,5 @@
 pub(crate) use crate::upgrade_hint::{upgrade_instructions_or_hint, upgrade_instructions_text};
 
-pub(crate) async fn maybe_auto_update(
-    _args: &[String],
-    _original_cwd: Option<&std::path::Path>,
-    _command_eligible: bool,
-) -> crate::Result<()> {
-    Ok(())
-}
-
 #[derive(Debug, Default, usage_rs::Args)]
 pub(crate) struct SelfUpdate {
     /// Update to a specific version
@@ -20,10 +12,6 @@ pub(crate) struct SelfUpdate {
     /// Skip confirmation prompt
     #[usage(long, short)]
     yes: bool,
-
-    /// Disable auto-updating plugins
-    #[usage(long)]
-    no_plugins: bool,
 }
 
 impl SelfUpdate {

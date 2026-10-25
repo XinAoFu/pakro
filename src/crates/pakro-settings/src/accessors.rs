@@ -69,7 +69,6 @@ impl Settings {
         let s = toml::to_string(partial)?;
         let mut table = toml::from_str(&s)?;
         remove_empty_nested_settings(&mut table, "");
-        redact_settings_table(&mut table);
         Ok(table)
     }
 

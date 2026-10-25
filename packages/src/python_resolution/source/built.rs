@@ -68,6 +68,40 @@ impl BuiltRegistryWheel<'_> {
         self.source.recheck_for(root)
     }
 }
+impl<'root> BuiltRegistryWheel<'root> {
+    pub(in crate::packages::python_resolution::source) fn from_locked_output(
+        source: super::super::replay::LockedRegistryArtifact<'root>,
+        archive: InspectedWheelArchive,
+        record: SourceBuildRecord,
+        metadata_limits: PythonMetadataLimits,
+    ) -> RegistryDepotResult<Self> {
+        source.recheck().map_err(|_| RegistryDepotError::Revoked)?;
+        record.validate().map_err(|_| RegistryDepotError::Build)?;
+        let pin = source.pin();
+        let metadata: [u8; 32] = Sha256::digest(archive.manifest().core_metadata().raw()).into();
+        if record.source_digest != pin.digest().to_string()
+            || record.output_filename != archive.filename()
+            || record.output_digest != archive.digest().to_string()
+            || record.output_size != archive.size()
+            || record.metadata_sha256 != metadata
+        {
+            return Err(RegistryDepotError::IdentityMismatch);
+        }
+        let facts = super::super::wheel_metadata::project_manifest_metadata(
+            archive.manifest(),
+            pin.file().project(),
+            pin.file().version(),
+            metadata_limits,
+        )
+        .map_err(|_| RegistryDepotError::Build)?;
+        Ok(Self {
+            source: BuildOwner::Locked(source),
+            archive,
+            facts,
+            record,
+        })
+    }
+}
 
 pub(super) struct RetainedBuiltRegistryWheel<'root> {
     source: BuildOwner<'root>,

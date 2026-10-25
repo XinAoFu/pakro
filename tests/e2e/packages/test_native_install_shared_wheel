@@ -12,7 +12,9 @@ requests_before="$(f3_request_count)"
 (cd b && pakro install)
 [[ $(f3_request_count) == "$requests_before" ]] || fail "B fetched an already published complete closure"
 [[ $(cksum a/pakro.toml) == "$config_before" ]] || fail "install edited project declarations"
-[[ ! -e a/pakro.lock && ! -e b/pakro.lock ]] || fail "install rewrote project lock content"
+[[ -s a/pakro.lock && -s b/pakro.lock ]] || fail "install did not produce the unified exact project locks"
+grep -Fq '[python]' a/pakro.lock || fail 'A lock lacks the exact Python graph'
+grep -Fq '[python]' b/pakro.lock || fail 'B lock lacks the exact Python graph'
 eval "$(pakro activate bash)"
 cd a
 eval "$(pakro hook-env -s bash --force)"

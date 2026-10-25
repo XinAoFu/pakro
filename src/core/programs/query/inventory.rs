@@ -6,7 +6,7 @@ use crate::programs::library::LibraryEntry;
 use eyre::{ContextCompat, Result};
 
 pub(crate) fn inventory(context: &OperationContext) -> Result<Vec<LibraryEntry>> {
-    ProjectRepository::open_readonly(context)?;
+    let projects = ProjectRepository::open_readonly(context)?;
     let languages = LanguageRepository::open_readonly(context)?;
     let mut result = Vec::new();
     let mut platforms = std::collections::BTreeMap::new();
@@ -41,9 +41,10 @@ pub(crate) fn inventory(context: &OperationContext) -> Result<Vec<LibraryEntry>>
                 language.platform_machine()
             ),
             path: language.payload_root().to_owned(),
-            users: crate::programs::uninstall::reachability::references(
+            users: crate::programs::uninstall::reachability::references_with_project_snapshot(
                 context,
                 language.key().fingerprint(),
+                &projects,
             )?,
         });
     }
@@ -69,7 +70,11 @@ pub(crate) fn inventory(context: &OperationContext) -> Result<Vec<LibraryEntry>>
                 .map(|key| format!("package-{}", hex::encode(key)))
                 .collect(),
             path: lease.root().to_owned(),
-            users: crate::programs::uninstall::reachability::references(context, package.key())?,
+            users: crate::programs::uninstall::reachability::references_with_project_snapshot(
+                context,
+                package.key(),
+                &projects,
+            )?,
         });
     }
     Ok(result)

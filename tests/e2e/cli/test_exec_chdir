@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-
-mkdir direnv
-
-assert "pakro x -C $PWD/direnv -- pwd" "$(pwd)/direnv"
-assert "pakro x -C ./direnv -- pwd" "$(pwd)/direnv"
-assert "pakro x -C direnv -- pwd" "$(pwd)/direnv"

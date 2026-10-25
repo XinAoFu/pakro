@@ -1,5 +1,12 @@
 use super::*;
 
+#[derive(serde::Serialize)]
+struct LeaseTestManifest {
+    artifact: String,
+    filename: String,
+    storage: super::super::manifest::StorageManifest,
+}
+
 /// A failed or damaged layout is never Ready: reservation for one key either
 /// returns the existing complete layout or fails explicitly, and a failed
 /// build leaves no half-published state that a later query would treat as
@@ -150,7 +157,9 @@ fn wheel_tagged(
 
 pub(crate) async fn real_language(context: &OperationContext) -> LanguageLease {
     let filename = "cpython-3.13.16+20261013-aarch64-apple-darwin-install_only_stripped.tar.gz";
-    let path = Path::new("/Users/fuxinao/文件/project/pakro_test").join(filename);
+    let path = std::path::PathBuf::from(std::env::var_os("PAKRO_TEST_PYTHON_ARCHIVE").expect(
+        "set PAKRO_TEST_PYTHON_ARCHIVE to the verified original Python 3.13.16 stripped archive",
+    ));
     let digest: pakro_store::Digest =
         "sha256-16a5332fb0dcb77f163fc8f8cbccd95be1644cc53e68e5d2a79f50afd6680a0e"
             .parse()
@@ -480,7 +489,7 @@ fn f3_group_rollback_keeps_unrelated_publications_and_stable_locks() {
     let first_root = first.final_path().to_owned();
     let storage = super::super::tree::storage_for(&first, [41; 32]).unwrap();
     let lock_name = format!("{}.lock", storage.allocation);
-    let value = super::super::manifest::BlobManifest {
+    let value = LeaseTestManifest {
         artifact: pakro_store::Digest::from_sha256_bytes(b"first").to_string(),
         filename: "first.whl".into(),
         storage,
@@ -496,7 +505,7 @@ fn f3_group_rollback_keeps_unrelated_publications_and_stable_locks() {
     write(&mut other, Path::new("marker"), b"other", 0o600).unwrap();
     let other_root = other.final_path().to_owned();
     let storage = super::super::tree::storage_for(&other, [42; 32]).unwrap();
-    let other_value = super::super::manifest::BlobManifest {
+    let other_value = LeaseTestManifest {
         artifact: pakro_store::Digest::from_sha256_bytes(b"other").to_string(),
         filename: "other.whl".into(),
         storage,
@@ -579,7 +588,7 @@ fn f3_failure_after_ready_cas_never_deletes_its_published_tree() {
     .unwrap();
     let payload = prefix.final_path().to_owned();
     let storage = super::super::tree::storage_for(&prefix, [51; 32]).unwrap();
-    let value = super::super::manifest::BlobManifest {
+    let value = LeaseTestManifest {
         artifact: pakro_store::Digest::from_sha256_bytes(b"published-complete").to_string(),
         filename: "published.whl".into(),
         storage,

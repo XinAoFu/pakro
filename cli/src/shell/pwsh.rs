@@ -140,7 +140,7 @@ impl Shell for Pwsh {
                 }}
 
                 switch ($command) {{
-                    {{ $_ -in 'deactivate', 'shell', 'sh' }} {{
+                    {{ $_ -eq 'deactivate' }} {{
                         if ($MyInvocation.ExpectingInput) {{
                             $input | & '{exe}' $command @remainingArgs | Out-String | Invoke-Expression -ErrorAction SilentlyContinue
                         }} else {{

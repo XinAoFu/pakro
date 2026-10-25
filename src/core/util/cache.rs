@@ -28,25 +28,10 @@ pub(crate) fn register_base_cache_keys() {
 
 /// Returns every cache root maintained by whole-cache clear and prune operations.
 pub fn cache_dirs() -> Result<Vec<PathBuf>> {
-    cache_dirs_with_task_cache(crate::task::task_cache::task_cache_dir())
-}
-
-/// Adds an external task cache to the global cache roots without double-scanning
-/// task caches already stored beneath `PAKRO_CACHE_DIR`.
-fn cache_dirs_with_task_cache(task_cache_dir: PathBuf) -> Result<Vec<PathBuf>> {
-    let cache_root = dirs::CACHE.absolutize()?.to_path_buf();
-    let task_cache_dir = task_cache_dir.absolutize()?.to_path_buf();
-    let mut cache_dirs = vec![cache_root.clone()];
-    if !task_cache_dir.starts_with(cache_root) {
-        cache_dirs.push(task_cache_dir);
-    }
-    Ok(cache_dirs)
+    Ok(vec![dirs::CACHE.absolutize()?.to_path_buf()])
 }
 
 /// Opportunistically removes stale files from each active cache root.
-///
-/// Each external root keeps its own marker so one project's task cache cannot
-/// suppress automatic pruning for another project that shares `PAKRO_CACHE_DIR`.
 pub fn auto_prune() -> Result<()> {
     if !rand::random::<u8>().is_multiple_of(100) {
         return Ok(()); // only prune 1% of the time
@@ -156,34 +141,5 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(val, 2);
-    }
-
-    #[test]
-    fn cache_dirs_adds_only_external_task_cache() {
-        let external = tempfile::tempdir().unwrap();
-        assert_eq!(
-            cache_dirs_with_task_cache(external.path().to_path_buf()).unwrap(),
-            vec![dirs::CACHE.to_path_buf(), external.path().to_path_buf()]
-        );
-
-        let nested = dirs::CACHE.join("task-artifacts").join("v2");
-        assert_eq!(
-            cache_dirs_with_task_cache(nested).unwrap(),
-            vec![dirs::CACHE.to_path_buf()]
-        );
-
-        let external = dirs::CACHE
-            .parent()
-            .unwrap()
-            .join("external-task-cache")
-            .join("v2");
-        let escaping = dirs::CACHE
-            .join("..")
-            .join("external-task-cache")
-            .join("v2");
-        assert_eq!(
-            cache_dirs_with_task_cache(escaping).unwrap(),
-            vec![dirs::CACHE.to_path_buf(), external]
-        );
     }
 }

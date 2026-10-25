@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-#PAKRO description="Lint HK files"
-#PAKRO wait_for=["build"]
-HK_FAIL_FAST=0 exec hk check --all --exclude runtimes/vendor/aqua-registry

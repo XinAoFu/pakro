@@ -215,7 +215,7 @@ pub(crate) static LINUX_DISTRO: Lazy<Option<String>> = Lazy::new(linux_distro);
 
 /// Whether terminal-width presentation output should be truncated.
 pub fn should_truncate() -> bool {
-    crate::config::Settings::get().truncate && !*AI_AGENT
+    crate::config::Settings::get().truncate
 }
 
 // python

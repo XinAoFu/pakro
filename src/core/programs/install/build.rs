@@ -7,8 +7,8 @@ use eyre::{Context, ContextCompat, Result, ensure};
 use futures_util::future::BoxFuture;
 
 use crate::libraries::language::lease::LanguageLease;
-use crate::packages::python_environment::model::SourceBuildInput;
-use crate::packages::python_resolution::lock_model::{PinEvidence, RegistryArtifactKind};
+use crate::packages::python_environment::model::{SourceBuildInput, SourceBuildRecord};
+use crate::packages::python_resolution::lock_model::{PinEvidence, PinId, RegistryArtifactKind};
 use crate::packages::python_resolution::lock_session::BoundPythonLock;
 use crate::packages::python_resolution::source::registry_depot::closed::{
     ClosedRegistryGraph, close_registry_plan,
@@ -22,6 +22,10 @@ use crate::packages::python_source_build::{
 };
 use crate::packages::python_wheel_source::InspectedWheelArchive;
 use crate::programs::OperationContext;
+
+#[path = "build/replay.rs"]
+mod replay;
+pub(crate) use replay::replay_registry;
 
 pub(crate) struct BuildBudget {
     active: BTreeSet<[u8; 32]>,
@@ -42,6 +46,7 @@ pub(crate) struct BuildBudget {
     // This budget belongs to one frozen operation/settings/recipe. Each key
     // also binds the original registry ContentPin and complete actual target.
     completed: BTreeMap<([u8; 32], [u8; 32], [u8; 32]), (CompletedSourceBuild, u64)>,
+    records: BTreeMap<PinId, SourceBuildRecord>,
 }
 impl BuildBudget {
     pub(crate) fn new() -> Self {
@@ -62,7 +67,14 @@ impl BuildBudget {
             cached_bytes: 0,
             copied_bytes: 0,
             completed: BTreeMap::new(),
+            records: BTreeMap::new(),
         }
+    }
+    pub(crate) fn records(&self) -> Vec<(PinId, SourceBuildRecord)> {
+        self.records
+            .iter()
+            .map(|(id, record)| (*id, record.clone()))
+            .collect()
     }
     fn charge(&mut self, previous: &mut RegistryDepotUsage, now: RegistryDepotUsage) -> Result<()> {
         let bytes = now
@@ -417,6 +429,9 @@ where
                     let built = outcome.with_context(|| {
                         format!("building source package {source_name}=={source_version}")
                     })?;
+                    budget
+                        .records
+                        .insert(continuation.pin().id(), built.record().clone());
                     ensure!(
                         built.language_key() == language.key().fingerprint(),
                         "source wheel was built with a different shared Python instance"

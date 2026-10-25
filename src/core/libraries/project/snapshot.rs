@@ -109,7 +109,7 @@ pub(crate) struct ObservedProjectInputs {
     python_project: Option<(PathBuf, BoundPythonProjectFile)>,
     missing_auxiliary: Vec<PathBuf>,
     root_owner: Option<ReadOnlyPathObservation>,
-    namespace_inputs: Vec<ReadOnlyPathObservation>,
+    namespace_inputs: Vec<(PathBuf, ReadOnlyPathObservation)>,
 }
 
 struct ObservedDocument {
@@ -333,26 +333,52 @@ pub(crate) fn observe_project(
     }
     for path in namespace_paths {
         checkpoint(&observed.policy)?;
-        observed.namespace_inputs.push(
+        observed.namespace_inputs.push((
+            path.clone(),
             ReadOnlyPathObservation::open(
                 &path,
                 observed.policy.file_limits,
                 observed.policy.deadline,
             )
             .map_err(file_error)?,
-        );
+        ));
     }
     observed.recheck()?;
     Ok(observed)
 }
 
 impl ObservedProjectInputs {
+    /// Preserve the invocation's frozen discovery, arguments, environment,
+    /// budget and deadline while rebinding only the just-recovered lock.
+    pub(crate) fn reobserve(&self) -> Result<Self, ProjectObservationError> {
+        observe_project(&self.root, self.policy.clone())
+    }
     pub(crate) fn recheck(&self) -> Result<(), ProjectObservationError> {
+        self.recheck_inputs(None)
+    }
+    /// The caller must still hold the actual published lock image. Only that
+    /// auxiliary entry is exempt; every declaration and discovery input keeps
+    /// its original observation through the catalog commit.
+    pub(crate) fn recheck_except_owned_auxiliary_lock(
+        &self,
+        lock: &Path,
+    ) -> Result<(), ProjectObservationError> {
+        if !self.observed_auxiliary(lock)
+            || lock.extension().is_none_or(|extension| extension != "lock")
+        {
+            return Err(ProjectObservationError::StaleInput);
+        }
+        self.recheck_inputs(Some(lock))
+    }
+    fn recheck_inputs(&self, owned_lock: Option<&Path>) -> Result<(), ProjectObservationError> {
         checkpoint(&self.policy)?;
         if let Some(owner) = &self.root_owner {
             owner.recheck().map_err(file_error)?;
         }
-        for owner in &self.namespace_inputs {
+        for (path, owner) in &self.namespace_inputs {
+            if Some(path.as_path()) == owned_lock {
+                continue;
+            }
             checkpoint(&self.policy)?;
             owner.recheck().map_err(file_error)?;
         }
@@ -367,6 +393,9 @@ impl ObservedProjectInputs {
             return Err(ProjectObservationError::StaleInput);
         }
         for document in &self.files {
+            if Some(document.path.as_path()) == owned_lock {
+                continue;
+            }
             checkpoint(&self.policy)?;
             document.owner.recheck().map_err(file_error)?;
         }
@@ -377,6 +406,9 @@ impl ObservedProjectInputs {
             })?;
         }
         for path in &self.missing_auxiliary {
+            if Some(path.as_path()) == owned_lock {
+                continue;
+            }
             if entry_exists(path)? {
                 return Err(ProjectObservationError::StaleInput);
             }
@@ -394,6 +426,28 @@ impl ObservedProjectInputs {
                     .filter(|(candidate, _)| candidate == path)
                     .map(|(_, owner)| owner.bytes())
             })
+    }
+    /// Both an existing auxiliary lock and its observed absence belong to
+    /// this snapshot. An arbitrary path does not gain publication authority.
+    pub(crate) fn observed_auxiliary(&self, path: &Path) -> bool {
+        !self
+            .discovery
+            .files
+            .iter()
+            .any(|candidate| candidate == path)
+            && !self
+                .discovery
+                .missing_candidates
+                .iter()
+                .any(|candidate| candidate == path)
+            && (self
+                .files
+                .iter()
+                .any(|document| document.path == path && document.declarations.is_none())
+                || self
+                    .missing_auxiliary
+                    .iter()
+                    .any(|candidate| candidate == path))
     }
     pub(crate) fn contains_edit_target(&self, path: &Path) -> bool {
         self.files

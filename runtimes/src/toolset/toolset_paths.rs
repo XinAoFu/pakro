@@ -8,7 +8,6 @@ use std::sync::LazyLock as Lazy;
 use crate::config::Config;
 use crate::config::env_directive::EnvResults;
 use crate::toolset::Toolset;
-use crate::uv;
 use itertools::Itertools;
 
 // Cache Toolset::list_paths results across identical toolsets within a process.
@@ -131,18 +130,6 @@ impl Toolset {
         // 2. Config path dirs
         paths.extend(config.path_dirs().await?.clone());
 
-        // 3. UV venv path (if any) - ensure project venv takes precedence over tool and tool_add_paths
-        if let Some(venv) = uv::uv_venv(config, self).await? {
-            paths.push(venv.venv_path.clone());
-        }
-
-        // 3b. package venvs from [packages] (ADR-0007): same precedence as
-        // the uv venv — the project's materialized environment wins over
-        // bare tool paths, but an explicitly configured uv venv stays first
-        for (_, bin) in crate::packages::venv_bin_dirs(config) {
-            paths.push(bin);
-        }
-
         // 4. tool_add_paths (PAKRO_ADD_PATH from tools)
         paths.extend(env_results.tool_add_paths);
 
@@ -174,17 +161,6 @@ impl Toolset {
 
         // Tool paths start empty
         let mut tool_paths = Vec::new();
-
-        // UV venv path (if any) - these are tool-managed paths
-        if let Some(venv) = uv::uv_venv(config, self).await? {
-            tool_paths.push(venv.venv_path.clone());
-        }
-
-        // package venvs from [packages] (ADR-0007): tool-managed, same slot
-        // as the uv venv above
-        for (_, bin) in crate::packages::venv_bin_dirs(config) {
-            tool_paths.push(bin);
-        }
 
         // tool_add_paths (PAKRO_ADD_PATH from tools)
         tool_paths.extend(env_results.tool_add_paths);

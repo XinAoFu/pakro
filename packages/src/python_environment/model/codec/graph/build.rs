@@ -72,6 +72,7 @@ impl<'de> Visitor<'de> for Build<'_> {
         let mut output_digest = None;
         let mut output_size = None;
         let mut metadata_sha256 = None;
+        let mut observation = None;
         while let Some(key) = map.next_key_seed(Text {
             state: self.0,
             maximum: 32,
@@ -128,6 +129,10 @@ impl<'de> Visitor<'de> for Build<'_> {
                     once(self.0, &mut seen, 256)?;
                     metadata_sha256 = Some(map.next_value::<[u8; 32]>()?);
                 }
+                "observation" => {
+                    once(self.0, &mut seen, 512)?;
+                    observation = map.next_value_seed(OptionalObservation(self.0))?;
+                }
                 _ => return self.0.fail("unknown source-build field"),
             }
         }
@@ -141,11 +146,116 @@ impl<'de> Visitor<'de> for Build<'_> {
             output_digest: self.0.required(output_digest)?,
             output_size: self.0.required(output_size)?,
             metadata_sha256: self.0.required(metadata_sha256)?,
+            observation,
         };
         if value.validate().is_err() {
             return self.0.fail("invalid source-build record");
         }
         Ok(value)
+    }
+}
+
+struct OptionalObservation<'a>(&'a mut ParseState);
+impl<'de> DeserializeSeed<'de> for OptionalObservation<'_> {
+    type Value = Option<SourceBuildObservation>;
+    fn deserialize<D: Deserializer<'de>>(
+        self,
+        input: D,
+    ) -> std::result::Result<Self::Value, D::Error> {
+        input.deserialize_option(self)
+    }
+}
+impl<'de> Visitor<'de> for OptionalObservation<'_> {
+    type Value = Option<SourceBuildObservation>;
+    fn expecting(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        out.write_str("null or bounded build observation")
+    }
+    fn visit_none<E: serde::de::Error>(self) -> std::result::Result<Self::Value, E> {
+        Ok(None)
+    }
+    fn visit_unit<E: serde::de::Error>(self) -> std::result::Result<Self::Value, E> {
+        Ok(None)
+    }
+    fn visit_some<D: Deserializer<'de>>(
+        self,
+        input: D,
+    ) -> std::result::Result<Self::Value, D::Error> {
+        Observation(self.0).deserialize(input).map(Some)
+    }
+}
+struct Observation<'a>(&'a mut ParseState);
+impl<'de> DeserializeSeed<'de> for Observation<'_> {
+    type Value = SourceBuildObservation;
+    fn deserialize<D: Deserializer<'de>>(
+        self,
+        input: D,
+    ) -> std::result::Result<Self::Value, D::Error> {
+        input.deserialize_map(self)
+    }
+}
+impl<'de> Visitor<'de> for Observation<'_> {
+    type Value = SourceBuildObservation;
+    fn expecting(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        out.write_str("bounded source build observation")
+    }
+    fn visit_map<A: MapAccess<'de>>(
+        self,
+        mut map: A,
+    ) -> std::result::Result<Self::Value, A::Error> {
+        let mut seen = 0u16;
+        let (mut initial_requirements, mut initial_inputs, mut dynamic_requirements) =
+            (None, None, None);
+        while let Some(key) = map.next_key_seed(Text {
+            state: self.0,
+            maximum: 32,
+        })? {
+            let maximum = self.0.limits.max_refs_per_generation.min(MAX_BUILD_INPUTS);
+            match key.as_str() {
+                "initial_requirements" => {
+                    once(self.0, &mut seen, 1)?;
+                    initial_requirements = Some(
+                        map.next_value_seed(List::<BuildRequirement>::new(self.0, maximum))?
+                            .into_iter()
+                            .map(|value| value.0)
+                            .collect(),
+                    );
+                }
+                "initial_inputs" => {
+                    once(self.0, &mut seen, 2)?;
+                    initial_inputs =
+                        Some(map.next_value_seed(List::<SourceBuildInput>::new(self.0, maximum))?);
+                }
+                "dynamic_requirements" => {
+                    once(self.0, &mut seen, 4)?;
+                    dynamic_requirements = Some(
+                        map.next_value_seed(List::<BuildRequirement>::new(self.0, maximum))?
+                            .into_iter()
+                            .map(|value| value.0)
+                            .collect(),
+                    );
+                }
+                _ => return self.0.fail("unknown source-build observation field"),
+            }
+        }
+        Ok(SourceBuildObservation {
+            initial_requirements: self.0.required(initial_requirements)?,
+            initial_inputs: self.0.required(initial_inputs)?,
+            dynamic_requirements: self.0.required(dynamic_requirements)?,
+        })
+    }
+}
+struct BuildRequirement(String);
+impl Element for BuildRequirement {
+    fn parse<'de, D: Deserializer<'de>>(
+        state: &mut ParseState,
+        input: D,
+    ) -> std::result::Result<Self, D::Error> {
+        Text {
+            state,
+            maximum: 16 * 1024,
+        }
+        .deserialize(input)
+        .map(Self)
     }
 }
 
@@ -312,6 +422,7 @@ mod tests {
             output_digest: Digest::Sha256([9; 32]).to_string(),
             output_size: 100,
             metadata_sha256: [10; 32],
+            observation: None,
         }
     }
     fn decode(raw: &str) -> (bool, Option<&'static str>) {
@@ -357,6 +468,58 @@ mod tests {
         assert_eq!(
             decode(&unknown),
             (false, Some("unknown source-build field"))
+        );
+    }
+    #[test]
+    fn p2_build_observation_codec_bounds_fields_and_lists() {
+        let mut good = record();
+        good.observation = Some(SourceBuildObservation {
+            initial_requirements: vec![],
+            initial_inputs: vec![],
+            dynamic_requirements: vec![],
+        });
+        assert!(decode(&serde_json::to_string(&good).unwrap()).0);
+        let mut oversized = good.clone();
+        oversized.observation.as_mut().unwrap().initial_requirements =
+            vec!["x".repeat(16 * 1024 + 1)];
+        assert_eq!(
+            decode(&serde_json::to_string(&oversized).unwrap()),
+            (false, Some("catalog field byte limit exceeded"))
+        );
+        oversized = good;
+        oversized.observation.as_mut().unwrap().dynamic_requirements =
+            vec!["demo".into(); MAX_BUILD_INPUTS + 1];
+        assert_eq!(
+            decode(&serde_json::to_string(&oversized).unwrap()),
+            (false, Some("catalog collection limit exceeded"))
+        );
+    }
+    #[test]
+    fn p2_build_observation_codec_rejects_duplicate_and_unknown_fields() {
+        let mut good = record();
+        good.observation = Some(SourceBuildObservation {
+            initial_requirements: vec![],
+            initial_inputs: vec![],
+            dynamic_requirements: vec![],
+        });
+        let raw = serde_json::to_string(&good).unwrap();
+        let duplicate = raw.replacen(
+            "\"initial_inputs\":[]",
+            "\"initial_inputs\":[],\"initial_inputs\":[]",
+            1,
+        );
+        assert_eq!(
+            decode(&duplicate),
+            (false, Some("duplicate source-build field"))
+        );
+        let unknown = raw.replacen(
+            "\"initial_inputs\":[]",
+            "\"initial_inputs\":[],\"other\":[]",
+            1,
+        );
+        assert_eq!(
+            decode(&unknown),
+            (false, Some("unknown source-build observation field"))
         );
     }
 }
