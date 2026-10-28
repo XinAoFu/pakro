@@ -20,8 +20,8 @@ use tokio::time::Instant;
 
 use crate::toolset::ToolVersion;
 
-const SCRIPT: &str = include_str!("python_runtime_probe.py");
-const FLAGS: [&str; 5] = ["-E", "-s", "-S", "-B", "-c"];
+pub(crate) const SCRIPT: &str = include_str!("python_runtime_probe.py");
+pub(crate) const FLAGS: [&str; 5] = ["-E", "-s", "-S", "-B", "-c"];
 const STDOUT_LIMIT: u64 = 1024 * 1024;
 const STDERR_LIMIT: u64 = 64 * 1024;
 
@@ -521,7 +521,7 @@ impl PythonRuntimeDescriptor {
     }
 }
 
-fn decode(handle: &PythonRuntimeHandle, bytes: &[u8]) -> Result<PythonRuntimeDescriptor> {
+pub(crate) fn decode(handle: &PythonRuntimeHandle, bytes: &[u8]) -> Result<PythonRuntimeDescriptor> {
     let text = std::str::from_utf8(bytes).context("invalid Python runtime probe UTF-8")?;
     let descriptor: PythonRuntimeDescriptor =
         serde_json::from_str(text).context("invalid Python runtime probe JSON")?;
@@ -709,7 +709,7 @@ fn parse_elf_observation(bytes: &[u8]) -> Result<PythonElfObservation> {
     })
 }
 
-fn read_bound_elf(handle: &PythonRuntimeHandle) -> Result<PythonElfObservation> {
+pub(crate) fn read_bound_elf(handle: &PythonRuntimeHandle) -> Result<PythonElfObservation> {
     let mut bytes = Vec::new();
     std::fs::File::open(handle.executable())?
         .take(MAX_HEADER_BYTES)
@@ -717,7 +717,7 @@ fn read_bound_elf(handle: &PythonRuntimeHandle) -> Result<PythonElfObservation> 
     parse_elf_observation(&bytes)
 }
 
-fn musl_version(stderr: &[u8]) -> Option<PythonLibcVersion> {
+pub(crate) fn musl_version(stderr: &[u8]) -> Option<PythonLibcVersion> {
     let text = std::str::from_utf8(stderr).ok()?;
     let mut lines = text.lines();
     if !lines.next()?.trim().starts_with("musl libc (") {

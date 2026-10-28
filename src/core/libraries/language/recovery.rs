@@ -66,7 +66,120 @@ pub(crate) fn restore_bytecode(
     target: &PublishedLanguage,
     dry_run: bool,
 ) -> Result<BytecodeRecoveryReport> {
+    ensure!(target.source_kind() == super::source::PythonRuntimeSource::Prebuilt,
+        "the four-file bytecode recovery applies only to the original PBS runtime recipe");
     restore_bytecode_inner(context, target, dry_run, &mut |_| Ok(()))
+}
+
+/// Conservative, read-only roots for unfinished narrow bytecode recovery.
+/// Reading a journal grants neither recovery nor deletion authority.
+pub(crate) struct PendingBytecodeProtection {
+    pub language: [u8; 32],
+    pub journals: Vec<String>,
+}
+pub(crate) fn pending_protections(
+    context: &OperationContext,
+) -> Result<Vec<PendingBytecodeProtection>> {
+    let Some(read) = ReadStore::open_readonly(
+        &context.requested_data_root().join("languages"),
+        uid(),
+        RootLimits::default(),
+        context.policy().deadline,
+    )?
+    else {
+        return Ok(Vec::new());
+    };
+    let control = read.control(ControlLimits::default())?;
+    let mut roots = Vec::new();
+    let mut total = 0usize;
+    for name in control.list_names(ControlNamespace::Journals, 65536, 8 * 1024 * 1024)? {
+        if !name.starts_with("bytecode-recovery-") {
+            continue;
+        }
+        context.checkpoint()?;
+        let snapshot = control
+            .read(ControlNamespace::Journals, &name)?
+            .context("PendingRecovery: bytecode journal disappeared")?;
+        total = total
+            .checked_add(snapshot.bytes().len())
+            .filter(|value| *value <= 64 * 1024 * 1024)
+            .context("bytecode recovery projection byte budget exceeded")?;
+        let journal: RecoveryJournal = serde_json::from_slice(snapshot.bytes())
+            .map_err(|error| eyre::eyre!("PendingRecovery: damaged bytecode journal: {error}"))?;
+        ensure!(
+            journal.schema == 1
+                && <[u8; 32]>::from(Sha256::digest(journal.manifest.as_bytes()))
+                    == journal.manifest_sha256,
+            "PendingRecovery: bytecode journal schema or original digest differs"
+        );
+        journal.manifest_identity.validate()?;
+        let original: LanguageManifest = serde_json::from_str(&journal.manifest)?;
+        let spec = super::repository::LanguageRepository::spec_from_manifest(&original)?;
+        super::publication::validate_manifest(&spec, &original)?;
+        super::publication::validate_manifest_location(
+            &original,
+            &read.root_path().join(spec.key().filename()).join("payload"),
+        )?;
+        ensure!(
+            journal.key == original.key
+                && name == format!("bytecode-recovery-{}.json", spec.key().filename()),
+            "PendingRecovery: bytecode journal object identity differs"
+        );
+        journal.prepared.identity.validate()?;
+        let expected = original_entries(&original)?;
+        ensure!(
+            journal.files.len() == expected.len(),
+            "PendingRecovery: bytecode journal file set differs"
+        );
+        let mut names = std::collections::BTreeSet::from([name]);
+        ensure!(
+            journal.prepared.name.starts_with("bytecode-manifest-")
+                && journal.prepared.name.len() <= 128
+                && journal
+                    .prepared
+                    .name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                && names.insert(journal.prepared.name.clone()),
+            "PendingRecovery: invalid prepared bytecode manifest name"
+        );
+        for (file, expected) in journal.files.iter().zip(expected) {
+            file.stage_identity.validate()?;
+            ensure!(
+                file.original == expected
+                    && file.damaged.relative == expected.relative
+                    && file.damaged.uid == expected.uid
+                    && file.damaged.mode == expected.mode
+                    && matches!(file.damaged.kind,TreeInventoryKind::File{size,..} if size<=MAX_BYTECODE_BYTES),
+                "PendingRecovery: unknown bytecode recovery file facts"
+            );
+            for name in [&file.stage, &file.backup] {
+                ensure!(
+                    name.len() <= 128
+                        && name.starts_with("bytecode-")
+                        && name
+                            .bytes()
+                            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                        && names.insert(name.clone()),
+                    "PendingRecovery: unsafe bytecode recovery staging name"
+                );
+            }
+        }
+        ensure!(
+            <[u8; 32]>::from(Sha256::digest(serde_json::to_vec(&final_manifest(
+                &original,
+                &journal.files
+            )?)?))
+                == journal.prepared.sha256,
+            "PendingRecovery: prepared bytecode manifest digest differs"
+        );
+        roots.push(PendingBytecodeProtection {
+            language: journal.key,
+            journals: names.into_iter().collect(),
+        });
+    }
+    roots.sort_unstable_by_key(|root| root.language);
+    Ok(roots)
 }
 
 /// A restart record never grants authority itself. Every field is checked

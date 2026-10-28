@@ -92,6 +92,9 @@ fn prepare_with_finish(
     let mut python = projection
         .remove("python")
         .ok_or(LockDocumentError::Encoding)?;
+    if let Some(previous) = document.get("python") {
+        retain_projection_format(previous, &mut python);
+    }
     // Parsed table positions belong to the projection's separate document.
     // Reusing those offsets would interleave it with existing native tables.
     clear_table_positions(&mut python);
@@ -134,6 +137,172 @@ fn prepare_with_finish(
         bytes: output.bytes,
         sha256,
     })
+}
+
+/// The original image was decoded by the same bounded strict model parser.
+/// Preserve spelling and comments only while replacing the exact model data;
+/// absent records and fields are removed rather than retained as stale facts.
+fn retain_projection_format(previous: &toml_edit::Item, next: &mut toml_edit::Item) {
+    let same_shape = matches!(
+        (previous, &*next),
+        (toml_edit::Item::Table(_), toml_edit::Item::Table(_))
+            | (
+                toml_edit::Item::ArrayOfTables(_),
+                toml_edit::Item::ArrayOfTables(_)
+            )
+            | (toml_edit::Item::Value(_), toml_edit::Item::Value(_))
+    );
+    if !same_shape {
+        // The strict decoder also accepts inline representations of its map
+        // and sequence fields. Keep those unchanged when their data is equal.
+        if let (Ok(previous_value), Ok(next_value)) =
+            (previous.clone().into_value(), next.clone().into_value())
+        {
+            if same_value(&previous_value, &next_value) {
+                *next = previous.clone();
+                return;
+            }
+        }
+        if let toml_edit::Item::Table(next) = next {
+            if let Ok(previous) = previous.clone().into_table() {
+                retain_table_format(&previous, next);
+            }
+            return;
+        }
+        if let toml_edit::Item::ArrayOfTables(next) = next {
+            if let Ok(previous) = previous.clone().into_array_of_tables() {
+                retain_records_format(&previous, next);
+            }
+            return;
+        }
+    }
+    match (previous, next) {
+        (toml_edit::Item::Table(previous), toml_edit::Item::Table(next)) => {
+            retain_table_format(previous, next);
+        }
+        (toml_edit::Item::ArrayOfTables(previous), toml_edit::Item::ArrayOfTables(next)) => {
+            retain_records_format(previous, next);
+        }
+        (toml_edit::Item::Value(previous), toml_edit::Item::Value(next)) => {
+            retain_value_format(previous, next);
+        }
+        _ => {}
+    }
+}
+
+fn retain_records_format(previous: &toml_edit::ArrayOfTables, next: &mut toml_edit::ArrayOfTables) {
+    let old: std::collections::BTreeMap<_, _> = previous
+        .iter()
+        .filter_map(|table| record_identity(table).map(|key| (key, table)))
+        .collect();
+    for table in next.iter_mut() {
+        if let Some(previous) = record_identity(table).and_then(|key| old.get(&key)) {
+            retain_table_format(previous, table);
+        }
+    }
+}
+
+fn retain_table_format(previous: &toml_edit::Table, next: &mut toml_edit::Table) {
+    let mut merged = previous.clone();
+    let removed: Vec<_> = previous
+        .iter()
+        .filter(|(key, _)| !next.contains_key(key))
+        .map(|(key, _)| key.to_owned())
+        .collect();
+    for key in removed {
+        merged.remove(&key);
+    }
+    for (key, item) in next.iter() {
+        let mut replacement = item.clone();
+        if let Some(previous) = merged.get_mut(key) {
+            retain_projection_format(previous, &mut replacement);
+            *previous = replacement;
+        } else if let Some(key) = next.key(key) {
+            merged.insert_formatted(key, replacement);
+        }
+    }
+    *next = merged;
+}
+
+fn record_identity(table: &toml_edit::Table) -> Option<Vec<String>> {
+    // Every sequence in the strict Python projection has one of these bounded
+    // identities. A changed identity is a new record, regardless of its slot.
+    for fields in [
+        &["config_scope", "group", "target"][..],
+        &["id"][..],
+        &["declaration_index", "node"][..],
+        &["from", "to", "declaration"][..],
+        &["name", "version", "source_pin"][..],
+        &["source_pin"][..],
+    ] {
+        let values: Option<Vec<_>> = fields
+            .iter()
+            .map(|field| {
+                let value = table.get(field)?.as_value()?;
+                let value = value
+                    .as_str()
+                    .map(str::to_owned)
+                    .or_else(|| value.as_integer().map(|value| value.to_string()))?;
+                Some(format!("{field}\0{value}"))
+            })
+            .collect();
+        if values.is_some() {
+            return values;
+        }
+    }
+    None
+}
+
+fn same_value(previous: &toml_edit::Value, next: &toml_edit::Value) -> bool {
+    use toml_edit::Value;
+    match (previous, next) {
+        (Value::String(a), Value::String(b)) => a.value() == b.value(),
+        (Value::Integer(a), Value::Integer(b)) => a.value() == b.value(),
+        (Value::Float(a), Value::Float(b)) => a.value().to_bits() == b.value().to_bits(),
+        (Value::Boolean(a), Value::Boolean(b)) => a.value() == b.value(),
+        (Value::Datetime(a), Value::Datetime(b)) => a.value() == b.value(),
+        (Value::Array(a), Value::Array(b)) => {
+            a.len() == b.len() && a.iter().zip(b.iter()).all(|(a, b)| same_value(a, b))
+        }
+        (Value::InlineTable(a), Value::InlineTable(b)) => {
+            a.len() == b.len()
+                && a.iter()
+                    .all(|(key, a)| b.get(key).is_some_and(|b| same_value(a, b)))
+        }
+        _ => false,
+    }
+}
+
+fn retain_value_format(previous: &toml_edit::Value, next: &mut toml_edit::Value) {
+    if same_value(previous, next) {
+        *next = previous.clone();
+        return;
+    }
+    *next.decor_mut() = previous.decor().clone();
+    if let (toml_edit::Value::Array(previous), toml_edit::Value::Array(next)) = (previous, next) {
+        // Declaration and build-requirement arrays contain scalar strings.
+        // Match retained values by content so inserting a root does not move
+        // another declaration's comment to a different package.
+        let mut old =
+            std::collections::BTreeMap::<&str, std::collections::VecDeque<&toml_edit::Value>>::new(
+            );
+        for value in previous.iter() {
+            if let Some(text) = value.as_str() {
+                old.entry(text).or_default().push_back(value);
+            }
+        }
+        for value in next.iter_mut() {
+            if let Some(previous) = value
+                .as_str()
+                .and_then(|text| old.get_mut(text))
+                .and_then(std::collections::VecDeque::pop_front)
+            {
+                *value = previous.clone();
+            }
+        }
+        next.set_trailing_comma(previous.trailing_comma());
+        next.set_trailing(previous.trailing().clone());
+    }
 }
 fn clear_table_positions(item: &mut toml_edit::Item) {
     fn clear(table: &mut toml_edit::Table) {
@@ -199,6 +368,111 @@ mod tests {
     }
     fn native() -> &'static str {
         "# exact native header\nlockfile_version = 3 # preserve revision comment\n\n[tools]\npython = { version = '3.12', backend = 'core:python' } # native inline\n\n[future]\nwhen = 2026-10-16T00:00:00Z\nvalues = [1, 'two', true]\nliteral = 'PRIVATE_NATIVE_TOKEN'\n"
+    }
+    fn inactive_models(targets: &[[u8; 32]]) -> PythonLockModel {
+        use super::super::super::lock_model::{
+            GroupKey, LockGraphInput, LockMarkerSemantics, RuntimePin,
+        };
+        let keys = targets
+            .iter()
+            .map(|target| GroupKey::new("", "shared-runtime", *target, Default::default()).unwrap())
+            .collect::<Vec<_>>();
+        let groups = keys
+            .iter()
+            .map(|key| LockGraphInput {
+                key,
+                semantics: LockMarkerSemantics::Current2026,
+                runtime: RuntimePin::new([7; 32], 1, *key.target()).unwrap(),
+                root_declarations: &["inactive==1.0; python_version < '1'"],
+                roots: &[],
+                nodes: &[],
+                edges: &[],
+            })
+            .collect::<Vec<_>>();
+        PythonLockModel::from_parts(&[], &groups, Default::default()).unwrap()
+    }
+
+    #[test]
+    fn p3_projection_retains_matching_group_fields_and_comments_and_removes_old_targets() {
+        let owner = tempfile::tempdir().unwrap();
+        let path = owner.path().join("pakro.lock");
+        let old_model = inactive_models(&[[3; 32], [4; 32]]).with_declaration_fingerprint([1; 32]);
+        let old_projection = old_model
+            .encode_projection(Default::default())
+            .unwrap()
+            .replacen("schema = 3", "schema = 3 # schema stays", 1)
+            .replacen(
+                &format!("declaration_fingerprint = \"{}\"", "01".repeat(32)),
+                &format!(
+                    "declaration_fingerprint = '{}' # fingerprint comment",
+                    "01".repeat(32)
+                ),
+                1,
+            )
+            .replacen(
+                "[[python.groups]]",
+                "[[python.groups]] # retained group header",
+                1,
+            )
+            .replacen(
+                "group = \"shared-runtime\"",
+                "group = 'shared-runtime' # retained group identity",
+                1,
+            )
+            .replacen("roots = []", "roots = [ ] # no active roots", 1);
+        let original = format!(
+            "lockfile_version=4\n[future]\nvalue='stays' # foreign comment\n\n{old_projection}"
+        );
+        fs::write(&path, &original).unwrap();
+        let root = open(&path);
+        let model = inactive_models(&[[3; 32]]).with_declaration_fingerprint([2; 32]);
+        let prepared = root
+            .prepare_document(model.clone(), Default::default())
+            .unwrap();
+        let output = std::str::from_utf8(prepared.bytes()).unwrap();
+        for expected in [
+            "# schema stays",
+            "# fingerprint comment",
+            "# retained group header",
+            "group = 'shared-runtime' # retained group identity",
+            "roots = [ ] # no active roots",
+            "value='stays' # foreign comment",
+        ] {
+            assert!(
+                output.contains(expected),
+                "missing retained syntax {expected}"
+            );
+        }
+        assert!(!output.contains(&"04".repeat(32)));
+        assert_eq!(
+            super::super::decode_root(prepared.bytes(), Default::default())
+                .unwrap()
+                .unwrap(),
+            model
+        );
+        assert_eq!(fs::read_to_string(path).unwrap(), original);
+    }
+
+    #[test]
+    fn p3_damaged_or_unknown_python_projection_cannot_be_overwritten() {
+        for original in [
+            "lockfile_version=4\n[python]\nschema=2\npins=[]\ngroups=[]\nunknown='reject-me'\n",
+            "lockfile_version=999\n[python]\nschema=2\npins=[]\ngroups=[]\n",
+            "lockfile_version=4\n[python\nschema=2\n",
+        ] {
+            let owner = tempfile::tempdir().unwrap();
+            let path = owner.path().join("pakro.lock");
+            fs::write(&path, original).unwrap();
+            assert!(
+                BoundPythonLock::acquire(
+                    &path,
+                    Default::default(),
+                    Instant::now() + Duration::from_secs(10)
+                )
+                .is_err()
+            );
+            assert_eq!(fs::read_to_string(path).unwrap(), original);
+        }
     }
     #[test]
     fn native_sections_unknown_values_and_comments_survive_python_overlay() {

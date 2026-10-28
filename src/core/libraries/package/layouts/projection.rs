@@ -1,4 +1,4 @@
-//! A graph-owned, COW namespace adapter. Canonical package metadata, RECORDs,
+//! A graph-owned native namespace adapter. Canonical package metadata, RECORDs,
 //! scripts and unrelated imports remain in their immutable package trees.
 use super::super::lease::PackageLease;
 use super::super::manifest::LayoutManifest;
@@ -19,14 +19,72 @@ use std::path::{Component, Path, PathBuf};
 #[cfg(test)]
 thread_local! {
     static AFTER_CLONE: std::cell::Cell<Option<fn(&UnpublishedPrefix)>> = const { std::cell::Cell::new(None) };
+    static INITIAL_METHOD: std::cell::Cell<Option<ProjectionMethod>> = const { std::cell::Cell::new(None) };
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(in crate::libraries::package) struct NativeProjection {
+    #[serde(default, skip_serializing_if = "ProjectionMethod::is_legacy")]
+    pub(super) method: ProjectionMethod,
     roots: Vec<PathBuf>,
     directories: Vec<PathBuf>,
     files: Vec<ProjectionFile>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub(in crate::libraries::package) enum ProjectionMethod {
+    #[default]
+    MacosCow,
+    LinuxReflink,
+    VerifiedCopy,
+}
+impl ProjectionMethod {
+    fn is_legacy(&self) -> bool {
+        *self == Self::MacosCow
+    }
+    pub(super) fn recipe(self) -> u32 {
+        match self {
+            Self::MacosCow => 2,
+            Self::LinuxReflink => 3,
+            Self::VerifiedCopy => 4,
+        }
+    }
+}
+
+pub(super) fn initial_method() -> ProjectionMethod {
+    #[cfg(test)]
+    if let Some(method) = INITIAL_METHOD.with(|slot| slot.take()) {
+        return method;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        ProjectionMethod::LinuxReflink
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        ProjectionMethod::MacosCow
+    }
+}
+
+pub(in crate::libraries::package) fn validate_metadata(
+    recipe: u32,
+    projection: Option<&NativeProjection>,
+) -> Result<()> {
+    match (recipe, projection) {
+        (1, None) | (2, None) => Ok(()),
+        (2..=4, Some(projection)) => {
+            ensure!(
+                recipe == projection.method.recipe()
+                    && !projection.roots.is_empty()
+                    && !projection.files.is_empty(),
+                "shared layout recipe differs from its actual native projection method"
+            );
+            Ok(())
+        }
+        _ => eyre::bail!("shared layout recipe has no matching native projection"),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,6 +132,7 @@ fn native(path: &Path) -> bool {
 pub(super) fn plan(
     context: &OperationContext,
     packages: &[PackageLease],
+    method: ProjectionMethod,
 ) -> Result<Option<NativeProjection>> {
     let limits = PrefixInventoryLimits::default();
     let mut used_entries = 0usize;
@@ -176,6 +235,7 @@ pub(super) fn plan(
         }
     }
     Ok(Some(NativeProjection {
+        method,
         roots,
         directories: directories.into_iter().collect(),
         files: files.into_values().collect(),
@@ -243,7 +303,7 @@ pub(super) fn materialize(
     prefix: &mut UnpublishedPrefix,
     packages: &[PackageLease],
     projection: &NativeProjection,
-) -> Result<()> {
+) -> Result<bool> {
     let packages: BTreeMap<_, _> = packages
         .iter()
         .map(|package| {
@@ -276,7 +336,22 @@ pub(super) fn materialize(
             .get(file.relative.as_path())
             .context("native namespace source file is missing")?;
         let source = open_source(package, entry, index)?;
-        prefix.clone_file_exclusive(&source, &file.expected())?;
+        match projection.method {
+            ProjectionMethod::MacosCow => {
+                prefix.clone_file_exclusive(&source, &file.expected())?;
+            }
+            ProjectionMethod::LinuxReflink => {
+                if prefix
+                    .try_reflink_file_exclusive(&source, &file.expected())?
+                    .is_none()
+                {
+                    return Ok(false);
+                }
+            }
+            ProjectionMethod::VerifiedCopy => {
+                prefix.copy_file_exclusive(&source, &file.expected())?;
+            }
+        }
     }
     #[cfg(test)]
     AFTER_CLONE.with(|slot| {
@@ -284,7 +359,7 @@ pub(super) fn materialize(
             hook(prefix);
         }
     });
-    Ok(())
+    Ok(true)
 }
 
 pub(super) fn verify_output(
@@ -326,6 +401,7 @@ pub(in crate::libraries::package) fn validate(
     manifest: &LayoutManifest,
     packages: &[PackageLease],
 ) -> Result<()> {
+    validate_metadata(manifest.recipe, manifest.projection.as_ref())?;
     ensure!(
         packages
             .iter()
@@ -339,8 +415,11 @@ pub(in crate::libraries::package) fn validate(
         );
         return Ok(());
     }
-    ensure!(manifest.recipe == 2, "unsupported shared layout recipe");
-    let expected = plan(context, packages)?;
+    let method = manifest
+        .projection
+        .as_ref()
+        .map_or(ProjectionMethod::MacosCow, |projection| projection.method);
+    let expected = plan(context, packages, method)?;
     ensure!(
         manifest.projection == expected,
         "native namespace mapping differs from the held package graph"
@@ -420,6 +499,808 @@ pub(in crate::libraries::package) fn validate(
         "layout is missing a native namespace directory"
     );
     Ok(())
+}
+
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+mod method_tests {
+    use super::*;
+    use crate::libraries::language::lease::LanguageLease;
+    use crate::libraries::language::repository::tests::{operation_context, prepare};
+    #[cfg(target_os = "linux")]
+    use crate::libraries::package::layouts::prepare_layout_with_sources;
+    use crate::libraries::package::layouts::tests::wheel;
+    use crate::libraries::package::layouts::{layout_key_for, prepare_layout};
+    #[cfg(target_os = "linux")]
+    use crate::packages::python_resolution::source::registry_depot::closed::SharedRegistryPackageSource;
+    use std::os::unix::fs::FileExt;
+    use std::time::Duration;
+
+    fn mapping(method: ProjectionMethod) -> NativeProjection {
+        NativeProjection {
+            method,
+            roots: vec!["site-packages/sharednative".into()],
+            directories: vec!["site-packages".into(), "site-packages/sharednative".into()],
+            files: vec![ProjectionFile {
+                relative: "site-packages/sharednative/native.so".into(),
+                owners: vec![[1; 32]],
+                size: 1,
+                sha256: [2; 32],
+                mode: 0o644,
+            }],
+        }
+    }
+
+    #[test]
+    fn p6_projection_methods_have_distinct_recipes_and_legacy_json_is_unchanged() {
+        let old = mapping(ProjectionMethod::MacosCow);
+        let json = serde_json::to_value(&old).unwrap();
+        assert!(json.get("method").is_none());
+        let decoded: NativeProjection = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(decoded, old);
+        assert_eq!(serde_json::to_value(decoded).unwrap(), json);
+        let mut keys = BTreeSet::new();
+        for recipe in 1..=4 {
+            assert!(keys.insert(layout_key_for(recipe, [3; 32], [4; 32]).unwrap()));
+        }
+        for method in [
+            ProjectionMethod::MacosCow,
+            ProjectionMethod::LinuxReflink,
+            ProjectionMethod::VerifiedCopy,
+        ] {
+            let value = mapping(method);
+            validate_metadata(method.recipe(), Some(&value)).unwrap();
+            for recipe in 1..=4 {
+                if recipe != method.recipe() {
+                    assert!(validate_metadata(recipe, Some(&value)).is_err());
+                }
+            }
+        }
+        assert!(validate_metadata(3, None).is_err());
+        assert!(validate_metadata(4, None).is_err());
+        assert!(validate_metadata(5, None).is_err());
+    }
+
+    async fn fixture() -> (tempfile::TempDir, OperationContext, LanguageLease) {
+        let owner = tempfile::tempdir().unwrap();
+        let root = owner.path().canonicalize().unwrap();
+        let context = operation_context(&root, true, Duration::from_secs(120));
+        #[cfg(target_os = "macos")]
+        let (bytes, spec) = {
+            use crate::libraries::language::repository::tests::{archive, install_spec};
+            let bytes = archive("3.15.0");
+            let spec = install_spec(&bytes);
+            (bytes, spec)
+        };
+        #[cfg(target_os = "linux")]
+        let (bytes, spec) = {
+            use crate::libraries::language::repository::tests::{archive_for, install_spec_for};
+            use crate::plugins::core::python::native::{RuntimeArchiveTarget, RuntimePlatform};
+            #[cfg(target_env = "musl")]
+            let platform = RuntimePlatform::LinuxMusl;
+            #[cfg(not(target_env = "musl"))]
+            let platform = RuntimePlatform::LinuxGnu;
+            let target = RuntimeArchiveTarget::new(std::env::consts::ARCH, platform).unwrap();
+            let bytes = archive_for("3.15.0", &target, "");
+            let spec = install_spec_for("3.15.0", &bytes, &target, "20261013");
+            (bytes, spec)
+        };
+        let language = prepare(&spec, &context, &bytes).await.unwrap();
+        (owner, context, language)
+    }
+
+    fn inputs(
+        context: &OperationContext,
+        language: &LanguageLease,
+    ) -> Vec<(
+        crate::libraries::package::manifest::PackageFacts,
+        crate::packages::python_wheel_source::InspectedWheelArchive,
+    )> {
+        vec![
+            wheel(
+                context,
+                language,
+                "projectiona",
+                [185; 32],
+                vec![[186; 32]],
+                vec![
+                    ("sharednative/__init__.py", b"VALUE=1\n"),
+                    ("sharednative/native.so", b"native fixture"),
+                ],
+                None,
+            ),
+            wheel(
+                context,
+                language,
+                "projectionb",
+                [186; 32],
+                vec![],
+                vec![("sharednative/lib/provider.so", b"provider fixture")],
+                None,
+            ),
+        ]
+    }
+
+    fn unavailable(_: &File, _: &File) -> std::io::Result<()> {
+        Err(std::io::Error::from_raw_os_error(nix::libc::EOPNOTSUPP))
+    }
+
+    fn one_success_then_unavailable(source: &File, target: &File) -> std::io::Result<()> {
+        // Exercise the owned successful-FD boundary before the next attempt
+        // reports unavailable. This is not evidence of a Linux kernel clone.
+        UnpublishedPrefix::install_reflink_test_attempt(Some(unavailable));
+        let mut offset = 0u64;
+        let mut buffer = [0u8; 4096];
+        loop {
+            let count = source.read_at(&mut buffer, offset)?;
+            if count == 0 {
+                break;
+            }
+            target.write_all_at(&buffer[..count], offset)?;
+            offset += count as u64;
+        }
+        Ok(())
+    }
+
+    struct ResetHooks;
+    impl Drop for ResetHooks {
+        fn drop(&mut self) {
+            INITIAL_METHOD.with(|slot| slot.set(None));
+            UnpublishedPrefix::install_reflink_test_attempt(None);
+        }
+    }
+
+    #[tokio::test]
+    async fn p6_unavailable_reflink_discards_the_whole_projection_and_rebuilds_copy() {
+        let (_owner, context, language) = fixture().await;
+        let _reset = ResetHooks;
+        INITIAL_METHOD.with(|slot| slot.set(Some(ProjectionMethod::LinuxReflink)));
+        UnpublishedPrefix::install_reflink_test_attempt(Some(one_success_then_unavailable));
+        let layout =
+            prepare_layout(&context, &language, [187; 32], inputs(&context, &language)).unwrap();
+        assert_eq!(layout.manifest.recipe, 4);
+        assert_eq!(
+            layout.manifest.projection.as_ref().unwrap().method,
+            ProjectionMethod::VerifiedCopy
+        );
+        assert_eq!(
+            layout.key(),
+            layout_key_for(4, layout.language(), layout.graph()).unwrap()
+        );
+        layout.manifest.validate_metadata().unwrap();
+        layout.check_binding().unwrap();
+        let allocations = std::fs::read_dir(super::super::super::manifest::store_path(&context))
+            .unwrap()
+            .filter_map(|entry| {
+                let entry = entry.unwrap();
+                entry
+                    .file_name()
+                    .to_str()
+                    .unwrap()
+                    .starts_with("g-")
+                    .then_some(entry.path())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            allocations.len(),
+            3,
+            "failed reflink allocation must be fully discarded"
+        );
+        let original = layout.packages()[0]
+            .root()
+            .join("site-packages/sharednative/native.so");
+        let projected = layout.prefix().join("site-packages/sharednative/native.so");
+        let a = std::fs::metadata(&original).unwrap();
+        let b = std::fs::metadata(&projected).unwrap();
+        assert_ne!((a.dev(), a.ino()), (b.dev(), b.ino()));
+        assert_eq!(b.nlink(), 1);
+        assert_eq!(
+            std::fs::read(&original).unwrap(),
+            std::fs::read(&projected).unwrap()
+        );
+        let mut altered = layout.manifest.clone();
+        altered.recipe = 3;
+        altered.storage.key = layout_key_for(3, altered.language, altered.graph).unwrap();
+        assert!(altered.validate_metadata().is_err());
+        assert!(
+            !layout.prefix().join("lib").exists(),
+            "layout must not copy the interpreter"
+        );
+        #[cfg(target_os = "linux")]
+        {
+            let existing = layout
+                .packages()
+                .iter()
+                .map(|package| {
+                    (
+                        package.manifest().facts.clone(),
+                        SharedRegistryPackageSource::Existing(package.clone()),
+                    )
+                })
+                .collect();
+            let again =
+                prepare_layout_with_sources(&context, &language, layout.graph(), existing).unwrap();
+            assert_eq!(again.key(), layout.key());
+            assert_eq!(again.prefix(), layout.prefix());
+            assert_eq!(
+                super::super::reserve_layout(&context, layout.language(), layout.graph())
+                    .unwrap()
+                    .prefix(),
+                layout.prefix()
+            );
+        }
+        std::fs::write(&projected, b"mutate fixture").unwrap();
+        assert_eq!(std::fs::read(&original).unwrap(), b"native fixture");
+        assert!(layout.check_binding().is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn p6_linux_native_layout_records_the_real_method_and_reuses_the_combination() {
+        let (_owner, context, language) = fixture().await;
+        let layout =
+            prepare_layout(&context, &language, [188; 32], inputs(&context, &language)).unwrap();
+        let projection = layout.manifest.projection.as_ref().unwrap();
+        assert!(matches!(
+            projection.method,
+            ProjectionMethod::LinuxReflink | ProjectionMethod::VerifiedCopy
+        ));
+        assert_eq!(projection.method.recipe(), layout.manifest.recipe);
+        println!("P6_LINUX_PROJECTION_METHOD={:?}", projection.method);
+        if let Ok(expected) = std::env::var("PAKRO_TEST_EXPECT_PROJECTION_METHOD") {
+            assert_eq!(
+                serde_json::to_value(projection.method)
+                    .unwrap()
+                    .as_str()
+                    .unwrap(),
+                expected
+            );
+        }
+        let existing = layout
+            .packages()
+            .iter()
+            .map(|package| {
+                (
+                    package.manifest().facts.clone(),
+                    SharedRegistryPackageSource::Existing(package.clone()),
+                )
+            })
+            .collect();
+        let again =
+            prepare_layout_with_sources(&context, &language, layout.graph(), existing).unwrap();
+        assert_eq!(layout.key(), again.key());
+        assert_eq!(layout.prefix(), again.prefix());
+        layout.check_binding().unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    mod elf {
+        use super::*;
+        use crate::libraries::package::manifest::PackageFacts;
+        use crate::packages::python_wheel::{WheelExpectation, WheelLimits};
+        use crate::packages::python_wheel_source::{InspectedWheelArchive, inspect_owned_wheel};
+        use base64::Engine as _;
+        use sha2::{Digest as _, Sha256};
+        use std::io::{Cursor, Read, Write};
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::process::{Command, Output};
+
+        const INIT: &[u8] = b"import ctypes\nfrom pathlib import Path\nLIBRARY_PATH = str(Path(__file__).with_name('native.so'))\n_lib = ctypes.CDLL(LIBRARY_PATH)\n_lib.pakro_answer.restype = ctypes.c_int\ndef answer():\n    return _lib.pakro_answer()\n";
+
+        fn required_path(name: &str) -> PathBuf {
+            let path = PathBuf::from(
+                std::env::var_os(name).unwrap_or_else(|| panic!("{name} is required")),
+            );
+            assert!(path.is_absolute(), "{name} must be absolute");
+            path.canonicalize().unwrap()
+        }
+
+        fn input(root: &File, parent: Option<&str>, leaf: &str, expected_env: &str) -> Vec<u8> {
+            let expected = std::env::var(expected_env)
+                .unwrap_or_else(|_| panic!("{expected_env} is required"));
+            let decoded = hex::decode(&expected).unwrap();
+            assert!(
+                decoded.len() == 32 && hex::encode(&decoded) == expected,
+                "{expected_env} must be a complete lowercase SHA256"
+            );
+            let directory = parent.map(|name| open_directory(root, name).unwrap());
+            let directory = directory.as_ref().unwrap_or(root);
+            pakro_store::control::validate_owned_directory(
+                directory,
+                nix::unistd::geteuid().as_raw(),
+            )
+            .unwrap();
+            let mut file = File::from(
+                nix::fcntl::openat(
+                    directory,
+                    leaf,
+                    nix::fcntl::OFlag::O_RDONLY
+                        | nix::fcntl::OFlag::O_NOFOLLOW
+                        | nix::fcntl::OFlag::O_CLOEXEC
+                        | nix::fcntl::OFlag::O_NONBLOCK,
+                    nix::sys::stat::Mode::empty(),
+                )
+                .unwrap(),
+            );
+            let before = file.metadata().unwrap();
+            assert!(
+                before.is_file()
+                    && before.uid() == nix::unistd::geteuid().as_raw()
+                    && before.nlink() == 1
+                    && before.mode() & 0o022 == 0
+                    && before.len() >= 64
+                    && before.len() <= 512 * 1024,
+                "ELF fixture must be an owned, bounded, independent regular file"
+            );
+            let mut bytes = Vec::new();
+            Read::by_ref(&mut file)
+                .take(512 * 1024 + 1)
+                .read_to_end(&mut bytes)
+                .unwrap();
+            let after = file.metadata().unwrap();
+            assert_eq!(
+                (
+                    before.dev(),
+                    before.ino(),
+                    before.len(),
+                    before.mtime(),
+                    before.mtime_nsec(),
+                    before.ctime(),
+                    before.ctime_nsec()
+                ),
+                (
+                    after.dev(),
+                    after.ino(),
+                    after.len(),
+                    after.mtime(),
+                    after.mtime_nsec(),
+                    after.ctime(),
+                    after.ctime_nsec()
+                )
+            );
+            assert_eq!(bytes.len() as u64, before.len());
+            assert_eq!(hex::encode(Sha256::digest(&bytes)), expected);
+            assert_eq!(&bytes[..6], b"\x7fELF\x02\x01");
+            assert_eq!(
+                u16::from_le_bytes([bytes[16], bytes[17]]),
+                3,
+                "fixture must be ET_DYN"
+            );
+            let machine = match std::env::consts::ARCH {
+                "aarch64" => 183,
+                "x86_64" => 62,
+                other => panic!("unsupported ELF fixture architecture {other}"),
+            };
+            assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), machine);
+            println!(
+                "P6_ELF_INPUT={leaf} SHA256={expected} BYTES={}",
+                bytes.len()
+            );
+            bytes
+        }
+
+        fn native_wheel(
+            context: &OperationContext,
+            language: &LanguageLease,
+            name: &str,
+            key: [u8; 32],
+            dependencies: Vec<[u8; 32]>,
+            files: Vec<(&str, &[u8])>,
+        ) -> (PackageFacts, InspectedWheelArchive) {
+            let tag = language
+                .target()
+                .supported()
+                .ordered()
+                .iter()
+                .find(|tag| {
+                    tag.interpreter() == "py3"
+                        && tag.abi() == "none"
+                        && tag.platform().starts_with("linux_")
+                })
+                .expect("fixture requires a supported native Linux py3-none tag");
+            let tag = format!("{}-{}-{}", tag.interpreter(), tag.abi(), tag.platform());
+            let info = format!("{name}-1.0.dist-info");
+            let mut members = files
+                .into_iter()
+                .map(|(path, bytes)| (path.to_owned(), bytes.to_vec()))
+                .collect::<Vec<_>>();
+            members.push((
+                format!("{info}/WHEEL"),
+                format!("Wheel-Version: 1.0\nRoot-Is-Purelib: false\nTag: {tag}\n").into_bytes(),
+            ));
+            members.push((
+                format!("{info}/METADATA"),
+                format!("Metadata-Version: 2.4\nName: {name}\nVersion: 1.0\n").into_bytes(),
+            ));
+            let mut record = String::new();
+            for (path, bytes) in &members {
+                record.push_str(&format!(
+                    "{path},sha256={},{}\n",
+                    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(bytes)),
+                    bytes.len()
+                ));
+            }
+            record.push_str(&format!("{info}/RECORD,,\n"));
+            members.push((format!("{info}/RECORD"), record.into_bytes()));
+            let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
+            for (path, bytes) in members {
+                archive
+                    .start_file(
+                        path,
+                        zip::write::SimpleFileOptions::default()
+                            .last_modified_time(zip::DateTime::default())
+                            .unix_permissions(0o644),
+                    )
+                    .unwrap();
+                archive.write_all(&bytes).unwrap();
+            }
+            let bytes = archive.finish().unwrap().into_inner();
+            let filename = format!("{name}-1.0-{tag}.whl");
+            let digest = pakro_store::Digest::from_sha256_bytes(&bytes);
+            let artifact = crate::artifact_snapshot::spool_verified_reader(
+                bytes.as_slice(),
+                &filename,
+                digest,
+                1024 * 1024,
+                context.requested_cache_root(),
+            )
+            .unwrap();
+            let archive = inspect_owned_wheel(
+                artifact,
+                digest,
+                &WheelExpectation {
+                    filename: &filename,
+                    name,
+                    version: "1.0",
+                    supported: language.target().supported(),
+                },
+                WheelLimits::default(),
+            )
+            .unwrap();
+            (
+                PackageFacts {
+                    key,
+                    name: name.into(),
+                    version: "1.0".into(),
+                    artifact: digest.to_string(),
+                    source: "fixture-precompiled-elf-source".into(),
+                    dependencies,
+                },
+                archive,
+            )
+        }
+
+        fn python(python: &Path, home: &Path, mode: &str, first: &Path, second: &Path) -> Output {
+            let program = r#"import ctypes, pathlib, sys
+if sys.argv[1] == 'bootstrap':
+    sys.path.insert(0, sys.argv[2])
+    import sitecustomize
+else:
+    sys.path[:0] = [sys.argv[2], sys.argv[3]]
+import sharednative
+assert sharednative.answer() == 42
+library = ctypes.CDLL(sharednative.LIBRARY_PATH)
+library.pakro_answer.restype = ctypes.c_int
+assert library.pakro_answer() == 42
+if sys.argv[1] == 'bootstrap':
+    from importlib import metadata, resources
+    assert metadata.version('projectionelfconsumer') == '1.0'
+    assert metadata.version('projectionelfprovider') == '1.0'
+    assert resources.files('sharednative').joinpath('lib/libpakro_provider.so').is_file()
+print('P6_ELF_ANSWER=42', sharednative.__file__, sharednative.LIBRARY_PATH, sys.version)
+"#;
+            let output = Command::new(python)
+                .env_clear()
+                .env("HOME", home)
+                .env("PATH", "/usr/bin:/bin")
+                .current_dir(home)
+                .args(["-I", "-S", "-B", "-c", program, mode])
+                .arg(first)
+                .arg(second)
+                .output()
+                .unwrap();
+            println!(
+                "P6_SYSTEM_PYTHON mode={mode} EXIT={:?}\n{}\n{}",
+                output.status.code(),
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            output
+        }
+
+        #[ignore = "requires owned precompiled ELF inputs, explicit SHA256s and a system Python; compiles nothing"]
+        #[tokio::test]
+        async fn p6_linux_precompiled_elf_loads_from_shared_projection() {
+            let input_path = required_path("PAKRO_TEST_ELF_FIXTURE_DIR");
+            let directory = std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(nix::libc::O_DIRECTORY | nix::libc::O_NOFOLLOW | nix::libc::O_CLOEXEC)
+                .open(&input_path)
+                .unwrap();
+            pakro_store::control::validate_owned_directory(
+                &directory,
+                nix::unistd::geteuid().as_raw(),
+            )
+            .unwrap();
+            let consumer = input(
+                &directory,
+                None,
+                "native.so",
+                "PAKRO_TEST_ELF_CONSUMER_SHA256",
+            );
+            let provider = input(
+                &directory,
+                Some("lib"),
+                "libpakro_provider.so",
+                "PAKRO_TEST_ELF_PROVIDER_SHA256",
+            );
+            let interpreter = required_path("PAKRO_TEST_SYSTEM_PYTHON");
+            let metadata = std::fs::symlink_metadata(&interpreter).unwrap();
+            assert!(metadata.is_file() && metadata.mode() & 0o111 != 0);
+            println!(
+                "P6_SYSTEM_PYTHON={} SHA256={}",
+                interpreter.display(),
+                hex::encode(Sha256::digest(std::fs::read(&interpreter).unwrap()))
+            );
+            let expected = std::env::var("PAKRO_TEST_EXPECT_PROJECTION_METHOD")
+                .expect("actual expected projection method is required");
+            assert!(matches!(
+                expected.as_str(),
+                "linux-reflink" | "verified-copy"
+            ));
+            let (_owner, context, language) = fixture().await;
+            let home = context.requested_data_root().parent().unwrap();
+            println!(
+                "P6_MANAGED_RUNTIME=synthetic; real ELF execution uses the explicit system Python only"
+            );
+            let reference = home.join("reference");
+            let namespace = reference.join("sharednative");
+            std::fs::create_dir_all(namespace.join("lib")).unwrap();
+            std::fs::write(namespace.join("__init__.py"), INIT).unwrap();
+            std::fs::write(namespace.join("native.so"), &consumer).unwrap();
+            std::fs::write(namespace.join("lib/libpakro_provider.so"), &provider).unwrap();
+            let control = python(&interpreter, home, "reference", &reference, &reference);
+            assert!(
+                control.status.success(),
+                "adjacent ELF reference must load before testing projection"
+            );
+
+            let sources = vec![
+                native_wheel(
+                    &context,
+                    &language,
+                    "projectionelfconsumer",
+                    [195; 32],
+                    vec![[196; 32]],
+                    vec![
+                        ("sharednative/__init__.py", INIT),
+                        ("sharednative/native.so", &consumer),
+                    ],
+                ),
+                native_wheel(
+                    &context,
+                    &language,
+                    "projectionelfprovider",
+                    [196; 32],
+                    vec![],
+                    vec![("sharednative/lib/libpakro_provider.so", &provider)],
+                ),
+            ];
+            let layout = prepare_layout(&context, &language, [197; 32], sources).unwrap();
+            let projection = layout.manifest.projection.as_ref().unwrap();
+            assert_eq!(
+                serde_json::to_value(projection.method)
+                    .unwrap()
+                    .as_str()
+                    .unwrap(),
+                expected
+            );
+            assert_eq!(
+                layout.manifest.recipe,
+                if expected == "linux-reflink" { 3 } else { 4 }
+            );
+            let consumer_package = layout
+                .packages()
+                .iter()
+                .find(|package| package.manifest().key() == [195; 32])
+                .unwrap();
+            let provider_package = layout
+                .packages()
+                .iter()
+                .find(|package| package.manifest().key() == [196; 32])
+                .unwrap();
+            let split = python(
+                &interpreter,
+                home,
+                "split",
+                &consumer_package.site_packages(),
+                &provider_package.site_packages(),
+            );
+            assert!(
+                !split.status.success(),
+                "split canonical wheels must not accidentally satisfy loader adjacency"
+            );
+            assert!(String::from_utf8_lossy(&split.stderr).contains("libpakro_provider.so"));
+            let output = python(
+                &interpreter,
+                home,
+                "bootstrap",
+                &layout.prefix().join("bootstrap"),
+                &reference,
+            );
+            assert!(
+                output.status.success(),
+                "actual shared bootstrap must make the ELF dependency adjacent"
+            );
+            assert!(
+                String::from_utf8_lossy(&output.stdout).contains(layout.prefix().to_str().unwrap())
+            );
+            for (package, path, bytes) in [
+                (consumer_package, "sharednative/native.so", &consumer),
+                (
+                    provider_package,
+                    "sharednative/lib/libpakro_provider.so",
+                    &provider,
+                ),
+            ] {
+                let original = package.site_packages().join(path);
+                let projected = layout.prefix().join("site-packages").join(path);
+                let a = std::fs::metadata(&original).unwrap();
+                let b = std::fs::metadata(&projected).unwrap();
+                assert_ne!((a.dev(), a.ino()), (b.dev(), b.ino()));
+                assert_eq!(a.nlink(), 1);
+                assert_eq!(b.nlink(), 1);
+                assert_eq!(std::fs::read(original).unwrap(), *bytes);
+                assert_eq!(std::fs::read(projected).unwrap(), *bytes);
+            }
+            let sources = layout
+                .packages()
+                .iter()
+                .map(|package| {
+                    (
+                        package.manifest().facts.clone(),
+                        SharedRegistryPackageSource::Existing(package.clone()),
+                    )
+                })
+                .collect();
+            let again =
+                prepare_layout_with_sources(&context, &language, layout.graph(), sources).unwrap();
+            assert_eq!(layout.key(), again.key());
+            assert_eq!(layout.prefix(), again.prefix());
+            // Two real catalog fixture registrations select the two actual
+            // preparation results. This verifies shared layout identity, not
+            // a project install or a product compiler execution path.
+            {
+                use crate::libraries::project::repository::ProjectRepository;
+                use crate::packages::python_environment::model::{
+                    GenerationRecord, InputKind, InputReference, SelectionKey,
+                };
+                use crate::programs::{OperationContextInputs, capture_operation_context};
+                let mut policy = *context.policy();
+                policy.writes.project_selection = true;
+                let selection_context = capture_operation_context(OperationContextInputs {
+                    settings: context.settings(),
+                    policy,
+                    cancellation: tokio_util::sync::CancellationToken::new(),
+                    data_root: context.requested_data_root().to_owned(),
+                    cache_root: context.requested_cache_root().to_owned(),
+                    python_sources: None,
+                    python_target_description: None,
+                })
+                .unwrap();
+                let mut repository = ProjectRepository::open_writer(&selection_context).unwrap();
+                let writer = repository.writer().unwrap();
+                let allocation = layout.prefix().file_name().unwrap().to_str().unwrap();
+                let inputs = std::iter::once(InputReference::new(
+                    InputKind::Language,
+                    pakro_store::Digest::Sha256(layout.language()),
+                ))
+                .chain(layout.packages().iter().map(|package| {
+                    InputReference::new(
+                        InputKind::Package,
+                        pakro_store::Digest::Sha256(package.manifest().key()),
+                    )
+                }))
+                .collect();
+                let record = GenerationRecord::new_shared(
+                    allocation,
+                    language.key().target(),
+                    layout.graph(),
+                    [198; 32],
+                    layout.key(),
+                    inputs,
+                    repository.model().limits(),
+                )
+                .unwrap();
+                repository
+                    .model_mut()
+                    .register_shared_generation(record)
+                    .unwrap();
+                let mut keys = Vec::new();
+                for (index, selected) in [&layout, &again].into_iter().enumerate() {
+                    let project = uuid::Uuid::from_u128(0x6e10 + index as u128);
+                    let path = home.join(format!("project-{index}"));
+                    std::fs::create_dir(&path).unwrap();
+                    let declaration = b"[tools]\npython='3.15.0'\n";
+                    std::fs::write(path.join("pakro.toml"), declaration).unwrap();
+                    drop(
+                        pakro_store::control::lease::StableLock::create_new(
+                            writer.build_handle(),
+                            &format!("project-{project}.lock"),
+                            nix::unistd::geteuid().as_raw(),
+                        )
+                        .unwrap(),
+                    );
+                    repository
+                        .model_mut()
+                        .register_project(
+                            project,
+                            path.to_str().unwrap(),
+                            &hex::encode(Sha256::digest(declaration)),
+                        )
+                        .unwrap();
+                    let key = SelectionKey::new(
+                        project,
+                        "default",
+                        language.key().target(),
+                        repository.model().limits(),
+                    )
+                    .unwrap();
+                    let expected = repository.model().snapshot(&key);
+                    assert_eq!(selected.key(), layout.key());
+                    repository
+                        .model_mut()
+                        .apply_selection(&key, &expected, Some(allocation), uuid::Uuid::now_v7())
+                        .unwrap();
+                    keys.push(key);
+                }
+                repository.commit_model().unwrap();
+                drop((writer, repository));
+                let repository = ProjectRepository::open_readonly(&selection_context).unwrap();
+                for key in keys {
+                    let selected = repository.model().snapshot(&key);
+                    let record = repository
+                        .model()
+                        .generation(selected.generation().unwrap())
+                        .unwrap();
+                    assert_eq!(record.shared_layout(), Some(&layout.key()));
+                }
+                assert_eq!(
+                    repository.read_views().reclamation_roots().unwrap().len(),
+                    2
+                );
+                println!("P6_TWO_PROJECT_CATALOG_REUSE={}", hex::encode(layout.key()));
+            }
+            let output = python(
+                &interpreter,
+                home,
+                "bootstrap",
+                &again.prefix().join("bootstrap"),
+                &reference,
+            );
+            assert!(output.status.success());
+            assert!(!layout.prefix().join("lib").exists());
+            assert!(!layout.prefix().join("include").exists());
+            let runtimes = std::fs::read_dir(context.requested_data_root().join("languages"))
+                .unwrap()
+                .filter(|entry| {
+                    entry
+                        .as_ref()
+                        .unwrap()
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with("language-")
+                })
+                .count();
+            assert_eq!(runtimes, 1);
+            layout.check_binding().unwrap();
+            again.check_binding().unwrap();
+            language.check_binding().unwrap();
+            println!(
+                "P6_REAL_ELF_PROJECTION_PASSED method={expected} shared_layout={}",
+                hex::encode(layout.key())
+            );
+        }
+    }
 }
 
 #[cfg(all(test, target_os = "macos"))]

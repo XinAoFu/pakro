@@ -44,6 +44,9 @@ mod test {
 }
 
 fn main() -> ExitCode {
+    if let Some(status) = pakro_util::native_build::try_handle_internal() {
+        return status;
+    }
     // A single non-UTF-8 environment variable inherited from a non-Unicode
     // shell (e.g. a GBK-encoded `_`) panics the first `env::vars()` reader;
     // normalize before anything can observe it.

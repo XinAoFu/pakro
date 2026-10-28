@@ -85,6 +85,15 @@ pub(crate) struct TreeInventory {
 }
 
 impl TreeInventory {
+    /// Compare only the original root binding for a controlled partial removal.
+    /// This is descriptive; the caller still needs its actual deletion EX.
+    pub(crate) fn same_root_binding(&self, original: &Self) -> bool {
+        self.root == original.root
+            && self.allocation == original.allocation
+            && self.identity == original.identity
+            && self.uid == original.uid
+            && self.mode == original.mode
+    }
     pub(crate) fn entries(&self) -> &[TreeInventoryEntry] {
         &self.entries
     }
@@ -261,7 +270,7 @@ impl InventoryRoot for UnpublishedPrefix {
 
 #[cfg(unix)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct EntryStamp {
+pub(crate) struct EntryStamp {
     identity: [u64; 2],
     uid: u32,
     mode: u32,
@@ -272,7 +281,7 @@ struct EntryStamp {
 }
 #[cfg(unix)]
 impl EntryStamp {
-    fn of(stat: nix::sys::stat::FileStat) -> Self {
+    pub(crate) fn of(stat: nix::sys::stat::FileStat) -> Self {
         Self {
             identity: [stat.st_dev as u64, stat.st_ino as u64],
             uid: stat.st_uid,
@@ -283,7 +292,7 @@ impl EntryStamp {
             changed: [stat.st_ctime, stat.st_ctime_nsec],
         }
     }
-    fn file(file: &File) -> Result<Self> {
+    pub(crate) fn file(file: &File) -> Result<Self> {
         Ok(Self::of(nix::sys::stat::fstat(file)?))
     }
     fn kind(self) -> nix::sys::stat::SFlag {
@@ -293,6 +302,7 @@ impl EntryStamp {
 
 #[cfg(unix)]
 struct TreeObserver<'a, R> {
+    check_link_targets: bool,
     root: &'a R,
     limits: PrefixInventoryLimits,
     expected: Option<&'a BTreeMap<&'a Path, ExpectedEntry<'a>>>,
@@ -582,7 +592,9 @@ impl<R: InventoryRoot> TreeObserver<'_, R> {
                     PathBuf::from(readlinkat(&parent, leaf)?) == *target,
                     "prefix inventory entry symlink target changed"
                 );
-                self.check_link(path)?;
+                if self.check_link_targets {
+                    self.check_link(path)?;
+                }
             }
         }
         Ok(())
@@ -605,6 +617,28 @@ fn observe_tree_with_hook<'a>(
     expected: Option<&'a BTreeMap<&'a Path, ExpectedEntry<'a>>>,
     before_read: &'a mut dyn FnMut(&Path) -> Result<()>,
 ) -> Result<TreeInventory> {
+    observe_tree_with_link_policy(root, limits, expected, before_read, true)
+}
+
+/// Partial deletion can leave an original symlink's target already removed.
+/// This returns descriptive bytes only; the deletion owner must compare every
+/// surviving entry and link target with its original immutable inventory.
+#[cfg(unix)]
+pub(crate) fn observe_inventory_for_removal(
+    root: &impl InventoryRoot,
+    limits: PrefixInventoryLimits,
+) -> Result<TreeInventory> {
+    observe_tree_with_link_policy(root, limits, None, &mut |_| Ok(()), false)
+}
+
+#[cfg(unix)]
+fn observe_tree_with_link_policy<'a>(
+    root: &'a impl InventoryRoot,
+    limits: PrefixInventoryLimits,
+    expected: Option<&'a BTreeMap<&'a Path, ExpectedEntry<'a>>>,
+    before_read: &'a mut dyn FnMut(&Path) -> Result<()>,
+    check_link_targets: bool,
+) -> Result<TreeInventory> {
     preflight(&[], &[], limits)?;
     root.check_binding()
         .wrap_err("prefix inventory allocation is unavailable")?;
@@ -620,6 +654,7 @@ fn observe_tree_with_hook<'a>(
         "prefix inventory root has changed type, owner or mode"
     );
     let mut observer = TreeObserver {
+        check_link_targets,
         root,
         limits,
         expected,

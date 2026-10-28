@@ -13,6 +13,32 @@ use std::time::{Duration, Instant};
 #[path = "p2_tests.rs"]
 mod p2_tests;
 
+#[test]
+fn p6_commit_runtime_admission_keeps_the_complete_source_result() {
+    let (_, record, source) = crate::libraries::language::lease::pin_tests::source_facts();
+    let target = crate::backend::platform_target::PlatformTarget::from_current().to_key();
+    let entry = crate::lockfile::LockfileTool {
+        version: record.version.clone(), backend: Some("core:python".into()),
+        specifiers: std::collections::BTreeSet::from([record.version.clone()]),
+        options: std::collections::BTreeMap::from([("source".into(), "source".into())]),
+        platforms: std::collections::BTreeMap::from([(target.clone(), source.clone())]),
+    };
+    validate_runtime_lock_entry(&entry, &source, &target).unwrap();
+    for output in [true, false] {
+        let mut changed = entry.clone();
+        let record = changed.platforms.get_mut(&target).unwrap().source_python.as_mut().unwrap();
+        if output { record.output_sha256[0] ^= 1; } else { record.runtime_target[0] ^= 1; }
+        let error = validate_runtime_lock_entry(&changed, &source, &target).unwrap_err();
+        assert!(format!("{error:#}").contains("complete build result"));
+    }
+    let mut changed = entry.clone(); changed.options.clear();
+    assert!(validate_runtime_lock_entry(&changed, &source, &target).is_err(), "a source result cannot use the default prebuilt intent");
+    let mut changed = entry.clone(); changed.platforms.get_mut(&target).unwrap().install = None;
+    assert!(validate_runtime_lock_entry(&changed, &source, &target).is_err(), "the source install marker must travel with its actual result");
+    let mut changed = entry; changed.options.insert("unrecognized".into(), "value".into());
+    assert!(validate_runtime_lock_entry(&changed, &source, &target).is_err());
+}
+
 fn context(root: &std::path::Path) -> OperationContext {
     context_with_lock(root, false)
 }
@@ -53,6 +79,116 @@ fn observe(project: &std::path::Path) -> ObservedProjectInputs {
         ReadPolicy::new(discovery, Instant::now() + Duration::from_secs(120)),
     )
     .unwrap()
+}
+
+#[tokio::test]
+async fn p3_forget_invalidates_work_admitted_before_or_after_content_preparation() {
+    let owner = tempfile::tempdir().unwrap();
+    let root = owner.path().canonicalize().unwrap();
+    let stage = root.join("stage");
+    let project = root.join("project");
+    std::fs::create_dir(&stage).unwrap();
+    std::fs::create_dir(&project).unwrap();
+    std::fs::write(project.join("pakro.toml"), "[tools]\npython='3.15.0'\n").unwrap();
+    let context = context(&stage);
+    let archive = archive("3.15.0");
+    let spec = install_spec(&archive);
+    drop(prepare(&spec, &context, &archive).await.unwrap());
+    let observed = observe(&project);
+    let identity = ProjectIdentity::from_observation(&observed).unwrap();
+    let initially_absent = ExpectedProjectState::capture(&context, &identity).unwrap();
+    let query = open_query_context(&context, &observed).unwrap();
+    let SelectionReport::Selected(candidate) = select_existing(&query).unwrap() else {
+        panic!("language candidate missing")
+    };
+    commit_selection(
+        prepare_selection_commit_with_state(&context, &observed, &candidate, &initially_absent)
+            .unwrap(),
+    )
+    .unwrap();
+    let registered = ExpectedProjectState::capture(&context, &identity).unwrap();
+    let prepared_early =
+        prepare_selection_commit_with_state(&context, &observed, &candidate, &registered).unwrap();
+    let report = crate::programs::uninstall::project::forget(
+        &context,
+        &identity.as_uuid().to_string(),
+        false,
+    )
+    .unwrap();
+    assert!(report.forgotten);
+    assert!(commit_selection(prepared_early).is_err());
+    assert!(
+        prepare_selection_commit_with_state(&context, &observed, &candidate, &registered).is_err(),
+        "old installation must not take a fresh baseline after content preparation"
+    );
+    assert!(
+        prepare_selection_commit_with_state(&context, &observed, &candidate, &initially_absent)
+            .is_err(),
+        "first-install absence must not survive another install and forget"
+    );
+    let repository = ProjectRepository::open_readonly(&context).unwrap();
+    assert!(
+        repository
+            .model()
+            .project_registration(identity.as_uuid())
+            .is_none()
+    );
+    drop(repository);
+    let fresh = ExpectedProjectState::capture(&context, &identity).unwrap();
+    let receipt = commit_selection(
+        prepare_selection_commit_with_state(&context, &observed, &candidate, &fresh).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(receipt.revision(), 3);
+}
+
+#[tokio::test]
+async fn p3_commit_rejects_other_group_changes_after_its_initial_observation() {
+    let owner = tempfile::tempdir().unwrap();
+    let root = owner.path().canonicalize().unwrap();
+    let stage = root.join("stage");
+    let project = root.join("project");
+    std::fs::create_dir(&stage).unwrap();
+    std::fs::create_dir(&project).unwrap();
+    std::fs::write(project.join("pakro.toml"), "[tools]\npython='3.15.0'\n").unwrap();
+    let context = context(&stage);
+    let archive = archive("3.15.0");
+    let spec = install_spec(&archive);
+    drop(prepare(&spec, &context, &archive).await.unwrap());
+    let observed = observe(&project);
+    let identity = ProjectIdentity::from_observation(&observed).unwrap();
+    let query = open_query_context(&context, &observed).unwrap();
+    let SelectionReport::Selected(candidate) = select_existing(&query).unwrap() else {
+        panic!("candidate missing")
+    };
+    commit_selection(prepare_selection_commit(&context, &observed, &candidate).unwrap()).unwrap();
+    let state = ExpectedProjectState::capture(&context, &identity).unwrap();
+    let prepared =
+        prepare_selection_commit_with_state(&context, &observed, &candidate, &state).unwrap();
+    let mut other = ProjectRepository::open_writer(&context).unwrap();
+    let key = SelectionKey::new(
+        identity.as_uuid(),
+        "auxiliary",
+        [8; 32],
+        other.model().limits(),
+    )
+    .unwrap();
+    let expected = other.model().snapshot(&key);
+    other
+        .model_mut()
+        .apply_selection(&key, &expected, None, Uuid::now_v7())
+        .unwrap();
+    other.commit_model().unwrap();
+    let bytes = other.model().encode_catalog(Default::default()).unwrap();
+    assert!(commit_selection(prepared).is_err());
+    assert_eq!(
+        ProjectRepository::open_readonly(&context)
+            .unwrap()
+            .model()
+            .encode_catalog(Default::default())
+            .unwrap(),
+        bytes
+    );
 }
 #[tokio::test]
 async fn f3_failed_apply_keeps_old_selection() {
@@ -335,7 +471,7 @@ async fn p1_same_project_competing_commits_keep_one_winner_and_other_project() {
     assert!(
         results.iter().any(|result| result
             .as_ref()
-            .is_err_and(|error| error.contains("project selection changed"))),
+            .is_err_and(|error| error.contains("project registration or selections changed"))),
         "{results:?}"
     );
     let after = ProjectRepository::open_readonly(&context).unwrap();

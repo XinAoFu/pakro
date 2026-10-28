@@ -444,6 +444,36 @@ fn all_wheel_facts_are_checked_before_any_candidate_filter() {
 }
 
 #[test]
+fn p6_zip_sdist_facts_keep_exact_project_version_and_original_basename() {
+    let fixture = Fixture::new();
+    for filename in ["demo_pkg-1.0.zip", "demo-pkg-1.0.zip"] {
+        let mut file = wheel("1.0");
+        file["filename"] = json!(filename);
+        file["url"] = json!(format!("https://files.example/{filename}"));
+        let project = fixture.parse(page("1.0", vec![file])).unwrap();
+        let file = &project.files()[0];
+        assert!(matches!(file.kind(), PythonDistributionKind::Sdist));
+        assert_eq!(file.version(), Some("1.0"));
+        assert_eq!(file.filename(), filename);
+    }
+    let mut foreign = wheel("1.0");
+    foreign["filename"] = json!("foreign-1.0.zip");
+    foreign["url"] = json!("https://files.example/foreign-1.0.zip");
+    invalid_response(fixture.parse(page("1.0", vec![foreign])));
+    for filename in ["demo_pkg-1.0-1.zip", "demo_pkg-1.0.tar.xz"] {
+        let mut file = wheel("1.0");
+        file["filename"] = json!(filename);
+        file["url"] = json!(format!("https://files.example/{filename}"));
+        let project = fixture.parse(page("1.0", vec![file])).unwrap();
+        assert!(matches!(
+            project.files()[0].kind(),
+            PythonDistributionKind::HistoricalFormat
+        ));
+        assert_eq!(project.files()[0].version(), None);
+    }
+}
+
+#[test]
 fn supported_hashes_have_validated_digest_identities() {
     let fixture = Fixture::new();
     let mut file = wheel("1.0");

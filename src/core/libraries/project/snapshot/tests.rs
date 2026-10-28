@@ -79,14 +79,12 @@ fn r03_replaced_input_inode_revokes_snapshot() {
 }
 
 #[test]
-fn r03_new_lock_or_pyproject_revokes_snapshot() {
-    for name in ["pakro.lock", "pyproject.toml"] {
-        let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join("pakro.toml"), BASE).unwrap();
-        let observed = observe_project(dir.path(), policy(dir.path())).unwrap();
-        fs::write(dir.path().join(name), "# newly created\n").unwrap();
-        assert_eq!(observed.recheck(), Err(ProjectObservationError::StaleInput));
-    }
+fn r03_new_lock_revokes_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("pakro.toml"), BASE).unwrap();
+    let observed = observe_project(dir.path(), policy(dir.path())).unwrap();
+    fs::write(dir.path().join("pakro.lock"), "# newly created\n").unwrap();
+    assert_eq!(observed.recheck(), Err(ProjectObservationError::StaleInput));
 }
 
 #[test]
@@ -194,29 +192,36 @@ fn r03_static_include_retains_physical_owner_and_is_rechecked() {
 }
 
 #[test]
-fn r03_pyproject_uses_existing_selection_owner_and_retains_duplicate_roots() {
-    use crate::packages::python_declarations::{PythonExpansionLimits, PythonProjectSelection};
+fn p3_user_python_files_never_enter_the_observation_or_its_budget() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("pyproject.toml");
-    let raw = "[project]\nname='demo'\nversion='1.0'\ndependencies=['dep==1.0','dep==1.0']\n";
-    fs::write(&path, raw).unwrap();
-    let observed = observe_project(dir.path(), policy(dir.path())).unwrap();
-    let owner = observed.python_project().unwrap();
-    let selection = owner
-        .select(
-            PythonProjectSelection {
-                include_project_dependencies: true,
-                extras: &[],
-                groups: &[],
-            },
-            PythonExpansionLimits::default(),
-        )
-        .unwrap();
-    assert_eq!(selection.declarations().known().requirements().len(), 2);
-    selection.recheck_for(owner).unwrap();
-    assert_eq!(observed.document(&path), Some(raw.as_bytes()));
-    fs::write(&path, "# changed\n").unwrap();
-    assert_eq!(observed.recheck(), Err(ProjectObservationError::StaleInput));
+    fs::write(dir.path().join("pakro.toml"), BASE).unwrap();
+    let mut read = policy(dir.path());
+    read.max_files = 1;
+    read.max_total_bytes = BASE.len();
+    let observed = observe_project(dir.path(), read.clone()).unwrap();
+    let paths = observed.paths().map(Path::to_path_buf).collect::<Vec<_>>();
+    for name in ["pyproject.toml", "requirements.txt"] {
+        let path = dir.path().join(name);
+        fs::write(&path, [0xff; 4096]).unwrap();
+        observed.recheck().unwrap();
+        assert_eq!(observed.document(&path), None);
+        assert!(!observed.observed_auxiliary(&path));
+        assert!(!observed.contains_edit_target(&path));
+        let fresh = observe_project(dir.path(), read.clone()).unwrap();
+        assert_eq!(
+            fresh.paths().map(Path::to_path_buf).collect::<Vec<_>>(),
+            paths
+        );
+        assert_eq!(fresh.effective_packages().unwrap().len(), 0);
+        let next = dir.path().join("replacement");
+        fs::write(&next, "[project]\ndependencies=['never-install==99']\n").unwrap();
+        fs::rename(next, &path).unwrap();
+        observed.recheck().unwrap();
+        fresh.recheck().unwrap();
+        fs::remove_file(path).unwrap();
+        observed.recheck().unwrap();
+        fresh.recheck().unwrap();
+    }
 }
 
 #[test]

@@ -16,6 +16,10 @@ pub(super) fn write(
         output.field("output_digest", &record.output_digest)?;
         output.number("output_size", record.output_size)?;
         output.bytes("metadata_sha256", &record.metadata_sha256)?;
+        if let Some(native) = &record.native {
+            let raw = serde_json::to_string(native).map_err(|_| LockModelError::InvalidField(LockField::Native))?;
+            output.field("native", &raw)?;
+        }
         if record.inputs.is_empty() {
             output.raw("inputs = []\n")?;
         }

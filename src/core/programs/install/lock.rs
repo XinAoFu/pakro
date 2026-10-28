@@ -12,6 +12,7 @@ use crate::packages::python_resolution::lock_model::{
     PinEvidence, PinId, PythonLockModel, RootInput, RuntimePin,
 };
 use crate::packages::python_resolution::lock_session::BoundPythonLock;
+use crate::programs::shared::python_roots::{PythonLockIntent, PythonRoot};
 
 /// Pure descriptor mapping. Runtime acquisition, query and commit boundaries
 /// own complete lease validation; this result grants no object capability.
@@ -38,11 +39,20 @@ pub(crate) fn validate_project_lock<'lock>(
     language: &LanguageLease,
     roots: &[(String, String)],
 ) -> Result<&'lock LockedGraph> {
+    let roots = plain_roots(roots)?;
+    validate_project_lock_roots(root, language, &roots)
+}
+
+pub(crate) fn validate_project_lock_roots<'lock>(
+    root: &'lock BoundPythonLock,
+    language: &LanguageLease,
+    roots: &[PythonRoot],
+) -> Result<&'lock LockedGraph> {
     root.recheck()?;
     let model = root
         .model()
         .ok_or_else(|| eyre::eyre!("strict Python lock has no exact graph model"))?;
-    let graph = validate_project_lock_model(model, language, roots)?;
+    let graph = validate_project_lock_model_roots(model, language, roots)?;
     root.recheck()?;
     Ok(graph)
 }
@@ -52,11 +62,20 @@ pub(crate) fn validate_project_lock_model<'lock>(
     language: &LanguageLease,
     roots: &[(String, String)],
 ) -> Result<&'lock LockedGraph> {
+    let roots = plain_roots(roots)?;
+    validate_project_lock_model_roots(model, language, &roots)
+}
+
+pub(crate) fn validate_project_lock_model_roots<'lock>(
+    model: &'lock PythonLockModel,
+    language: &LanguageLease,
+    roots: &[PythonRoot],
+) -> Result<&'lock LockedGraph> {
     let key = group_key(language)?;
     let graph = model.graph(&key).ok_or_else(|| {
         eyre::eyre!("strict Python lock is missing the current complete target graph")
     })?;
-    let declarations = declarations(roots);
+    let declarations = crate::programs::shared::python_roots::declarations(roots);
     ensure!(
         graph.root_declarations() == declarations,
         "strict Python lock differs from the current complete direct roots"
@@ -66,6 +85,22 @@ pub(crate) fn validate_project_lock_model<'lock>(
         graph.runtime() == expected,
         "strict Python lock differs from the actual selected language source or target"
     );
+    let active = active_indices(roots, language)?;
+    ensure!(
+        graph.roots().len() == active.len(),
+        "strict Python lock has a different active direct-root set"
+    );
+    for (index, root) in active {
+        ensure!(
+            graph
+                .roots()
+                .iter()
+                .any(|locked| locked.declaration_index() == index && locked.node() == root.name),
+            "strict Python lock differs from the active root declarations"
+        );
+        ensure!(graph.nodes().iter().any(|node| node.name() == root.name && same_version(node.version(), &root.version)),
+            "strict Python lock differs from an exact active root version");
+    }
     for node in graph.nodes() {
         if let Some(pin) = model
             .pins()
@@ -94,12 +129,32 @@ pub(crate) fn project_lock_model(
     roots: &[(String, String)],
     builds: &[(PinId, SourceBuildRecord)],
 ) -> Result<PythonLockModel> {
+    let roots = plain_roots(roots)?;
+    project_lock_model_roots(
+        root,
+        language,
+        graph,
+        &roots,
+        builds,
+        PythonLockIntent::Preserve,
+    )
+}
+
+pub(crate) fn project_lock_model_roots(
+    root: &BoundPythonLock,
+    language: &LanguageLease,
+    graph: &PackageGraphRecord,
+    roots: &[PythonRoot],
+    builds: &[(PinId, SourceBuildRecord)],
+    intent: PythonLockIntent,
+) -> Result<PythonLockModel> {
     root.recheck()?;
     let key = group_key(language)?;
-    let raw = declarations(roots);
+    let raw = crate::programs::shared::python_roots::declarations(roots);
+    let active = active_indices(roots, language)?;
     ensure!(
-        graph.roots.len() == roots.len(),
-        "resolved graph has a different complete direct-root set"
+        graph.roots.len() == active.len(),
+        "resolved graph has a different active direct-root set"
     );
     let declarations: Vec<_> = raw.iter().map(String::as_str).collect();
     let mut pins: BTreeMap<_, ContentPin> = root
@@ -118,23 +173,24 @@ pub(crate) fn project_lock_model(
             source_pin: pin.id(),
         });
     }
-    let root_inputs: Vec<_> = roots
-        .iter()
-        .enumerate()
-        .map(|(index, (name, version))| {
-            ensure!(
-                graph.roots.iter().any(|i| graph
-                    .nodes
-                    .get(*i)
-                    .is_some_and(|node| node.name == *name && node.version == *version)),
-                "resolved graph differs from its exact direct roots"
-            );
-            Ok(RootInput {
-                declaration_index: index,
-                node: name,
+    let root_inputs: Vec<_> =
+        active
+            .into_iter()
+            .map(|(index, root)| {
+                ensure!(
+                    graph.roots.iter().any(|i| graph
+                        .nodes
+                        .get(*i)
+                        .is_some_and(|node| node.name == root.name
+                            && same_version(&node.version, &root.version))),
+                    "resolved graph differs from its exact direct roots"
+                );
+                Ok(RootInput {
+                    declaration_index: index,
+                    node: &root.name,
+                })
             })
-        })
-        .collect::<Result<_>>()?;
+            .collect::<Result<_>>()?;
     let edges: Vec<_> = graph
         .edges
         .iter()
@@ -158,7 +214,7 @@ pub(crate) fn project_lock_model(
         .model()
         .into_iter()
         .flat_map(|m| m.graphs())
-        .filter(|g| g.key() != &key)
+        .filter(|g| intent == PythonLockIntent::Preserve && g.key() != &key)
         .map(GraphView::new)
         .collect();
     let mut groups: Vec<_> = old.iter().map(GraphView::input).collect();
@@ -290,8 +346,34 @@ pub(crate) fn portable_graph(
     })
 }
 
-fn declarations(roots: &[(String, String)]) -> Vec<String> {
-    roots.iter().map(|(n, v)| format!("{n}=={v}")).collect()
+fn plain_roots(roots: &[(String, String)]) -> Result<Vec<PythonRoot>> {
+    roots
+        .iter()
+        .map(|(name, version)| PythonRoot::plain(name, version))
+        .collect()
+}
+
+fn active_indices<'a>(
+    roots: &'a [PythonRoot],
+    language: &LanguageLease,
+) -> Result<Vec<(usize, &'a PythonRoot)>> {
+    roots
+        .iter()
+        .enumerate()
+        .filter_map(|(index, root)| match root.active(language) {
+            Ok(true) => Some(Ok((index, root))),
+            Ok(false) => None,
+            Err(error) => Some(Err(error)),
+        })
+        .collect()
+}
+
+fn same_version(left: &str, right: &str) -> bool {
+    use pakro_resolver::solve::{Pep440, VersionAdapter};
+    match (Pep440::parse_version(left), Pep440::parse_version(right)) {
+        (Some(left), Some(right)) => left == right,
+        _ => false,
+    }
 }
 struct GraphView<'a> {
     graph: &'a LockedGraph,
@@ -349,3 +431,6 @@ impl<'a> GraphView<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

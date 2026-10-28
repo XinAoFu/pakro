@@ -198,7 +198,7 @@ async fn f3_new_project_reuses_ready_layout_and_missing_never_commits() {
 }
 
 #[tokio::test]
-async fn f1_requires_python_blocks_language_only_selection() {
+async fn p3_user_pyproject_requires_python_does_not_block_pakro_selection() {
     use crate::libraries::language::repository::tests::{archive, install_spec, prepare};
     let owner = tempfile::tempdir().unwrap();
     let root = owner.path().canonicalize().unwrap();
@@ -217,13 +217,15 @@ async fn f1_requires_python_blocks_language_only_selection() {
     )
     .unwrap();
     let observed = observe(&project);
-    assert!(apply_observed(&context, &observed).is_err());
+    let selected = apply_observed(&context, &observed).unwrap();
+    assert!(matches!(selected, PythonQueryReport::Ready(_)));
     assert!(
         ProjectRepository::open_readonly(&context)
             .unwrap()
             .read_views()
             .registered_projects()
-            .is_empty()
+            .len()
+            == 1
     );
 }
 
@@ -411,21 +413,31 @@ async fn p1_already_applied_selection_rechecks_inputs_and_cancellation() {
         target: None,
         scope: PythonQueryScope::Environment,
     };
+    let state = ExpectedProjectState::capture(
+        &context,
+        &ProjectIdentity::from_observation(&observed).unwrap(),
+    )
+    .unwrap();
     let selected = query_observed(&context, &observed, &request).unwrap();
     assert!(selected.already_applied);
     std::fs::write(project.join("pakro.toml"), "[tools]\npython='3.14.0'\n").unwrap();
     assert!(
-        apply_selection(&context, &observed, selected).is_err(),
+        apply_selection(&context, &observed, selected, &state).is_err(),
         "changed inputs must not emit an already-applied success"
     );
     drop(observed);
     std::fs::write(project.join("pakro.toml"), declaration).unwrap();
     let observed = observe(&project);
+    let state = ExpectedProjectState::capture(
+        &context,
+        &ProjectIdentity::from_observation(&observed).unwrap(),
+    )
+    .unwrap();
     let selected = query_observed(&context, &observed, &request).unwrap();
     assert!(selected.already_applied);
     context.cancellation_token().cancel();
     assert!(
-        apply_selection(&context, &observed, selected).is_err(),
+        apply_selection(&context, &observed, selected, &state).is_err(),
         "cancelled operations must not emit an already-applied success"
     );
 }

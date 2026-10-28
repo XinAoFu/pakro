@@ -24,6 +24,7 @@ pub(super) const EFFECTS: &[(&str, SpecCommandEffect)] = &[
     ("project", Read),
     ("project ls", Read),
     ("project status", Read),
+    ("project forget", Write),
     ("registry", Read),
     ("search", Read),
     ("settings", Read),
@@ -46,6 +47,7 @@ pub(super) const EFFECTS: &[(&str, SpecCommandEffect)] = &[
     ("untrust", Write),
     ("implode", Destructive),
     ("uninstall", Destructive),
+    ("prune", Destructive),
 ];
 pub(super) fn apply(spec: &mut usage::Spec) {
     let effects: HashMap<_, _> = EFFECTS.iter().copied().collect();

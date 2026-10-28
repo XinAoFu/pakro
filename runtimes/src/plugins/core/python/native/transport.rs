@@ -143,7 +143,7 @@ pub(in super::super) fn metadata_request_url(
 /// The returned source is only the request locator. Its filename and expected
 /// digest are copied from the canonical source; callers keep the original plan
 /// for locks, provenance and runtime identity.
-pub(in super::super) fn download_source(
+pub(crate) fn download_source(
     source: &SourceArtifact,
     replacements: Option<&IndexMap<String, String>>,
 ) -> Result<SourceArtifact> {

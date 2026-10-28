@@ -1,14 +1,15 @@
 //! Lightweight shared startup projection over immutable per-package trees.
-use super::lease::{LayoutLease, acquire_layout};
+use super::lease::{LayoutLease, acquire_layout, acquire_layout_with_held_inputs};
 use super::manifest::{self, LayoutManifest, PackageFacts};
 use crate::libraries::language::lease::LanguageLease;
 use crate::packages::python_environment::prefix::verify::{PrefixExpectedFile, TreeInventoryKind};
 use crate::packages::python_environment::prefix::{
     EnvironmentStore, PrefixLimits, UnpublishedPrefix,
 };
+use crate::packages::python_resolution::source::registry_depot::closed::SharedRegistryPackageSource;
 use crate::packages::python_wheel_source::InspectedWheelArchive;
 use crate::programs::OperationContext;
-use eyre::{ContextCompat, Result, ensure};
+use eyre::{Context, ContextCompat, Result, ensure};
 use sha2::{Digest as _, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
@@ -19,7 +20,11 @@ pub(super) mod projection;
 pub(crate) fn layout_key(language: [u8; 32], graph: [u8; 32]) -> [u8; 32] {
     hash_layout_key(b"pakro.shared-wheel-layout.v2\0", language, graph)
 }
-pub(super) fn layout_key_for(recipe: u32, language: [u8; 32], graph: [u8; 32]) -> Result<[u8; 32]> {
+pub(in crate::libraries) fn layout_key_for(
+    recipe: u32,
+    language: [u8; 32],
+    graph: [u8; 32],
+) -> Result<[u8; 32]> {
     match recipe {
         1 => Ok(hash_layout_key(
             b"pakro.shared-wheel-layout.v1\0",
@@ -27,8 +32,39 @@ pub(super) fn layout_key_for(recipe: u32, language: [u8; 32], graph: [u8; 32]) -
             graph,
         )),
         2 => Ok(layout_key(language, graph)),
+        3 => Ok(hash_layout_key(
+            b"pakro.shared-wheel-layout.v3.linux-reflink\0",
+            language,
+            graph,
+        )),
+        4 => Ok(hash_layout_key(
+            b"pakro.shared-wheel-layout.v4.verified-copy\0",
+            language,
+            graph,
+        )),
         _ => eyre::bail!("unsupported shared layout recipe"),
     }
+}
+fn reusable_recipes() -> &'static [u32] {
+    #[cfg(target_os = "linux")]
+    {
+        &[3, 4, 2]
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        &[2]
+    }
+}
+
+fn allocate_layout_prefix(context: &OperationContext) -> Result<UnpublishedPrefix> {
+    let store = EnvironmentStore::open_shared_writer(
+        &manifest::store_path(context),
+        super::lease::uid(),
+        PrefixLimits::default(),
+        context.policy().deadline,
+    )?;
+    // The actual unpublished prefix retains its kernel/EX owner.
+    store.allocate()
 }
 fn hash_layout_key(recipe: &[u8], language: [u8; 32], graph: [u8; 32]) -> [u8; 32] {
     let mut hash = Sha256::new();
@@ -79,14 +115,55 @@ pub(crate) fn prepare_layout(
     context: &OperationContext,
     language: &LanguageLease,
     graph: [u8; 32],
-    mut sources: Vec<(PackageFacts, InspectedWheelArchive)>,
+    sources: Vec<(PackageFacts, InspectedWheelArchive)>,
+) -> Result<LayoutLease> {
+    prepare_layout_with_sources(
+        context,
+        language,
+        graph,
+        sources
+            .into_iter()
+            .map(|(facts, archive)| (facts, SharedRegistryPackageSource::Archive(archive)))
+            .collect(),
+    )
+}
+
+pub(crate) fn prepare_layout_with_sources(
+    context: &OperationContext,
+    language: &LanguageLease,
+    graph: [u8; 32],
+    mut sources: Vec<(PackageFacts, SharedRegistryPackageSource)>,
 ) -> Result<LayoutLease> {
     context.checkpoint()?;
     language.check_binding()?;
-    let key = layout_key(language.key().fingerprint(), graph);
-    if let Some(existing) = acquire_layout(context, key)? {
-        return Ok(existing);
+    let mut held = Vec::new();
+    for (facts, source) in &sources {
+        if let SharedRegistryPackageSource::Existing(package) = source {
+            package.ensure_library_context(context)?;
+            ensure!(
+                package.manifest().language == language.key().fingerprint()
+                    && package.manifest().facts.name == facts.name
+                    && package.manifest().facts.version == facts.version
+                    && package.manifest().facts.source == facts.source
+                    && package.manifest().facts.artifact == facts.artifact,
+                "published source identity differs from the requested layout member"
+            );
+            // A protected old tree may be a source for a new graph-derived
+            // key. It is not already a member of the target layout.
+            if package.manifest().facts == *facts {
+                held.push(package.clone());
+            }
+        }
     }
+    for &recipe in reusable_recipes() {
+        let key = layout_key_for(recipe, language.key().fingerprint(), graph)?;
+        if let Some(existing) = acquire_layout_with_held_inputs(context, key, language, &held)
+            .wrap_err("validating an existing shared layout with held members")?
+        {
+            return Ok(existing);
+        }
+    }
+    drop(held);
     ensure!(
         context.policy().writes.libraries,
         "operation policy forbids package library writes"
@@ -114,31 +191,53 @@ pub(crate) fn prepare_layout(
     // original allocation EX until the complete closed group is published.
     // This also covers legal dependency cycles without exposing an unprotected
     // interval in which a concurrent remover could erase a new dependency.
-    let (mut existing, pending) = language.with_package_materialization(|scope| {
-        let mut existing = Vec::new();
-        let mut pending = Vec::new();
-        for (facts, archive) in sources {
-            ensure!(
-                facts.name == archive.manifest().name()
-                    && facts.version == archive.manifest().version()
-                    && facts.artifact == archive.digest().to_string(),
-                "package graph facts differ from the inspected wheel"
-            );
-            if let Some(lease) = super::lease::acquire_package(context, facts.key)? {
+    let (mut existing, pending) = language
+        .with_package_materialization(|scope| {
+            let mut existing = Vec::new();
+            let mut pending = Vec::new();
+            for (facts, source) in sources {
+                let archive = match source {
+                    SharedRegistryPackageSource::Existing(lease) => {
+                        lease.check_binding()?;
+                        ensure!(
+                            lease.manifest().language == scope.language().key().fingerprint(),
+                            "published package language differs from the selected source"
+                        );
+                        if lease.manifest().facts == facts {
+                            existing.push(lease);
+                        } else {
+                            pending.push(
+                                super::tree::prepare_package_inputs_from_existing_in_batch(
+                                    context, scope, facts, lease,
+                                )?,
+                            );
+                        }
+                        continue;
+                    }
+                    SharedRegistryPackageSource::Archive(archive) => archive,
+                };
                 ensure!(
-                    lease.manifest().facts == facts
-                        && lease.manifest().language == scope.language().key().fingerprint(),
-                    "conflicting package facts or language binding"
+                    facts.name == archive.manifest().name()
+                        && facts.version == archive.manifest().version()
+                        && facts.artifact == archive.digest().to_string(),
+                    "package graph facts differ from the inspected wheel"
                 );
-                existing.push(lease);
-            } else {
-                pending.push(super::tree::prepare_package_inputs_in_batch(
-                    context, scope, facts, archive,
-                )?);
+                if let Some(lease) = super::lease::acquire_package(context, facts.key)? {
+                    ensure!(
+                        lease.manifest().facts == facts
+                            && lease.manifest().language == scope.language().key().fingerprint(),
+                        "conflicting package facts or language binding"
+                    );
+                    existing.push(lease);
+                } else {
+                    pending.push(super::tree::prepare_package_inputs_in_batch(
+                        context, scope, facts, archive,
+                    )?);
+                }
             }
-        }
-        Ok((existing, pending))
-    })?;
+            Ok((existing, pending))
+        })
+        .wrap_err("preparing package members under the held language")?;
     // The complete language inventory has been checked again before any
     // pending package can become publicly visible.
     let mut published = Vec::new();
@@ -216,19 +315,44 @@ pub(crate) fn prepare_layout(
             }
         }
     }
-    let projection = projection::plan(context, &packages)?;
-    let store = EnvironmentStore::open_shared_writer(
-        &manifest::store_path(context),
-        super::lease::uid(),
-        PrefixLimits::default(),
-        context.policy().deadline,
-    )?;
-    let mut prefix = store.allocate()?;
+    let mut projection = projection::plan(context, &packages, projection::initial_method())?;
+    let mut prefix = allocate_layout_prefix(context)?;
+    let materialized = match &projection {
+        Some(projection) => projection::materialize(context, &mut prefix, &packages, projection)?,
+        None => true,
+    };
+    if !materialized {
+        ensure!(
+            projection.as_ref().is_some_and(
+                |projection| projection.method == projection::ProjectionMethod::LinuxReflink
+            ),
+            "only a recognized reflink capability failure may change layout recipe"
+        );
+        prefix.discard().wrap_err(
+            "discarding the complete unavailable reflink allocation before copy fallback",
+        )?;
+        drop(prefix);
+        projection
+            .as_mut()
+            .context("missing reflink projection")?
+            .method = projection::ProjectionMethod::VerifiedCopy;
+        prefix = allocate_layout_prefix(context)?;
+        ensure!(
+            projection::materialize(
+                context,
+                &mut prefix,
+                &packages,
+                projection.as_ref().context("missing copy projection")?
+            )?,
+            "verified copy cannot request another projection fallback"
+        );
+    }
+    let recipe = projection
+        .as_ref()
+        .map_or(2, |projection| projection.method.recipe());
+    let key = layout_key_for(recipe, language.key().fingerprint(), graph)?;
     let final_prefix = prefix.final_path().to_owned();
     let mut expected_files = Vec::new();
-    if let Some(projection) = &projection {
-        projection::materialize(context, &mut prefix, &packages, projection)?;
-    }
     let mut bootstrap = String::from(
         "# Generated by Pakro for this exact shared package graph.\nimport os, site, sys\ntry:\n",
     );
@@ -323,10 +447,12 @@ pub(crate) fn prepare_layout(
         graph,
         packages: packages.iter().map(|p| p.manifest().facts.key).collect(),
         storage,
-        recipe: 2,
+        recipe,
         projection,
     };
-    language.check_binding()?;
+    language
+        .check_binding()
+        .wrap_err("validating the held language before layout publication")?;
     for p in &packages {
         p.check_binding()?;
     }
@@ -348,7 +474,8 @@ pub(crate) fn prepare_layout(
             {
                 return Err(error);
             }
-            let winner = acquire_layout(context, key)?
+            let winner = acquire_layout_with_held_inputs(context, key, language, &packages)
+                .wrap_err("binding the winning layout to the protected input group")?
                 .context("shared layout publication failed without a winner")?;
             ensure!(
                 winner.graph() == graph && winner.language() == language.key().fingerprint(),
@@ -357,7 +484,9 @@ pub(crate) fn prepare_layout(
             return Ok(winner);
         }
     }
-    let lease = acquire_layout(context, key)?.context("published shared layout is missing")?;
+    let lease = acquire_layout_with_held_inputs(context, key, language, &packages)
+        .wrap_err("handing the published layout to its protected input group")?
+        .context("published shared layout is missing")?;
     drop(packages);
     Ok(lease)
 }
@@ -368,13 +497,13 @@ pub(crate) fn reserve_layout(
     language: [u8; 32],
     graph: [u8; 32],
 ) -> Result<LayoutLease> {
-    if let Some(layout) = acquire_layout(context, layout_key(language, graph))? {
-        return Ok(layout);
+    for recipe in reusable_recipes().iter().copied().chain([1]) {
+        if let Some(layout) = acquire_layout(context, layout_key_for(recipe, language, graph)?)? {
+            return Ok(layout);
+        }
     }
-    // Read-only legacy lookup may retain an existing v1 selection. Writers
-    // always prepare the v2 recipe and never treat this fallback as a build.
-    acquire_layout(context, layout_key_for(1, language, graph)?)?.context(
-        "shared layout is missing; prepare it with the selected language and verified wheels",
+    eyre::bail!(
+        "shared layout is missing; prepare it with the selected language and verified wheels"
     )
 }
 #[cfg(test)]

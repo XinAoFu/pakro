@@ -24,6 +24,7 @@ use xx::regex;
 pub(crate) enum RuntimeDistribution {
     Pbs,
     PyPy,
+    CpythonSource,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -282,6 +283,7 @@ fn validate_locator(
             ],
         ),
         RuntimeDistribution::PyPy => ("downloads.python.org", vec!["pypy", filename]),
+        RuntimeDistribution::CpythonSource => ("www.python.org", vec!["ftp", "python", build, filename]),
     };
     ensure!(
         url.scheme() == "https"

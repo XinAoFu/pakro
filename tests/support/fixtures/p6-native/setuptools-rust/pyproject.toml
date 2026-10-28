@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools==80.9.0", "setuptools-rust==1.11.1", "wheel==0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "p6-setuptools-rust-native"
+version = "1.0.0"
+
+[tool.setuptools]
+packages = []
+
+[[tool.setuptools-rust.ext-modules]]
+target = "p6_rust_demo"
+path = "Cargo.toml"
+binding = "PyO3"

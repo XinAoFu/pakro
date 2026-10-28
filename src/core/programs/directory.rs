@@ -3,6 +3,7 @@
 use crate::config::Settings;
 use crate::dirs::{CACHE, DATA};
 use crate::libraries::project::snapshot::ObservedProjectInputs;
+use crate::libraries::project::{identity::ProjectIdentity, state::ExpectedProjectState};
 use crate::programs::capture_operation_context;
 use crate::programs::shared::context::{OperationContext, OperationContextInputs};
 use crate::programs::shared::policy::{AllowedWrites, OperationPolicy, RequestBudget};
@@ -160,6 +161,8 @@ pub(crate) fn apply_observed(
     context: &OperationContext,
     observed: &ObservedProjectInputs,
 ) -> Result<PythonQueryReport> {
+    let identity = ProjectIdentity::from_observation(observed)?;
+    let state = ExpectedProjectState::capture(context, &identity)?;
     let selection = crate::programs::query::environment::query_observed(
         context,
         observed,
@@ -168,12 +171,13 @@ pub(crate) fn apply_observed(
             scope: PythonQueryScope::Environment,
         },
     )?;
-    apply_selection(context, observed, selection)
+    apply_selection(context, observed, selection, &state)
 }
 fn apply_selection(
     context: &OperationContext,
     observed: &ObservedProjectInputs,
     selection: crate::programs::query::environment::ObservedSelection,
+    state: &ExpectedProjectState,
 ) -> Result<PythonQueryReport> {
     // Even an unchanged association must still describe the original live
     // observation; the query result is not authority to skip currentness.
@@ -191,17 +195,18 @@ fn apply_selection(
                 edges: graph.edges().to_vec(),
             };
             crate::programs::shared::commit::commit_package_selection(
-                crate::programs::shared::commit::prepare_package_selection_commit(
+                crate::programs::shared::commit::prepare_package_selection_commit_with_state(
                     context,
                     observed,
                     *candidate.key(),
                     *graph.layout(),
                     record,
+                    state,
                 )?,
             )?;
         } else {
-            crate::programs::install::selection::apply_directory_selection(
-                context, observed, candidate,
+            crate::programs::install::selection::apply_directory_selection_with_state(
+                context, observed, candidate, state,
             )?;
         }
     }

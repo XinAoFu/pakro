@@ -1,5 +1,5 @@
 use crate::config::settings::SettingsPartial;
-use crate::config::{Config, Settings, config_file};
+use crate::config::{Config, Settings, SettingsExt, config_file};
 use crate::ui::{self, ctrlc};
 use crate::{Result, backend, request_exit};
 use crate::{hook_env as hook_env_module, logger};
@@ -23,6 +23,8 @@ fn command_local_settings(layer: &usage_rs::config::CliLayer) -> Result<Settings
 
 pub(crate) use crate::args;
 mod activate;
+#[cfg(all(test, unix))]
+mod admission_tests;
 mod bin_paths;
 mod cache;
 mod command_effects;
@@ -42,6 +44,9 @@ mod latest;
 mod ls;
 mod ls_remote;
 mod project;
+mod prune;
+#[cfg(all(test, unix))]
+mod reclaim_tests;
 mod registry;
 mod reshim;
 mod search;
@@ -178,6 +183,7 @@ pub(crate) enum Commands {
     Ls(ls::Ls),
     LsRemote(ls_remote::LsRemote),
     Project(project::Project),
+    Prune(prune::Prune),
     Deps(deps::Deps),
     Registry(registry::Registry),
     Reshim(reshim::Reshim),
@@ -193,14 +199,14 @@ pub(crate) enum Commands {
     Which(r#which::Which),
 }
 impl Commands {
-    async fn preflight(&self) -> Result<()> {
+    async fn preflight(self) -> Result<PreparedCommand> {
         match self {
-            Self::Install(command) => command.preflight().await,
-            Self::Deps(command) => command.preflight().await,
-            _ => Ok(()),
+            Self::Install(command) => Ok(PreparedCommand::Install(command.preflight().await?)),
+            Self::Deps(command) => Ok(PreparedCommand::Deps(command.preflight().await?)),
+            command => Ok(PreparedCommand::Other(command)),
         }
     }
-    pub(crate) fn run(self) -> LocalBoxFuture<'static, Result<()>> {
+    fn run_other(self) -> LocalBoxFuture<'static, Result<()>> {
         match self {
             Self::Activate(cmd) => Box::pin(async move { cmd.run() }),
             Self::BinPaths(cmd) => Box::pin(cmd.run()),
@@ -214,13 +220,18 @@ impl Commands {
             Self::HookEnv(cmd) => Box::pin(cmd.run()),
             Self::HookNotFound(cmd) => Box::pin(cmd.run()),
             Self::Implode(cmd) => Box::pin(async move { cmd.run() }),
-            Self::Install(cmd) => Box::pin(cmd.run()),
+            Self::Install(_) => {
+                Box::pin(async { bail!("install execution requires its admitted request") })
+            }
             Self::Installs(cmd) => Box::pin(cmd.run()),
             Self::Latest(cmd) => Box::pin(cmd.run()),
             Self::Ls(cmd) => Box::pin(cmd.run()),
             Self::LsRemote(cmd) => Box::pin(cmd.run()),
             Self::Project(cmd) => Box::pin(cmd.run()),
-            Self::Deps(cmd) => Box::pin(cmd.run()),
+            Self::Prune(cmd) => Box::pin(cmd.run()),
+            Self::Deps(_) => {
+                Box::pin(async { bail!("dependency installation requires its admitted request") })
+            }
             Self::Registry(cmd) => Box::pin(cmd.run()),
             Self::Reshim(cmd) => Box::pin(cmd.run()),
             Self::Search(cmd) => Box::pin(cmd.run()),
@@ -233,6 +244,24 @@ impl Commands {
             Self::Version(cmd) => Box::pin(cmd.run()),
             Self::Where(cmd) => Box::pin(cmd.run()),
             Self::Which(cmd) => Box::pin(cmd.run()),
+        }
+    }
+}
+
+/// Write commands carry the original admitted owners across backend loading.
+/// The parsed Args themselves never cache or clone a project observation.
+enum PreparedCommand {
+    Install(install::PreparedInstall),
+    Deps(deps::PreparedDeps),
+    Other(Commands),
+}
+
+impl PreparedCommand {
+    fn run(self) -> LocalBoxFuture<'static, Result<()>> {
+        match self {
+            Self::Install(command) => Box::pin(command.run()),
+            Self::Deps(command) => Box::pin(command.run()),
+            Self::Other(command) => command.run_other(),
         }
     }
 }
@@ -419,7 +448,68 @@ impl Cli {
                 bail!("bytecode recovery requires install");
             };
             install.inherit_recovery_flags(cli.dry_run, cli.raw, cli.jobs);
-            return install.run().await;
+            return install.preflight().await?.run().await;
+        }
+        // Reclaim commands use the managed libraries and operation records,
+        // even when cwd is missing or unrelated project declarations are bad.
+        // Select isolation before parsing ToolArg can trigger lazy settings.
+        if first_non_global_arg_idx(Cli::command(), args)
+            .is_some_and(|index| matches!(args[index].as_str(), "prune" | "uninstall"))
+        {
+            Settings::select_package_query_sources();
+            crate::config::set_readonly_invocation(true);
+            crate::toolset::install_state::init_readonly_plugin_metadata()?;
+            let argv = args.iter().map(std::ffi::OsStr::new).collect::<Vec<_>>();
+            let mut cli =
+                Cli::parse_from_argv(&argv).map_err(|err| usage_error(&argv[1..], err))?;
+            let readonly = match &mut cli.command {
+                Some(Commands::Prune(command)) => {
+                    command.inherit_root_dry_run(cli.dry_run);
+                    command.is_dry_run()
+                }
+                Some(Commands::Uninstall(command)) => {
+                    command.inherit_root_dry_run(cli.dry_run);
+                    command.is_dry_run()
+                }
+                _ => bail!("catalog reclamation requires prune or uninstall"),
+            };
+            validate_cd_path(&cli.cd)?;
+            Settings::init_package_query(cli.settings_layer(SettingsPartial::empty()))?;
+            logger::init();
+            crate::config::set_readonly_invocation(readonly);
+            return cli
+                .command
+                .take()
+                .expect("checked catalog reclamation command")
+                .preflight()
+                .await?
+                .run()
+                .await;
+        }
+        // Forget is keyed by the persistent catalog ID. Project discovery,
+        // trust and backend loading must not depend on a directory that may
+        // already have been removed, or on unrelated local declarations.
+        if first_non_global_arg_idx(Cli::command(), args)
+            .is_some_and(|index| args[index] == "project")
+        {
+            let argv = args.iter().map(std::ffi::OsStr::new).collect::<Vec<_>>();
+            let mut cli =
+                Cli::parse_from_argv(&argv).map_err(|err| usage_error(&argv[1..], err))?;
+            if let Some(Commands::Project(command)) = &mut cli.command {
+                command.inherit_root_dry_run(cli.dry_run);
+            }
+            if matches!(&cli.command, Some(Commands::Project(command)) if command.is_catalog_only())
+            {
+                validate_cd_path(&cli.cd)?;
+                Settings::select_package_query_sources();
+                Settings::init_package_query(cli.settings_layer(SettingsPartial::empty()))?;
+                logger::init();
+                let Some(Commands::Project(command)) = cli.command.take() else {
+                    unreachable!("catalog project command was just checked")
+                };
+                crate::config::set_readonly_invocation(command.is_readonly());
+                return command.run().await;
+            }
         }
         crate::config::set_readonly_invocation(true);
         crate::config::pakrorc::init()?;
@@ -447,6 +537,18 @@ impl Cli {
         if let Some(Commands::Install(install)) = &mut cli.command {
             install.inherit_root_dry_run(cli.dry_run);
         }
+        if let Some(Commands::Deps(command)) = &mut cli.command {
+            command.inherit_root_dry_run(cli.dry_run);
+        }
+        if let Some(Commands::Project(command)) = &mut cli.command {
+            command.inherit_root_dry_run(cli.dry_run);
+        }
+        if let Some(Commands::Prune(command)) = &mut cli.command {
+            command.inherit_root_dry_run(cli.dry_run);
+        }
+        if let Some(Commands::Uninstall(command)) = &mut cli.command {
+            command.inherit_root_dry_run(cli.dry_run);
+        }
         config_file::set_implicitly_trust_active_config(matches!(
             cli.command.as_ref(),
             Some(Commands::Install(_) | Commands::Deps(_))
@@ -464,11 +566,12 @@ impl Cli {
         if print_version {
             return Err(request_exit(0));
         }
-        if let Some(command) = &cli.command {
-            command.preflight().await?;
-        }
+        let prepared = match cli.command.take() {
+            Some(command) => Some(command.preflight().await?),
+            None => None,
+        };
         backend::load_tools().await?;
-        match cli.command {
+        match prepared {
             Some(command) => command.run().await,
             None => {
                 if let Some(page) = render_page(Cli::spec(), Cli::command(), false) {
@@ -588,7 +691,6 @@ mod tests {
             "use",
             "unuse",
             "upgrade",
-            "prune",
             "bootstrap",
             "dotfiles",
             "daemons",
@@ -624,6 +726,34 @@ mod tests {
             vec!["pakro", "project", "ls"],
             vec!["pakro", "deps", "install", "python"],
             vec!["pakro", "project", "status"],
+            vec!["pakro", "prune"],
+            vec!["pakro", "prune", "--dry-run"],
+            vec![
+                "pakro",
+                "prune",
+                "--resume",
+                "00000000-0000-0000-0000-000000000001",
+            ],
+            vec![
+                "pakro",
+                "-n",
+                "prune",
+                "--resume",
+                "00000000-0000-0000-0000-000000000001",
+            ],
+            vec![
+                "pakro",
+                "project",
+                "forget",
+                "00000000-0000-0000-0000-000000000001",
+            ],
+            vec![
+                "pakro",
+                "project",
+                "forget",
+                "00000000-0000-0000-0000-000000000001",
+                "--dry-run",
+            ],
             vec!["pakro", "installs", "ls", "--json"],
             vec!["pakro", "hook-env", "-s", "zsh", "--force"],
             vec![
@@ -634,6 +764,82 @@ mod tests {
             ],
         ] {
             assert!(parses(&arguments), "{arguments:?}");
+        }
+    }
+    #[test]
+    fn project_forget_is_a_catalog_write_and_preview_is_readonly() {
+        for (arguments, expected_readonly) in [
+            (vec!["pakro", "project", "ls"], true),
+            (vec!["pakro", "project", "status"], true),
+            (
+                vec![
+                    "pakro",
+                    "project",
+                    "forget",
+                    "00000000-0000-0000-0000-000000000001",
+                ],
+                false,
+            ),
+            (
+                vec![
+                    "pakro",
+                    "project",
+                    "forget",
+                    "00000000-0000-0000-0000-000000000001",
+                    "--dry-run",
+                ],
+                true,
+            ),
+        ] {
+            let argv = arguments
+                .iter()
+                .map(std::ffi::OsStr::new)
+                .collect::<Vec<_>>();
+            let cli = Cli::parse_from_argv(&argv).unwrap();
+            let Some(Commands::Project(command)) = cli.command else {
+                panic!("project command missing")
+            };
+            assert_eq!(command.is_readonly(), expected_readonly);
+        }
+        assert!(!parses(&["pakro", "project", "forget"]));
+    }
+
+    #[test]
+    fn p4_catalog_commands_inherit_root_preview_for_fresh_and_resumed_reclamation() {
+        for arguments in [
+            vec!["pakro", "-n", "prune"],
+            vec![
+                "pakro",
+                "-n",
+                "prune",
+                "--resume",
+                "00000000-0000-0000-0000-000000000001",
+            ],
+            vec!["pakro", "-n", "uninstall", "python@3.13.16"],
+        ] {
+            let argv = arguments
+                .iter()
+                .map(std::ffi::OsStr::new)
+                .collect::<Vec<_>>();
+            let mut cli = Cli::parse_from_argv(&argv).unwrap();
+            match &mut cli.command {
+                Some(Commands::Prune(command)) => {
+                    command.inherit_root_dry_run(cli.dry_run);
+                    assert!(command.is_dry_run());
+                }
+                Some(Commands::Uninstall(command)) => {
+                    command.inherit_root_dry_run(cli.dry_run);
+                    assert!(command.is_dry_run());
+                }
+                _ => panic!("catalog command missing"),
+            }
+        }
+        for arguments in [
+            vec!["pakro", "prune", "--force"],
+            vec!["pakro", "prune", "--layout", "layout-id"],
+            vec!["pakro", "uninstall", "--layout", "layout-id"],
+        ] {
+            assert!(!parses(&arguments));
         }
     }
     #[test]

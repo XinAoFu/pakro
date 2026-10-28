@@ -83,6 +83,67 @@ fn push_row(
     Ok(())
 }
 
+pub(crate) fn from_verified_files(
+    record: &Path,
+    files: &[crate::packages::python_environment::prefix::verify::PrefixExpectedFile],
+    limits: WheelInstallLimits,
+) -> Result<Vec<u8>> {
+    let base = record
+        .parent()
+        .and_then(Path::parent)
+        .context("derived RECORD metadata base is missing")?;
+    ensure!(
+        files.len() < limits.max_record_rows,
+        "derived RECORD row budget exceeded"
+    );
+    let mut rows = Vec::new();
+    let mut encoded_bytes = 0;
+    for file in files {
+        ensure!(
+            file.relative != record,
+            "derived RECORD must not hash itself"
+        );
+        push_row(
+            &mut rows,
+            &mut encoded_bytes,
+            (
+                relative(&file.relative, base)?,
+                format!(
+                    "sha256={}",
+                    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(file.sha256)
+                ),
+                file.size.to_string(),
+            ),
+            limits.max_record_bytes,
+        )?;
+    }
+    push_row(
+        &mut rows,
+        &mut encoded_bytes,
+        (relative(record, base)?, String::new(), String::new()),
+        limits.max_record_bytes,
+    )?;
+    rows.sort();
+    ensure!(
+        rows.windows(2).all(|pair| pair[0].0 != pair[1].0),
+        "derived RECORD repeats a file path"
+    );
+    let mut output = Vec::new();
+    for (path, hash, size) in rows {
+        field(&mut output, &path, limits.max_record_bytes)?;
+        append(&mut output, b",", limits.max_record_bytes)?;
+        append(&mut output, hash.as_bytes(), limits.max_record_bytes)?;
+        append(&mut output, b",", limits.max_record_bytes)?;
+        append(&mut output, size.as_bytes(), limits.max_record_bytes)?;
+        append(&mut output, b"\n", limits.max_record_bytes)?;
+    }
+    ensure!(
+        output.len() == encoded_bytes,
+        "derived RECORD CSV accounting differs"
+    );
+    Ok(output)
+}
+
 pub(super) fn generate(
     plan: &WheelGraphPlan,
     owner: &WheelOwner,

@@ -1,68 +1,6 @@
 use super::*;
-use crate::libraries::language::repository::tests::{
-    archive, install_spec, operation_context, prepare,
-};
-use std::os::unix::fs::MetadataExt;
+use crate::libraries::language::repository::tests::{archive, install_spec, operation_context};
 use std::time::Duration;
-
-#[tokio::test]
-async fn r06_compatibility_directory_only_references_one_payload() {
-    let fixture = tempfile::tempdir().unwrap();
-    let root = fixture.path().canonicalize().unwrap();
-    let context = operation_context(&root, true, Duration::from_secs(10));
-    let bytes = archive("3.15.0");
-    let spec = install_spec(&bytes);
-    let lease = prepare(&spec, &context, &bytes).await.unwrap();
-    let compatibility = root.join("compatibility");
-    publish_native_compatibility(&lease, &compatibility, &context).unwrap();
-    assert!(std::fs::symlink_metadata(&compatibility).unwrap().is_dir());
-    assert!(
-        std::fs::symlink_metadata(compatibility.join("bin"))
-            .unwrap()
-            .file_type()
-            .is_symlink()
-    );
-    let actual = std::fs::metadata(lease.entrypoint()).unwrap();
-    let alias = std::fs::metadata(compatibility.join("bin/python")).unwrap();
-    assert_eq!((actual.dev(), actual.ino()), (alias.dev(), alias.ino()));
-    std::fs::write(compatibility.join("backend-receipt"), b"outer metadata").unwrap();
-    assert!(!lease.root().join("backend-receipt").exists());
-    lease.check_binding().unwrap();
-}
-
-#[tokio::test]
-async fn r06_compatibility_conflict_never_replaces_existing_content() {
-    let fixture = tempfile::tempdir().unwrap();
-    let root = fixture.path().canonicalize().unwrap();
-    let context = operation_context(&root, true, Duration::from_secs(10));
-    let bytes = archive("3.15.0");
-    let spec = install_spec(&bytes);
-    let lease = prepare(&spec, &context, &bytes).await.unwrap();
-    let compatibility = root.join("compatibility");
-    std::fs::create_dir_all(compatibility.join("bin")).unwrap();
-    std::fs::write(compatibility.join("bin/sentinel"), b"do not overwrite").unwrap();
-    assert!(publish_native_compatibility(&lease, &compatibility, &context).is_err());
-    assert_eq!(
-        std::fs::read(compatibility.join("bin/sentinel")).unwrap(),
-        b"do not overwrite"
-    );
-    lease.check_binding().unwrap();
-}
-
-#[tokio::test]
-async fn r06_compatibility_rejects_a_root_alias_to_published_content() {
-    let fixture = tempfile::tempdir().unwrap();
-    let root = fixture.path().canonicalize().unwrap();
-    let context = operation_context(&root, true, Duration::from_secs(10));
-    let bytes = archive("3.15.0");
-    let spec = install_spec(&bytes);
-    let lease = prepare(&spec, &context, &bytes).await.unwrap();
-    let compatibility = root.join("compatibility");
-    std::os::unix::fs::symlink(lease.root(), &compatibility).unwrap();
-    assert!(publish_native_compatibility(&lease, &compatibility, &context).is_err());
-    assert_eq!(std::fs::read_link(&compatibility).unwrap(), lease.root());
-    lease.check_binding().unwrap();
-}
 
 #[tokio::test]
 async fn r06_native_source_selection_keeps_the_frozen_settings() {

@@ -46,6 +46,33 @@ impl InspectedWheelArchive {
         self.receipt.check_limits(limits)
     }
 
+    pub(crate) fn publish_output(
+        self,
+        supported: &pakro_index::SupportedWheelTags,
+        cache_root: &std::path::Path,
+        deadline: std::time::Instant,
+        max_archive_bytes: u64,
+    ) -> Result<Self> {
+        let Self {
+            filename,
+            manifest,
+            receipt,
+            ..
+        } = self;
+        receipt.publish_inspected_wheel(
+            &WheelExpectation {
+                filename: &filename,
+                name: manifest.name(),
+                version: manifest.version(),
+                supported,
+            },
+            WheelLimits::default(),
+            cache_root,
+            deadline,
+            max_archive_bytes,
+        )
+    }
+
     /// Duplicate this actual inspected archive under one attempt's original
     /// deadline. No filename, output digest or metadata comes from a caller.
     pub(crate) fn duplicate_for_attempt(

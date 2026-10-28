@@ -192,6 +192,11 @@ async fn p1_resource_sixty_four_package_query_and_apply_baseline() {
         let total = Instant::now();
         let now = Instant::now();
         let observed = observe(&b);
+        let state = ExpectedProjectState::capture(
+            &context,
+            &ProjectIdentity::from_observation(&observed).unwrap(),
+        )
+        .unwrap();
         let observation_ms = now.elapsed().as_secs_f64() * 1000.0;
         let package_before = package_checks();
         let language_before = crate::libraries::language::lease::full_inventory_checks();
@@ -219,7 +224,7 @@ async fn p1_resource_sixty_four_package_query_and_apply_baseline() {
         let package_before = package_checks();
         let language_before = crate::libraries::language::lease::full_inventory_checks();
         let now = Instant::now();
-        let report = apply_selection(&context, &observed, selected).unwrap();
+        let report = apply_selection(&context, &observed, selected, &state).unwrap();
         let commit_ms = now.elapsed().as_secs_f64() * 1000.0;
         assert!(matches!(report, PythonQueryReport::Ready(_)));
         let commit_package_inventories = package_checks() - package_before;

@@ -69,6 +69,8 @@ pub mod inline_command;
 pub mod jobs;
 pub mod lock_file;
 pub mod netrc;
+pub mod native_build;
+pub mod native_exec;
 pub mod network;
 pub mod packslip_pins;
 pub mod packslip_requirements;

@@ -6,6 +6,7 @@ use std::path::{Component, Path, PathBuf};
 pub(crate) mod language;
 pub(crate) mod package;
 pub(crate) mod project;
+pub(crate) mod reclaim;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct InvalidLibraryLocations;

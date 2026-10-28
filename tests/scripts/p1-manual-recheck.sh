@@ -8,7 +8,7 @@ fi
 p1_manual_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 cd "$p1_manual_root"
 p1_manual_mode="${1:-all}"
-case "$p1_manual_mode" in build|expanded|priority|all) ;; *) printf 'Usage: %s [build|expanded|priority|all]\n' "$0" >&2; exit 2;; esac
+case "$p1_manual_mode" in build|exact|shared|all) ;; *) printf 'Usage: %s [build|exact|shared|all]\n' "$0" >&2; exit 2;; esac
 export CARGO_TARGET_DIR="$p1_manual_root/target"
 export CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
 export RUST_BACKTRACE=0
@@ -29,10 +29,11 @@ printf 'Manual terminal execution: %s. No automatic descendant timeout guarantee
 if [[ "$p1_manual_mode" == build || "$p1_manual_mode" == all ]]; then
   cargo build -p pakro --bin pakro --all-features
 fi
-if [[ "$p1_manual_mode" == expanded || "$p1_manual_mode" == all ]]; then
-  tests/e2e/run_test tests/e2e/cli/test_p1_expanded_python_admission
-fi
-if [[ "$p1_manual_mode" == priority || "$p1_manual_mode" == all ]]; then
+if [[ "$p1_manual_mode" == exact || "$p1_manual_mode" == all ]]; then
   : "${PAKRO_TEST_PYTHON_ARCHIVE:?set the verified original Python 3.13.16 stripped archive}"
-  tests/e2e/run_test tests/e2e/cli/test_p1_shared_command_priority
+  tests/e2e/run_test tests/e2e/cli/test_p1_exact_python_install
+fi
+if [[ "$p1_manual_mode" == shared || "$p1_manual_mode" == all ]]; then
+  : "${PAKRO_TEST_PYTHON_ARCHIVE:?set the verified original Python 3.13.16 stripped archive}"
+  tests/e2e/run_test tests/e2e/packages/test_native_install_shared_wheel
 fi

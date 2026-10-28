@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use eyre::{Context, ContextCompat, Result, ensure};
-use futures_util::future::BoxFuture;
+use futures_util::{FutureExt, future::BoxFuture};
 
 use crate::libraries::language::lease::LanguageLease;
 use crate::packages::python_environment::model::{SourceBuildInput, SourceBuildRecord};
@@ -167,6 +167,116 @@ impl BuildBudget {
     }
 }
 
+/// Reusing an old source receipt requires its original runtime graph to bind
+/// the actual language instance and target held by this operation. Merely
+/// finding a source pin among old build inputs grants no such compatibility.
+fn reusable_source_record(
+    root: &BoundPythonLock,
+    language: &LanguageLease,
+    source: PinId,
+) -> Result<Option<SourceBuildRecord>> {
+    root.recheck()?;
+    language.check_binding()?;
+    let Some(model) = root.model() else {
+        return Ok(None);
+    };
+    let key = super::lock::group_key(language)?;
+    let Some(graph) = model.graph(&key) else {
+        return Ok(None);
+    };
+    if graph.runtime() != super::lock::runtime_pin(language)?
+        || !graph.nodes().iter().any(|node| node.source_pin() == source)
+    {
+        return Ok(None);
+    }
+    let expected = root
+        .source_build(source)
+        .context("old runtime source node is missing its original build record")?
+        .clone();
+    expected.validate()?;
+    let pin = root
+        .existing_pin(source)?
+        .context("old runtime source node is missing its original source pin")?;
+    ensure!(
+        pin.pin().file().kind() == RegistryArtifactKind::Sdist
+            && expected.source_digest == pin.pin().digest().to_string(),
+        "old runtime source record differs from its original source pin"
+    );
+    root.recheck()?;
+    language.check_binding()?;
+    Ok(Some(expected))
+}
+
+fn reusable_published_package(
+    context: &OperationContext,
+    root: &BoundPythonLock,
+    language: &LanguageLease,
+    source: PinId,
+    expected: &SourceBuildRecord,
+) -> Result<Option<crate::libraries::package::lease::PackageLease>> {
+    use crate::libraries::project::repository::ProjectRepository;
+    root.recheck()?;
+    language.check_held_binding()?;
+    let model = root.model().context("old source graph model is missing")?;
+    let graph = model
+        .graph(&super::lock::group_key(language)?)
+        .context("old source runtime graph is missing")?;
+    let expected_graph = super::lock::portable_graph(model, graph)?.fingerprint()?;
+    let mut roots = Vec::new();
+    for reference in graph.roots() {
+        let node = graph
+            .nodes()
+            .iter()
+            .find(|node| node.name() == reference.node())
+            .context("old source graph root node is missing")?;
+        roots.push((node.name(), node.version()));
+    }
+    let repository = ProjectRepository::open_readonly(context)?;
+    let candidates = repository
+        .read_views()
+        .matching_package_graphs(language.key().fingerprint(), &roots)?;
+    let mut instances = BTreeSet::new();
+    for graph in candidates {
+        context.checkpoint()?;
+        if graph.fingerprint() != expected_graph {
+            continue;
+        }
+        for node in graph
+            .nodes()
+            .iter()
+            .filter(|node| node.source_pin == hex::encode(source.as_bytes()))
+        {
+            ensure!(
+                node.artifact == expected.output_digest
+                    && node.pin.build.as_ref() == Some(expected),
+                "published old source graph disagrees with its original build receipt"
+            );
+            instances.insert(node.instance);
+        }
+    }
+    ensure!(
+        instances.len() <= 1,
+        "old source graph has ambiguous published package instances"
+    );
+    let Some(instance) = instances.into_iter().next() else {
+        return Ok(None);
+    };
+    let package = crate::libraries::package::lease::acquire_package(context, instance)?;
+    if let Some(package) = &package {
+        package.check_binding()?;
+        ensure!(
+            package.manifest().language == language.key().fingerprint()
+                && package.manifest().facts.source == hex::encode(source.as_bytes())
+                && package.manifest().facts.artifact == expected.output_digest
+                && package.manifest().filename == expected.output_filename,
+            "published source output identity differs from the locked source/build result"
+        );
+    }
+    root.recheck()?;
+    language.check_binding()?;
+    Ok(package)
+}
+
 pub(crate) fn prepare_registry<'root, 'config, 'call>(
     context: &'call OperationContext,
     language: &'call LanguageLease,
@@ -197,7 +307,7 @@ where
         };
         loop {
             context.checkpoint()?;
-            language.check_binding()?;
+            language.check_held_binding()?;
             match state {
                 RegistryPreparation::Ready(prepared) => {
                     budget.charge(&mut accounted, prepared.usage())?;
@@ -222,6 +332,44 @@ where
                         *target.fingerprint(),
                     );
                     let scratch = context.requested_cache_root().join("shared-python/scratch");
+                    if root.model().is_some() {
+                        root.check_limits(registry.limits.lock)?;
+                    }
+                    if let Some(expected) =
+                        reusable_source_record(root, language, continuation.pin().id())?
+                    {
+                        if let Some(package) = reusable_published_package(
+                            context,
+                            root,
+                            language,
+                            continuation.pin().id(),
+                            &expected,
+                        )? {
+                            budget.records.insert(continuation.pin().id(), expected);
+                            state = continuation
+                                .resume_with_published(package, language.clone())
+                                .boxed()
+                                .await?;
+                            continue;
+                        }
+                        std::fs::create_dir_all(registry.scratch_root)?;
+                        let source = continuation.source_verified_copy(registry.scratch_root)?;
+                        budget.charge(&mut accounted, continuation.usage())?;
+                        let built = replay::rebuild(
+                            context,
+                            language,
+                            root,
+                            continuation.pin().id(),
+                            source,
+                            expected,
+                            registry.clone(),
+                            budget,
+                            depth,
+                        )
+                        .await?;
+                        state = continuation.resume_with_built(built).boxed().await?;
+                        continue;
+                    }
                     if let Some((completed, cached_source_bytes)) =
                         budget.completed.remove(&cache_key)
                     {
@@ -242,9 +390,13 @@ where
                             output_bytes,
                         )?;
                         budget.completed.insert(cache_key, (retained, source_bytes));
-                        state = continuation.resume_with_built(replay).await?;
+                        state = continuation.resume_with_built(replay).boxed().await?;
                         continue;
                     }
+                    // Runtime graph preferences must not leak into the
+                    // independent build-requirement environments.
+                    let mut build_registry = registry.clone();
+                    build_registry.preferred_pins.clear();
                     budget.enter(source_id, depth)?;
                     let workspace_limit = SourceBuildLimits::default().max_workspace_bytes.min(
                         (4_u64 * 1024 * 1024 * 1024)
@@ -288,6 +440,7 @@ where
                                 ..Default::default()
                             },
                         )?;
+                        session.configure_native(context, None).boxed().await?;
                         budget.decoded = budget
                             .decoded
                             .checked_add(session.decoded_bytes())
@@ -320,7 +473,7 @@ where
                             language,
                             &initial_root,
                             initial.clone(),
-                            registry.clone(),
+                            build_registry.clone(),
                             budget,
                             depth + 1,
                         )
@@ -334,6 +487,7 @@ where
                         progress.set_message("observe source build requirements".into());
                         let dynamic = session
                             .get_requires(pair(initial_inputs.clone(), initial_archives)?)
+                            .boxed()
                             .await?;
                         initial_evidence
                             .recheck(tokio::time::Instant::from_std(context.policy().deadline))?;
@@ -343,7 +497,7 @@ where
                         );
                         if dynamic.is_empty() {
                             progress.set_message("build and verify source wheel".into());
-                            let built = session.build_with_initial_environment().await?;
+                            let built = session.build_with_initial_environment().boxed().await?;
                             initial_evidence.recheck(tokio::time::Instant::from_std(
                                 context.policy().deadline,
                             ))?;
@@ -380,7 +534,7 @@ where
                             language,
                             &final_root,
                             combined,
-                            registry.clone(),
+                            build_registry.clone(),
                             budget,
                             depth + 1,
                         )
@@ -408,7 +562,10 @@ where
                         final_evidence
                             .recheck(tokio::time::Instant::from_std(context.policy().deadline))?;
                         progress.set_message("build and verify source wheel".into());
-                        let built = session.build(pair(final_inputs, final_archives)?).await?;
+                        let built = session
+                            .build(pair(final_inputs, final_archives)?)
+                            .boxed()
+                            .await?;
                         final_evidence
                             .recheck(tokio::time::Instant::from_std(context.policy().deadline))?;
                         initial_root.recheck()?;
@@ -437,6 +594,11 @@ where
                         "source wheel was built with a different shared Python instance"
                     );
                     let output_bytes = built.record().output_size;
+                    budget.charge_copy(output_bytes)?;
+                    let built = built.publish_output(
+                        registry.cache_root,
+                        registry.limits.wheel.max_archive_bytes,
+                    )?;
                     let owned_bytes = source_bytes
                         .checked_add(output_bytes)
                         .context("sealed source-build cache size overflow")?;
@@ -454,7 +616,7 @@ where
                     )?;
                     budget.completed.insert(cache_key, (retained, source_bytes));
                     progress.set_message("resume dependency resolution".into());
-                    let resumed = continuation.resume_with_built(replay).await;
+                    let resumed = continuation.resume_with_built(replay).boxed().await;
                     if resumed.is_ok() {
                         progress.finish_with_message("source wheel ready".into());
                     } else {

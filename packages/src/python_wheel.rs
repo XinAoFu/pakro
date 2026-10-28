@@ -17,7 +17,7 @@ mod metadata;
 pub(crate) use member_session::WheelDirectoryReceipt;
 mod record;
 mod usage;
-mod zip_directory;
+pub(crate) mod zip_directory;
 
 pub(crate) struct WheelExpectation<'a> {
     pub filename: &'a str,
@@ -176,6 +176,21 @@ impl WheelCoreMetadata {
     }
 }
 
+/// Reuse the wheel inspector's bounded Core Metadata parser for an installed
+/// member whose bytes were verified by its held package owner.
+pub(crate) fn parse_installed_core_metadata(
+    bytes: Vec<u8>,
+    name: &str,
+    version: &str,
+    limits: WheelLimits,
+) -> Result<WheelCoreMetadata> {
+    validate_limits(limits)?;
+    let mut usage = usage::InspectionUsage::default();
+    let (metadata, _, _) = metadata::parse_core(bytes, name, version, limits, &mut usage)?;
+    usage.check(limits)?;
+    Ok(metadata)
+}
+
 impl fmt::Debug for WheelCoreMetadata {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
         output
@@ -255,30 +270,33 @@ pub(super) fn validate_limits(limits: WheelLimits) -> Result<()> {
     Ok(())
 }
 
-fn filename_tags(
-    wheel: &pakro_index::WheelFile,
+fn expand_tags<'a, I>(
+    fields: [I; 3],
     limits: WheelLimits,
     usage: &mut usage::InspectionUsage,
-) -> Result<Vec<WheelTag>> {
-    let count = wheel
-        .tags
-        .python
-        .len()
-        .checked_mul(wheel.tags.abi.len())
-        .and_then(|count| count.checked_mul(wheel.tags.platform.len()))
+    work: &mut usize,
+) -> Result<Vec<WheelTag>>
+where I: Iterator<Item = &'a str> + Clone,
+{
+    let count = fields[0].clone().count()
+        .checked_mul(fields[1].clone().count())
+        .and_then(|count| count.checked_mul(fields[2].clone().count()))
         .ok_or_else(|| eyre!("wheel Tag product limit overflow"))?;
+    let total = (*work).checked_add(count)
+        .ok_or_else(|| eyre!("wheel Tag expansion work limit overflow"))?;
     ensure!(
-        count <= limits.max_tag_triples,
-        "wheel Tag product limit exceeded"
+        count <= limits.max_tag_triples && total <= limits.max_tag_triples,
+        "wheel Tag product or cumulative expansion work limit exceeded"
     );
-    usage.tag_triples = usage.tag_triples.max(count);
+    *work = total;
+    usage.tag_triples = usage.tag_triples.max(total);
     let mut tags = BTreeSet::new();
-    for python in &wheel.tags.python {
-        for abi in &wheel.tags.abi {
-            for platform in &wheel.tags.platform {
+    for python in fields[0].clone() {
+        for abi in fields[1].clone() {
+            for platform in fields[2].clone() {
                 tags.insert(
                     WheelTag::new(python, abi, platform)
-                        .map_err(|_| eyre!("wheel expectation contains invalid tags"))?,
+                        .map_err(|_| eyre!("wheel Tag contains invalid atoms"))?,
                 );
             }
         }
@@ -394,7 +412,12 @@ pub(crate) fn inspect_with_receipt<R: Read + Seek>(
         "wheel expectation disagrees with filename identity"
     );
     let mut usage = usage::InspectionUsage::default();
-    let tags = filename_tags(&wheel, limits, &mut usage)?;
+    let mut filename_work = 0;
+    let tags = expand_tags([
+        wheel.tags.python.iter().map(String::as_str),
+        wheel.tags.abi.iter().map(String::as_str),
+        wheel.tags.platform.iter().map(String::as_str),
+    ], limits, &mut usage, &mut filename_work)?;
     ensure!(
         expected
             .supported

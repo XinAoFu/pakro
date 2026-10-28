@@ -118,16 +118,50 @@ fn verify_materialized_tree(
 pub(super) struct PendingPackageTree {
     prefix: UnpublishedPrefix,
     pub(super) manifest: PackageManifest,
-    wheels: WheelMaterializationReceipt,
-    reserved: [PrefixExpectedFile; 2],
+    proof: PackageTreeProof,
+}
+enum PackageTreeProof {
+    Wheel {
+        wheels: WheelMaterializationReceipt,
+        reserved: [PrefixExpectedFile; 2],
+    },
+    Derived {
+        source: PackageLease,
+        language: LanguageLease,
+        files: Vec<PrefixExpectedFile>,
+        directories: Vec<PrefixExpectedDirectory>,
+    },
 }
 impl PendingPackageTree {
     pub(super) fn publish(
         self,
     ) -> Result<crate::packages::python_environment::prefix::SharedPublishedPrefix> {
+        let inventory = match &self.proof {
+            PackageTreeProof::Wheel { wheels, reserved } => {
+                verify_materialized_tree(&self.prefix, wheels, reserved)?
+            }
+            PackageTreeProof::Derived {
+                source,
+                language,
+                files,
+                directories,
+            } => {
+                source.check_binding()?;
+                language.check_binding()?;
+                let inventory = verify_prefix_inventory(
+                    &self.prefix,
+                    files,
+                    directories,
+                    PrefixInventoryLimits::default(),
+                )?
+                .into_tree_inventory();
+                source.check_binding()?;
+                language.check_binding()?;
+                inventory
+            }
+        };
         ensure!(
-            verify_materialized_tree(&self.prefix, &self.wheels, &self.reserved)?
-                == self.manifest.storage.inventory,
+            inventory == self.manifest.storage.inventory,
             "verified package output changed before publication"
         );
         self.prefix.publish_shared(
@@ -303,9 +337,22 @@ fn prepare_package_inputs_checked(
     Ok(PendingPackageTree {
         prefix,
         manifest: value,
-        wheels,
-        reserved: expected_reserved,
+        proof: PackageTreeProof::Wheel {
+            wheels,
+            reserved: expected_reserved,
+        },
     })
+}
+
+#[path = "tree/derived.rs"]
+mod derived;
+pub(super) fn prepare_package_inputs_from_existing_in_batch(
+    context: &OperationContext,
+    scope: &LanguageMaterialization<'_>,
+    facts: PackageFacts,
+    source: PackageLease,
+) -> Result<PendingPackageTree> {
+    derived::prepare(context, scope, facts, source)
 }
 
 pub(crate) fn prepare_package_tree(

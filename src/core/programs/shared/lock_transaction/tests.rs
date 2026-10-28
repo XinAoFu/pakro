@@ -5,6 +5,9 @@ use crate::programs::*;
 use std::fs;
 use std::time::{Duration, Instant};
 
+#[path = "admission_tests.rs"]
+mod admission;
+
 const OLD: &[u8] = b"# native comment\nlockfile_version=4\n[future]\nvalue='preserved'\n";
 const NEW: &[u8] = b"# native comment\nlockfile_version=4\n[future]\nvalue='preserved'\n[python]\n";
 
@@ -110,6 +113,50 @@ fn commit_catalog(context: &OperationContext, project: &Path, nonce: Uuid) {
         )
         .unwrap();
     repository.commit_model().unwrap();
+}
+
+#[test]
+fn p4_pending_projection_keeps_all_transactions_and_damage_is_not_empty() {
+    let owner = tempfile::tempdir().unwrap();
+    let root = owner.path().canonicalize().unwrap();
+    let context = context(&root, false);
+    let a = make_project(&root, "a", false);
+    let b = make_project(&root, "b", false);
+    let first = apply(&context, &a, Uuid::from_u128(501));
+    let second = apply(&context, &b, Uuid::from_u128(502));
+    let roots = pending_protections(&context).unwrap();
+    assert_eq!(roots.len(), 2);
+    assert_eq!(
+        roots
+            .iter()
+            .map(|root| root.transaction)
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from([Uuid::from_u128(501), Uuid::from_u128(502)])
+    );
+    assert!(roots.iter().all(|root| root.references == vec![[7; 32]]));
+    assert_eq!(fs::read(a.join("pakro.lock")).unwrap(), NEW);
+    assert_eq!(fs::read(b.join("pakro.lock")).unwrap(), NEW);
+    let repository = ProjectRepository::open_writer(&context).unwrap();
+    let writer = repository.writer().unwrap();
+    let mut control = writer.control(ControlLimits::default()).unwrap();
+    let snapshot = control
+        .read(ControlNamespace::Journals, &name(roots[0].project))
+        .unwrap()
+        .unwrap();
+    control
+        .replace(
+            ControlNamespace::Journals,
+            &name(roots[0].project),
+            Some(&snapshot),
+            b"damaged pending reference facts",
+        )
+        .unwrap();
+    drop(control);
+    assert!(pending_protections(&context).is_err());
+    assert!(pending_reference_chains(&context, [6; 32]).is_err());
+    assert_eq!(fs::read(a.join("pakro.lock")).unwrap(), NEW);
+    assert_eq!(fs::read(b.join("pakro.lock")).unwrap(), NEW);
+    drop((first, second));
 }
 
 #[test]
@@ -355,6 +402,12 @@ fn p2_staged_inode_is_recorded_before_rename_and_prewrite_failure_recovers() {
     let identity = ProjectIdentity::from_observation(&observed).unwrap();
     let repository = ProjectRepository::open_writer(&context).unwrap();
     let writer = repository.writer().unwrap();
+    let project_lock = super::super::commit::open_project_lock(&writer, &identity).unwrap();
+    let project_guard = writer
+        .control(ControlLimits::default())
+        .unwrap()
+        .acquire_project(&project_lock)
+        .unwrap();
     let path = project.join("pakro.lock");
     let mut session =
         ProjectLockSession::acquire(&path, MAX_LOCK, context.policy().deadline).unwrap();
@@ -399,6 +452,8 @@ fn p2_staged_inode_is_recorded_before_rename_and_prewrite_failure_recovers() {
     assert!(result.is_err());
     drop(session);
     drop(snapshot);
+    drop(project_guard);
+    drop(project_lock);
     drop(repository);
     drop(writer);
     recover_project_lock(&context, &observe(&project)).unwrap();

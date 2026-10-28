@@ -77,7 +77,9 @@ pub(super) fn projection(
         maximum: limits.max_document_bytes,
     };
     output.raw(
-        if model.builds.is_empty() && model.declaration_fingerprint.is_none() {
+        if model.builds.iter().any(|(_, build)| build.native.is_some()) {
+            "[python]\nschema = 4\n"
+        } else if model.builds.is_empty() && model.declaration_fingerprint.is_none() {
             "[python]\nschema = 2\n"
         } else {
             "[python]\nschema = 3\n"

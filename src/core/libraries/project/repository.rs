@@ -22,6 +22,31 @@ use super::read_views::ProjectReadViews;
 
 const PROJECTS_CATALOG: &str = "projects";
 
+fn initialize_store_writer(context: &OperationContext, path: &Path) -> Result<Arc<StoreWriter>> {
+    context.checkpoint()?;
+    let writer = Arc::new(StoreWriter::open_writer(
+        path,
+        repository_uid(),
+        RootLimits::default(),
+        context.policy().deadline,
+    )?);
+    context.checkpoint()?;
+    // Only creation of this actual store may initialize its empty authority.
+    // Opening an existing store never repairs a missing catalog.
+    if writer.initialized_here() {
+        let mut control = writer.control(ControlLimits::default())?;
+        if control
+            .read(ControlNamespace::Catalog, PROJECTS_CATALOG)?
+            .is_none()
+        {
+            let limits = CatalogCodecLimits::default();
+            let empty = CatalogModel::new(limits.model)?.encode_catalog(limits)?;
+            control.replace(ControlNamespace::Catalog, PROJECTS_CATALOG, None, &empty)?;
+        }
+    }
+    Ok(writer)
+}
+
 pub(crate) struct ProjectRepository {
     context: OperationContext,
     path: PathBuf,
@@ -57,37 +82,77 @@ impl ProjectRepository {
             "operation policy forbids project selection writes"
         );
         let path = context.requested_data_root().join("projects");
-        let writer = StoreWriter::open_writer(
-            &path,
-            repository_uid(),
-            RootLimits::default(),
-            context.policy().deadline,
-        )?;
-        context.checkpoint()?;
-        // Only the actual store initializer can publish a first empty
-        // authority. Do this before any project lock is allocated, so the
-        // first commit's later reload has the same real catalog as every
-        // subsequent reader. Existing missing catalogs are never repaired.
-        if writer.initialized_here() {
-            let mut control = writer.control(ControlLimits::default())?;
-            if control
-                .read(ControlNamespace::Catalog, PROJECTS_CATALOG)?
-                .is_none()
-            {
-                let limits = CatalogCodecLimits::default();
-                let empty = CatalogModel::new(limits.model)?.encode_catalog(limits)?;
-                control.replace(ControlNamespace::Catalog, PROJECTS_CATALOG, None, &empty)?;
-            }
-        }
+        let writer = initialize_store_writer(context, &path)?;
         let (model, catalog) = load_catalog(&path, context)?;
         Ok(Self {
             context: context.clone(),
             path,
-            writer: Some(Arc::new(writer)),
+            writer: Some(writer),
             model,
             catalog,
             codec: CatalogCodecLimits::default(),
         })
+    }
+
+    /// Library deletion may own an operation journal without obtaining a
+    /// mutable registration/selection model. Existing catalog damage still
+    /// rejects this path; only the actual initializer creates an empty one.
+    pub(crate) fn open_reclaim_journal_writer(
+        context: &OperationContext,
+    ) -> Result<Arc<StoreWriter>> {
+        context.checkpoint()?;
+        ensure!(
+            context.policy().writes.libraries,
+            "operation policy forbids reclamation journal writes"
+        );
+        let path = context.requested_data_root().join("projects");
+        let writer = initialize_store_writer(context, &path)?;
+        let _ = load_catalog(&path, context)?;
+        context.checkpoint()?;
+        Ok(writer)
+    }
+
+    /// Reclamation can retire only these derived generation/index records.
+    /// The model's active-slot guard and the ordinary catalog CAS remain in
+    /// force; this does not expose a mutable selection model to the caller.
+    pub(crate) fn forget_reclaimed_retired(
+        context: &OperationContext,
+        allocations: &[String],
+    ) -> Result<()> {
+        context.checkpoint()?;
+        ensure!(
+            context.policy().writes.libraries,
+            "operation policy forbids reclaimed index writes"
+        );
+        ensure!(
+            allocations.len() <= 65536,
+            "retired index capacity exceeded"
+        );
+        if allocations.is_empty() {
+            return Ok(());
+        }
+        let writer = Self::open_reclaim_journal_writer(context)?;
+        let path = context.requested_data_root().join("projects");
+        let (model, catalog) = load_catalog(&path, context)?;
+        let mut repository = Self {
+            context: context.clone(),
+            path,
+            writer: Some(writer),
+            model,
+            catalog,
+            codec: CatalogCodecLimits::default(),
+        };
+        let mut changed = false;
+        for allocation in allocations {
+            if repository.model.generation(allocation).is_some() {
+                repository.model.forget_retired(allocation)?;
+                changed = true;
+            }
+        }
+        if changed {
+            repository.commit_model()?;
+        }
+        Ok(())
     }
 
     pub(crate) fn model(&self) -> &CatalogModel {
@@ -133,6 +198,69 @@ impl ProjectRepository {
     }
     pub(crate) fn read_views(&self) -> ProjectReadViews<'_> {
         ProjectReadViews::new(self)
+    }
+}
+
+#[cfg(test)]
+mod reclaim_writer_tests {
+    use super::*;
+    use crate::libraries::language::repository::tests::operation_context;
+    use std::time::Duration;
+
+    #[test]
+    fn p4_reclaim_journal_writer_does_not_grant_selection_model_access() {
+        let owner = tempfile::tempdir().unwrap();
+        let root = owner.path().canonicalize().unwrap();
+        let context = operation_context(&root, true, Duration::from_secs(30));
+        assert!(context.policy().writes.libraries);
+        assert!(!context.policy().writes.project_selection);
+        let writer = ProjectRepository::open_reclaim_journal_writer(&context).unwrap();
+        let mut control = writer.control(ControlLimits::default()).unwrap();
+        let before = control
+            .read(ControlNamespace::Catalog, PROJECTS_CATALOG)
+            .unwrap()
+            .unwrap();
+        let bytes = before.bytes().to_vec();
+        control
+            .replace(ControlNamespace::Journals, "p4-journal-probe", None, b"{}")
+            .unwrap();
+        assert_eq!(
+            control
+                .read(ControlNamespace::Catalog, PROJECTS_CATALOG)
+                .unwrap()
+                .unwrap()
+                .bytes(),
+            bytes.as_slice()
+        );
+        drop(control);
+        assert!(ProjectRepository::open_writer(&context).is_err());
+    }
+
+    #[test]
+    fn p4_reclaim_journal_writer_rejects_readonly_and_missing_existing_catalog() {
+        let owner = tempfile::tempdir().unwrap();
+        let root = owner.path().canonicalize().unwrap();
+        let readonly = operation_context(&root, false, Duration::from_secs(30));
+        assert!(ProjectRepository::open_reclaim_journal_writer(&readonly).is_err());
+        assert!(!readonly.requested_data_root().join("projects").exists());
+        let context = operation_context(&root, true, Duration::from_secs(30));
+        let writer = ProjectRepository::open_reclaim_journal_writer(&context).unwrap();
+        let mut control = writer.control(ControlLimits::default()).unwrap();
+        let existing = control
+            .read(ControlNamespace::Catalog, PROJECTS_CATALOG)
+            .unwrap()
+            .unwrap();
+        control.remove(&existing).unwrap();
+        drop(control);
+        assert!(ProjectRepository::open_reclaim_journal_writer(&context).is_err());
+        assert!(
+            writer
+                .control(ControlLimits::default())
+                .unwrap()
+                .read(ControlNamespace::Catalog, PROJECTS_CATALOG)
+                .unwrap()
+                .is_none()
+        );
     }
 }
 

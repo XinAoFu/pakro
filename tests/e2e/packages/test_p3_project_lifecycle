@@ -1,0 +1,222 @@
+#!/usr/bin/env bash
+# One real interpreter acquisition serves the complete isolated lifecycle.
+[[ $(uname -s) == Darwin && $(uname -m) == arm64 ]] || fail 'this verified original PBS fixture requires macOS arm64'
+: "${PAKRO_TEST_PYTHON_ARCHIVE:?set the verified original CPython 3.13.16 stripped archive}"
+: "${PAKRO_TEST_PYTHON_SECOND_ARCHIVE:?set the verified original CPython 3.14.9+20261021 stripped archive}"
+export PYTHONDONTWRITEBYTECODE=1
+export NO_PROXY=127.0.0.1,localhost,::1
+export no_proxy="$NO_PROXY"
+unset GITHUB_TOKEN PAKRO_GITHUB_TOKEN
+export PAKRO_OFFLINE=0 PAKRO_AUTO_UPDATE=0 PAKRO_CACHE_PRUNE_AGE=0 PAKRO_REGISTRY_FLOATING=0
+export PAKRO_PYTHON_GITHUB_ATTESTATIONS=0 PAKRO_PYTHON_COMPILE=0
+p3_fixture="$TEST_DIR/p3_project_fixture.py"
+p3_fixture_root="$TMPDIR/p3-wheels"
+p3_request_log="$TMPDIR/p3-requests"
+python3 -B "$TEST_ROOT/cli/p1_exact_python_fixture.py" "$PAKRO_TEST_PYTHON_ARCHIVE"
+python3 -B "$p3_fixture" prepare "$p3_fixture_root"
+python3 -B "$p3_fixture" verify-second "$PAKRO_TEST_PYTHON_SECOND_ARCHIVE"
+mkdir -p "$p3_request_log"
+start_http_server --headers-log "$p3_request_log" --handler "$p3_fixture" "$PAKRO_TEST_PYTHON_ARCHIVE" "$p3_fixture_root" "$PAKRO_TEST_PYTHON_SECOND_ARCHIVE"
+export PAKRO_URL_REPLACEMENTS="{\"https://pypi.org\":\"http://127.0.0.1:$HTTP_PORT\",\"https://github.com\":\"http://127.0.0.1:$HTTP_PORT\",\"https://api.github.com\":\"http://127.0.0.1:$HTTP_PORT\"}"
+export PAKRO_P3_MANAGER_LOG="$TMPDIR/p3-manager-invocations"
+for p3_manager in pip pip3 uv conda mamba micromamba; do
+  cat >"$HOME/bin/$p3_manager" <<'SH'
+#!/bin/sh
+printf '%s\n' "$0" >> "$PAKRO_P3_MANAGER_LOG"
+exit 91
+SH
+  chmod +x "$HOME/bin/$p3_manager"
+done
+p3_workspace="$PWD"
+p3_catalog="$PAKRO_DATA_DIR/projects/.control/catalog/projects"
+p3_requests() { find "$p3_request_log" -name 'request_*.json' -type f | wc -l | tr -d ' '; }
+p3_snapshot() { python3 -B "$p3_fixture" snapshot "$PAKRO_DATA_DIR" "$PAKRO_CACHE_DIR" "$PAKRO_STATE_DIR" "$PAKRO_CONFIG_DIR" "$p3_workspace"; }
+p3_write() {
+  mkdir -p "$1"
+  cat >"$1/pakro.toml" <<TOML
+[tools]
+python = '$2'
+[settings.python]
+precompiled_flavor = 'install_only_stripped'
+github_attestations = false
+compile = false
+[packages.'python@$2']
+$3
+TOML
+}
+p3_python_in() {
+  local executable
+  executable="$(cd "$1" && pakro which python)"
+  PYTHONDONTWRITEBYTECODE=1 "$executable" -c "$2"
+}
+p3_write a 3.13.16+20261013 "p3-root = '1.0'"
+p3_write b 3.13.16+20261013 "p3-root = '1.0'"
+printf 'invalid user pyproject must be ignored\n' >a/pyproject.toml
+printf 'invalid requirements must be ignored\n' >a/requirements.txt
+cat >a/pakro.lock <<'TOML'
+# Keep this unrelated lock comment through explicit updates.
+lockfile_version = 3
+[[tools.node]]
+version = '99.0.0' # unrelated native entry
+[future]
+value = 'p3-preserved'
+TOML
+(cd a && pakro install)
+p3_python="$(cd a && pakro which python)"
+p3_probe() { PYTHONDONTWRITEBYTECODE=1 "$p3_python" -B "$p3_fixture" "$@"; }
+p3_probe assert-nodes a/pakro.lock '{"p3-root":"1.0","p3-dep":"1.0"}'
+p3_old_dep_pin="$(p3_probe pin a/pakro.lock p3-dep)"
+p3_old_runtime="$(p3_probe runtime a/pakro.lock)"
+p3_before_b="$(p3_requests)"
+(cd b && pakro install)
+[[ $(p3_requests) == "$p3_before_b" ]] || fail 'B did not reuse the original complete shared graph'
+p3_b_lock="$(cksum <b/pakro.lock)"
+p3_b_state="$(p3_probe project-state "$p3_catalog" "$p3_workspace/b")"
+[[ $(p3_python_in "$p3_workspace/a" 'import p3_root; print(p3_root.VALUE)') == '1.0:p3-dep:1.0' ]] || fail 'initial A graph does not execute'
+[[ $(p3_python_in "$p3_workspace/b" 'import p3_root; print(p3_root.VALUE)') == '1.0:p3-dep:1.0' ]] || fail 'initial B graph does not execute'
+
+# Ordinary install cannot reinterpret an old exact graph as a new request.
+p3_write a 3.13.16 $'p3-root = "1.0"\np3-added = "1.0"'
+p3_unchanged_lock="$(cksum <a/pakro.lock)"
+p3_unchanged_catalog="$(cksum <"$p3_catalog")"
+p3_no_requests="$(p3_requests)"
+assert_fail_matches '(cd a && pakro install) 2>&1' 'declaration|direct root|lock'
+[[ $(cksum <a/pakro.lock) == "$p3_unchanged_lock" && $(cksum <"$p3_catalog") == "$p3_unchanged_catalog" ]] || fail 'ordinary stale-lock refusal changed the lock or project selections'
+[[ $(p3_requests) == "$p3_no_requests" ]] || fail 'ordinary stale-lock refusal acquired inputs'
+p3_before_preview="$(p3_snapshot)"
+(cd a && pakro install --update-lock --dry-run) >"$TMPDIR/p3-update-preview.txt"
+cat "$TMPDIR/p3-update-preview.txt"
+grep -Eiq 'unresolved|not solved|not resolved|unsolved|未求解' "$TMPDIR/p3-update-preview.txt" || fail 'update preview claimed a complete dependency solution'
+grep -Fq 'p3-added' "$TMPDIR/p3-update-preview.txt" || fail 'update preview omitted the changed direct declaration'
+[[ $(p3_snapshot) == "$p3_before_preview" && $(p3_requests) == "$p3_no_requests" ]] || fail 'update preview wrote state or acquired content'
+(cd a && pakro install --update-lock)
+p3_probe assert-nodes a/pakro.lock '{"p3-root":"1.0","p3-dep":"1.0","p3-added":"1.0"}'
+[[ $(p3_probe runtime a/pakro.lock) == "$p3_old_runtime" ]] || fail 'same upstream update changed the exact interpreter build or source'
+
+# The index always contains 1.1, so keeping 1.0 proves a real preference.
+p3_write a 3.13.16 "p3-root = '1.1'"
+(cd a && pakro install --update-lock)
+p3_probe assert-nodes a/pakro.lock '{"p3-root":"1.1","p3-dep":"1.0"}'
+[[ $(p3_probe pin a/pakro.lock p3-dep) == "$p3_old_dep_pin" ]] || fail 'compatible update replaced the old dependency artifact'
+[[ $(p3_python_in "$p3_workspace/a" 'import p3_root; print(p3_root.VALUE)') == '1.1:p3-dep:1.0' ]] || fail 'compatible updated graph does not execute'
+p3_write a 3.13.16 "p3-root = '2.0'"
+(cd a && pakro install --update-lock)
+p3_probe assert-nodes a/pakro.lock '{"p3-root":"2.0","p3-dep":"2.0"}'
+[[ $(p3_python_in "$p3_workspace/a" 'import p3_root; print(p3_root.VALUE)') == '2.0:p3-dep:2.0' ]] || fail 'incompatible old dependency was not adjusted'
+
+p3_complete_declarations=$'p3-root = "1.0"\np3-extra = {version="1.0",source="pypi",extras=["feature"]}\np3-active = {version="1.0",marker="python_full_version == \'3.13.16\' and implementation_name == \'cpython\'"}\np3-inactive = {version="1.0",marker="python_version < \'3.0\'"}'
+p3_write a 3.13.16 "$p3_complete_declarations"
+(cd a && pakro install --update-lock)
+p3_probe assert-nodes a/pakro.lock '{"p3-root":"1.0","p3-dep":"1.0","p3-extra":"1.0","p3-feature":"1.0","p3-active":"1.0"}'
+p3_probe assert-intent a/pakro.lock
+[[ $(p3_python_in "$p3_workspace/a" 'import p3_root,p3_extra,p3_feature,p3_active,importlib.util; assert importlib.util.find_spec("p3_inactive") is None; print(p3_root.VALUE)') == '1.0:p3-dep:1.0' ]] || fail 'extras and actual-target markers did not produce a usable graph'
+python3 -B - "$p3_request_log" <<'PY'
+import json, sys
+from pathlib import Path
+paths = [json.loads(path.read_text())['path'] for path in Path(sys.argv[1]).glob('request_*.json')]
+assert not any('/simple/p3-inactive/' in path for path in paths), 'inactive root reached registry acquisition'
+PY
+p3_after_update_lock="$(cksum <a/pakro.lock)"
+p3_after_update_catalog="$(cksum <"$p3_catalog")"
+p3_after_update_requests="$(p3_requests)"
+# A still-inactive marker is nevertheless part of the committed intent.
+p3_write a 3.13.16 "${p3_complete_declarations/3.0/3.1}"
+assert_fail_matches '(cd a && pakro install) 2>&1' 'declaration|direct root|lock'
+[[ $(cksum <a/pakro.lock) == "$p3_after_update_lock" && $(cksum <"$p3_catalog") == "$p3_after_update_catalog" && $(p3_requests) == "$p3_after_update_requests" ]] || fail 'inactive declaration change was silently ignored or rewritten'
+p3_write a 3.13.16 "$p3_complete_declarations"
+printf '\377\000 arbitrary replacement\n' >a/pyproject.toml
+printf 'git+https://invalid.example/never-use\n' >a/requirements.txt
+p3_after_ignored_edits="$(p3_snapshot)"
+(cd a && pakro env --json) >"$TMPDIR/p3-ignored-user-files-env.json"
+[[ $(p3_python_in "$p3_workspace/a" 'import p3_feature; print(p3_feature.VALUE)') == 'p3-feature:1.0' ]] || fail 'irrelevant user files affected current Python selection'
+[[ $(cksum <a/pakro.lock) == "$p3_after_update_lock" && $(cksum <"$p3_catalog") == "$p3_after_update_catalog" && $(p3_requests) == "$p3_after_update_requests" ]] || fail 'irrelevant user files changed exact lock, selection or acquisition'
+[[ $(p3_snapshot) == "$p3_after_ignored_edits" ]] || fail 'queries after ignored user edits wrote persisted state'
+(cd a && PAKRO_LOCKED=1 pakro install)
+[[ $(cksum <a/pakro.lock) == "$p3_after_update_lock" && $(p3_requests) == "$p3_after_update_requests" ]] || fail 'warm strict install reinterpreted ignored user files'
+p3_after_update_catalog="$(cksum <"$p3_catalog")"
+
+# Preparation failure and an unavailable interpreter cannot publish a choice.
+p3_write a 3.13.16 $'p3-root = "1.1"\np3-broken = "1.0"'
+assert_fail_matches '(cd a && pakro install --update-lock) 2>&1' 'checksum|digest|integrity|hash|artifact|download'
+[[ $(cksum <a/pakro.lock) == "$p3_after_update_lock" && $(cksum <"$p3_catalog") == "$p3_after_update_catalog" ]] || fail 'failed artifact preparation changed the exact lock or selected graph'
+p3_write a 3.13.99+20261013 "p3-root = '1.1'"
+assert_fail_matches '(cd a && pakro install --update-lock) 2>&1' '3.13.99|unavailable|not found|missing|release'
+[[ $(cksum <a/pakro.lock) == "$p3_after_update_lock" && $(cksum <"$p3_catalog") == "$p3_after_update_catalog" ]] || fail 'unavailable interpreter retarget changed lock or selected graph'
+p3_write a 3.13.16 "$p3_complete_declarations"
+[[ $(cksum <b/pakro.lock) == "$p3_b_lock" && $(p3_probe project-state "$p3_catalog" "$p3_workspace/b") == "$p3_b_state" ]] || fail 'updating A changed B lock or committed selection'
+[[ $(p3_python_in "$p3_workspace/b" 'import p3_root; print(p3_root.VALUE)') == '1.0:p3-dep:1.0' ]] || fail 'updating A broke B runtime behavior'
+grep -Fq '# Keep this unrelated lock comment through explicit updates.' a/pakro.lock || fail 'update lost unrelated lock comments'
+grep -Fq "version = '99.0.0' # unrelated native entry" a/pakro.lock || fail 'update rewrote an unrelated native tool entry'
+grep -Fq "value = 'p3-preserved'" a/pakro.lock || fail 'update lost legal unknown lock content'
+
+# Genuine interpreter replacement uses separately verified official bytes.
+p3_old_language="$(cd a && pakro where python)"
+p3_new_declarations=$'p3-root = "1.1"\np3-extra = {version="1.0",source="pypi",extras=["feature"]}\np3-active = {version="1.0",marker="python_full_version == \'3.14.9\' and implementation_name == \'cpython\'"}\np3-inactive = {version="1.0",marker="python_version < \'3.0\'"}'
+p3_write a 3.14.9+20261021 "$p3_new_declarations"
+(cd a && pakro install --update-lock)
+p3_new_language="$(cd a && pakro where python)"
+[[ "$p3_new_language" != "$p3_old_language" ]] || fail 'interpreter update reused the old language payload identity'
+[[ $(p3_python_in "$p3_workspace/a" 'import sys; print(".".join(map(str,sys.version_info[:3])))') == '3.14.9' ]] || fail 'interpreter update did not execute the real new CPython release'
+[[ $(p3_python_in "$p3_workspace/b" 'import sys,p3_root; assert sys.version_info[:3] == (3,13,16); print(p3_root.VALUE)') == '1.0:p3-dep:1.0' ]] || fail 'interpreter update changed the other project runtime or graph'
+p3_probe assert-nodes a/pakro.lock '{"p3-root":"1.1","p3-dep":"1.0","p3-extra":"1.0","p3-feature":"1.0","p3-active":"1.0"}'
+p3_probe assert-intent a/pakro.lock
+[[ $(p3_probe pin a/pakro.lock p3-dep) == "$p3_old_dep_pin" ]] || fail 'interpreter change discarded a still-compatible old dependency artifact'
+[[ $(p3_python_in "$p3_workspace/a" 'import p3_root,p3_extra,p3_feature,p3_active; print(p3_root.VALUE)') == '1.1:p3-dep:1.0' ]] || fail 'new interpreter target did not receive the complete usable graph'
+[[ $(cksum <b/pakro.lock) == "$p3_b_lock" && $(p3_probe project-state "$p3_catalog" "$p3_workspace/b") == "$p3_b_state" ]] || fail 'interpreter update modified the other project lock or selection'
+pakro installs ls --json >"$TMPDIR/p3-two-runtimes.json"
+python3 -B - "$TMPDIR/p3-two-runtimes.json" <<'PY'
+import json, sys
+from pathlib import Path
+languages = [row for row in json.loads(Path(sys.argv[1]).read_text()) if row['kind'] == 'language']
+assert {(row['version'], row['build']) for row in languages} == {('3.13.16', '20261013'), ('3.14.9', '20261021')}, 'inventory lacks the two actual exact runtime releases'
+assert len(languages) == len({row['instance'] for row in languages}) == len({row['path'] for row in languages}) == 2, 'runtime update duplicated or aliased a Python payload'
+PY
+printf 'P3_REAL_INTERPRETER_CHANGE_VERIFIED old=3.13.16+20261013 new=3.14.9+20261021\n'
+
+p3_layouts_before="$(find "$PAKRO_DATA_DIR/packages/.control/catalog" -name 'layout-*.json' -type f | wc -l | tr -d ' ')"
+p3_write a 3.14.9+20261021 ''
+(cd a && pakro install --update-lock)
+p3_probe assert-nodes a/pakro.lock '{}'
+p3_probe assert-language-only "$p3_catalog" "$p3_workspace/a"
+[[ $(find "$PAKRO_DATA_DIR/packages/.control/catalog" -name 'layout-*.json' -type f | wc -l | tr -d ' ') == "$p3_layouts_before" ]] || fail 'last-root removal created an empty package layout'
+[[ $(p3_python_in "$p3_workspace/a" 'import importlib.util; assert importlib.util.find_spec("p3_root") is None; print("language-only")') == 'language-only' ]] || fail 'last-root removal retained the old package graph'
+
+p3_a_id="$(p3_probe project-id "$p3_catalog" "$p3_workspace/a")"
+p3_before_forget="$(p3_snapshot)"
+pakro project forget "$p3_a_id" --dry-run >"$TMPDIR/p3-forget-preview.txt"
+grep -Fq "$p3_workspace/a" "$TMPDIR/p3-forget-preview.txt" || fail 'forget preview omitted the exact registered path'
+grep -Fq "$p3_a_id" "$TMPDIR/p3-forget-preview.txt" || fail 'forget preview omitted the exact project identity'
+grep -Fq 'Python' "$TMPDIR/p3-forget-preview.txt" || fail 'forget preview omitted the selected language association'
+[[ $(p3_snapshot) == "$p3_before_forget" ]] || fail 'forget preview wrote state'
+p3_a_files="$(python3 -B "$p3_fixture" snapshot "$p3_workspace/a")"
+p3_payloads="$(python3 -B "$p3_fixture" snapshot "$PAKRO_DATA_DIR/languages" "$PAKRO_DATA_DIR/packages")"
+pakro project forget "$p3_a_id"
+p3_forgotten_slots="$(p3_probe assert-forgotten "$p3_catalog" "$p3_a_id")"
+[[ $(python3 -B "$p3_fixture" snapshot "$p3_workspace/a") == "$p3_a_files" ]] || fail 'forget changed project files'
+[[ $(python3 -B "$p3_fixture" snapshot "$PAKRO_DATA_DIR/languages" "$PAKRO_DATA_DIR/packages") == "$p3_payloads" ]] || fail 'forget deleted or changed shared library objects'
+p3_after_forget="$(p3_snapshot)"
+pakro project forget "$p3_a_id" >"$TMPDIR/p3-forget-repeat.txt"
+grep -Fq 'no changes' "$TMPDIR/p3-forget-repeat.txt" || fail 'repeated forget did not report no change'
+[[ $(p3_snapshot) == "$p3_after_forget" ]] || fail 'repeated forget changed catalog or project state'
+(cd a && pakro install)
+p3_probe assert-reregistered "$p3_catalog" "$p3_workspace/a" "$p3_a_id" "$p3_forgotten_slots"
+
+# Move explicitly: register the new path before forgetting the old exact ID.
+p3_b_id="$(p3_probe project-id "$p3_catalog" "$p3_workspace/b")"
+mkdir moved
+cp b/pakro.toml b/pakro.lock moved/
+p3_before_move_requests="$(p3_requests)"
+(cd moved && pakro install)
+p3_moved_id="$(p3_probe project-id "$p3_catalog" "$p3_workspace/moved")"
+[[ "$p3_moved_id" != "$p3_b_id" ]] || fail 'new directory was mistaken for the old project identity'
+[[ $(p3_requests) == "$p3_before_move_requests" ]] || fail 'new path failed to reuse the existing precise graph'
+rm -rf "$p3_workspace/b"
+p3_move_payloads="$(python3 -B "$p3_fixture" snapshot "$PAKRO_DATA_DIR/languages" "$PAKRO_DATA_DIR/packages")"
+pakro project forget "$p3_b_id" --dry-run >"$TMPDIR/p3-missing-forget-preview.txt"
+grep -Fq "$p3_workspace/b" "$TMPDIR/p3-missing-forget-preview.txt" || fail 'missing-directory preview lost the registered path'
+pakro project forget "$p3_b_id"
+p3_probe assert-forgotten "$p3_catalog" "$p3_b_id"
+[[ $(python3 -B "$p3_fixture" snapshot "$PAKRO_DATA_DIR/languages" "$PAKRO_DATA_DIR/packages") == "$p3_move_payloads" ]] || fail 'forgetting a deleted directory changed shared library contents'
+[[ $(p3_python_in "$p3_workspace/moved" 'import p3_root; print(p3_root.VALUE)') == '1.0:p3-dep:1.0' ]] || fail 'forgetting old project damaged the moved registration'
+[[ ! -e "$PAKRO_P3_MANAGER_LOG" ]] || fail 'P3 lifecycle delegated to an external package manager'
+printf 'P3_PROJECT_LIFECYCLE_PASSED real_runtime=true real_interpreter_change=true compatible_pin_preserved=true conflicting_version_adjusted=true extras_markers=true forget_move=true\n'

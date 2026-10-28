@@ -1,0 +1,7 @@
+[build-system]
+requires = ["meson-python==0.18.0", "meson==1.7.2"]
+build-backend = "mesonpy"
+
+[project]
+name = "p6-meson-native"
+version = "1.0.0"

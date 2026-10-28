@@ -1,6 +1,5 @@
 use crate::args::{BackendArg, ToolArg};
 use crate::config::{Config, Settings};
-use crate::packages::PackageInstallRequest;
 use eyre::{Result, ensure};
 use std::str::FromStr;
 
@@ -12,13 +11,18 @@ use std::str::FromStr;
     verbatim_doc_comment,
     example("pakro install python@3.13.16"),
     example("pakro install"),
-    example("pakro install --dry-run")
+    example("pakro install --dry-run"),
+    example("pakro install --update-lock"),
+    example("pakro install --update-lock --dry-run")
 )]
 pub(crate) struct Install {
     #[usage(value_name = "PYTHON@VERSION")]
     tool: Option<Vec<ToolArg>>,
     #[usage(long, short = 'n')]
     dry_run: bool,
+    /// Resolve the current declarations explicitly, preferring compatible locked artifacts.
+    #[usage(long)]
+    update_lock: bool,
     /// Restore only the previously approved four bytecode files in one exact instance.
     #[usage(long, value_name = "INSTANCE")]
     restore_bytecode: Option<String>,
@@ -28,9 +32,23 @@ pub(crate) struct Install {
     raw: bool,
 }
 
-struct Input {
-    exact: Option<String>,
-    extra: Vec<PackageInstallRequest>,
+enum PreparedInput {
+    Exact(crate::programs::python::PythonExactInstall),
+    Project(crate::programs::python::PythonProjectInstall),
+}
+
+enum PreparedMode {
+    Recovery(Install),
+    Request {
+        input: PreparedInput,
+        config: std::sync::Arc<Config>,
+        dry_run: bool,
+        update_lock: bool,
+    },
+}
+
+pub(super) struct PreparedInstall {
+    mode: PreparedMode,
 }
 impl Install {
     pub(super) fn inherit_root_dry_run(&mut self, dry_run: bool) {
@@ -41,8 +59,31 @@ impl Install {
         self.raw |= raw;
         self.jobs = self.jobs.or(jobs);
     }
-    async fn input(&self) -> Result<Input> {
+    fn validate_update_options(&self) -> Result<()> {
+        ensure!(
+            !self.update_lock || self.restore_bytecode.is_none(),
+            "--update-lock conflicts with --restore-bytecode"
+        );
+        ensure!(
+            !self.update_lock || self.tool.as_ref().is_none_or(Vec::is_empty),
+            "--update-lock uses only current project declarations; remove explicit runtime or package arguments"
+        );
+        ensure!(
+            !self.update_lock
+                || crate::packages::request::CLI_PACKAGE_ARGS
+                    .get()
+                    .is_none_or(Vec::is_empty),
+            "--update-lock does not accept temporary package requests; edit the project configuration first"
+        );
+        Ok(())
+    }
+    async fn input(self) -> Result<PreparedInstall> {
+        self.validate_update_options()?;
         let config = super::read_config_for_admission().await?;
+        // Config supplies the frozen effective settings and its original read
+        // receipt. Freeze project/catalog facts immediately, before the first
+        // asynchronous runtime/package classification can yield to forget.
+        let admission = crate::programs::python::capture_install_admission()?;
         let tools = self.tool.clone().unwrap_or_default();
         let exact = match tools.as_slice() {
             [one] if crate::programs::python::is_python_backend(&one.ba) => one.version.clone(),
@@ -107,48 +148,37 @@ impl Install {
                 "Python installation requires a complete exact version, e.g. 3.13.16"
             );
         }
-        let project = crate::programs::python::prepare_current_project(&extra)?;
-        if exact.is_none() {
-            let project = project.ok_or_else(|| eyre::eyre!("declare an exact Python version in pakro.toml before installing project packages"))?;
+        let input = if let Some(version) = exact {
+            PreparedInput::Exact(admission.exact(&version, &extra)?)
+        } else {
+            let project = admission.project(&extra, self.update_lock)?
+                .ok_or_else(|| eyre::eyre!("declare an exact Python version in pakro.toml before installing project packages"))?;
             ensure!(
                 project.only_python_tools(),
                 "this installation path prepares Python-only project declarations"
             );
-        }
-        Ok(Input { exact, extra })
+            PreparedInput::Project(project)
+        };
+        Ok(PreparedInstall {
+            mode: PreparedMode::Request {
+                input,
+                config,
+                dry_run: self.dry_run,
+                update_lock: self.update_lock,
+            },
+        })
     }
-    pub(super) async fn preflight(&self) -> Result<()> {
-        if self.restore_bytecode.is_none() {
-            self.input().await?;
+    pub(super) async fn preflight(self) -> Result<PreparedInstall> {
+        self.validate_update_options()?;
+        if self.restore_bytecode.is_some() {
+            self.bytecode_recovery_version()?;
+            return Ok(PreparedInstall {
+                mode: PreparedMode::Recovery(self),
+            });
         }
-        Ok(())
+        self.input().await
     }
-    pub(crate) async fn run(self) -> Result<()> {
-        if let Some(instance) = &self.restore_bytecode {
-            return self.run_bytecode_recovery(instance);
-        }
-        let input = self.input().await?;
-        let config = Config::get().await?;
-        if let Some(version) = input.exact {
-            if self.dry_run {
-                pakroprintln!("Would install Python {version} and its matching declared packages");
-                return Ok(());
-            }
-            crate::programs::python::install_exact_python(&version, config, &input.extra).await
-        } else {
-            let project = crate::programs::python::prepare_current_project(&input.extra)?
-                .ok_or_else(|| eyre::eyre!("the project no longer declares Python"))?;
-            if self.dry_run {
-                pakroprintln!(
-                    "Would install the declared Python {} and its exact project packages",
-                    project.version()
-                );
-                return Ok(());
-            }
-            project.install(config).await
-        }
-    }
-    fn run_bytecode_recovery(&self, instance: &str) -> Result<()> {
+    fn bytecode_recovery_version(&self) -> Result<&str> {
         eyre::ensure!(
             !self.raw
                 && self.jobs.is_none()
@@ -188,8 +218,11 @@ impl Install {
             version.is_some(),
             "bytecode recovery requires one complete explicit Python version including its build"
         );
+        Ok(version.expect("validated exact Python recovery request"))
+    }
+    fn run_bytecode_recovery(&self, instance: &str) -> Result<()> {
         let report = crate::programs::library::restore_python_bytecode(
-            version.expect("validated exact Python recovery request"),
+            self.bytecode_recovery_version()?,
             instance,
             self.dry_run,
         )?;
@@ -221,5 +254,87 @@ impl Install {
             report.unchanged_entries
         );
         Ok(())
+    }
+}
+
+impl PreparedInstall {
+    pub(super) async fn run(self) -> Result<()> {
+        match self.mode {
+            PreparedMode::Recovery(command) => command.run_bytecode_recovery(
+                command
+                    .restore_bytecode
+                    .as_deref()
+                    .expect("admitted recovery instance"),
+            ),
+            PreparedMode::Request {
+                input,
+                config,
+                dry_run,
+                update_lock,
+            } => match input {
+                PreparedInput::Exact(request) => {
+                    if dry_run {
+                        request.recheck_admission()?;
+                        pakroprintln!(
+                            "Would install Python {} and its matching declared packages",
+                            request.version()
+                        );
+                        Ok(())
+                    } else {
+                        request.install(config).await
+                    }
+                }
+                PreparedInput::Project(project) => {
+                    if dry_run {
+                        project.recheck_admission()?;
+                        if update_lock {
+                            for line in project.preview_update()? {
+                                pakroprintln!("{line}");
+                            }
+                        } else {
+                            pakroprintln!(
+                                "Would install the declared Python {} and its exact project packages",
+                                project.version()
+                            );
+                        }
+                        Ok(())
+                    } else {
+                        project.install(config).await
+                    }
+                }
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn p3_update_intent_rejects_explicit_target_and_bytecode_recovery() {
+        let mut update = Install {
+            update_lock: true,
+            dry_run: true,
+            ..Default::default()
+        };
+        assert!(update.validate_update_options().is_ok());
+        update.restore_bytecode = Some("language-instance".into());
+        assert!(
+            update
+                .validate_update_options()
+                .unwrap_err()
+                .to_string()
+                .contains("--restore-bytecode")
+        );
+        update.restore_bytecode = None;
+        update.tool = Some(vec!["python@3.13.16".parse().unwrap()]);
+        assert!(
+            update
+                .validate_update_options()
+                .unwrap_err()
+                .to_string()
+                .contains("project declarations")
+        );
     }
 }

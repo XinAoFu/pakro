@@ -3,7 +3,11 @@ use std::path::PathBuf;
 use crate::file::replace_path;
 
 #[cfg(target_os = "linux")]
+mod elf;
+#[cfg(target_os = "linux")]
 mod landlock;
+#[cfg(target_os = "linux")]
+pub use elf::runtime_loaders as executable_runtime_loaders;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "linux")]
@@ -14,13 +18,22 @@ mod seccomp;
 /// Any `deny_*` or `allow_*` field being set implicitly enables sandboxing.
 /// `allow_*` fields imply their corresponding `deny_*` (e.g., `allow_write` implies `deny_write`
 /// for everything not in the allow list).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct SandboxConfig {
+    /// Versioned native worker, launched only by NativeBuildSession.
+    #[serde(default)]
+    pub native_build: bool,
+    /// A supervisor-owned executable pool; workers receive no write grant here.
+    #[serde(default)]
+    pub native_exec_pool: Option<PathBuf>,
     /// Restrict a source-build worker to explicitly supplied filesystem inputs.
     /// Existing task/CLI sandbox defaults remain unchanged when false.
     pub build_worker: bool,
     /// Additional fixed executables admitted by a source-build worker policy.
     pub allow_process: Vec<PathBuf>,
+    /// Exact ELF interpreters captured at the worker launch boundary on Linux.
+    #[serde(default)]
+    pub runtime_loaders: Vec<PathBuf>,
     pub deny_read: bool,
     pub deny_write: bool,
     pub deny_net: bool,
@@ -111,6 +124,56 @@ fn env_pattern_matches(pattern: &str, key: &str) -> bool {
 }
 
 impl SandboxConfig {
+    #[cfg(target_os = "linux")]
+    pub fn capture_runtime_loaders(&mut self, programs: &[PathBuf]) -> eyre::Result<()> {
+        for path in elf::runtime_loaders(programs)? {
+            if !self.runtime_loaders.contains(&path) {
+                self.runtime_loaders.push(path);
+            }
+        }
+        Ok(())
+    }
+
+    /// Called by the single-threaded native exec bootstrap, before user code.
+    #[cfg(unix)]
+    pub(crate) fn install_native(&self, program: &std::path::Path) -> eyre::Result<()> {
+        #[cfg(target_os = "linux")]
+        self.apply_linux(
+            program
+                .to_str()
+                .ok_or_else(|| eyre::eyre!("non-UTF-8 native executable"))?,
+        )?;
+        #[cfg(target_os = "macos")]
+        {
+            use std::ffi::CString;
+            #[link(name = "sandbox")]
+            unsafe extern "C" {
+                fn sandbox_init(
+                    profile: *const std::ffi::c_char,
+                    flags: u64,
+                    error: *mut *mut std::ffi::c_char,
+                ) -> i32;
+                fn sandbox_free_error(error: *mut std::ffi::c_char);
+            }
+            let profile = CString::new(macos::build_worker_profile(self, Some(program)))?;
+            let mut error = std::ptr::null_mut();
+            let status = unsafe { sandbox_init(profile.as_ptr(), 0, &mut error) };
+            if status != 0 {
+                let message = if error.is_null() {
+                    "sandbox_init failed".to_owned()
+                } else {
+                    let message = unsafe { std::ffi::CStr::from_ptr(error) }
+                        .to_string_lossy()
+                        .into_owned();
+                    unsafe { sandbox_free_error(error) };
+                    message
+                };
+                eyre::bail!("native worker isolation unavailable: {message}");
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn validate_build_worker(
         &self,
         initial_program: Option<&std::path::Path>,
@@ -184,7 +247,7 @@ impl SandboxConfig {
         // for a compiler worker until it has an independent supervision owner.
         #[cfg(target_os = "macos")]
         ensure!(
-            self.deny_process,
+            self.deny_process || self.native_build,
             "macOS source-build worker subprocesses require a tracked descendant supervisor"
         );
         Ok(())
@@ -406,7 +469,7 @@ impl SandboxConfig {
     }
 
     #[cfg(target_os = "linux")]
-    fn apply_linux(&self, program: &str) -> eyre::Result<()> {
+    pub(crate) fn apply_linux(&self, program: &str) -> eyre::Result<()> {
         if self.effective_deny_read() || self.effective_deny_write() || self.deny_process {
             landlock::apply_landlock(self, Some(std::path::Path::new(program)))?;
         }
@@ -418,7 +481,11 @@ impl SandboxConfig {
                 );
             }
             if self.build_worker {
-                seccomp::apply_worker_filter(self.deny_process)?;
+                if self.native_build {
+                    seccomp::apply_native_worker_filter()?;
+                } else {
+                    seccomp::apply_worker_filter(self.deny_process)?;
+                }
             } else {
                 seccomp::apply_seccomp_filter(self.effective_deny_net(), self.deny_process)?;
             }

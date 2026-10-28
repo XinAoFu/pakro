@@ -117,7 +117,7 @@ async fn f4_package_live_lease_and_unknown_block_removal() {
 }
 
 #[tokio::test]
-async fn f4_unselected_adapter_is_invalidated_without_expanding_deletion() {
+async fn p4_unselected_adapter_is_removed_with_its_exact_package() {
     let owner = tempfile::tempdir().unwrap();
     let root = owner.path().canonicalize().unwrap();
     let context = operation_context(&root, true, Duration::from_secs(300));
@@ -147,8 +147,8 @@ async fn f4_unselected_adapter_is_invalidated_without_expanding_deletion() {
     remove(&context, &target).unwrap();
     assert!(!package_path.exists());
     assert!(
-        adapter_path.is_dir(),
-        "only the explicitly targeted package payload is deleted"
+        !adapter_path.exists(),
+        "the invalidated derived layout is deleted by the same recorded operation"
     );
     assert!(
         crate::libraries::package::lease::acquire_layout(&context, key)

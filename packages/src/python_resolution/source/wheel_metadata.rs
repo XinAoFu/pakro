@@ -2,7 +2,9 @@
 
 use crate::artifact_snapshot::VerifiedArtifact;
 use crate::packages::python_resolution::lock_model::{ContentPin, RegistryArtifactKind};
-use crate::packages::python_wheel::{WheelExpectation, WheelLimits, WheelManifest};
+use crate::packages::python_wheel::{
+    WheelCoreMetadata, WheelExpectation, WheelLimits, WheelManifest,
+};
 use crate::packages::python_wheel_source::{InspectedWheelArchive, inspect_owned_wheel};
 use pakro_index::SupportedWheelTags;
 use pakro_index::python_metadata::{
@@ -98,7 +100,20 @@ pub(crate) fn project_manifest_metadata(
     expected_version: &str,
     metadata_limits: PythonMetadataLimits,
 ) -> Result<PythonDependencyMetadataFacts> {
-    let metadata = manifest.core_metadata();
+    project_core_metadata(
+        manifest.core_metadata(),
+        expected_project,
+        expected_version,
+        metadata_limits,
+    )
+}
+
+pub(crate) fn project_core_metadata(
+    metadata: &WheelCoreMetadata,
+    expected_project: &str,
+    expected_version: &str,
+    metadata_limits: PythonMetadataLimits,
+) -> Result<PythonDependencyMetadataFacts> {
     let name = match metadata.values("Name") {
         [value] => value.as_str(),
         _ => return Err(WheelMetadataError::Archive),

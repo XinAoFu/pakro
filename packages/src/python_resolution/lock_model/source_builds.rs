@@ -81,6 +81,12 @@ pub(super) fn validate(
         record
             .validate()
             .map_err(|_| LockModelError::IdentityMismatch)?;
+        if let Some(native) = &record.native {
+            let raw = serde_json::to_string(native).map_err(|_| LockModelError::InvalidField(LockField::Native))?;
+            let maximum = crate::packages::python_environment::model::MAX_NATIVE_JSON_BYTES.min(limits.max_declaration_bytes);
+            count(raw.len(), maximum, LockLimit::FieldBytes)?;
+            charge(&mut usage.utf8, raw.len(), limits.max_total_utf8_bytes, LockLimit::TotalUtf8Bytes)?;
+        }
         if record.observation.is_none() {
             return Err(LockModelError::UnsupportedSourceKind);
         }

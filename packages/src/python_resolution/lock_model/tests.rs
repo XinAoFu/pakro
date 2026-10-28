@@ -381,6 +381,81 @@ fn s3_legacy_source_filename_original_hyphenated_project_pin_is_preserved() {
         );
     }
 }
+
+#[test]
+fn p6_zip_source_pin_roundtrips_without_changing_existing_tar_pin_identity() {
+    let mut fixture = Fixture::new();
+    let old = fixture.pins[1].clone();
+    assert_eq!(
+        ContentPin::new(
+            old.file(),
+            old.digest(),
+            old.size(),
+            old.evidence(),
+            Default::default()
+        )
+        .unwrap()
+        .id(),
+        id(SDIST_ID)
+    );
+    let file = RegistryFileRef::new(
+        RegistryFileRefInput {
+            registry_id: old.file().registry_id(),
+            canonical_base_fingerprint: *old.file().canonical_base_fingerprint(),
+            project: old.file().project(),
+            version: old.file().version(),
+            filename: "dep-2.0.zip",
+            kind: RegistryArtifactKind::Sdist,
+        },
+        Default::default(),
+    )
+    .unwrap();
+    let zip = ContentPin::new(
+        &file,
+        old.digest(),
+        old.size(),
+        old.evidence(),
+        Default::default(),
+    )
+    .unwrap();
+    assert_ne!(zip.id(), old.id());
+    assert_eq!(old.id(), id(SDIST_ID));
+    let zip_id = zip.id();
+    fixture.nodes[1].source_pin = zip_id;
+    fixture.pins[1] = zip;
+    let model = fixture.model(Default::default()).unwrap();
+    let text = model.encode_projection(Default::default()).unwrap();
+    let decoded = PythonLockModel::decode_projection(&text, Default::default()).unwrap();
+    let actual = decoded
+        .pins()
+        .iter()
+        .find(|pin| pin.id() == zip_id)
+        .unwrap();
+    assert_eq!(actual.file().filename(), "dep-2.0.zip");
+    assert_eq!(actual.file().kind(), RegistryArtifactKind::Sdist);
+    for filename in [
+        "foreign-2.0.zip",
+        "../dep-2.0.zip",
+        "dep-2.0-1.zip",
+        "dep-2.0.tar.xz",
+    ] {
+        assert!(
+            RegistryFileRef::new(
+                RegistryFileRefInput {
+                    filename,
+                    registry_id: "pypi",
+                    canonical_base_fingerprint: [0x11; 32],
+                    project: "dep",
+                    version: "2.0",
+                    kind: RegistryArtifactKind::Sdist
+                },
+                Default::default()
+            )
+            .is_err(),
+            "{filename}"
+        );
+    }
+}
 #[test]
 fn model_pin_and_canonical_base_hashes_match_independent_versioned_golden() {
     let limits = LockModelLimits::default();

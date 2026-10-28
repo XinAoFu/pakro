@@ -95,7 +95,11 @@ impl SourceBuildInput {
 impl SourceBuildRecord {
     pub(crate) fn validate(&self) -> Result<()> {
         canonical_digest(&self.source_digest)?;
-        ensure!(self.recipe == 1, "source build recipe is unsupported");
+        match (self.recipe, &self.native) {
+            (1, None) => {},
+            (2, Some(native)) => native.validate()?,
+            _ => eyre::bail!("source build recipe and native toolchain record disagree"),
+        }
         ensure!(
             !self.backend.is_empty() && self.backend.len() <= 4096,
             "source build backend exceeds its byte budget"

@@ -70,6 +70,32 @@ pub(crate) struct PackageManifest {
     pub storage: StorageManifest,
 }
 impl PackageManifest {
+    /// The same data-only admission used by normal package leases and reclaim.
+    /// It describes valid metadata and grants no object or filesystem rights.
+    pub(crate) fn validate_metadata(&self) -> Result<()> {
+        self.storage.validate()?;
+        ensure!(
+            self.facts.key == self.storage.key,
+            "package manifest key differs"
+        );
+        let artifact: pakro_store::Digest = self.facts.artifact.parse()?;
+        ensure!(
+            artifact.to_string() == self.facts.artifact
+                && !self.facts.source.is_empty()
+                && self.facts.source.len() <= 65536
+                && self.facts.dependencies.len() <= 65536,
+            "package source facts are invalid"
+        );
+        ensure!(
+            self.facts
+                .dependencies
+                .windows(2)
+                .all(|pair| pair[0] < pair[1]),
+            "package dependencies are not canonical"
+        );
+        Ok(())
+    }
+
     pub(crate) fn name(&self) -> &str {
         &self.facts.name
     }
@@ -94,10 +120,26 @@ pub(crate) struct LayoutManifest {
         default = "legacy_layout_recipe",
         skip_serializing_if = "is_legacy_layout_recipe"
     )]
-    pub(in crate::libraries::package) recipe: u32,
+    pub(in crate::libraries) recipe: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(in crate::libraries::package) projection:
         Option<super::layouts::projection::NativeProjection>,
+}
+
+impl LayoutManifest {
+    pub(crate) fn validate_metadata(&self) -> Result<()> {
+        self.storage.validate()?;
+        super::layouts::projection::validate_metadata(self.recipe, self.projection.as_ref())?;
+        ensure!(
+            self.storage.key
+                == super::layouts::layout_key_for(self.recipe, self.language, self.graph)?
+                && !self.packages.is_empty()
+                && self.packages.len() <= 65536
+                && self.packages.windows(2).all(|pair| pair[0] < pair[1]),
+            "layout identity or package list differs"
+        );
+        Ok(())
+    }
 }
 
 fn legacy_layout_recipe() -> u32 {

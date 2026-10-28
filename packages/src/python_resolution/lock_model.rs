@@ -29,6 +29,7 @@ pub(crate) enum LockField {
     Size,
     PinId,
     Declaration,
+    Native,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LockIdentity {
@@ -273,6 +274,7 @@ impl RegistryFileRef {
                 let stem = input
                     .filename
                     .strip_suffix(".tar.gz")
+                    .or_else(|| input.filename.strip_suffix(".zip"))
                     .ok_or(LockModelError::InvalidField(LockField::Filename))?;
                 let (name, raw_version) = stem
                     .rsplit_once('-')

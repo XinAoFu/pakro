@@ -3,6 +3,13 @@ use crate::artifact_snapshot::spool_verified_reader;
 use std::io::{Read, Write};
 use std::time::Duration;
 
+#[path = "tests/archive_formats.rs"]
+mod archive_formats;
+#[path = "tests/native_python.rs"]
+mod native_python;
+#[path = "tests/native_cleanup.rs"]
+mod native_cleanup;
+
 fn bundle(entries: &[(&str, &[u8])]) -> Vec<u8> {
     let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
     let mut archive = tar::Builder::new(encoder);
@@ -29,6 +36,143 @@ fn source_named(bytes: &[u8], filename: &str, root: &Path) -> VerifiedArtifact {
         root,
     )
     .unwrap()
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn p6_source_session_checkpoints_reuse_verified_language_and_keep_guards() {
+    use crate::libraries::language::lease::full_inventory_checks;
+    use crate::libraries::language::repository::tests::{archive, install_spec, operation_context, prepare};
+    use std::os::unix::fs::MetadataExt;
+    let owner = tempfile::tempdir().unwrap();
+    let root = owner.path().canonicalize().unwrap();
+    let context = operation_context(&root, true, Duration::from_secs(30));
+    let runtime = archive("3.15.0");
+    let language = prepare(&install_spec(&runtime), &context, &runtime).await.unwrap();
+    let bytes = bundle(&[("demo-1.0/pyproject.toml", b"[build-system]\nrequires=[]\nbuild-backend='fixture'\n")]);
+    let scratch = root.join("builds"); std::fs::create_dir(&scratch).unwrap();
+    let deadline = context.policy().deadline;
+    // Only this synchronous phase is counted, after async fixture setup.
+    let before = full_inventory_checks();
+    let mut session = SourceBuildSession::prepare(source(&bytes, &root), "demo", "1.0",
+        language.clone(), &scratch, deadline, Default::default()).unwrap();
+    assert_eq!(full_inventory_checks(), before + 1, "a new source session still fully admits its real runtime");
+    for _ in 0..4 { session.checkpoint().unwrap(); }
+    assert_eq!(full_inventory_checks(), before + 1, "internal checkpoints must not rewalk the same held Python tree");
+
+    let manifest = context.requested_data_root().join("languages/.control/catalog")
+        .join(format!("{}.json", language.key().filename()));
+    let original = std::fs::read(&manifest).unwrap();
+    let inode = std::fs::metadata(&manifest).unwrap().ino();
+    let mut changed = original.clone(); changed.push(b' '); std::fs::write(&manifest, changed).unwrap();
+    assert_eq!(std::fs::metadata(&manifest).unwrap().ino(), inode);
+    assert!(session.checkpoint().is_err(), "same-inode manifest edits must remain visible to session guards");
+    std::fs::write(&manifest, original).unwrap();
+    assert_eq!(full_inventory_checks(), before + 1);
+
+    let member = language.root().join("lib/python3.15/stdlib-marker");
+    let original = std::fs::read(&member).unwrap();
+    std::fs::write(&member, b"changed").unwrap();
+    let before = full_inventory_checks();
+    assert!(SourceBuildSession::prepare(source(&bytes, &root), "demo", "1.0",
+        language.clone(), &scratch, deadline, Default::default()).is_err());
+    assert_eq!(full_inventory_checks(), before + 1, "fresh session admission must still hash and reject damaged runtime contents");
+    std::fs::write(&member, original).unwrap();
+
+    session.deadline = Instant::now() - Duration::from_secs(1);
+    assert!(session.checkpoint().unwrap_err().to_string().contains("source build deadline expired"));
+    session.deadline = deadline;
+    context.cancellation_token().cancel();
+    assert!(session.checkpoint().is_err(), "session checkpoint must retain original context cancellation");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn p6_completed_handoff_keeps_output_guards_and_one_shared_runtime_postwalk() {
+    use crate::libraries::language::lease::full_inventory_checks;
+    use crate::libraries::language::repository::tests::{archive, install_spec, operation_context, prepare};
+    use std::os::unix::fs::MetadataExt;
+
+    let owner = tempfile::tempdir().unwrap();
+    let root = owner.path().canonicalize().unwrap();
+    let context = operation_context(&root, true, Duration::from_secs(30));
+    let runtime = archive("3.15.0");
+    let language = prepare(&install_spec(&runtime), &context, &runtime).await.unwrap();
+    let bytes = bundle(&[("demo-1.0/pyproject.toml", b"[build-system]\nrequires=[]\nbuild-backend='fixture'\n")]);
+    let scratch = root.join("builds");
+    std::fs::create_dir(&scratch).unwrap();
+    let session = SourceBuildSession::prepare(source(&bytes, &root), "demo", "1.0",
+        language.clone(), &scratch, context.policy().deadline, Default::default()).unwrap();
+    let request = session.request_id(&[]).unwrap();
+    let (_, archive) = crate::libraries::package::layouts::tests::wheel(
+        &context, &language, "demo", [77; 32], Vec::new(), vec![("demo.py", b"VALUE=42\n")], None);
+    let record = SourceBuildRecord {
+        source_digest: session.source.digest().to_string(), request_id: request.fingerprint(),
+        recipe: 1, backend: "fixture".into(), inputs: Vec::new(),
+        output_filename: archive.filename().into(), output_digest: archive.digest().to_string(),
+        output_size: archive.size(), metadata_sha256: Sha256::digest(archive.manifest().core_metadata().raw()).into(),
+        observation: Some(SourceBuildObservation {
+            initial_requirements: Vec::new(), initial_inputs: Vec::new(), dynamic_requirements: Vec::new(),
+        }), native: None,
+    };
+    let mut completed = CompletedSourceBuild {
+        archive, record, source: session.source, language: language.clone(), request,
+        deadline: context.policy().deadline, target_fingerprint: observed_target_fingerprint(&language).unwrap(),
+        language_key: language.key().fingerprint(),
+    };
+    let before = full_inventory_checks();
+    completed.recheck_held_output().unwrap();
+    assert_eq!(full_inventory_checks(), before, "the private held check must not repeat a full runtime walk");
+    completed.recheck().unwrap();
+    assert_eq!(full_inventory_checks(), before + 1, "public completion recheck must remain full");
+
+    let deadline = completed.deadline;
+    completed.deadline = Instant::now() - Duration::from_secs(1);
+    assert!(completed.recheck_held_output().unwrap_err().to_string().contains("completion deadline expired"));
+    completed.deadline = deadline;
+    completed.target_fingerprint[0] ^= 1;
+    assert!(completed.recheck_held_output().unwrap_err().to_string().contains("target changed"));
+    completed.target_fingerprint[0] ^= 1;
+    let (_, other_archive) = crate::libraries::package::layouts::tests::wheel(
+        &context, &language, "demo", [78; 32], Vec::new(), vec![("demo.py", b"VALUE=43\n")], None);
+    assert_eq!(other_archive.filename(), completed.archive.filename());
+    let original_archive = std::mem::replace(&mut completed.archive, other_archive);
+    assert!(completed.recheck_held_output().unwrap_err().to_string().contains("actual owned output"));
+    completed.archive = original_archive;
+    let other_source = source(&bundle(&[("demo-1.0/changed.py", b"changed source")]), &root);
+    let original_source = std::mem::replace(&mut completed.source, other_source);
+    assert!(completed.recheck_held_output().unwrap_err().to_string().contains("actual owned output"));
+    completed.source = original_source;
+
+    let manifest = context.requested_data_root().join("languages/.control/catalog")
+        .join(format!("{}.json", language.key().filename()));
+    let original_manifest = std::fs::read(&manifest).unwrap();
+    let inode = std::fs::metadata(&manifest).unwrap().ino();
+    let mut changed = original_manifest.clone(); changed.push(b' ');
+    std::fs::write(&manifest, changed).unwrap();
+    assert_eq!(std::fs::metadata(&manifest).unwrap().ino(), inode);
+    let error = completed.recheck_held_output().unwrap_err();
+    assert!(error.chain().any(|cause| cause.to_string() == "language Ready manifest changed while leased"),
+        "wrong same-inode manifest refusal: {error:#}");
+    std::fs::write(&manifest, original_manifest).unwrap();
+
+    let expected = completed.record().clone();
+    let before = full_inventory_checks();
+    let (retained, duplicate) = completed.duplicate_for_attempt(
+        &scratch, context.policy().deadline, 1024 * 1024, 1024 * 1024).unwrap();
+    assert_eq!(full_inventory_checks(), before + 2,
+        "duplicate entry and final shared-runtime postcheck stay full, without a repeated original-post walk");
+    assert_eq!(retained.record(), &expected);
+    assert_eq!(duplicate.record(), &expected);
+    assert_eq!(retained.archive.digest(), duplicate.archive.digest());
+
+    let member = language.root().join("lib/python3.15/stdlib-marker");
+    let original_member = std::fs::read(&member).unwrap();
+    std::fs::write(&member, b"damaged runtime member").unwrap();
+    let error = duplicate.into_parts().err().expect("final output handoff must fully reject damaged runtime contents");
+    assert!(error.chain().any(|cause| cause.to_string().contains("inventory")), "wrong final handoff refusal: {error:#}");
+    std::fs::write(&member, original_member).unwrap();
+    let (archive, record) = retained.into_parts().unwrap();
+    assert_eq!(record, expected);
+    assert_eq!(archive.digest().to_string(), expected.output_digest);
 }
 
 #[test]

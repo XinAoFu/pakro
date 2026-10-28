@@ -36,6 +36,7 @@ pub(crate) struct RuntimeInstallPlan {
     language_minor: u32,
     implementation: PythonImplementation,
     implementation_version: String,
+    source_build: Option<crate::libraries::language::source::SourcePythonBuildInput>,
 }
 
 impl RuntimeInstallPlan {
@@ -49,6 +50,7 @@ impl RuntimeInstallPlan {
         };
         use crate::libraries::package::identity::ArtifactId;
         let (language, implementation, distribution, target) = self.shared_identity_inputs()?;
+        if let Some(input) = &self.source_build { return input.language_key(); }
         let limits = IdentityLimits::default();
         // Recipe 1 performs contained strip-one extraction, removes group/other
         // write bits from archive modes, and binds the contained entrypoint;
@@ -94,6 +96,9 @@ impl RuntimeInstallPlan {
             .expected_python_version
             .as_deref()
             .context("shared Python identity requires a complete language patch version")?;
+        if let Some(input) = &self.source_build {
+            return Ok((language, "cpython", "cpython-source".into(), input.target_identity));
+        }
         let implementation = match self.implementation {
             PythonImplementation::CPython => "cpython",
             PythonImplementation::PyPy => "pypy",
@@ -105,6 +110,7 @@ impl RuntimeInstallPlan {
                 format!("pbs-{build}")
             }
             RuntimeDistribution::PyPy => format!("pypy-{}", self.implementation_version),
+            RuntimeDistribution::CpythonSource => bail!("source CPython plan is missing its build inputs"),
         };
         let (os, libc) = match self.target.platform() {
             RuntimePlatform::Macos => ("macos", "none"),
@@ -172,8 +178,10 @@ impl RuntimeInstallPlan {
             implementation: match key.distribution {
                 RuntimeDistribution::Pbs => PythonImplementation::CPython,
                 RuntimeDistribution::PyPy => PythonImplementation::PyPy,
+                RuntimeDistribution::CpythonSource => PythonImplementation::CPython,
             },
             implementation_version: key.implementation_version.clone(),
+            source_build: None,
         }
     }
 
@@ -332,8 +340,20 @@ impl RuntimeInstallPlan {
             language_minor: minor,
             implementation,
             implementation_version,
+            source_build: None,
         })
     }
+
+    pub(crate) fn from_source(input: &crate::libraries::language::source::SourcePythonBuildInput) -> Result<Self> {
+        let (major, minor, _) = super::version_parts(&input.version)?;
+        Ok(Self { source: input.source.clone(), distribution: RuntimeDistribution::CpythonSource,
+            target: input.target.clone(), flavor: RuntimeFlavor::InstallOnly,
+            expected_python_version: Some(input.version.clone()), language_major: major, language_minor: minor,
+            implementation: PythonImplementation::CPython, implementation_version: input.version.clone(),
+            source_build: Some(input.clone()) })
+    }
+
+    pub(crate) fn source_build(&self) -> Option<&crate::libraries::language::source::SourcePythonBuildInput> { self.source_build.as_ref() }
 
     pub(crate) fn source(&self) -> &SourceArtifact {
         &self.source
@@ -349,6 +369,7 @@ impl RuntimeInstallPlan {
                     .1
             }
             RuntimeDistribution::PyPy => String::new(),
+            RuntimeDistribution::CpythonSource => self.expected_python_version.clone().context("source CPython version is missing")?,
         };
         super::validate_locator(self.source.filename(), locator, self.distribution, &build)
     }

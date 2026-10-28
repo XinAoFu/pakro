@@ -3,6 +3,29 @@ use crate::libraries::language::repository::tests::operation_context;
 use std::time::Duration;
 
 #[test]
+fn p6_source_recipe_query_facts_preserve_legacy_and_runtime_only_meanings() {
+    let (_, record, _) = crate::libraries::language::lease::pin_tests::source_facts();
+    let current = record.input().unwrap();
+    for (recipe, expected) in [
+        (1, "含CPython自身测试套件及测试扩展"),
+        (2, "不含CPython自身测试套件及测试扩展"),
+    ] {
+        let input = current.for_test_recipe(recipe).unwrap();
+        let before = input.record(record.output_sha256, record.runtime_target).unwrap();
+        let input = before.input().unwrap();
+        assert_eq!(
+            source_runtime_configuration(&input),
+            (recipe, expected.to_owned())
+        );
+        assert_eq!(
+            input.record(record.output_sha256, record.runtime_target).unwrap(),
+            before,
+            "querying recipe facts must not reinterpret or mutate the stored source result"
+        );
+    }
+}
+
+#[test]
 fn f4_query_is_readonly_and_corruption_is_not_empty() {
     let owner = tempfile::tempdir().unwrap();
     let root = owner.path().canonicalize().unwrap();
@@ -68,6 +91,12 @@ async fn f4_library_relations_survive_restart() {
     let rows = inventory(&context).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].instance, spec.key().filename());
+    assert!(rows[0].source_recipe.is_none() && rows[0].runtime_configuration.is_none());
+    let encoded = serde_json::to_value(&rows[0]).unwrap();
+    assert!(
+        encoded.get("source_recipe").is_none() && encoded.get("runtime_configuration").is_none(),
+        "prebuilt instances must not acquire source recipe facts"
+    );
     assert!(
         rows[0]
             .users

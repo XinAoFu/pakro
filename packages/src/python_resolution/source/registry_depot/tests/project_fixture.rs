@@ -1,11 +1,18 @@
 //! Test-only declaration-factory producer using the existing real HTTP/A assets.
 use super::*;
 
+#[path = "native_fixture.rs"]
+mod native_fixture;
+pub(crate) use native_fixture::NativeRegistryCase;
+
 pub(crate) struct ProjectRegistryFixture {
     fixture: Fixture,
     peer: Peer,
 }
 impl ProjectRegistryFixture {
+    pub(crate) fn native_assets(manifest: &std::path::Path, case: &str) -> (Self, NativeRegistryCase) {
+        native_fixture::load(manifest, case)
+    }
     pub(crate) fn wheels() -> Self {
         let demo = wheel("demo_pkg", "1.0", &["dep==1.0"], "");
         let dep = wheel("dep", "1.0", &[], "");
@@ -61,11 +68,45 @@ impl ProjectRegistryFixture {
     pub(crate) fn deterministic_source_dependency() -> (Self, Digest, Digest) {
         Self::source_dependency(true)
     }
+    pub(crate) fn nonce_source_with_optional_runtime_dep() -> (Self, Digest, Digest) {
+        Self::source_dependency_with_optional_runtime_dep(false, true, false)
+    }
+    pub(crate) fn zip_source_dependency(deterministic: bool) -> (Self, Digest, Digest) {
+        Self::source_dependency_with_optional_runtime_dep(deterministic, false, true)
+    }
     fn source_dependency(deterministic: bool) -> (Self, Digest, Digest) {
-        fn source(name: &str, requires: &str, backend: &str) -> Vec<u8> {
+        Self::source_dependency_with_optional_runtime_dep(deterministic, false, false)
+    }
+    fn source_dependency_with_optional_runtime_dep(
+        deterministic: bool,
+        optional: bool,
+        zip: bool,
+    ) -> (Self, Digest, Digest) {
+        fn source(name: &str, requires: &str, backend: &str, zip: bool) -> Vec<u8> {
             let project = format!(
                 "[build-system]\nrequires={requires}\nbuild-backend='backend'\nbackend-path=['.']\n"
             );
+            if zip {
+                let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
+                for (member, bytes) in [
+                    ("pyproject.toml", project.as_bytes()),
+                    ("backend.py", backend.as_bytes()),
+                ] {
+                    archive
+                        .start_file(
+                            format!("{name}-1.0/{member}"),
+                            zip::write::SimpleFileOptions::default()
+                                .compression_method(zip::CompressionMethod::Deflated)
+                                .last_modified_time(zip::DateTime::default())
+                                .unix_permissions(0o644),
+                        )
+                        .unwrap();
+                    archive.write_all(bytes).unwrap();
+                }
+                return archive.finish().unwrap().into_inner();
+            }
+            // Keep the original tar.gz producer byte-for-byte for the three
+            // existing fixture factories above.
             let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
             let mut archive = tar::Builder::new(encoder);
             for (member, bytes) in [
@@ -101,6 +142,17 @@ def _wheel(directory, name, value):
             archive.writestr(member, data)
     return filename
 "#;
+        let writer = if optional {
+            WRITER.replace(
+                r#"('VALUE=' + repr(value) + '\n').encode()"#,
+                r#"('VALUE=' + repr(value) + '\ndef main():\n    print(VALUE)\n').encode()"#,
+            ).replace(
+                r#"('Metadata-Version: 2.4\nName: ' + name + '\nVersion: 1.0\n').encode()"#,
+                r#"('Metadata-Version: 2.4\nName: ' + name + '\nVersion: 1.0\n' + ('Provides-Extra: feature\nRequires-Dist: helper==1.0; extra == \"feature\"\n' if name in ('demo_pkg', 'other_pkg') else '')).encode()"#,
+            ).replace("    rows = [path", "    if name in ('demo_pkg', 'other_pkg'):\n        members[info + '/entry_points.txt'] = ('[console_scripts]\\n' + name + '-src = ' + name + ':main\\n').encode()\n    rows = [path")
+        } else {
+            WRITER.to_owned()
+        };
         let value = if deterministic {
             "'fixed source input'"
         } else {
@@ -114,25 +166,30 @@ def _wheel(directory, name, value):
             ""
         };
         let counter_backend = format!(
-            "{WRITER}\ndef get_requires_for_build_wheel(config_settings=None): return []\ndef build_wheel(wheel_directory, config_settings=None, metadata_directory=None):\n{intermediate}    return _wheel(wheel_directory, 'counter_dep', {value})\n"
+            "{writer}\ndef get_requires_for_build_wheel(config_settings=None): return []\ndef build_wheel(wheel_directory, config_settings=None, metadata_directory=None):\n{intermediate}    return _wheel(wheel_directory, 'counter_dep', {value})\n"
         );
         let demo_backend = format!(
-            "{WRITER}\ndef get_requires_for_build_wheel(config_settings=None):\n    import counter_dep\n    pathlib.Path('observed-counter.txt').write_text(counter_dep.VALUE)\n    return ['helper==1.0']\ndef build_wheel(wheel_directory, config_settings=None, metadata_directory=None):\n    import counter_dep, helper\n    assert counter_dep.VALUE == pathlib.Path('observed-counter.txt').read_text(), 'dynamic solve rebuilt the observed source dependency'\n    assert helper.VALUE == 42\n    return _wheel(wheel_directory, 'demo_pkg', counter_dep.VALUE)\n"
+            "{writer}\ndef get_requires_for_build_wheel(config_settings=None):\n    import counter_dep\n    pathlib.Path('observed-counter.txt').write_text(counter_dep.VALUE)\n    return ['helper==1.0']\ndef build_wheel(wheel_directory, config_settings=None, metadata_directory=None):\n    import counter_dep, helper\n    assert counter_dep.VALUE == pathlib.Path('observed-counter.txt').read_text(), 'dynamic solve rebuilt the observed source dependency'\n    assert helper.VALUE == 42\n    return _wheel(wheel_directory, 'demo_pkg', counter_dep.VALUE)\n"
         );
-        let demo = source("demo_pkg", "['counter-dep==1.0']", &demo_backend);
+        let demo = source("demo_pkg", "['counter-dep==1.0']", &demo_backend, zip);
         let other = source(
             "other_pkg",
             "['counter-dep==1.0']",
             &demo_backend.replace("'demo_pkg'", "'other_pkg'"),
+            zip,
         );
-        let counter = source("counter_dep", "[]", &counter_backend);
+        let counter = source("counter_dep", "[]", &counter_backend, zip);
         let helper = wheel("helper", "1.0", &[], "");
         let counter_digest = Digest::from_sha256_bytes(&counter);
         let helper_digest = Digest::from_sha256_bytes(&helper);
-        let mut demo_file = wire_file("demo_pkg-1.0.tar.gz");
-        let mut counter_file = wire_file("counter_dep-1.0.tar.gz");
+        let suffix = if zip { "zip" } else { "tar.gz" };
+        let demo_filename = format!("demo_pkg-1.0.{suffix}");
+        let counter_filename = format!("counter_dep-1.0.{suffix}");
+        let other_filename = format!("other_pkg-1.0.{suffix}");
+        let mut demo_file = wire_file(&demo_filename);
+        let mut counter_file = wire_file(&counter_filename);
         let mut helper_file = wire_file("helper-1.0-py3-none-any.whl");
-        let mut other_file = wire_file("other_pkg-1.0.tar.gz");
+        let mut other_file = wire_file(&other_filename);
         for (file, bytes) in [
             (&mut demo_file, &demo),
             (&mut counter_file, &counter),
@@ -148,10 +205,12 @@ def _wheel(directory, name, value):
             "/simple/other-pkg/" if deterministic => {
                 Reply::page("other-pkg", vec![other_file.clone()])
             }
-            "/files/demo_pkg-1.0.tar.gz" => Reply::file(&demo),
-            "/files/counter_dep-1.0.tar.gz" => Reply::file(&counter),
+            value if value == format!("/files/{demo_filename}") => Reply::file(&demo),
+            value if value == format!("/files/{counter_filename}") => Reply::file(&counter),
             "/files/helper-1.0-py3-none-any.whl" => Reply::file(&helper),
-            "/files/other_pkg-1.0.tar.gz" if deterministic => Reply::file(&other),
+            value if deterministic && value == format!("/files/{other_filename}") => {
+                Reply::file(&other)
+            }
             _ => Reply::missing(),
         });
         (

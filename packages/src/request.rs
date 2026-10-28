@@ -2,6 +2,8 @@
 //! config table conversion, and bare-name classification.
 
 use indexmap::IndexMap;
+use serde::Deserialize;
+use std::collections::BTreeSet;
 use std::sync::OnceLock;
 
 pub static CLI_PACKAGE_ARGS: OnceLock<Vec<PackageInstallRequest>> = OnceLock::new();
@@ -42,9 +44,193 @@ pub struct PackageInstallRequest {
     pub runtime_version: String,
     pub name: String,
     pub version: String,
+    pub source: PackageSource,
+    pub extras: Vec<String>,
+    pub marker: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PackageSource {
+    #[default]
+    Pypi,
+    Conda,
+}
+
+/// The same declaration value is decoded by ordinary and static configuration
+/// readers. Neither reader may discard options by rebuilding a version map.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PackageDeclaration {
+    Version(String),
+    Detailed(PackageDeclarationOptions),
+}
+
+impl<'de> Deserialize<'de> for PackageDeclaration {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct DeclarationVisitor;
+        impl<'de> serde::de::Visitor<'de> for DeclarationVisitor {
+            type Value = PackageDeclaration;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter
+                    .write_str("an exact package version string or a package declaration table")
+            }
+
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                Ok(PackageDeclaration::Version(value.to_owned()))
+            }
+
+            fn visit_string<E: serde::de::Error>(self, value: String) -> Result<Self::Value, E> {
+                Ok(PackageDeclaration::Version(value))
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                map: A,
+            ) -> Result<Self::Value, A::Error> {
+                PackageDeclarationOptions::deserialize(
+                    serde::de::value::MapAccessDeserializer::new(map),
+                )
+                .map(PackageDeclaration::Detailed)
+            }
+        }
+        deserializer.deserialize_any(DeclarationVisitor)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PackageDeclarationOptions {
+    pub version: String,
+    #[serde(default)]
+    pub source: PackageSource,
+    #[serde(default)]
+    pub extras: Vec<String>,
+    pub marker: Option<String>,
+}
+
+impl From<String> for PackageDeclaration {
+    fn from(version: String) -> Self {
+        Self::Version(version)
+    }
+}
+
+pub type PackageConfigTable = IndexMap<String, IndexMap<String, PackageDeclaration>>;
+
 impl PackageInstallRequest {
+    pub fn pypi(
+        runtime_name: impl Into<String>,
+        runtime_version: impl Into<String>,
+        name: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        Self {
+            runtime_name: runtime_name.into(),
+            runtime_version: runtime_version.into(),
+            name: name.into(),
+            version: version.into(),
+            source: PackageSource::Pypi,
+            extras: Vec::new(),
+            marker: None,
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        use pakro_index::python_markers::{
+            PythonMarkerField, PythonMarkerLimits, PythonMarkerOperand, parse_python_marker,
+        };
+        use pakro_index::python_source::NormalizedPythonName;
+        if self.runtime_name.is_empty() || self.runtime_version.is_empty() {
+            return Err("package declarations require an explicit runtime binding".into());
+        }
+        if self.source == PackageSource::Conda {
+            return Err("Conda package installation is not supported yet".into());
+        }
+        if self.name.len() > 4096 || self.version.len() > 4096 {
+            return Err("package declaration exceeds its text limit".into());
+        }
+        NormalizedPythonName::new(&self.name)
+            .map_err(|error| format!("invalid package name {:?}: {error}", self.name))?;
+        if self.version.is_empty()
+            || self.version.trim() != self.version
+            || self.version.parse::<pep440_rs::Version>().is_err()
+        {
+            return Err(format!(
+                "package {} requires a complete exact version, not a range or selector",
+                self.name
+            ));
+        }
+        if self.extras.len() > 256 {
+            return Err("package extras exceed the declaration limit".into());
+        }
+        let mut extras = BTreeSet::new();
+        for extra in &self.extras {
+            if extra.len() > 4096 {
+                return Err("package extra exceeds its text limit".into());
+            }
+            let normalized = NormalizedPythonName::new(extra)
+                .map_err(|error| format!("invalid package extra {extra:?}: {error}"))?;
+            if !extras.insert(normalized.as_str().to_owned()) {
+                return Err(format!("duplicate normalized package extra {extra:?}"));
+            }
+        }
+        if let Some(marker) = &self.marker {
+            let expression = parse_python_marker(marker, PythonMarkerLimits::default())
+                .map_err(|error| format!("invalid package marker: {error}"))?;
+            if expression.comparisons().any(|comparison| {
+                [comparison.left(), comparison.right()]
+                    .iter()
+                    .any(|operand| {
+                        matches!(
+                            operand,
+                            PythonMarkerOperand::Field(
+                                PythonMarkerField::Extra
+                                    | PythonMarkerField::Extras
+                                    | PythonMarkerField::DependencyGroups
+                            )
+                        )
+                    })
+            }) {
+                return Err(
+                    "project package markers cannot reference extra, extras or dependency_groups"
+                        .into(),
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// A complete requirement; evaluation belongs to the actual interpreter
+    /// target, never to configuration parsing or host defaults.
+    pub fn requirement(&self) -> Result<String, String> {
+        use pakro_index::python_source::NormalizedPythonName;
+        self.validate()?;
+        let name = NormalizedPythonName::new(&self.name).map_err(|error| error.to_string())?;
+        let mut extras = self
+            .extras
+            .iter()
+            .map(|extra| {
+                NormalizedPythonName::new(extra)
+                    .map(|name| name.as_str().to_owned())
+                    .map_err(|error| error.to_string())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        extras.sort();
+        let mut requirement = name.as_str().to_owned();
+        if !extras.is_empty() {
+            requirement.push('[');
+            requirement.push_str(&extras.join(","));
+            requirement.push(']');
+        }
+        requirement.push_str("==");
+        requirement.push_str(&self.version);
+        if let Some(marker) = &self.marker {
+            requirement.push_str("; ");
+            requirement.push_str(marker);
+        }
+        Ok(requirement)
+    }
+
     /// The `[packages]` group key this request belongs to.
     pub fn group_key(&self) -> String {
         format!("{}@{}", self.runtime_name, self.runtime_version)
@@ -126,45 +312,64 @@ pub fn requests_from_bound(
     let tool_version = tool_version.ok_or_else(|| {
         format!("runtime {tool:?} needs an exact version to bind packages, like {tool}@3.10.14")
     })?;
-    Ok(packages
+    packages
         .iter()
-        .map(|(name, version)| PackageInstallRequest {
-            runtime_name: tool.to_string(),
-            runtime_version: tool_version.to_string(),
-            name: name.clone(),
-            version: version.clone(),
+        .map(|(name, version)| {
+            let request = PackageInstallRequest::pypi(tool, tool_version, name, version);
+            request.validate()?;
+            Ok(request)
         })
-        .collect())
+        .collect()
 }
 
 /// Turns the `[packages]` config table into requests. Group keys must be
 /// `name@version` runtime identities and every pinned version non-empty —
 /// the strict-version rule (ADR-0004) enforced at the boundary.
 pub fn requests_from_config(
-    table: &IndexMap<String, IndexMap<String, String>>,
+    table: &PackageConfigTable,
 ) -> Result<Vec<PackageInstallRequest>, String> {
     let mut out = vec![];
     for (group, packages) in table {
-        // exact keys (python@3.10.14) or prefix keys (python@3.10) are both
-        // accepted; the resolver pins the concrete version in the lockfile
         let (runtime_name, runtime_version) = group
             .split_once('@')
             .filter(|(name, version)| !name.is_empty() && !version.is_empty())
             .ok_or_else(|| {
-                format!("[packages] group key {group:?} must name a runtime like \"python@3.10\"")
+                format!(
+                    "[packages] group key {group:?} must name a runtime like \"python@3.10.14\""
+                )
             })?;
-        for (name, version) in packages {
-            if name.is_empty() || version.is_empty() {
+        let mut names = BTreeSet::new();
+        for (name, declaration) in packages {
+            let mut request = match declaration {
+                PackageDeclaration::Version(version) => {
+                    PackageInstallRequest::pypi(runtime_name, runtime_version, name, version)
+                }
+                PackageDeclaration::Detailed(options) => PackageInstallRequest {
+                    runtime_name: runtime_name.to_owned(),
+                    runtime_version: runtime_version.to_owned(),
+                    name: name.clone(),
+                    version: options.version.clone(),
+                    source: options.source,
+                    extras: options.extras.clone(),
+                    marker: options.marker.clone(),
+                },
+            };
+            request.validate()?;
+            let normalized = pakro_index::python_source::NormalizedPythonName::new(name)
+                .map_err(|error| error.to_string())?;
+            if !names.insert(normalized.as_str().to_owned()) {
                 return Err(format!(
-                    "[packages.{group}] entry {name:?} must pin an exact version"
+                    "conflicting normalized package name {name:?} in [packages.{group}]"
                 ));
             }
-            out.push(PackageInstallRequest {
-                runtime_name: runtime_name.to_string(),
-                runtime_version: runtime_version.to_string(),
-                name: name.clone(),
-                version: version.clone(),
-            });
+            for extra in &mut request.extras {
+                *extra = pakro_index::python_source::NormalizedPythonName::new(extra)
+                    .map_err(|error| error.to_string())?
+                    .as_str()
+                    .to_owned();
+            }
+            request.extras.sort();
+            out.push(request);
         }
     }
     Ok(out)
@@ -216,16 +421,16 @@ pub fn split_bare_packages(
         match select_bare_package_runtime(runtimes) {
             Err(BarePackageBindingError::MissingRuntime) => {
                 return Err(format!(
-                    "{:?} looks like a package but no package-capable runtime (python/node) is declared; run e.g. `pakro use python@3.10.14` first",
+                    "{:?} looks like a package but no package-capable runtime (python/node) is declared; declare an exact Python version in pakro.toml first",
                     tool.ba.short
                 ));
             }
-            Ok((name, version)) => pins.push(PackageInstallRequest {
-                runtime_name: name.clone(),
-                runtime_version: version.clone(),
-                name: tool.ba.short.clone(),
-                version: request.version().to_string(),
-            }),
+            Ok((name, version)) => {
+                let pin =
+                    PackageInstallRequest::pypi(name, version, &tool.ba.short, request.version());
+                pin.validate()?;
+                pins.push(pin);
+            }
             Err(BarePackageBindingError::AmbiguousRuntime { .. }) => {
                 let many = runtimes;
                 return Err(format!(
@@ -367,8 +572,14 @@ mod tests {
     #[test]
     fn config_table_becomes_requests() {
         let mut group = IndexMap::new();
-        group.insert("numpy".to_string(), "4.2.2".to_string());
-        group.insert("beautifulsoup4".to_string(), "4.13.3".to_string());
+        group.insert(
+            "numpy".to_string(),
+            PackageDeclaration::Version("4.2.2".into()),
+        );
+        group.insert(
+            "beautifulsoup4".to_string(),
+            PackageDeclaration::Version("4.13.3".into()),
+        );
         let mut table = IndexMap::new();
         table.insert("python@3.10.14".to_string(), group.clone());
         let reqs = requests_from_config(&table).unwrap();
@@ -381,5 +592,83 @@ mod tests {
         let mut bad = IndexMap::new();
         bad.insert("python".to_string(), group);
         assert!(requests_from_config(&bad).is_err());
+    }
+
+    fn config_requests(raw: &str) -> Result<Vec<PackageInstallRequest>, String> {
+        let table: PackageConfigTable = toml::from_str(raw).map_err(|error| error.to_string())?;
+        requests_from_config(&table)
+    }
+
+    #[test]
+    fn p3_string_and_table_declarations_share_validation_and_keep_options() {
+        let plain = config_requests("['python@3.13.16']\ndemo='1.0'\n").unwrap();
+        let detailed =
+            config_requests("['python@3.13.16']\ndemo={version='1.0',source='pypi'}\n").unwrap();
+        assert_eq!(plain, detailed);
+        let options = config_requests("['python@3.13.16']\nDemo_Pkg={version='1.0',extras=['Foo_Bar','baz'],marker=\"python_version >= '3.13'\"}\n").unwrap();
+        assert_eq!(options[0].source, PackageSource::Pypi);
+        assert_eq!(options[0].extras, ["baz", "foo-bar"]);
+        assert_eq!(
+            options[0].requirement().unwrap(),
+            "demo-pkg[baz,foo-bar]==1.0; python_version >= '3.13'"
+        );
+        let parsed = pakro_index::python_requirements::parse_python_requirement(
+            &options[0].requirement().unwrap(),
+            Default::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            parsed.requested_extras().collect::<Vec<_>>(),
+            ["baz", "foo-bar"]
+        );
+        assert!(parsed.marker().is_some());
+    }
+
+    #[test]
+    fn p3_invalid_declarations_never_become_empty_or_another_source() {
+        for value in [
+            "''",
+            "'>=1.0'",
+            "'latest'",
+            "'1.*'",
+            "' 1.0'",
+            "{version='1.0',unknown=true}",
+            "{version='1.0',source='private'}",
+            "{version='1.0',source='conda'}",
+            "{version='1.0',channel='conda-forge'}",
+            "{version='1.0',build='py_0'}",
+            "{extras=['feature']}",
+            "{version='1.0',extras=['feature','Feature']}",
+            "{version='1.0',marker='unknown_field == 1'}",
+            "{version='1.0',marker=\"extra == 'feature'\"}",
+            "{version='1.0',marker=\"'feature' in dependency_groups\"}",
+        ] {
+            assert!(
+                config_requests(&format!("['python@3.13.16']\ndemo={value}\n")).is_err(),
+                "accepted {value}"
+            );
+        }
+        let error = config_requests("['python@3.13.16']\ndemo={version='1.0',source='conda'}\n")
+            .unwrap_err();
+        assert!(error.contains("Conda package installation is not supported"));
+        assert!(config_requests("['python@3.13.16']\nDemo_Pkg='1.0'\ndemo-pkg='1.0'\n").is_err());
+    }
+
+    #[test]
+    fn p3_cli_string_requests_are_explicit_pypi_defaults_and_still_exact() {
+        let request =
+            requests_from_bound("python", Some("3.13.16"), &[("demo".into(), "1.0".into())])
+                .unwrap();
+        assert_eq!(request[0].source, PackageSource::Pypi);
+        assert!(request[0].extras.is_empty());
+        assert!(request[0].marker.is_none());
+        assert!(
+            requests_from_bound(
+                "python",
+                Some("3.13.16"),
+                &[("demo".into(), ">=1.0".into())]
+            )
+            .is_err()
+        );
     }
 }

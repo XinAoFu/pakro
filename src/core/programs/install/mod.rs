@@ -11,6 +11,10 @@ pub(crate) mod lock_document;
 #[cfg(unix)]
 pub(crate) mod resolve;
 #[cfg(unix)]
+pub(crate) mod reuse;
+#[cfg(unix)]
 pub(crate) mod runtime;
 #[cfg(unix)]
 pub(crate) mod selection;
+#[cfg(unix)]
+pub(crate) mod update;

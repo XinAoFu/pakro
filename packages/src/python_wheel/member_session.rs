@@ -131,6 +131,42 @@ impl<R: Read + Seek> fmt::Debug for WheelDirectoryReceipt<R> {
 }
 
 impl WheelDirectoryReceipt<crate::artifact_snapshot::VerifiedArtifact> {
+    /// Preserve the exact original ZIP bytes in the existing artifact cache.
+    /// The raw owner remains confined here and is re-inspected before return.
+    pub(crate) fn publish_inspected_wheel(
+        self,
+        expected: &super::WheelExpectation<'_>,
+        limits: super::WheelLimits,
+        cache_root: &std::path::Path,
+        deadline: std::time::Instant,
+        max_archive_bytes: u64,
+    ) -> Result<crate::packages::python_wheel_source::InspectedWheelArchive> {
+        self.usage.check(limits)?;
+        ensure!(
+            std::time::Instant::now() < deadline,
+            "wheel output cache deadline expired"
+        );
+        let mut original = self.archive.into_inner().into_input();
+        let digest = original.digest();
+        crate::artifact_snapshot::publish_verified_artifact(
+            &mut original,
+            cache_root,
+            max_archive_bytes,
+        )?;
+        ensure!(
+            std::time::Instant::now() < deadline,
+            "wheel output cache deadline expired"
+        );
+        let archive = crate::packages::python_wheel_source::inspect_owned_wheel(
+            original, digest, expected, limits,
+        )?;
+        ensure!(
+            std::time::Instant::now() < deadline,
+            "wheel output cache deadline expired"
+        );
+        Ok(archive)
+    }
+
     /// Keep the raw source confined to the wheel implementation: both results
     /// are re-inspected owners, never mutable paths or an unchecked reader.
     pub(crate) fn duplicate_inspected_wheel(

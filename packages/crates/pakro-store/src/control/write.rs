@@ -1,5 +1,11 @@
 use super::*;
 
+#[cfg(test)]
+thread_local! {
+    pub(super) static BEFORE_REPLACE_SECOND_CAS: RefCell<Option<Box<dyn FnOnce() -> Result<()>>>> =
+        const { RefCell::new(None) };
+}
+
 #[derive(Debug)]
 pub struct StoreWriter {
     anchor: Anchor,
@@ -7,6 +13,44 @@ pub struct StoreWriter {
     initialized_here: bool,
 }
 impl StoreWriter {
+    /// Nonblocking maintenance gate over the anchored immutable marker.
+    /// It writes no marker bytes and grants no reference/model authority.
+    /// The catalog uses a different stable inode.
+    pub fn try_maintenance_exclusive(&self) -> Result<Option<ObjectLease>> {
+        self.check_binding()?;
+        let expected = FileIdentity::of(&self.anchor.marker)?;
+        let lock = StableLock::open_existing(
+            &self.anchor.control,
+            MARKER_NAME,
+            self.anchor.uid,
+            expected,
+        )?;
+        // try_acquire independently reopens the original inode for every
+        // request, so separate requests never share one flock description.
+        let held = lock.try_acquire(LeaseMode::Exclusive, self.deadline)?;
+        self.check_binding()?;
+        if let Some(held) = &held {
+            held.check_binding()?;
+        }
+        Ok(held)
+    }
+    /// Open an already initialized controlled store without creating or
+    /// repairing any directory, marker, namespace or lock.
+    pub fn open_existing(
+        root: &Path,
+        uid: u32,
+        limits: RootLimits,
+        deadline: Instant,
+    ) -> Result<Self> {
+        let path = authorized_root(root, uid, limits, deadline)?;
+        let directory = open_trusted_store_with_deadline(&path, uid, false, deadline)?;
+        let anchor = existing_anchor(path, directory, uid, deadline)?;
+        Ok(Self {
+            anchor,
+            deadline,
+            initialized_here: false,
+        })
+    }
     /// Initialize only an empty authorized root. Existing state is never repaired
     /// by silently recreating a missing protection object.
     pub fn open_writer(
@@ -183,7 +227,7 @@ impl WriterControl<'_> {
         );
         self.ensure_catalog()?;
         if let Some(snapshot) = expected {
-            self.validate_snapshot(namespace, name, snapshot)?;
+            self.read.validate_snapshot_for_replace(namespace, name, snapshot)?;
         }
         let parent = &self.read.anchor.namespaces[namespace.index()];
         let temporary_name = format!(".tmp-{}", uuid::Uuid::now_v7().simple());
@@ -205,6 +249,10 @@ impl WriterControl<'_> {
                 "environment control metadata write size mismatch"
             );
             ensure_entry_identity(parent, temporary_name.as_str(), identity)?;
+            #[cfg(test)]
+            if let Some(hook) = BEFORE_REPLACE_SECOND_CAS.with(|value| value.borrow_mut().take()) {
+                hook()?;
+            }
             self.ensure_catalog()?;
             if expected.is_none() {
                 rename_noclobber(
@@ -214,7 +262,7 @@ impl WriterControl<'_> {
                     std::ffi::OsStr::new(name),
                 )?;
             } else {
-                self.validate_snapshot(namespace, name, expected.expect("checked Some branch"))?;
+                self.read.validate_snapshot_for_replace(namespace, name, expected.expect("checked Some branch"))?;
                 nix::fcntl::renameat(parent, temporary_name.as_str(), parent, name)?;
             }
             parent.sync_all()?;
@@ -268,6 +316,17 @@ impl WriterControl<'_> {
     }
 
     pub fn remove(&mut self, expected: &ControlSnapshot) -> Result<()> {
+        self.remove_with_before_sync(expected, || Ok(()))
+    }
+
+    /// The target remains the same validated snapshot. The hook can only
+    /// interrupt the syscall-to-durability boundary; it receives no IO rights.
+    #[doc(hidden)]
+    pub fn remove_with_before_sync(
+        &mut self,
+        expected: &ControlSnapshot,
+        before_sync: impl FnOnce() -> Result<()>,
+    ) -> Result<()> {
         self.validate_snapshot(expected.namespace, &expected.name, expected)?;
         let parent = &self.read.anchor.namespaces[expected.namespace.index()];
         nix::unistd::unlinkat(
@@ -275,8 +334,16 @@ impl WriterControl<'_> {
             expected.name.as_str(),
             nix::unistd::UnlinkatFlags::NoRemoveDir,
         )?;
+        before_sync()?;
         parent.sync_all()?;
         self.ensure_catalog()?;
         Ok(())
+    }
+    /// Make an already observed metadata namespace durable, including when a
+    /// recorded removal happened before interruption and its leaf is absent.
+    pub fn sync_namespace(&self, namespace: ControlNamespace) -> Result<()> {
+        self.ensure_catalog()?;
+        self.read.anchor.namespaces[namespace.index()].sync_all()?;
+        self.check_binding()
     }
 }

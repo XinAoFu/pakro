@@ -10,6 +10,10 @@ use uuid::Uuid;
 mod codec;
 pub(crate) use codec::CatalogCodecLimits;
 
+#[path = "model/native_build.rs"]
+mod native_build;
+pub(crate) use native_build::{MAX_NATIVE_JSON_BYTES, NativeProgramRecord, NativeSdkRecord, NativeToolchainRecord};
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ModelLimits {
     pub max_generation_records: usize,
@@ -198,6 +202,8 @@ pub(crate) struct SourceBuildRecord {
     pub metadata_sha256: [u8; 32],
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observation: Option<SourceBuildObservation>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "native_build::optional_json")]
+    pub native: Option<NativeToolchainRecord>,
 }
 #[path = "model/source_build.rs"]
 mod source_build;
@@ -658,6 +664,19 @@ impl CatalogModel {
     }
     pub(crate) fn registered_projects(&self) -> impl Iterator<Item = (Uuid, &ProjectRegistration)> {
         self.projects.iter().map(|(project, fact)| (*project, fact))
+    }
+    /// Removes only the registration. Cleared stamps and their complete nonce
+    /// histories remain to reject preparations predating the explicit forget.
+    pub(crate) fn unregister_project(&mut self, project: Uuid) -> Result<bool> {
+        ensure!(!project.is_nil(), "catalog project identity is nil");
+        ensure!(
+            !self.selections.iter().any(|(key, stamp)| {
+                key.project() == project
+                    && (stamp.generation().is_some() || stamp.language().is_some())
+            }),
+            "cannot forget a project registration with active selections"
+        );
+        Ok(self.projects.remove(&project).is_some())
     }
     pub(crate) fn limits(&self) -> ModelLimits {
         self.limits

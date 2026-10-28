@@ -112,8 +112,8 @@ pub(crate) enum StaticConfigError {
     InvalidUtf8,
     #[error("configuration document is invalid")]
     InvalidDocument,
-    #[error("configuration package declarations are invalid")]
-    InvalidPackages,
+    #[error("configuration package declarations are invalid: {0}")]
+    InvalidPackages(String),
     #[error("configuration format has no static declaration parser")]
     UnsupportedFormat,
     #[error("config include contains an unsupported declaration")]
@@ -177,6 +177,38 @@ pub(crate) fn validate_static_include(bytes: &[u8]) -> Result<(), StaticConfigEr
 #[cfg(test)]
 mod r03_static_tests {
     use super::*;
+
+    #[test]
+    fn p3_static_and_ordinary_readers_preserve_identical_complete_package_requests() {
+        let raw = r#"[tools]
+python = '3.13.16'
+[packages.'python@3.13.16']
+Demo_Pkg = {version='1.0',source='pypi',extras=['feature'],marker="python_version >= '3.13'"}
+"#;
+        let path = Path::new("/project/pakro.toml");
+        let ordinary = PakroToml::from_str(raw, path).unwrap();
+        let actual = ordinary.checked_package_requests().unwrap();
+        let declarations = parse_static_config(raw.as_bytes(), path).unwrap();
+        assert_eq!(actual, declarations.packages);
+        assert_eq!(actual[0].extras, ["feature"]);
+        assert_eq!(
+            actual[0].marker.as_deref(),
+            Some("python_version >= '3.13'")
+        );
+        for value in [
+            "{version='1.0',unknown=true}",
+            "{version='1.0',source='conda'}",
+            "{version='1.0',extras=['feature','Feature']}",
+            "{version='>=1.0'}",
+        ] {
+            let raw = format!("[packages.'python@3.13.16']\ndemo={value}\n");
+            assert!(PakroToml::from_str(&raw, path).is_err());
+            assert!(matches!(
+                parse_static_config(raw.as_bytes(), path),
+                Err(StaticConfigError::InvalidPackages(_))
+            ));
+        }
+    }
 
     #[test]
     fn r03_static_minimum_version_hard_and_malformed_constraints_are_rejected() {
@@ -452,20 +484,6 @@ pub trait ConfigFile: Debug + Send + Sync {
     }
     fn to_tool_request_set(&self) -> eyre::Result<ToolRequestSet>;
 
-    /// Native package requests declared by this file. Config formats without
-    /// a `[packages]` table keep the empty default.
-    fn to_package_requests(&self) -> Vec<crate::packages::PackageInstallRequest> {
-        Vec::new()
-    }
-
-    /// Persists package pins into this file's `[packages]` table. Config
-    /// formats without such a table reject the write when pins are present.
-    fn add_packages(
-        &self,
-        _requests: &[crate::packages::PackageInstallRequest],
-    ) -> eyre::Result<()> {
-        Ok(())
-    }
     fn aliases(&self) -> eyre::Result<AliasMap> {
         Ok(Default::default())
     }

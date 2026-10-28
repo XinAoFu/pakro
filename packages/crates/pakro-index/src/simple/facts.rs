@@ -460,7 +460,10 @@ fn distribution(
         let version = wheel.version.clone();
         return Ok((PythonDistributionKind::Wheel(wheel), Some(version)));
     }
-    if let Some(stem) = filename.strip_suffix(".tar.gz") {
+    if let Some(stem) = filename
+        .strip_suffix(".tar.gz")
+        .or_else(|| filename.strip_suffix(".zip"))
+    {
         // A known project's historical unescaped name can contain hyphens
         // (for example antlr4-python3-runtime). The last separator is accepted
         // only when its complete left side normalizes to this exact project
@@ -489,7 +492,7 @@ fn distribution(
         }
         return Ok((PythonDistributionKind::HistoricalFormat, None));
     }
-    if [".zip", ".tar.bz2", ".tar.xz", ".tar.zst", ".tgz", ".tar"]
+    if [".tar.bz2", ".tar.xz", ".tar.zst", ".tgz", ".tar"]
         .iter()
         .any(|suffix| filename.ends_with(suffix))
     {

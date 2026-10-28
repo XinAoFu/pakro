@@ -448,12 +448,10 @@ pub struct PakroToml {
     /// Configuration for monorepo and workspace discovery
     #[serde(default)]
     monorepo: Option<MonorepoConfig>,
-    /// Exact-pinned packages grouped by runtime identity:
-    /// `[packages."python@3.10.14"]` with `numpy = "4.2.2"`. Serialized only
-    /// when non-empty so config rewrites neither drop nor pad it. Guarded
-    /// like `tools` because config files hand out `&self`.
+    /// Complete package declarations grouped by runtime identity. String pins
+    /// and strict option tables share the ordinary and static readers.
     #[serde(default)]
-    pub(crate) packages: std::sync::Mutex<IndexMap<String, IndexMap<String, String>>>,
+    pub(crate) packages: std::sync::Mutex<crate::packages::request::PackageConfigTable>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -643,9 +641,9 @@ impl PakroToml {
             .get("packages")
             .map(|value| {
                 let packages =
-                    IndexMap::<String, IndexMap<String, String>>::deserialize(value.clone())
-                        .map_err(|_| Error::InvalidPackages)?;
-                crate::packages::requests_from_config(&packages).map_err(|_| Error::InvalidPackages)
+                    crate::packages::request::PackageConfigTable::deserialize(value.clone())
+                        .map_err(|error| Error::InvalidPackages(error.to_string()))?;
+                crate::packages::requests_from_config(&packages).map_err(Error::InvalidPackages)
             })
             .transpose()?
             .unwrap_or_default();
@@ -771,6 +769,8 @@ impl PakroToml {
                 return Err(toml_parse_error(&err, body, path));
             }
         };
+        rf.checked_package_requests()
+            .map_err(|error| eyre!(error))?;
         if let Some(legacy_monorepo_root) = rf.experimental_monorepo_root.take() {
             deprecated_at!(
                 "2026.7.7",
@@ -1216,53 +1216,6 @@ impl PakroToml {
 }
 
 impl ConfigFile for PakroToml {
-    fn add_packages(
-        &self,
-        requests: &[crate::packages::PackageInstallRequest],
-    ) -> eyre::Result<()> {
-        use toml_edit::{Item, Table};
-        {
-            let mut packages = self.packages.lock().unwrap();
-            for request in requests {
-                packages
-                    .entry(request.group_key())
-                    .or_default()
-                    .insert(request.name.clone(), request.version.clone());
-            }
-        }
-        // the file is saved from the toml_edit document, so mirror the
-        // change there; groups become `[packages."python@3.10.14"]` tables
-        let mut doc = self.doc_mut()?;
-        let doc = doc.get_mut().expect("doc_mut initializes the document");
-        let root = doc.as_table_mut();
-        let packages = root
-            .entry("packages")
-            .or_insert(Item::Table({
-                let mut t = Table::new();
-                t.set_implicit(true);
-                t
-            }))
-            .as_table_mut()
-            .expect("packages is a table");
-        for request in requests {
-            let group = packages
-                .entry(&request.group_key())
-                .or_insert(Item::Table(Table::new()))
-                .as_table_mut()
-                .expect("group is a table");
-            group.insert(&request.name, Item::Value(request.version.clone().into()));
-        }
-        Ok(())
-    }
-
-    fn to_package_requests(&self) -> Vec<crate::packages::PackageInstallRequest> {
-        let packages = self.packages.lock().unwrap();
-        crate::packages::requests_from_config(&packages).unwrap_or_else(|err| {
-            warn!("[packages] in {} is ignored: {err}", self.path.display());
-            Vec::new()
-        })
-    }
-
     fn get_path(&self) -> &Path {
         self.path.as_path()
     }

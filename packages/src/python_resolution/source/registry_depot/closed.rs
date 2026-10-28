@@ -117,18 +117,33 @@ pub(super) fn close_with_finish<'root>(
             || !same_version(file.version(), &selected.version)
             || owner.facts().name().as_str() != selected.name
             || !same_version(owner.facts().version(), &selected.version)
-            || owner.manifest().name() != selected.name
-            || !same_version(owner.manifest().version(), &selected.version)
         {
             return Err(RegistryClosureError::IdentityMismatch);
         }
-        if !owner
-            .manifest()
-            .tags()
-            .iter()
-            .any(|tag| prepared.supported().ordered().contains(tag))
-        {
-            return Err(RegistryClosureError::TargetMismatch);
+        if let Some(manifest) = owner.manifest() {
+            if manifest.name() != selected.name
+                || !same_version(manifest.version(), &selected.version)
+            {
+                return Err(RegistryClosureError::IdentityMismatch);
+            }
+            if !manifest
+                .tags()
+                .iter()
+                .any(|tag| prepared.supported().ordered().contains(tag))
+            {
+                return Err(RegistryClosureError::TargetMismatch);
+            }
+        } else {
+            let wheel = pakro_index::parse_wheel_filename(owner.output_filename())
+                .ok_or(RegistryClosureError::IdentityMismatch)?;
+            if prepared
+                .supported()
+                .best_rank(&wheel.tags)
+                .map_err(|_| RegistryClosureError::TargetMismatch)?
+                .is_none()
+            {
+                return Err(RegistryClosureError::TargetMismatch);
+            }
         }
         current_deadline(&prepared)?;
         observations.push(GraphNodeObservation {
@@ -189,6 +204,7 @@ enum RetainedRegistryOwner<'root> {
     Fresh(RetainedFreshWheel<'root>),
     Locked(RetainedLockedWheel<'root>),
     Built(RetainedBuiltRegistryWheel<'root>),
+    Published(PublishedRegistryWheel<'root>),
 }
 impl RetainedRegistryOwner<'_> {
     fn pin(&self) -> &ContentPin {
@@ -196,6 +212,7 @@ impl RetainedRegistryOwner<'_> {
             Self::Fresh(owner) => owner.pin(),
             Self::Locked(owner) => owner.pin(),
             Self::Built(owner) => owner.pin(),
+            Self::Published(owner) => owner.pin(),
         }
     }
     fn recheck_for(&self, root: &BoundPythonLock) -> Result<(), ResolvedBuildError> {
@@ -209,23 +226,29 @@ impl RetainedRegistryOwner<'_> {
             Self::Built(owner) => owner
                 .recheck_for(root)
                 .map_err(|_| ResolvedBuildError::Revoked),
+            Self::Published(owner) => owner
+                .recheck_for(root)
+                .map_err(|_| ResolvedBuildError::Revoked),
         }
     }
     fn output_filename(&self) -> &str {
         match self {
             Self::Built(owner) => &owner.record().output_filename,
+            Self::Published(owner) => &owner.record().output_filename,
             _ => self.pin().file().filename(),
         }
     }
     fn output_digest(&self) -> Digest {
         match self {
             Self::Built(owner) => owner.output_digest(),
+            Self::Published(owner) => owner.output_digest(),
             _ => self.pin().digest(),
         }
     }
     fn output_size(&self) -> u64 {
         match self {
             Self::Built(owner) => owner.record().output_size,
+            Self::Published(owner) => owner.record().output_size,
             _ => self.pin().size(),
         }
     }
@@ -309,6 +332,20 @@ impl RetainedGraphEvidence<'_> {
     }
 }
 impl<'root> ClosedRegistryGraph<'root> {
+    /// A Ready tree retains its actual lease and original artifact identity;
+    /// it is not re-encoded as a ZIP archive.
+    pub(crate) fn into_shared_package_sources(
+        self,
+    ) -> Result<
+        (
+            Vec<SharedRegistryPackageSource>,
+            RetainedGraphEvidence<'root>,
+        ),
+        ResolvedBuildError,
+    > {
+        self.into_mixed_sources()
+    }
+
     /// Transfers inspected wheel owners to the shared package publisher while
     /// retaining every lock/source binding for checks through catalog commit.
     /// This is the same source-consumption kernel used by resolved builds; it
@@ -318,6 +355,27 @@ impl<'root> ClosedRegistryGraph<'root> {
     ) -> Result<
         (
             Vec<crate::packages::python_wheel_source::InspectedWheelArchive>,
+            RetainedGraphEvidence<'root>,
+        ),
+        ResolvedBuildError,
+    > {
+        let (sources, evidence) = self.into_mixed_sources()?;
+        let mut archives = Vec::new();
+        for source in sources {
+            match source {
+                SharedRegistryPackageSource::Archive(archive) => archives.push(archive),
+                SharedRegistryPackageSource::Existing(_) => {
+                    return Err(ResolvedBuildError::SourceReceipt);
+                }
+            }
+        }
+        Ok((archives, evidence))
+    }
+    fn into_mixed_sources(
+        self,
+    ) -> Result<
+        (
+            Vec<SharedRegistryPackageSource>,
             RetainedGraphEvidence<'root>,
         ),
         ResolvedBuildError,
@@ -353,15 +411,31 @@ impl<'root> ClosedRegistryGraph<'root> {
             let (archive, evidence) = match owner {
                 RegistryMetadataOwner::Fresh(owner) => {
                     let (archive, retained) = owner.into_build_evidence();
-                    (archive, RetainedRegistryOwner::Fresh(retained))
+                    (
+                        SharedRegistryPackageSource::Archive(archive),
+                        RetainedRegistryOwner::Fresh(retained),
+                    )
                 }
                 RegistryMetadataOwner::Locked(owner) => {
                     let (archive, retained) = owner.into_build_evidence();
-                    (archive, RetainedRegistryOwner::Locked(retained))
+                    (
+                        SharedRegistryPackageSource::Archive(archive),
+                        RetainedRegistryOwner::Locked(retained),
+                    )
                 }
                 RegistryMetadataOwner::Built(owner) => {
                     let (archive, retained) = owner.into_build_evidence();
-                    (archive, RetainedRegistryOwner::Built(retained))
+                    (
+                        SharedRegistryPackageSource::Archive(archive),
+                        RetainedRegistryOwner::Built(retained),
+                    )
+                }
+                RegistryMetadataOwner::Published(owner) => {
+                    let (package, retained) = owner.into_parts();
+                    (
+                        SharedRegistryPackageSource::Existing(package),
+                        RetainedRegistryOwner::Published(retained),
+                    )
                 }
             };
             archives.push(archive);
@@ -415,6 +489,19 @@ impl<'root> ClosedRegistryGraph<'root> {
             .map_err(|_| ResolvedBuildError::TargetMismatch)?;
         let (archives, evidence) = closed.into_shared_sources()?;
         permit.build_with_sources(archives, evidence, target).await
+    }
+}
+
+pub(crate) enum SharedRegistryPackageSource {
+    Archive(crate::packages::python_wheel_source::InspectedWheelArchive),
+    Existing(crate::libraries::package::lease::PackageLease),
+}
+impl SharedRegistryPackageSource {
+    pub(crate) fn name(&self) -> &str {
+        match self {
+            Self::Archive(archive) => archive.manifest().name(),
+            Self::Existing(package) => package.manifest().name(),
+        }
     }
 }
 

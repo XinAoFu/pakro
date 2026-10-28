@@ -8,6 +8,30 @@ const INFO: &str = "demo-1.0.dist-info";
 const FILE: &str = "demo-1.0-py3-none-any.whl";
 
 #[test]
+#[ignore = "requires the existing verified official maturin 1.8.6 macOS universal2 wheel"]
+fn p6_inspects_real_maturin_universal2_release_wheel() {
+    const FILENAME: &str = "maturin-1.8.6-py3-none-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl";
+    let path = std::path::PathBuf::from(std::env::var_os("PAKRO_TEST_MATURIN_RELEASE_WHEEL")
+        .expect("PAKRO_TEST_MATURIN_RELEASE_WHEEL must name the existing official wheel"));
+    assert_eq!(path.file_name().unwrap(), FILENAME);
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), 15_276_471);
+    let bytes = std::fs::read(&path).unwrap();
+    use sha2::Digest as _;
+    assert_eq!(hex::encode(Sha256::digest(&bytes)), "4ea89cf76048bc760e12b36b608fc3f5ef4f7359c0895e9afe737be34041d948");
+    let tags = SupportedWheelTags::new(vec![WheelTag::new("py3", "none", "macosx_11_0_arm64").unwrap()]).unwrap();
+    let manifest = inspect_wheel(Cursor::new(bytes), &WheelExpectation {
+        filename: FILENAME, name: "maturin", version: "1.8.6", supported: &tags,
+    }, WheelLimits::default()).unwrap_or_else(|error|
+        panic!("actual official maturin inspection failed: debug={error:?}; chain={error:#}"));
+    assert_eq!(manifest.tags().len(), 3);
+    let executable = manifest.members().iter()
+        .find(|member| member.archive_path() == "maturin-1.8.6.data/scripts/maturin")
+        .expect("the real maturin compiler helper must remain in the inspected inventory");
+    assert_eq!(executable.scheme(), WheelScheme::Scripts);
+    assert_eq!(executable.size(), 36_008_352);
+}
+
+#[test]
 #[ignore = "requires an explicit verified local PyYAML 6.0.3 cp311 macOS arm64 wheel"]
 fn f3_inspects_real_pyyaml_release_wheel() {
     let path =
@@ -929,7 +953,7 @@ fn expanded_tags_match_the_compressed_filename_as_a_set() {
 }
 
 #[test]
-fn absent_wrong_or_compressed_wheel_header_tags_fail() {
+fn absent_wrong_or_non_equivalent_wheel_header_tags_fail() {
     for tag in [
         "",
         "Tag: cp311-cp311-linux_x86_64\n",
@@ -944,6 +968,62 @@ fn absent_wrong_or_compressed_wheel_header_tags_fail() {
         );
         rejected(build(INFO, entries, |_| {}), "Tag");
     }
+}
+
+#[test]
+fn p6_compatible_compressed_wheel_header_tags_require_the_complete_filename_set() {
+    for (filename, header, count) in [
+        ("demo-1.0-py2.py3-none-any.whl", "Tag: py3-none-any\nTag: py2.py3-none-any\n", 2),
+        ("demo-1.0-py2.py3-abi3.none-any.macosx_11_0_arm64.whl",
+            "Tag: py2.py3-abi3.none-any.macosx_11_0_arm64\n", 8),
+    ] {
+        let mut entries = base();
+        set(&mut entries, "/WHEEL", format!("Wheel-Version: 1.0\nRoot-Is-Purelib: true\n{header}"));
+        let manifest = inspect(build(INFO, entries, |_| {}), filename, "demo", "1.0", WheelLimits::default()).unwrap();
+        assert_eq!(manifest.tags().len(), count);
+        assert!(manifest.tags().contains(&WheelTag::new("py3", "none", "any").unwrap()));
+    }
+    // Expanded tags remain the specified form; compatibility spelling must
+    // not make an additional interpreter or platform true for the filename.
+    for header in ["Tag: py2.py3-none-any\n", "Tag: py3-none-any.macosx_11_0_arm64\n"] {
+        let mut entries = base();
+        set(&mut entries, "/WHEEL", format!("Wheel-Version: 1.0\nRoot-Is-Purelib: true\n{header}"));
+        rejected(build(INFO, entries, |_| {}), "WHEEL Tag set disagrees with filename");
+    }
+}
+
+#[test]
+fn p6_compressed_wheel_header_tags_reject_invalid_fields() {
+    for tag in [
+        "py3..py2-none-any", "py3-none.-any", "py3-none-any.",
+        ".py3-none-any", "1py-none-any", "py3-no!ne-any", "py3-none-any-extra",
+    ] {
+        let mut entries = base();
+        set(&mut entries, "/WHEEL", format!("Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: {tag}\n"));
+        rejected(build(INFO, entries, |_| {}), "Tag");
+    }
+}
+
+#[test]
+fn p6_compressed_wheel_header_tags_bound_product_and_cumulative_work() {
+    let limits = WheelLimits { max_tag_triples: 2, ..Default::default() };
+    let mut entries = base();
+    set(&mut entries, "/WHEEL", "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py2.py3-none-any.macosx_11_0_arm64\n");
+    let error = inspect(build(INFO, entries, |_| {}), FILE, "demo", "1.0", limits).unwrap_err();
+    assert!(error.to_string().contains("product or cumulative expansion work limit"), "{error}");
+
+    let mut entries = base();
+    set(&mut entries, "/WHEEL", "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py2.py3-none-any\nTag: py3-none-any\n");
+    let bytes = build(INFO, entries, |_| {});
+    let filename = "demo-1.0-py2.py3-none-any.whl";
+    let error = inspect(bytes.clone(), filename, "demo", "1.0", limits).unwrap_err();
+    assert!(error.to_string().contains("cumulative expansion work limit"), "{error}");
+    let supported = SupportedWheelTags::new(vec![WheelTag::new("py3", "none", "any").unwrap()]).unwrap();
+    let (manifest, receipt) = inspect_with_receipt(Cursor::new(bytes), &WheelExpectation {
+        filename, name: "demo", version: "1.0", supported: &supported,
+    }, WheelLimits { max_tag_triples: 3, ..limits }).unwrap();
+    assert_eq!(manifest.tags().len(), 2);
+    assert!(receipt.check_limits(limits).is_err(), "a reused receipt must retain the actual expansion work, including duplicate tags");
 }
 
 #[test]

@@ -457,6 +457,14 @@ pub(crate) fn pinned_shared_language_spec(
     settings: &Settings,
 ) -> Result<crate::libraries::language::repository::LanguageInstallSpec> {
     let requested = crate::programs::shared::exact_version::exact_python_request(version)?;
+    if let Some(input) = crate::libraries::language::source::input_from_pin(requested.as_str(), pin)? {
+        eyre::ensure!(input.target.arch() == std::env::consts::ARCH && match input.target.platform() {
+            native::RuntimePlatform::Macos => cfg!(target_os="macos"),
+            native::RuntimePlatform::LinuxGnu | native::RuntimePlatform::LinuxMusl => cfg!(target_os="linux"),
+        }, "source CPython lock targets another native operating system or architecture");
+        return crate::libraries::language::repository::LanguageInstallSpec::from_plan(&native::pipeline::RuntimeInstallPlan::from_source(&input)?, false);
+    }
+    eyre::ensure!(pin.install.is_none(), "prebuilt Python pin cannot select a source installation without its build result");
     eyre::ensure!(
         pin.url.is_some() && pin.checksum.is_some(),
         "a frozen runtime pin requires its exact URL and digest"
@@ -489,7 +497,7 @@ impl PythonPlugin {
         version: &str,
         config: Arc<Config>,
         runtime_pin: Option<&PlatformInfo>,
-    ) -> Result<()> {
+    ) -> Result<crate::libraries::language::identity::LanguageKey> {
         let requested = crate::programs::shared::exact_version::exact_python_request(version)?;
         let progress: Arc<dyn SingleReport> = Arc::from(
             crate::ui::multi_progress_report::MultiProgressReport::get()
@@ -523,7 +531,7 @@ impl PythonPlugin {
         config: Arc<Config>,
         runtime_pin: Option<&PlatformInfo>,
         progress: Arc<dyn SingleReport>,
-    ) -> Result<()> {
+    ) -> Result<crate::libraries::language::identity::LanguageKey> {
         let requested = crate::programs::shared::exact_version::exact_python_request(version)?;
         operation.checkpoint()?;
         eyre::ensure!(
@@ -612,8 +620,7 @@ impl PythonPlugin {
             let lease = repository
                 .acquire_by_key(&existing.key())?
                 .ok_or_else(|| eyre!("the selected shared language is no longer Ready"))?;
-            lease.check_binding()?;
-            return Ok(());
+            return Ok(lease.key());
         }
         eyre::ensure!(
             operation.policy().writes.libraries,
@@ -969,7 +976,7 @@ impl PythonPlugin {
         ctx: &InstallContext,
         tv: &mut ToolVersion,
         existing_recipe: Option<bool>,
-    ) -> Result<()> {
+    ) -> Result<crate::libraries::language::identity::LanguageKey> {
         let deadline = operation.policy().deadline;
         ctx.pr.set_message("select runtime source".into());
         let plan = tokio::time::timeout_at(
@@ -1042,7 +1049,8 @@ impl PythonPlugin {
             },
         ).await?;
         ctx.pr.set_message("verify shared runtime".into());
-        lease.check_binding()
+        lease.check_binding()?;
+        Ok(lease.key())
     }
 
     async fn native_version_infos(&self) -> Result<Vec<VersionInfo>> {

@@ -29,7 +29,17 @@ use crate::packages::python_wheel_source::inspect_owned_wheel;
 
 mod archive;
 mod cache;
+pub(crate) mod cargo;
+pub(crate) mod toolchain;
+pub(crate) mod native;
 mod worker;
+
+#[cfg(test)]
+static OBSERVED_HOOK_CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) fn observed_hook_calls() -> usize {
+    OBSERVED_HOOK_CALLS.load(std::sync::atomic::Ordering::SeqCst)
+}
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SourceBuildLimits {
@@ -46,6 +56,7 @@ pub(crate) struct SourceBuildLimits {
     pub max_hook_calls: usize,
     pub max_workspace_bytes: u64,
     pub max_workspace_entries: usize,
+    pub max_decoder_memory_bytes: u64,
 }
 
 impl Default for SourceBuildLimits {
@@ -64,6 +75,7 @@ impl Default for SourceBuildLimits {
             max_hook_calls: 8,
             max_workspace_bytes: 1024 * 1024 * 1024,
             max_workspace_entries: 262_144,
+            max_decoder_memory_bytes: 64 * 1024 * 1024,
         }
     }
 }
@@ -94,32 +106,111 @@ impl SourceBuildLimits {
                 .all(|value| value > 0),
             "source build limits must be positive"
         );
+        ensure!(
+            self.max_decoder_memory_bytes > 0 && self.max_decoder_memory_bytes <= 64 * 1024 * 1024,
+            "source decoder memory must be positive and at most 64 MiB"
+        );
         Ok(())
     }
 }
 
-struct ExtractedSource {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SourceArchiveFormat {
+    TarGz,
+    Zip,
+    TarXz,
+}
+
+/// An owned private input tree, not a language build/publication receipt.
+pub(crate) struct RawSourceTree {
     workspace: tempfile::TempDir,
+    native_cleanup: pakro_util::native_build::NativeWorkspaceOwnership,
     reader: archive::WorkspaceReader,
     root: PathBuf,
-    initial_requirements: Vec<String>,
-    backend: String,
-    backend_paths: Vec<PathBuf>,
+    format: SourceArchiveFormat,
+    deadline: Instant,
+    max_file_bytes: u64,
     decoded_bytes: u64,
     extracted_entries: usize,
     extracted_path_bytes: usize,
 }
+impl RawSourceTree {
+    pub(crate) fn workspace_path(&self) -> &Path { self.workspace.path() }
+    pub(crate) fn native_cleanup_owner(&self) -> pakro_util::native_build::NativeWorkspaceOwnership { self.native_cleanup.clone() }
+    pub(crate) fn root(&self) -> &Path {
+        &self.root
+    }
+    pub(crate) fn format(&self) -> SourceArchiveFormat {
+        self.format
+    }
+    pub(crate) fn decoded_bytes(&self) -> u64 {
+        self.decoded_bytes
+    }
+    pub(crate) fn extracted_entries(&self) -> usize {
+        self.extracted_entries
+    }
+    pub(crate) fn extracted_path_bytes(&self) -> usize {
+        self.extracted_path_bytes
+    }
+    pub(crate) fn read_relative(&self, relative: &Path, maximum: u64) -> Result<Vec<u8>> {
+        ensure!(
+            !relative.as_os_str().is_empty()
+                && relative
+                    .components()
+                    .all(|part| matches!(part, std::path::Component::Normal(_))),
+            "raw source member path must be a contained relative path"
+        );
+        ensure!(
+            maximum > 0 && maximum <= self.max_file_bytes,
+            "raw source read exceeds its original file budget"
+        );
+        ensure!(
+            Instant::now() < self.deadline,
+            "source extraction deadline expired"
+        );
+        let bytes = archive::read_bounded(&self.reader, &self.root.join(relative), maximum)?;
+        ensure!(
+            Instant::now() < self.deadline,
+            "source extraction deadline expired"
+        );
+        Ok(bytes)
+    }
+}
 
-impl Drop for ExtractedSource {
+struct ExtractedSource {
+    raw: RawSourceTree,
+    initial_requirements: Vec<String>,
+    backend: String,
+    backend_paths: Vec<PathBuf>,
+}
+impl std::ops::Deref for ExtractedSource {
+    type Target = RawSourceTree;
+    fn deref(&self) -> &RawSourceTree {
+        &self.raw
+    }
+}
+impl Drop for RawSourceTree {
     fn drop(&mut self) {
-        // Cancellation can drop the process owner while SIGKILL is pending.
-        // Permission recovery therefore keeps the same no-follow FD boundary
-        // as output verification, even during concurrent directory swaps.
+        if self.native_cleanup.is_delegated() {
+            // The watcher alone may chmod/remove the tree until it confirms
+            // every owned process stopped. A dropped future cannot await it.
+            self.workspace.disable_cleanup(true);
+            return;
+        }
         #[cfg(unix)]
         {
             let _ = self.reader.restore_directory_permissions(1_048_576, |_| {});
         }
     }
+}
+
+pub(crate) fn extract_raw_source(
+    source: &mut VerifiedArtifact,
+    scratch: &Path,
+    deadline: Instant,
+    limits: SourceBuildLimits,
+) -> Result<RawSourceTree> {
+    archive::extract_raw(source, scratch, deadline, limits)
 }
 
 fn extract_source(
@@ -132,6 +223,7 @@ fn extract_source(
 }
 
 pub(crate) struct SourceBuildSession {
+    native: Option<native::NativeSourceContext>,
     source: VerifiedArtifact,
     name: String,
     version: String,
@@ -189,6 +281,7 @@ impl SourceBuildSession {
         let extracted = extract_source(&mut source, scratch, deadline, limits)?;
         validate_requirements(&extracted.initial_requirements, limits)?;
         Ok(Self {
+            native: None,
             source,
             name,
             version: version.into(),
@@ -206,6 +299,19 @@ impl SourceBuildSession {
 
     pub(crate) fn initial_requirements(&self) -> &[String] {
         &self.extracted.initial_requirements
+    }
+
+    pub(crate) async fn configure_native(&mut self, context: &crate::programs::OperationContext,
+        expected: Option<&SourceBuildRecord>) -> Result<()> {
+        if expected.is_some_and(|record| record.recipe == 1) { return Ok(()); }
+        let backend = self.extracted.backend.split(':').next().unwrap_or_default();
+        let supported = matches!(backend, "setuptools.build_meta" | "scikit_build_core.build" | "mesonpy" | "maturin");
+        if !supported { ensure!(expected.is_none_or(|record| record.recipe == 1), "native source recipe has an unsupported backend"); return Ok(()); }
+        let source_inputs = native::inspect_source(&self.extracted, context, self.limits)?;
+        if backend == "setuptools.build_meta" && expected.is_none() && !source_inputs.native { return Ok(()); }
+        self.native = Some(native::NativeSourceContext::prepare(context, &self.language, &self.extracted,
+            self.limits, expected, source_inputs).await?);
+        Ok(())
     }
 
     pub(crate) fn decoded_bytes(&self) -> u64 {
@@ -296,6 +402,7 @@ impl SourceBuildSession {
             )
             .await?;
         ensure!(!response.missing, "source backend has no build_wheel hook");
+        if let Some(native) = &mut self.native { native.close().await?; }
         let filename =
             single_component(&response.value, ".whl", self.limits.max_path_bytes)?.to_owned();
         let mut wheels = Vec::new();
@@ -429,7 +536,7 @@ impl SourceBuildSession {
         let record = SourceBuildRecord {
             source_digest: self.source.digest().to_string(),
             request_id: request.fingerprint(),
-            recipe: 1,
+            recipe: if self.native.is_some() { 2 } else { 1 },
             backend: self.extracted.backend.clone(),
             inputs: environment.inputs.clone(),
             output_filename: filename,
@@ -444,6 +551,7 @@ impl SourceBuildSession {
                     .clone()
                     .context("source build requirements were not observed")?,
             }),
+            native: self.native.as_ref().map(|native| native.record().clone()),
         };
         record.fingerprint()?;
         drop(environment);
@@ -465,7 +573,7 @@ impl SourceBuildSession {
             Instant::now() < self.deadline,
             "source build deadline expired"
         );
-        self.language.check_binding()
+        self.language.check_held_binding()
     }
 
     fn environment(
@@ -660,6 +768,7 @@ impl SourceBuildSession {
         }
         let inventory = observe_tree_inventory(&prefix, PrefixInventoryLimits::default())?;
         worker::workspace_usage(&self.extracted, self.limits, self.deadline)?;
+        if self.native.is_some() { prefix.delegate_cleanup_to_workspace(self.workspace_path())?; }
         Ok(BuildEnvironment {
             prefix,
             inventory,
@@ -681,7 +790,11 @@ impl SourceBuildSession {
             .checked_add(1)
             .filter(|value| *value <= self.limits.max_hook_calls)
             .context("source build hook call budget exceeded")?;
-        let result = worker::run(
+        #[cfg(test)]
+        OBSERVED_HOOK_CALLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let result = if let Some(native) = &mut self.native {
+            native.run(&self.language, &self.extracted, environment, hook, metadata, self.deadline, self.limits).await
+        } else { worker::run(
             &self.language,
             &self.extracted,
             environment,
@@ -690,7 +803,7 @@ impl SourceBuildSession {
             self.deadline,
             self.limits,
         )
-        .await;
+        .await };
         self.checkpoint()?;
         environment.recheck()?;
         result
@@ -728,11 +841,13 @@ impl SourceBuildSession {
                 Default::default(),
             )?);
         }
-        let driver_hash: [u8; 32] =
-            Sha256::digest(include_bytes!("python_source_build/hook.py")).into();
+        let driver_hash: [u8; 32] = if self.native.is_some() {
+            Sha256::digest(include_bytes!("python_source_build/hook_native.py")).into()
+        } else { Sha256::digest(include_bytes!("python_source_build/hook.py")).into() };
         let mut toolchain = Sha256::new();
         toolchain.update(driver_hash);
         toolchain.update(self.language.key().as_ref());
+        if let Some(native) = &self.native { toolchain.update(native.record().fingerprint()?); }
         let relative_backend_paths: Vec<_> = self
             .extracted
             .backend_paths
@@ -742,7 +857,7 @@ impl SourceBuildSession {
                     .map(|path| path.to_string_lossy().into_owned())
             })
             .collect::<std::result::Result<_, _>>()?;
-        let configuration = BTreeMap::from([
+        let mut configuration = BTreeMap::from([
             ("backend".into(), self.extracted.backend.clone()),
             (
                 "backend-paths".into(),
@@ -752,6 +867,10 @@ impl SourceBuildSession {
             ("worker".into(), "isolated-no-fork-v1".into()),
             ("source-date-epoch".into(), "315532800".into()),
         ]);
+        if let Some(native) = &self.native {
+            configuration.insert("worker".into(), "supervised-native-v2".into());
+            configuration.insert("native-toolchain".into(), hex::encode(native.record().fingerprint()?));
+        }
         Ok(BuildRequestId::new(
             BuildRequestInput {
                 source: ArtifactId::new(self.source.digest()),
@@ -762,7 +881,7 @@ impl SourceBuildSession {
                     toolchain.finalize().into(),
                 )),
                 configuration: &configuration,
-                recipe: 1,
+                recipe: if self.native.is_some() { 2 } else { 1 },
             },
             Default::default(),
         )?)
@@ -799,6 +918,15 @@ impl CompletedSourceBuild {
             "source build completion deadline expired"
         );
         self.language.check_binding()?;
+        self.recheck_held_output()
+    }
+
+    fn recheck_held_output(&self) -> Result<()> {
+        ensure!(
+            Instant::now() < self.deadline,
+            "source build completion deadline expired"
+        );
+        self.language.check_held_binding()?;
         ensure!(
             self.language_key == self.language.key().fingerprint()
                 && self.target_fingerprint == observed_target_fingerprint(&self.language)?,

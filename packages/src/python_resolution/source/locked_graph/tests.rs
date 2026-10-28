@@ -109,6 +109,7 @@ fn p2_source_output_digest_and_metadata_are_independent_locked_evidence() {
         output_size: archive.size(),
         metadata_sha256: Sha256::digest(archive.manifest().core_metadata().raw()).into(),
         observation: None,
+        native: None,
     };
     for metadata_changed in [false, true] {
         let mut changed = record.clone();
@@ -142,7 +143,6 @@ fn p2_source_output_digest_and_metadata_are_independent_locked_evidence() {
 #[tokio::test]
 async fn p2_source_replay_retains_original_pin_and_exact_cached_output() {
     use crate::packages::python_environment::model::{SourceBuildObservation, SourceBuildRecord};
-    use crate::packages::python_resolution::source::registry_depot::closed::close_registry_plan;
     use std::io::Cursor;
     let peer = Peer::new(|_| Reply::denied());
     let fixture = Fixture::new(&peer);
@@ -191,6 +191,7 @@ async fn p2_source_replay_retains_original_pin_and_exact_cached_output() {
             initial_inputs: Vec::new(),
             dynamic_requirements: Vec::new(),
         }),
+        native: None,
     };
     let pin = source.pin(&fixture);
     let (root, key) = write_graph_with_builds(
@@ -213,19 +214,24 @@ async fn p2_source_replay_retains_original_pin_and_exact_cached_output() {
         context(&fixture, &endpoints, &policy, NetworkPolicy::Offline),
     )
     .unwrap();
-    let prepared = ready(replay.prepare().await).into_registry_plan().unwrap();
-    let graph = close_registry_plan(prepared, Default::default()).unwrap();
-    let selected = &graph.plan().selected[0];
-    let owner = graph.owner(selected.key).unwrap();
-    assert_eq!(owner.pin(), &pin);
-    assert_eq!(owner.output_filename(), output.filename);
-    assert_eq!(owner.build_record(), Some(&record));
-    let (archives, evidence) = graph.into_shared_sources().unwrap();
-    assert_eq!(archives[0].filename(), output.filename);
-    assert_ne!(archives[0].digest(), pin.digest());
-    evidence
-        .recheck(tokio::time::Instant::now() + Duration::from_secs(10))
-        .unwrap();
+    let continuation = match replay.prepare().await.unwrap() {
+        LockedGraphPreparation::NeedsBuild(continuation) => continuation,
+        _ => panic!(
+            "an output ZIP cannot validate the actual backend/request without a language capability"
+        ),
+    };
+    assert_eq!(continuation.pin(), &pin);
+    assert_eq!(continuation.expected_record().unwrap(), &record);
+    let cached = crate::artifact_snapshot::cached_verified_artifact(
+        &output.filename,
+        archive.digest(),
+        &fixture.cache,
+        1024 * 1024,
+    )
+    .unwrap()
+    .expect("the cached bytes remain available for the actual build continuation");
+    assert_ne!(cached.digest(), pin.digest());
+    root.recheck().unwrap();
     assert!(peer.requests().is_empty());
 }
 

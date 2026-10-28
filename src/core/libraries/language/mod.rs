@@ -1,6 +1,7 @@
 //! Shared language descriptions and capabilities for one actual installation.
 
 pub(crate) mod identity;
+pub(crate) mod source;
 #[cfg(unix)]
 pub(crate) mod lease;
 #[cfg(unix)]

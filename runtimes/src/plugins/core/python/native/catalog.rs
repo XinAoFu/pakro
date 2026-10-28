@@ -371,6 +371,7 @@ impl RuntimeCatalog {
                     ],
                 )
             }
+            RuntimeDistribution::CpythonSource => eyre::bail!("source CPython uses its fixed official source plan, not the precompiled release catalog"),
         };
         let platform = match target.platform() {
             RuntimePlatform::Macos => "macos",

@@ -542,6 +542,8 @@ pub struct PlatformInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub install: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) source_python: Option<crate::libraries::language::source::SourcePythonBuildRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub checksum: Option<String>,
     /// Size in bytes (read-only field, preserved from existing lockfiles but not written)
     #[serde(skip_serializing, default)]
@@ -604,6 +606,7 @@ impl PlatformInfo {
     /// Returns true if this PlatformInfo has no meaningful data (for serde skip)
     pub(crate) fn is_empty(&self) -> bool {
         self.install.is_none()
+            && self.source_python.is_none()
             && self.checksum.is_none()
             && self.url.is_none()
             && self.url_api.is_none()
@@ -638,6 +641,7 @@ impl PlatformInfo {
     pub(crate) fn without_artifact_data(&self) -> Self {
         PlatformInfo {
             install: self.install.clone(),
+            source_python: None,
             conda_deps: self.conda_deps.clone(),
             checksum: None,
             size: None,
@@ -725,6 +729,7 @@ impl PlatformInfo {
                     other.install.clone()
                 }
             }),
+            source_python: if artifact_changed { self.source_python.clone() } else { self.source_python.clone().or_else(|| other.source_python.clone()) },
             checksum,
             size,
             url: if artifact_changed {
@@ -774,6 +779,14 @@ impl TryFrom<toml::Value> for PlatformInfo {
                 ..Default::default()
             }),
             toml::Value::Table(mut t) => {
+                let source_python = match t.remove("source_python") {
+                    Some(value) => {
+                        let record: crate::libraries::language::source::SourcePythonBuildRecord = value.try_into()?;
+                        record.input()?;
+                        Some(record)
+                    }
+                    None => None,
+                };
                 let install = match t.remove("install") {
                     Some(toml::Value::String(s)) if s == "source" => Some(s),
                     Some(toml::Value::String(s)) => {
@@ -910,6 +923,7 @@ impl TryFrom<toml::Value> for PlatformInfo {
                 };
                 Ok(PlatformInfo {
                     install,
+                    source_python,
                     checksum,
                     size,
                     url,
@@ -933,6 +947,9 @@ impl TryFrom<toml::Value> for PlatformInfo {
 impl From<PlatformInfo> for toml::Value {
     fn from(platform_info: PlatformInfo) -> Self {
         let mut table = toml::Table::new();
+        if let Some(source) = platform_info.source_python {
+            table.insert("source_python".into(), toml::Value::try_from(source).expect("typed source CPython record serializes to TOML"));
+        }
         if let Some(install) = platform_info.install {
             table.insert("install".to_string(), install.into());
         }
@@ -1264,7 +1281,7 @@ impl Lockfile {
         );
         let content = std::str::from_utf8(bytes)
             .map_err(|_| eyre!("observed native lock encoding is invalid"))?;
-        Self::parse_document(content).map_err(|_| eyre!("observed native lock document is damaged"))
+        Self::parse_document(content).map_err(|error| error.wrap_err("observed native lock document is damaged"))
     }
 
     fn parse_document(content: &str) -> Result<Self> {
@@ -1785,6 +1802,7 @@ impl Lockfile {
                             existing.install.clone()
                         }
                     }),
+                    source_python: platform_info.source_python.or_else(|| if preserve_artifact_fields { existing.source_python.clone() } else { None }),
                     checksum: platform_info.checksum.or_else(|| {
                         if preserve_artifact_fields {
                             existing.checksum.clone()

@@ -268,6 +268,7 @@ impl EnvironmentStore {
                     written_bytes: 0,
                     tainted: false,
                     discarded: false,
+                    workspace_cleanup: false,
                     recovery: None,
                     ownership: observer::OwnershipRegistration::Unbound,
                 })
@@ -413,6 +414,7 @@ pub(crate) struct UnpublishedPrefix {
     tainted: bool,
     #[cfg(unix)]
     discarded: bool,
+    workspace_cleanup: bool,
     #[cfg(unix)]
     recovery: Option<Recovery>,
     #[cfg(unix)]
@@ -460,6 +462,15 @@ impl SharedPublishedPrefix {
 }
 
 impl UnpublishedPrefix {
+    /// Native dependency environments share the enclosing source workspace's
+    /// watcher lifetime; their destructor must never race its process cleanup.
+    pub(crate) fn delegate_cleanup_to_workspace(&mut self, workspace: &Path) -> Result<()> {
+        ensure!(self.final_path.starts_with(workspace) && self.final_path != workspace,
+            "delegated prefix is outside its owned source workspace");
+        self.workspace_cleanup = true;
+        Ok(())
+    }
+
     pub(crate) fn final_path(&self) -> &Path {
         &self.final_path
     }
@@ -521,6 +532,15 @@ impl UnpublishedPrefix {
             .binding
             .kernel
             .control(control::ControlLimits::default())?;
+        ensure!(
+            control
+                .read(
+                    control::ControlNamespace::Journals,
+                    &format!("deleting-{name}")
+                )?
+                .is_none(),
+            "PendingRecovery: shared object has an unfinished deletion"
+        );
         // This preflight and the replace share the same catalog EX. A normal
         // competing publisher is distinguishable from an IO error after rename.
         if control
@@ -1068,7 +1088,7 @@ impl UnpublishedPrefix {
 
 impl Drop for UnpublishedPrefix {
     fn drop(&mut self) {
-        let _ = self.discard();
+        if !self.workspace_cleanup { let _ = self.discard(); }
     }
 }
 

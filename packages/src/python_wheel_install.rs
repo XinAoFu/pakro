@@ -30,6 +30,7 @@ mod bindings;
 mod outputs;
 mod prepare;
 mod record;
+pub(crate) use record::from_verified_files as installed_record_from_verified_files;
 
 const INSTALLER: &[u8] = b"pakro\n";
 

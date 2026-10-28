@@ -19,6 +19,7 @@ use crate::libraries::project::repository::ProjectRepository;
 use crate::libraries::project::repository::language_digest;
 use crate::libraries::project::repository::repository_uid;
 use crate::libraries::project::snapshot::ObservedProjectInputs;
+use crate::libraries::project::state::ExpectedProjectState;
 use crate::packages::python_environment::model::SelectionKey;
 use crate::programs::query::snapshot::LanguageCandidate;
 use crate::programs::shared::context::OperationContext;
@@ -35,10 +36,7 @@ pub(crate) struct PreparedSelectionCommit<'a> {
     declaration: String,
     key: SelectionKey,
     expected: crate::packages::python_environment::model::SelectionStamp,
-    expected_project: std::collections::BTreeMap<
-        SelectionKey,
-        crate::packages::python_environment::model::SelectionStamp,
-    >,
+    expected_project: ExpectedProjectState,
     language: String,
     language_key: LanguageKey,
 }
@@ -57,10 +55,22 @@ impl SelectionCommitReceipt {
 /// language-only selection for the single catalog. Protections are taken by
 /// the commit in project → object SH → catalog order; this stage only
 /// validates inputs and expected facts.
+#[cfg(test)]
 pub(crate) fn prepare_selection_commit<'a>(
     context: &OperationContext,
     observed: &'a ObservedProjectInputs,
     candidate: &LanguageCandidate,
+) -> Result<PreparedSelectionCommit<'a>> {
+    let identity = ProjectIdentity::from_observation(observed)?;
+    let state = ExpectedProjectState::capture(context, &identity)?;
+    prepare_selection_commit_with_state(context, observed, candidate, &state)
+}
+
+pub(crate) fn prepare_selection_commit_with_state<'a>(
+    context: &OperationContext,
+    observed: &'a ObservedProjectInputs,
+    candidate: &LanguageCandidate,
+    state: &ExpectedProjectState,
 ) -> Result<PreparedSelectionCommit<'a>> {
     context.checkpoint()?;
     observed.recheck()?;
@@ -69,12 +79,14 @@ pub(crate) fn prepare_selection_commit<'a>(
         "operation policy forbids project selection writes"
     );
     let identity = ProjectIdentity::from_observation(observed)?;
+    state.ensure_identity(&identity)?;
     let root = crate::libraries::project::location::ProjectLocation::bind(observed)?
         .root()
         .to_string_lossy()
         .into_owned();
     let declaration = declaration_digest(observed);
     let repository = ProjectRepository::open_writer(context)?;
+    state.ensure_current(repository.model())?;
     let key = SelectionKey::new(
         identity.as_uuid(),
         DEFAULT_GROUP,
@@ -82,7 +94,7 @@ pub(crate) fn prepare_selection_commit<'a>(
         repository.model().limits(),
     )?;
     let expected = repository.model().snapshot(&key);
-    let expected_project = default_selection_states(repository.model(), identity.as_uuid());
+    let expected_project = state.clone();
     Ok(PreparedSelectionCommit {
         observed,
         context: context.clone(),
@@ -134,7 +146,8 @@ fn commit_selection_inner(
     context.checkpoint()?;
     // Project protection first; nothing below may precede it.
     let writer = repository.writer()?;
-    let lock = open_project_lock(&writer, &identity)?;
+    let lock =
+        open_project_lock_with_requirement(&writer, &identity, expected_project.was_registered())?;
     let _project_guard: ObjectLease = {
         let control = writer.control(ControlLimits::default())?;
         control.acquire_project(&lock)?
@@ -150,10 +163,7 @@ fn commit_selection_inner(
     context.checkpoint()?;
     lease.check_binding()?;
     repository.reload()?;
-    ensure!(
-        default_selection_states(repository.model(), identity.as_uuid()) == expected_project,
-        "project selection changed while the commit was being prepared"
-    );
+    expected_project.ensure_current(repository.model())?;
     let fresh = repository.model().snapshot(&key);
     ensure!(
         fresh == expected,
@@ -233,9 +243,25 @@ fn commit_selection_inner(
 /// Opens the per-project stable lock: an established lock is reopened by its
 /// real inode, a first registration creates it exactly once, and an
 /// interrupted or foreign file is never silently recreated.
+#[cfg(test)]
 pub(super) fn open_project_lock(
     writer: &pakro_store::control::StoreWriter,
     identity: &ProjectIdentity,
+) -> Result<StableLock> {
+    open_project_lock_with_requirement(writer, identity, false)
+}
+
+pub(crate) fn open_existing_project_lock(
+    writer: &pakro_store::control::StoreWriter,
+    identity: &ProjectIdentity,
+) -> Result<StableLock> {
+    open_project_lock_with_requirement(writer, identity, true)
+}
+
+fn open_project_lock_with_requirement(
+    writer: &pakro_store::control::StoreWriter,
+    identity: &ProjectIdentity,
+    require_existing: bool,
 ) -> Result<StableLock> {
     let name = format!("project-{}.lock", identity.as_uuid().hyphenated());
     let build = writer.build_handle();
@@ -251,7 +277,13 @@ pub(super) fn open_project_lock(
             };
             StableLock::open_existing(build, &name, repository_uid(), expected)
         }
-        Err(nix::errno::Errno::ENOENT) => StableLock::create_new(build, &name, repository_uid()),
+        Err(nix::errno::Errno::ENOENT) => {
+            ensure!(
+                !require_existing,
+                "established project protection is missing; project state is unknown"
+            );
+            StableLock::create_new(build, &name, repository_uid())
+        }
         Err(error) => Err(error.into()),
     }
 }
@@ -279,19 +311,6 @@ pub(crate) fn declaration_digest(observed: &ObservedProjectInputs) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn default_selection_states(
-    model: &crate::packages::python_environment::model::CatalogModel,
-    project: Uuid,
-) -> std::collections::BTreeMap<
-    SelectionKey,
-    crate::packages::python_environment::model::SelectionStamp,
-> {
-    model
-        .selection_slots()
-        .filter(|(key, _)| key.project() == project && key.group() == DEFAULT_GROUP)
-        .map(|(key, stamp)| (key.clone(), stamp.clone()))
-        .collect()
-}
 fn clear_other_default_targets(
     model: &mut crate::packages::python_environment::model::CatalogModel,
     current: &SelectionKey,
@@ -323,20 +342,38 @@ pub(crate) struct PreparedPackageSelectionCommit<'a> {
     declaration: String,
     key: SelectionKey,
     expected: crate::packages::python_environment::model::SelectionStamp,
-    expected_project: std::collections::BTreeMap<
-        SelectionKey,
-        crate::packages::python_environment::model::SelectionStamp,
-    >,
+    expected_project: ExpectedProjectState,
     language_key: LanguageKey,
     layout_key: [u8; 32],
     graph: crate::packages::python_environment::model::PackageGraphRecord,
 }
+#[cfg(test)]
 pub(crate) fn prepare_package_selection_commit<'a>(
     context: &OperationContext,
     observed: &'a ObservedProjectInputs,
     language_key: LanguageKey,
     layout_key: [u8; 32],
     graph: crate::packages::python_environment::model::PackageGraphRecord,
+) -> Result<PreparedPackageSelectionCommit<'a>> {
+    let identity = ProjectIdentity::from_observation(observed)?;
+    let state = ExpectedProjectState::capture(context, &identity)?;
+    prepare_package_selection_commit_with_state(
+        context,
+        observed,
+        language_key,
+        layout_key,
+        graph,
+        &state,
+    )
+}
+
+pub(crate) fn prepare_package_selection_commit_with_state<'a>(
+    context: &OperationContext,
+    observed: &'a ObservedProjectInputs,
+    language_key: LanguageKey,
+    layout_key: [u8; 32],
+    graph: crate::packages::python_environment::model::PackageGraphRecord,
+    state: &ExpectedProjectState,
 ) -> Result<PreparedPackageSelectionCommit<'a>> {
     context.checkpoint()?;
     observed.recheck()?;
@@ -345,12 +382,14 @@ pub(crate) fn prepare_package_selection_commit<'a>(
         "operation policy forbids project selection writes"
     );
     let identity = ProjectIdentity::from_observation(observed)?;
+    state.ensure_identity(&identity)?;
     let root = crate::libraries::project::location::ProjectLocation::bind(observed)?
         .root()
         .to_string_lossy()
         .into_owned();
     let declaration = declaration_digest(observed);
     let repository = ProjectRepository::open_writer(context)?;
+    state.ensure_current(repository.model())?;
     let key = SelectionKey::new(
         identity.as_uuid(),
         DEFAULT_GROUP,
@@ -358,7 +397,7 @@ pub(crate) fn prepare_package_selection_commit<'a>(
         repository.model().limits(),
     )?;
     let expected = repository.model().snapshot(&key);
-    let expected_project = default_selection_states(repository.model(), identity.as_uuid());
+    let expected_project = state.clone();
     Ok(PreparedPackageSelectionCommit {
         context: context.clone(),
         observed,
@@ -409,7 +448,8 @@ fn commit_package_selection_inner(
     } = prepared;
     context.checkpoint()?;
     let writer = repository.writer()?;
-    let lock = open_project_lock(&writer, &identity)?;
+    let lock =
+        open_project_lock_with_requirement(&writer, &identity, expected_project.was_registered())?;
     let _project_guard = {
         let control = writer.control(ControlLimits::default())?;
         control.acquire_project(&lock)?
@@ -427,7 +467,6 @@ fn commit_package_selection_inner(
         graph.fingerprint()? == layout.graph(),
         "selected graph facts differ from the Ready layout graph identity"
     );
-    layout.check_binding()?;
     let manifest: crate::libraries::package::manifest::LayoutManifest =
         crate::libraries::package::manifest::read_json(
             &context,
@@ -479,10 +518,7 @@ fn commit_package_selection_inner(
         );
     }
     repository.reload()?;
-    ensure!(
-        default_selection_states(repository.model(), identity.as_uuid()) == expected_project,
-        "project selection changed while the commit was being prepared"
-    );
+    expected_project.ensure_current(repository.model())?;
     ensure!(
         repository.model().snapshot(&key) == expected,
         "project selection changed while preparing package commit"
@@ -644,20 +680,34 @@ fn validate_lock_document(
         crate::packages::python_resolution::lock_session::decode_root(bytes, Default::default())?
             .context("prepared project lock has no exact Python graph")?;
     crate::programs::install::lock_document::validate_declarations(observed, &model)?;
-    let mut roots: Vec<_> = graph
-        .roots
-        .iter()
-        .map(|index| {
-            let node = graph
-                .nodes
-                .get(*index)
-                .context("prepared graph root is missing")?;
-            Ok((node.name.clone(), node.version.clone()))
-        })
-        .collect::<Result<_>>()?;
-    roots.sort();
-    let locked =
-        crate::programs::install::lock::validate_project_lock_model(&model, language, &roots)?;
+    let declared =
+        crate::programs::python::project_roots(observed, &language.lock_version()?, &[])?;
+    let mut roots: std::collections::BTreeMap<_, _> = declared
+        .into_iter()
+        .map(|root| (root.name.clone(), root))
+        .collect();
+    // Existing explicit package installs can add plain temporary pins. The
+    // coordinator admits that intent before preparation; declared extras and
+    // markers must keep their complete original syntax here.
+    for index in &graph.roots {
+        let node = graph
+            .nodes
+            .get(*index)
+            .context("prepared graph root is missing")?;
+        if !roots.contains_key(&node.name) {
+            roots.insert(
+                node.name.clone(),
+                crate::programs::shared::python_roots::PythonRoot::plain(
+                    &node.name,
+                    &node.version,
+                )?,
+            );
+        }
+    }
+    let roots: Vec<_> = roots.into_values().collect();
+    let locked = crate::programs::install::lock::validate_project_lock_model_roots(
+        &model, language, &roots,
+    )?;
     ensure!(
         crate::programs::install::lock::portable_graph(&model, locked)?.fingerprint()?
             == graph.fingerprint()?,
@@ -676,25 +726,45 @@ fn validate_lock_document(
         .next()
         .context("prepared lock omits its exact runtime version and build")?;
     ensure!(
-        matching.next().is_none()
-            && entry.options.is_empty()
-            && entry
-                .backend
-                .as_deref()
-                .is_none_or(|backend| matches!(backend, "core:python" | "python")),
+        matching.next().is_none(),
         "prepared runtime lock has ambiguous or unsupported entries"
+    );
+    validate_runtime_lock_entry(entry, &source, &target)
+}
+
+fn validate_runtime_lock_entry(
+    entry: &crate::lockfile::LockfileTool,
+    source: &crate::lockfile::PlatformInfo,
+    target: &str,
+) -> Result<()> {
+    use crate::libraries::language::source::PythonRuntimeSource;
+    let options = entry.options.iter()
+        .map(|(key, value)| (key.clone(), toml::Value::String(value.clone())))
+        .collect();
+    let expected_source = PythonRuntimeSource::from_options(&options)?;
+    let actual_source = if source.source_python.is_some() {
+        PythonRuntimeSource::Source
+    } else {
+        PythonRuntimeSource::Prebuilt
+    };
+    ensure!(
+        expected_source == actual_source
+            && entry.backend.as_deref().is_none_or(|backend| matches!(backend, "core:python" | "python")),
+        "prepared runtime lock has unsupported entries or a different runtime source kind"
     );
     let pin = entry
         .platforms
-        .get(&target)
+        .get(target)
         .context("prepared lock omits its actual runtime target")?;
     ensure!(
-        pin.install.is_none() && pin.conda_deps.is_none() && pin.additional_artifacts.is_empty(),
-        "prepared native runtime lock contains unsupported install, Conda or additional-artifact inputs"
+        pin.conda_deps.is_none() && pin.additional_artifacts.is_empty(),
+        "prepared native runtime lock contains unsupported Conda or additional-artifact inputs"
     );
     ensure!(
-        pin.url == source.url && pin.checksum == source.checksum,
-        "prepared native runtime lock differs from its actual protected source"
+        pin.install == source.install
+            && pin.source_python == source.source_python
+            && pin.url == source.url && pin.checksum == source.checksum,
+        "prepared native runtime lock differs from its actual protected source or complete build result"
     );
     Ok(())
 }

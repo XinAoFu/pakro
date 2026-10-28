@@ -434,16 +434,37 @@ pub(super) fn extract(
     deadline: Instant,
     limits: SourceBuildLimits,
 ) -> Result<ExtractedSource> {
+    ensure!(
+        source.filename().ends_with(".tar.gz") || source.filename().ends_with(".zip"),
+        "Python source build accepts only registry tar.gz or zip distributions"
+    );
+    let tree = extract_raw(source, scratch, deadline, limits)?;
+    parse_python_tree(tree, deadline, limits)
+}
+
+/// Raw input ownership is independent of Python package declaration parsing.
+/// A tar.xz input therefore cannot fall through to a registry package backend.
+pub(super) fn extract_raw(
+    source: &mut VerifiedArtifact,
+    scratch: &Path,
+    deadline: Instant,
+    limits: SourceBuildLimits,
+) -> Result<RawSourceTree> {
     limits.validate()?;
     checkpoint(deadline)?;
     ensure!(
         source.size() <= limits.max_archive_bytes,
         "source archive byte budget exceeded"
     );
-    ensure!(
-        source.filename().ends_with(".tar.gz"),
-        "source build accepts only registry tar.gz distributions"
-    );
+    let format = if source.filename().ends_with(".tar.gz") || source.filename().ends_with(".crate") {
+        SourceArchiveFormat::TarGz
+    } else if source.filename().ends_with(".zip") {
+        SourceArchiveFormat::Zip
+    } else if source.filename().ends_with(".tar.xz") {
+        SourceArchiveFormat::TarXz
+    } else {
+        bail!("unsupported source archive format")
+    };
     fs::create_dir_all(scratch).context("creating source build scratch directory")?;
     let workspace = tempfile::Builder::new()
         .prefix("source-build-")
@@ -464,45 +485,37 @@ pub(super) fn extract(
         limits,
     };
     source.rewind()?;
-    let decoded_bytes = {
-        let decoder = flate2::read::MultiGzDecoder::new(source);
-        let mut decoded = Bounded {
-            input: decoder,
-            deadline,
-            used: 0,
-            maximum: limits.max_decoded_bytes,
-        };
-        {
-            let mut archive = jdx_tar::Archive::new(&mut decoded);
-            for entry in archive.entries()? {
-                let mut entry = entry.context("source tar member is invalid")?;
-                let directory = match entry.entry_type() {
-                    jdx_tar::EntryType::Directory => true,
-                    jdx_tar::EntryType::File => false,
-                    _ => bail!("source tar links and special files are forbidden"),
-                };
-                let path = entry.path()?.as_os_str().as_encoded_bytes().to_vec();
-                let mode = entry.header().mode();
-                let size = entry.size();
-                tree.append(&path, directory, mode, size, &mut entry)?;
-            }
-        }
-        // Tar parsers stop on their end marker. Drain the decompressor to
-        // validate its checksum/trailer; only tar zero padding may follow.
-        let mut buffer = [0; 64 * 1024];
-        loop {
-            let count = decoded
-                .read(&mut buffer)
-                .context("source compression trailer is invalid or truncated")?;
-            if count == 0 {
-                break;
-            }
-            ensure!(
-                buffer[..count].iter().all(|value| *value == 0),
-                "source archive has data after its tar end marker"
+    let compressed_size = source.size();
+    let decoded_bytes = match format {
+        SourceArchiveFormat::TarGz => unpack_tar(
+            flate2::read::MultiGzDecoder::new(DeadlineInput {
+                input: source,
+                deadline,
+            }),
+            &mut tree,
+        )?,
+        SourceArchiveFormat::TarXz => {
+            // XzDecoder::new/new_multi_decoder use an unbounded default.
+            // Keep one explicit stream and reject every unconsumed trailer,
+            // including concatenated streams and XZ stream padding.
+            let stream =
+                xz2::stream::Stream::new_stream_decoder(limits.max_decoder_memory_bytes, 0)
+                    .context("creating memory-limited XZ decoder")?;
+            let mut decoder = xz2::read::XzDecoder::new_stream(
+                DeadlineInput {
+                    input: source,
+                    deadline,
+                },
+                stream,
             );
+            let decoded = unpack_tar(&mut decoder, &mut tree)?;
+            ensure!(
+                decoder.total_in() == compressed_size,
+                "XZ source has unconsumed trailer or concatenated streams"
+            );
+            decoded
         }
-        decoded.used
+        SourceArchiveFormat::Zip => unpack_zip(source, &mut tree)?,
     };
     let bundle = tree
         .bundle
@@ -515,9 +528,31 @@ pub(super) fn extract(
         .join(bundle)
         .canonicalize()
         .context("source bundle root unavailable")?;
+    checkpoint(deadline)?;
+    Ok(RawSourceTree {
+        workspace,
+        native_cleanup: Default::default(),
+        reader,
+        root,
+        format,
+        deadline,
+        max_file_bytes: limits.max_file_bytes,
+        decoded_bytes,
+        extracted_entries,
+        extracted_path_bytes,
+    })
+}
+
+fn parse_python_tree(
+    tree: RawSourceTree,
+    deadline: Instant,
+    limits: SourceBuildLimits,
+) -> Result<ExtractedSource> {
+    let root = &tree.root;
+    let reader = &tree.reader;
     let project = root.join("pyproject.toml");
     let raw = if project.exists() {
-        let raw = read_bounded(&reader, &project, limits.max_metadata_bytes)?;
+        let raw = read_bounded(reader, &project, limits.max_metadata_bytes)?;
         String::from_utf8(raw).context("source pyproject.toml is not UTF-8")?
     } else {
         ensure!(
@@ -559,23 +594,161 @@ pub(super) fn extract(
             .canonicalize()
             .context("source backend-path is unavailable")?;
         ensure!(
-            bound.starts_with(&root) && bound.is_dir(),
+            bound.starts_with(root) && bound.is_dir(),
             "source backend-path escapes source root"
         );
         backend_paths.push(bound);
     }
     checkpoint(deadline)?;
     Ok(ExtractedSource {
-        workspace,
-        reader,
-        root,
+        raw: tree,
         initial_requirements,
         backend,
         backend_paths,
-        decoded_bytes,
-        extracted_entries,
-        extracted_path_bytes,
     })
+}
+
+struct DeadlineInput<R> {
+    input: R,
+    deadline: Instant,
+}
+impl<R: Read> Read for DeadlineInput<R> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if Instant::now() >= self.deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "source extraction deadline expired",
+            ));
+        }
+        self.input.read(buffer)
+    }
+}
+impl<R: Seek> Seek for DeadlineInput<R> {
+    fn seek(&mut self, position: io::SeekFrom) -> io::Result<u64> {
+        if Instant::now() >= self.deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "source extraction deadline expired",
+            ));
+        }
+        self.input.seek(position)
+    }
+}
+
+fn unpack_tar<R: Read>(input: R, tree: &mut Tree<'_>) -> Result<u64> {
+    let mut decoded = Bounded {
+        input,
+        deadline: tree.deadline,
+        used: 0,
+        maximum: tree.limits.max_decoded_bytes,
+    };
+    {
+        let mut archive = jdx_tar::Archive::new(&mut decoded);
+        for entry in archive.entries()? {
+            let mut entry = entry.context("source tar member is invalid")?;
+            let directory = match entry.entry_type() {
+                jdx_tar::EntryType::Directory => true,
+                jdx_tar::EntryType::File => false,
+                _ => bail!("source tar links and special files are forbidden"),
+            };
+            let path = entry.path()?.as_os_str().as_encoded_bytes().to_vec();
+            let mode = entry.header().mode();
+            let size = entry.size();
+            tree.append(&path, directory, mode, size, &mut entry)?;
+        }
+    }
+    // The tar end marker does not finish verification of its compressed input.
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        let count = decoded
+            .read(&mut buffer)
+            .context("source compression trailer is invalid or truncated")?;
+        if count == 0 {
+            break;
+        }
+        ensure!(
+            buffer[..count].iter().all(|value| *value == 0),
+            "source archive has data after its tar end marker"
+        );
+    }
+    Ok(decoded.used)
+}
+
+fn unpack_zip(source: &mut VerifiedArtifact, tree: &mut Tree<'_>) -> Result<u64> {
+    use crate::packages::python_wheel::{WheelLimits, zip_directory};
+    let limits = WheelLimits {
+        max_archive_bytes: tree.limits.max_archive_bytes,
+        max_directory_bytes: tree.limits.max_total_path_bytes.min(64 * 1024 * 1024) as u64,
+        max_members: tree.limits.max_entries,
+        max_member_bytes: tree.limits.max_file_bytes,
+        max_total_uncompressed: tree.limits.max_decoded_bytes,
+        ..Default::default()
+    };
+    let mut input = DeadlineInput {
+        input: source,
+        deadline: tree.deadline,
+    };
+    let directory = zip_directory::preflight(&mut input, limits)?;
+    let view = zip_directory::ValidatedZipView::new(input, directory.eocd_end)?;
+    let mut archive = zip::ZipArchive::with_config(
+        zip::read::Config {
+            archive_offset: zip::read::ArchiveOffset::Known(0),
+        },
+        view,
+    )
+    .context("source ZIP metadata cannot be decoded")?;
+    ensure!(
+        archive.len() == directory.entries.len(),
+        "source ZIP member count changed after preflight"
+    );
+    for (index, expected) in directory.entries.iter().enumerate() {
+        checkpoint(tree.deadline)?;
+        let mut member = archive
+            .by_index(index)
+            .context("source ZIP member cannot be decoded")?;
+        ensure!(
+            member.name_raw() == expected.archive_path.as_bytes()
+                && member.size() == expected.size
+                && member.compressed_size() == expected.compressed_size
+                && member.header_start() == expected.header_start
+                && member.central_header_start() == expected.central_start
+                && member.data_start() == Some(expected.data_start)
+                && member.is_dir() == expected.is_dir,
+            "source ZIP decoded member differs from bounded central directory"
+        );
+        let mode = member
+            .unix_mode()
+            .unwrap_or(if expected.is_dir { 0o040755 } else { 0o100644 });
+        let kind = mode & 0o170000;
+        ensure!(
+            !member.is_symlink()
+                && (kind == 0
+                    || if expected.is_dir {
+                        kind == 0o040000
+                    } else {
+                        kind == 0o100000
+                    }),
+            "source ZIP links and special files are forbidden"
+        );
+        // Always retain the raw spelling: the generic ZIP preflight may
+        // normalize a/../b, whereas source trees forbid every such component.
+        tree.append(
+            expected.archive_path.as_bytes(),
+            expected.is_dir,
+            mode,
+            expected.size,
+            &mut member,
+        )?;
+        if expected.is_dir {
+            let mut tail = [0; 1];
+            ensure!(
+                member.read(&mut tail)? == 0,
+                "source ZIP directory contains data"
+            );
+        }
+    }
+    checkpoint(tree.deadline)?;
+    Ok(tree.decoded)
 }
 
 pub(super) fn read_bounded(

@@ -2,15 +2,13 @@
 //! module only describes existing objects; all guards end before application.
 use super::{
     paths::selection_paths,
-    snapshot::{
-        LanguageCandidate, SelectionReport, open_query_context, select_target,
-        validate_layout_graph,
-    },
+    snapshot::{LanguageCandidate, SelectionReport, open_query_context, select_target},
 };
 use crate::libraries::project::{
     identity::ProjectIdentity, package_graph::CommittedGraph, repository::ProjectRepository,
     snapshot::ObservedProjectInputs,
 };
+use crate::programs::shared::python_roots;
 use crate::programs::{
     OperationContext,
     directory::{DirectoryPython, PythonQueryReport, PythonQueryRequest, PythonQueryScope},
@@ -89,9 +87,9 @@ fn query_observed_inner(
     let languages =
         crate::libraries::language::repository::LanguageRepository::open_readonly(context)?;
     let language = languages
-        .acquire_by_key(candidate.key())?
+        .acquire_by_key_for_query(candidate.key())?
         .context("selected Python is no longer Ready")?;
-    language.check_binding()?;
+    language.check_metadata()?;
     let paths = selection_paths(&candidate);
     let mut selected = DirectoryPython {
         root: paths.root().to_owned(),
@@ -111,34 +109,9 @@ fn query_observed_inner(
             already_applied: false,
         });
     }
-    // A language path remains useful when package declarations need a new
-    // lock. Full environment selection must still match every locked root.
-    let locked_fingerprint = if let Some(model) =
-        super::snapshot::project_lock_for_query(observed, request.target.as_deref())?
-    {
-        let roots =
-            crate::programs::python::project_roots(observed, candidate.exact_version(), &[])?;
-        let locked =
-            crate::programs::install::lock::validate_project_lock_model(&model, &language, &roots)?;
-        Some(crate::programs::install::lock::portable_graph(&model, locked)?.fingerprint()?)
-    } else {
-        None
-    };
-    if let Err(error) = crate::programs::python::check_requires_python(observed, &language) {
-        if request.target.is_some() {
-            return Ok(ObservedSelection {
-                report: PythonQueryReport::IncompatibleTarget {
-                    requested: candidate.exact_version().to_owned(),
-                    detail: format!("{error:#}"),
-                },
-                candidate: Some(candidate),
-                graph: None,
-                already_applied: false,
-            });
-        }
-        return Err(error);
-    }
-    let roots =
+    // Full selection validates complete Pakro intent; marker activation uses
+    // the actual selected interpreter while inactive declarations stay locked.
+    let complete_roots =
         match crate::programs::python::project_roots(observed, candidate.exact_version(), &[]) {
             Ok(roots) => roots,
             Err(error) if request.target.is_some() => {
@@ -154,6 +127,22 @@ fn query_observed_inner(
             }
             Err(error) => return Err(error),
         };
+    let locked_fingerprint = if let Some(model) = super::snapshot::project_lock_for_selected_query(
+        context,
+        observed,
+        request.target.as_deref(),
+        &language,
+    )? {
+        let locked = crate::programs::install::lock::validate_project_lock_model_roots(
+            &model,
+            &language,
+            &complete_roots,
+        )?;
+        Some(crate::programs::install::lock::portable_graph(&model, locked)?.fingerprint()?)
+    } else {
+        None
+    };
+    let roots = python_roots::active_roots(&complete_roots, &language)?;
     let mut repository = ProjectRepository::open_readonly(context)?;
     let identity = ProjectIdentity::from_observation(observed)?;
     let declaration = crate::programs::shared::commit::declaration_digest(observed);
@@ -167,10 +156,7 @@ fn query_observed_inner(
         let allowed: Vec<_> = sources.registries.iter().map(|registry| (
             registry.id().as_str(), crate::packages::python_resolution::lock_model::canonical_registry_base_fingerprint(registry.canonical_base())
         )).collect();
-        let requested: Vec<_> = roots
-            .iter()
-            .map(|(name, version)| (name.as_str(), version.as_str()))
-            .collect();
+        let requested = python_roots::pairs(&roots);
         let graphs = repository
             .read_views()
             .matching_package_graphs(candidate.key().fingerprint(), &requested)?;
@@ -189,13 +175,22 @@ fn query_observed_inner(
                 }
                 return Err(error);
             }
-            let Some(layout) =
-                crate::libraries::package::lease::acquire_layout(context, *graph.layout())?
+            let Some(layout) = crate::libraries::package::lease::acquire_layout_for_query(
+                context,
+                *graph.layout(),
+            )?
             else {
                 continue;
             };
-            validate_layout_graph(&graph, &layout)?;
-            crate::programs::python::check_requires_python(observed, layout.language_lease())?;
+            layout.check_metadata()?;
+            if !crate::programs::install::reuse::matches_complete_roots(
+                context,
+                &graph,
+                &layout,
+                &complete_roots,
+            )? {
+                continue;
+            }
             ready.push((graph, layout.bin(), layout.bin().join("python")));
             drop(layout);
         }
@@ -203,10 +198,7 @@ fn query_observed_inner(
             return Ok(ObservedSelection {
                 report: PythonQueryReport::MissingPackages {
                     requested: candidate.exact_version().to_owned(),
-                    packages: roots
-                        .iter()
-                        .map(|(name, version)| format!("{name}=={version}"))
-                        .collect(),
+                    packages: roots.iter().map(|root| root.declaration.clone()).collect(),
                 },
                 candidate: Some(candidate),
                 graph: None,

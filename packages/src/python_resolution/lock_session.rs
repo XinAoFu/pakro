@@ -263,6 +263,26 @@ impl ExistingFileSlot<'_> {
     pub(crate) fn pin(&self) -> &ContentPin {
         self.pin
     }
+    /// The original build receipt is read only from this live lock owner;
+    /// a decoded record supplied by a caller cannot issue this capability.
+    pub(crate) fn source_build_record(
+        &self,
+    ) -> Result<&crate::packages::python_environment::model::SourceBuildRecord> {
+        self.recheck()?;
+        let record = self
+            .owner
+            .source_build(self.pin.id())
+            .ok_or_else(|| eyre!("locked source slot has no original build record"))?;
+        record.validate()?;
+        if self.pin.file().kind() != super::lock_model::RegistryArtifactKind::Sdist
+            || record.source_digest != self.pin.digest().to_string()
+            || record.observation.is_none()
+        {
+            bail!("locked source slot differs from its original build record");
+        }
+        self.recheck()?;
+        Ok(record)
+    }
     pub(crate) fn recheck(&self) -> Result<()> {
         self.owner.session.recheck(&self.owner.image)
     }

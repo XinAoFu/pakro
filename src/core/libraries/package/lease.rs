@@ -90,6 +90,11 @@ impl ObjectProtection {
     pub(crate) fn check_binding(&self) -> Result<()> {
         self.check_binding_with_after_walk(|| Ok(()))
     }
+    /// Query path: Ready manifest and physical binding only. The complete
+    /// member hash stays on install, publication, materialization and deletion.
+    pub(crate) fn check_metadata(&self) -> Result<()> {
+        self.check_manifest()
+    }
     fn check_binding_with_after_walk(&self, after_walk: impl FnOnce() -> Result<()>) -> Result<()> {
         self.check_manifest()?;
         #[cfg(test)]
@@ -178,6 +183,10 @@ struct PendingObjectProtection {
 impl PendingObjectProtection {
     fn verify(self) -> Result<Arc<ObjectProtection>> {
         self.protection.check_binding()?;
+        Ok(self.protection)
+    }
+    fn verify_metadata(self) -> Result<Arc<ObjectProtection>> {
+        self.protection.check_metadata()?;
         Ok(self.protection)
     }
 }
@@ -301,6 +310,34 @@ pub(crate) struct PackageLease {
     pub(super) manifest: PackageManifest,
 }
 impl PackageLease {
+    /// Reusing a held member must preserve the same library authority, not
+    /// merely an equal portable object key from another managed data root.
+    pub(crate) fn ensure_library_context(&self, context: &OperationContext) -> Result<()> {
+        context.checkpoint()?;
+        self.protection.check_manifest()?;
+        ensure!(
+            self.protection.context.requested_data_root() == context.requested_data_root()
+                && self.protection.read.root_path() == manifest::store_path(context)
+                && serde_json::to_vec(&self.manifest)? == self.protection.bytes,
+            "held package does not belong to this operation's library context"
+        );
+        let expected = open_trusted_store_with_deadline(
+            &manifest::store_path(context),
+            uid(),
+            false,
+            context
+                .policy()
+                .deadline
+                .min(self.protection.context.policy().deadline),
+        )?;
+        ensure!(
+            FileIdentity::of(&expected)? == FileIdentity::of(&self.protection.store)?,
+            "held package store identity differs from the requested library"
+        );
+        self.protection.check_manifest()?;
+        context.checkpoint()?;
+        Ok(())
+    }
     pub(crate) fn manifest(&self) -> &PackageManifest {
         &self.manifest
     }
@@ -313,6 +350,170 @@ impl PackageLease {
     pub(crate) fn check_binding(&self) -> Result<()> {
         self.protection.check_binding()?;
         validate_package_facts(&self.protection.root, &self.manifest)
+    }
+    /// Query path: Ready manifest and physical binding, no member re-hash.
+    pub(crate) fn check_metadata(&self) -> Result<()> {
+        self.protection.check_metadata()?;
+        validate_package_facts(&self.protection.root, &self.manifest)
+    }
+
+    /// A read capability for one exact regular member of this held immutable
+    /// inventory. Callers retain the lease, bracket copying with full checks,
+    /// and verify the streamed hash against this same inventory.
+    pub(crate) fn open_inventory_file(&self, relative: &Path) -> Result<File> {
+        use crate::packages::python_environment::prefix::verify::TreeInventoryKind;
+        use nix::fcntl::{OFlag, openat};
+        use nix::sys::stat::Mode;
+        self.protection.check_manifest()?;
+        let limits = PrefixInventoryLimits::default();
+        ensure!(
+            !relative.as_os_str().is_empty()
+                && !relative.is_absolute()
+                && relative.as_os_str().as_encoded_bytes().len() <= limits.max_path_bytes,
+            "inventory file path is not a bounded relative member"
+        );
+        let components = relative
+            .components()
+            .map(|part| match part {
+                std::path::Component::Normal(name) => Ok(name),
+                _ => Err(eyre::eyre!(
+                    "inventory file path contains non-normal components"
+                )),
+            })
+            .collect::<Result<Vec<_>>>()?;
+        ensure!(
+            !components.is_empty() && components.len() <= limits.max_components,
+            "inventory file component budget exceeded"
+        );
+        let canonical: PathBuf = components.iter().collect();
+        ensure!(
+            canonical.as_os_str() == relative.as_os_str(),
+            "inventory file path is not canonical"
+        );
+        let entries = self.manifest.storage.inventory.entries();
+        // Lease admission compared this complete ordered inventory with an
+        // actual tree walk; this is an index over those existing facts.
+        let find = |path: &Path| {
+            entries
+                .binary_search_by(|entry| entry.relative.as_path().cmp(path))
+                .ok()
+                .map(|index| &entries[index])
+                .context("requested file is absent from the held inventory")
+        };
+        let expected = find(relative)?;
+        let TreeInventoryKind::File { size, .. } = &expected.kind else {
+            eyre::bail!("requested inventory member is not a regular file")
+        };
+        let mut directory = self.protection.root.try_clone()?;
+        let mut path = PathBuf::new();
+        for name in &components[..components.len() - 1] {
+            path.push(name);
+            let entry = find(&path)?;
+            ensure!(
+                matches!(entry.kind, TreeInventoryKind::Directory),
+                "inventory ancestor is not a directory"
+            );
+            let opened = open_directory(&directory, *name)?;
+            let metadata = opened.metadata()?;
+            let actual = FileIdentity::of(&opened)?;
+            ensure!(
+                [actual.device as u64, actual.inode as u64] == entry.identity
+                    && metadata.uid() == entry.uid
+                    && entry.uid == uid()
+                    && metadata.mode() & 0o7777 == entry.mode,
+                "inventory directory identity, owner or mode changed"
+            );
+            validate_owned_directory(&opened, uid())?;
+            ensure_entry_identity(
+                &directory,
+                name.to_str().context("inventory path is not UTF-8")?,
+                actual,
+            )?;
+            directory = opened;
+        }
+        let name = components.last().expect("nonempty inventory path");
+        let file = File::from(openat(
+            &directory,
+            *name,
+            OFlag::O_RDONLY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC | OFlag::O_NONBLOCK,
+            Mode::empty(),
+        )?);
+        let metadata = file.metadata()?;
+        let actual = FileIdentity::of(&file)?;
+        ensure!(
+            metadata.is_file()
+                && metadata.nlink() == 1
+                && [actual.device as u64, actual.inode as u64] == expected.identity
+                && metadata.uid() == expected.uid
+                && expected.uid == uid()
+                && metadata.mode() & 0o7777 == expected.mode
+                && metadata.len() == *size,
+            "inventory file identity, owner, mode, links or size changed"
+        );
+        ensure_entry_identity(
+            &directory,
+            name.to_str().context("inventory filename is not UTF-8")?,
+            actual,
+        )?;
+        self.protection.check_manifest()?;
+        Ok(file)
+    }
+
+    /// Read only this wheel's original METADATA through the held allocation
+    /// FD. The complete inventory remains mandatory on lease admission and
+    /// layout validation; this additionally verifies the exact member bytes.
+    pub(crate) fn read_wheel_metadata(&self, max_bytes: usize) -> Result<Vec<u8>> {
+        use crate::packages::python_environment::prefix::verify::TreeInventoryKind;
+        use sha2::{Digest as _, Sha256};
+        let max_bytes =
+            max_bytes.min(crate::packages::python_wheel::WheelLimits::default().max_metadata_bytes);
+        ensure!(
+            max_bytes > 0,
+            "installed wheel METADATA read budget is empty"
+        );
+        self.protection.check_manifest()?;
+        let mut candidates = self
+            .manifest
+            .storage
+            .inventory
+            .entries()
+            .iter()
+            .filter(|entry| {
+                let components = entry.relative.components().collect::<Vec<_>>();
+                matches!(components.as_slice(), [
+                std::path::Component::Normal(site),
+                std::path::Component::Normal(info),
+                std::path::Component::Normal(metadata),
+            ] if *site == "site-packages" && *metadata == "METADATA"
+                && info.to_str().is_some_and(|name| name.ends_with(".dist-info")))
+            });
+        let entry = candidates
+            .next()
+            .context("published wheel METADATA is missing")?;
+        ensure!(
+            candidates.next().is_none(),
+            "published wheel has several METADATA members"
+        );
+        let TreeInventoryKind::File { size, sha256 } = &entry.kind else {
+            eyre::bail!("published wheel METADATA is not a regular file")
+        };
+        ensure!(
+            *size <= max_bytes as u64,
+            "installed wheel METADATA exceeds its bounded read budget"
+        );
+        let mut file = self.open_inventory_file(&entry.relative)?;
+        let mut bytes = Vec::new();
+        file.by_ref().take(*size + 1).read_to_end(&mut bytes)?;
+        ensure!(
+            bytes.len() as u64 == *size && <[u8; 32]>::from(Sha256::digest(&bytes)) == *sha256,
+            "published wheel METADATA bytes differ from their immutable inventory"
+        );
+        ensure!(
+            file.metadata()?.len() == *size,
+            "published wheel METADATA size changed during read"
+        );
+        self.protection.check_manifest()?;
+        Ok(bytes)
     }
 }
 #[derive(Clone)]
@@ -356,6 +557,19 @@ impl LayoutLease {
             &self.packages,
         )
     }
+    /// Query path: Ready manifests and physical bindings only.
+    pub(crate) fn check_metadata(&self) -> Result<()> {
+        self.language.check_metadata()?;
+        for p in &self.packages {
+            p.protection.check_metadata()?;
+        }
+        self.protection.check_metadata()?;
+        super::layouts::projection::validate(
+            &self.protection.context,
+            &self.manifest,
+            &self.packages,
+        )
+    }
 }
 pub(crate) fn acquire_package(
     context: &OperationContext,
@@ -363,6 +577,17 @@ pub(crate) fn acquire_package(
 ) -> Result<Option<PackageLease>> {
     pin_package(context, key)?
         .map(PendingPackage::verify)
+        .transpose()
+}
+
+/// Read-only query path: Ready manifest and physical binding, without
+/// re-hashing the published member tree.
+pub(crate) fn acquire_package_for_query(
+    context: &OperationContext,
+    key: [u8; 32],
+) -> Result<Option<PackageLease>> {
+    pin_package(context, key)?
+        .map(PendingPackage::verify_metadata)
         .transpose()
 }
 
@@ -379,6 +604,14 @@ impl PendingPackage {
             manifest: self.manifest,
         })
     }
+    fn verify_metadata(self) -> Result<PackageLease> {
+        let protection = self.protection.verify_metadata()?;
+        validate_package_facts(&protection.root, &self.manifest)?;
+        Ok(PackageLease {
+            protection,
+            manifest: self.manifest,
+        })
+    }
 }
 fn pin_package(context: &OperationContext, key: [u8; 32]) -> Result<Option<PendingPackage>> {
     let name = manifest::package_name(&key);
@@ -389,22 +622,7 @@ fn pin_package(context: &OperationContext, key: [u8; 32]) -> Result<Option<Pendi
         value.facts.key == key && value.storage.key == key,
         "package manifest key differs"
     );
-    let artifact: pakro_store::Digest = value.facts.artifact.parse()?;
-    ensure!(
-        artifact.to_string() == value.facts.artifact
-            && !value.facts.source.is_empty()
-            && value.facts.source.len() <= 65536
-            && value.facts.dependencies.len() <= 65536,
-        "package source facts are invalid"
-    );
-    ensure!(
-        value
-            .facts
-            .dependencies
-            .windows(2)
-            .all(|pair| pair[0] < pair[1]),
-        "package dependencies are not canonical"
-    );
+    value.validate_metadata()?;
     let bytes = serde_json::to_vec(&value)?;
     let protection = pin_object(context, &name, &value.storage, &bytes)?;
     Ok(Some(PendingPackage {
@@ -416,43 +634,159 @@ pub(crate) fn acquire_layout(
     context: &OperationContext,
     key: [u8; 32],
 ) -> Result<Option<LayoutLease>> {
+    acquire_layout_inner(context, key, None, &[])
+}
+
+/// Capture the layout while continuously sharing this operation's actual
+/// already-held members. Missing members still take ordinary real leases.
+pub(crate) fn acquire_layout_with_held_inputs(
+    context: &OperationContext,
+    key: [u8; 32],
+    language: &LanguageLease,
+    packages: &[PackageLease],
+) -> Result<Option<LayoutLease>> {
+    acquire_layout_inner(context, key, Some(language), packages)
+}
+
+fn acquire_layout_inner(
+    context: &OperationContext,
+    key: [u8; 32],
+    held_language: Option<&LanguageLease>,
+    held_packages: &[PackageLease],
+) -> Result<Option<LayoutLease>> {
+    acquire_layout_verified(context, key, held_language, held_packages, true)
+}
+
+/// Read-only query path for the layout and every member it carries: Ready
+/// manifests and physical bindings, no member re-hash. Install and deletion
+/// keep the complete inventory admission.
+pub(crate) fn acquire_layout_for_query(
+    context: &OperationContext,
+    key: [u8; 32],
+) -> Result<Option<LayoutLease>> {
+    acquire_layout_verified(context, key, None, &[], false)
+}
+
+fn acquire_layout_verified(
+    context: &OperationContext,
+    key: [u8; 32],
+    held_language: Option<&LanguageLease>,
+    held_packages: &[PackageLease],
+    full_inventory: bool,
+) -> Result<Option<LayoutLease>> {
+    context.checkpoint()?;
+    if let Some(language) = held_language {
+        language.ensure_library_context(context)?;
+    }
+    ensure!(
+        held_packages.len() <= 65536,
+        "held layout member budget exceeded"
+    );
+    let mut supplied = std::collections::BTreeMap::new();
+    for package in held_packages {
+        package.ensure_library_context(context)?;
+        ensure!(
+            supplied.insert(package.manifest().key(), package).is_none(),
+            "held layout repeats a package member"
+        );
+    }
     let name = manifest::layout_name(&key);
     let Some(value): Option<LayoutManifest> = manifest::read_json(context, &name)? else {
         return Ok(None);
     };
     ensure!(value.storage.key == key, "layout manifest key differs");
+    value.validate_metadata()?;
     ensure!(
-        key == super::layouts::layout_key_for(value.recipe, value.language, value.graph)?
-            && !value.packages.is_empty()
-            && value.packages.len() <= 65536
-            && value.packages.windows(2).all(|pair| pair[0] < pair[1]),
-        "layout identity or package list differs"
+        supplied
+            .keys()
+            .all(|key| value.packages.binary_search(key).is_ok()),
+        "held package is not referenced by the actual layout manifest"
     );
-    let languages =
-        crate::libraries::language::repository::LanguageRepository::open_readonly(context)?;
-    let found = languages
-        .enumerate_published()
-        .map_err(|e| eyre::eyre!("language enumeration failed: {e:?}"))?;
-    let descriptor = found
-        .iter()
-        .find(|p| p.key().fingerprint() == value.language)
-        .context("layout language is missing")?;
-    let language = languages
-        .acquire_by_key(&descriptor.key())?
-        .context("layout language is not Ready")?;
-    let mut pending = Vec::new();
+    let language = if let Some(language) = held_language {
+        ensure!(
+            language.key().fingerprint() == value.language,
+            "held language differs from the actual layout manifest"
+        );
+        language.clone()
+    } else {
+        let languages =
+            crate::libraries::language::repository::LanguageRepository::open_readonly(context)?;
+        let found = languages
+            .enumerate_published()
+            .map_err(|e| eyre::eyre!("language enumeration failed: {e:?}"))?;
+        let descriptor = found
+            .iter()
+            .find(|p| p.key().fingerprint() == value.language)
+            .context("layout language is missing")?;
+        languages
+            .acquire_by_key_verified(&descriptor.key(), full_inventory)?
+            .context("layout language is not Ready")?
+    };
+    enum Member {
+        Held(PackageLease),
+        New(PendingPackage),
+    }
+    let mut members = Vec::new();
     for package in &value.packages {
-        pending.push(pin_package(context, *package)?.context("layout package is missing")?);
+        if let Some(held) = supplied.get(package) {
+            ensure!(
+                held.manifest().language == value.language,
+                "held package language differs from the layout"
+            );
+            members.push(Member::Held((**held).clone()));
+        } else {
+            members.push(Member::New(
+                pin_package(context, *package)?.context("layout package is missing")?,
+            ));
+        }
     }
     let protection = pin_object(context, &name, &value.storage, &serde_json::to_vec(&value)?)?;
-    // Capture the entire group under its real SH guards first. Complete every
-    // inventory and reserved-facts check before exposing any result to callers.
-    language.check_binding()?;
-    let packages = pending
+    // Capture the entire group under its real SH guards first. A language
+    // acquired above has already completed its full inventory; only internal
+    // group pinning occurred since then. Supplied held inputs still need their
+    // complete admission check here.
+    if !full_inventory {
+        language.check_metadata()?;
+    } else if held_language.is_some() {
+        language.check_binding()?;
+    } else {
+        language.check_held_binding()?;
+    }
+    let packages = members
         .into_iter()
-        .map(PendingPackage::verify)
+        .map(|member| match member {
+            Member::Held(package) => {
+                if full_inventory {
+                    package.check_binding()?;
+                } else {
+                    package.protection.check_metadata()?;
+                }
+                Ok(package)
+            }
+            Member::New(package) => {
+                if full_inventory {
+                    package.verify()
+                } else {
+                    package.verify_metadata()
+                }
+            }
+        })
         .collect::<Result<Vec<_>>>()?;
-    let protection = protection.verify()?;
+    ensure!(
+        packages
+            .iter()
+            .map(|package| package.manifest().key())
+            .eq(value.packages.iter().copied())
+            && packages
+                .iter()
+                .all(|package| package.manifest().language == value.language),
+        "protected layout members differ from its complete manifest reference set"
+    );
+    let protection = if full_inventory {
+        protection.verify()?
+    } else {
+        protection.verify_metadata()?
+    };
     super::layouts::projection::validate(context, &value, &packages)?;
     let result = LayoutLease {
         protection,

@@ -532,6 +532,7 @@ pub(crate) enum ActiveCandidateAssessment {
 mod cached;
 pub(crate) use cached::{
     CachedCandidateUniverse, assess_cached_candidate, classify_candidate_universe,
+    prefer_candidate_priorities,
 };
 pub(crate) struct ActiveCandidateContext<'a> {
     pub project: &'a SimpleProject,

@@ -116,31 +116,3 @@ async fn f4_unknown_or_partial_delete_is_not_success() {
     );
     assert_eq!(repository.enumerate_published().unwrap().len(), 1);
 }
-
-#[tokio::test]
-async fn f4_partial_delete_revokes_ready() {
-    let owner = tempfile::tempdir().unwrap();
-    let root = owner.path().canonicalize().unwrap();
-    let context = operation_context(&root, true, Duration::from_secs(20));
-    let bytes = archive("3.15.0");
-    let spec = install_spec(&bytes);
-    drop(prepare(&spec, &context, &bytes).await.unwrap());
-    let repository = LanguageRepository::open_readonly(&context).unwrap();
-    let target = repository.enumerate_published().unwrap().remove(0);
-    let permit = acquire(&context, &target).unwrap();
-    let count = std::cell::Cell::new(0);
-    let result = capture_and_remove(permit, || {
-        count.set(count.get() + 1);
-        eyre::ensure!(count.get() < 2, "injected second unlink failure");
-        Ok(())
-    });
-    assert!(result.unwrap_err().to_string().contains("injected"));
-    assert_eq!(count.get(), 2);
-    assert!(repository.enumerate_published().unwrap().is_empty());
-    assert!(repository.acquire_by_key(&target.key()).unwrap().is_none());
-    assert!(
-        root.join("data/languages/.leases/build")
-            .join(format!("{}.lock", spec.key().filename()))
-            .is_file()
-    );
-}

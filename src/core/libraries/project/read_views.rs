@@ -63,9 +63,92 @@ pub(crate) struct ProjectReadViews<'a> {
     repository: &'a ProjectRepository,
 }
 
+/// All committed active slots, rather than just the directory's default.
+/// This is a projection of the catalog, never an independent root registry.
+pub(crate) struct SelectionProtection {
+    pub project: Uuid,
+    pub group: String,
+    pub target: [u8; 32],
+    pub revision: u64,
+    pub root: PathBuf,
+    pub language: [u8; 32],
+    pub layout: Option<[u8; 32]>,
+    pub packages: Vec<[u8; 32]>,
+}
+
 impl<'a> ProjectReadViews<'a> {
     pub(super) fn new(repository: &'a ProjectRepository) -> Self {
         Self { repository }
+    }
+
+    pub(crate) fn reclamation_roots(&self) -> Result<Vec<SelectionProtection>> {
+        let mut roots = Vec::new();
+        for (key, stamp) in self.repository.model().selection_slots() {
+            if stamp.language().is_none() && stamp.generation().is_none() {
+                continue;
+            }
+            let project = self
+                .repository
+                .model()
+                .project_registration(key.project())
+                .ok_or_else(|| eyre::eyre!("active selection has no registered project"))?;
+            let mut languages = std::collections::BTreeSet::new();
+            if let Some(language) = stamp.language() {
+                languages.insert(sha256_key(language)?);
+            }
+            let mut packages = Vec::new();
+            let layout = if let Some(allocation) = stamp.generation() {
+                let generation =
+                    self.repository
+                        .model()
+                        .generation(allocation)
+                        .ok_or_else(|| {
+                            eyre::eyre!(
+                                "selected generation is missing; reclamation roots are unknown"
+                            )
+                        })?;
+                ensure!(
+                    generation.target() == key.target(),
+                    "selected generation target differs"
+                );
+                for input in generation.inputs() {
+                    match input.kind() {
+                        InputKind::Language => {
+                            languages.insert(sha256_key(input.digest())?);
+                        }
+                        InputKind::Package => packages.push(sha256_key(input.digest())?),
+                        InputKind::Runtime | InputKind::BuildInput => {
+                            eyre::bail!(
+                                "active legacy generation has no typed reclamation identities"
+                            );
+                        }
+                        _ => {} // Download/build caches have their own lifecycle.
+                    }
+                }
+                Some(*generation.shared_layout().ok_or_else(|| {
+                    eyre::eyre!("active generation has no actual shared layout identity")
+                })?)
+            } else {
+                None
+            };
+            ensure!(
+                languages.len() == 1,
+                "active selection must protect one exact language"
+            );
+            packages.sort_unstable();
+            packages.dedup();
+            roots.push(SelectionProtection {
+                project: key.project(),
+                group: key.group().to_owned(),
+                target: *key.target(),
+                revision: stamp.revision(),
+                root: PathBuf::from(project.root()),
+                language: *languages.first().expect("checked one language"),
+                layout,
+                packages,
+            });
+        }
+        Ok(roots)
     }
 
     /// Committed registrations only. Damage in the catalog surfaces at the
@@ -316,4 +399,16 @@ impl<'a> ProjectReadViews<'a> {
             .max()
             .unwrap_or(0)
     }
+}
+
+fn sha256_key(value: &str) -> Result<[u8; 32]> {
+    let digest: Digest = value.parse()?;
+    ensure!(
+        digest.to_string() == value,
+        "reclamation key is not canonical"
+    );
+    let Digest::Sha256(key) = digest else {
+        eyre::bail!("reclamation object identity is not SHA256");
+    };
+    Ok(key)
 }

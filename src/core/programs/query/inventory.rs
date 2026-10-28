@@ -5,6 +5,20 @@ use crate::programs::OperationContext;
 use crate::programs::library::LibraryEntry;
 use eyre::{ContextCompat, Result};
 
+fn source_runtime_configuration(
+    input: &crate::libraries::language::source::SourcePythonBuildInput,
+) -> (u32, String) {
+    (
+        input.recipe,
+        if input.includes_test_modules() {
+            "含CPython自身测试套件及测试扩展"
+        } else {
+            "不含CPython自身测试套件及测试扩展"
+        }
+        .to_owned(),
+    )
+}
+
 pub(crate) fn inventory(context: &OperationContext) -> Result<Vec<LibraryEntry>> {
     let projects = ProjectRepository::open_readonly(context)?;
     let languages = LanguageRepository::open_readonly(context)?;
@@ -16,9 +30,9 @@ pub(crate) fn inventory(context: &OperationContext) -> Result<Vec<LibraryEntry>>
     {
         context.checkpoint()?;
         let lease = languages
-            .acquire_by_key(&language.key())?
+            .acquire_by_key_for_query(&language.key())?
             .context("language publication disappeared during query")?;
-        lease.check_binding()?;
+        lease.check_metadata()?;
         platforms.insert(
             language.key().fingerprint(),
             format!(
@@ -27,6 +41,11 @@ pub(crate) fn inventory(context: &OperationContext) -> Result<Vec<LibraryEntry>>
                 language.platform_machine()
             ),
         );
+        let configuration = language
+            .spec()
+            .plan()
+            .source_build()
+            .map(source_runtime_configuration);
         result.push(LibraryEntry {
             language: None,
             dependencies: Vec::new(),
@@ -35,6 +54,8 @@ pub(crate) fn inventory(context: &OperationContext) -> Result<Vec<LibraryEntry>>
             name: "python".into(),
             version: language.version(),
             build: language.build().map(str::to_owned),
+            source_recipe: configuration.as_ref().map(|(recipe, _)| *recipe),
+            runtime_configuration: configuration.map(|(_, description)| description),
             platform: format!(
                 "{}-{}",
                 language.platform_system(),
@@ -49,15 +70,18 @@ pub(crate) fn inventory(context: &OperationContext) -> Result<Vec<LibraryEntry>>
         });
     }
     for package in crate::libraries::package::manifest::enumerate_published(context)? {
-        let lease = crate::libraries::package::lease::acquire_package(context, package.key())?
-            .context("package publication disappeared during query")?;
-        lease.check_binding()?;
+        let lease =
+            crate::libraries::package::lease::acquire_package_for_query(context, package.key())?
+                .context("package publication disappeared during query")?;
+        lease.check_metadata()?;
         result.push(LibraryEntry {
             kind: "package".into(),
             instance: format!("package-{}", hex::encode(package.key())),
             name: package.name().to_owned(),
             version: package.version().to_owned(),
             build: None,
+            source_recipe: None,
+            runtime_configuration: None,
             platform: platforms
                 .get(&package.language)
                 .cloned()

@@ -9,33 +9,52 @@ pub(crate) struct DepsInstall {
     #[usage(long, short = 'n')]
     dry_run: bool,
 }
+
+pub(super) struct PreparedDepsInstall {
+    project: crate::programs::python::PythonProjectInstall,
+    config: std::sync::Arc<Config>,
+    dry_run: bool,
+}
+
 impl DepsInstall {
-    pub(super) async fn preflight(&self) -> Result<()> {
+    pub(super) fn inherit_root_dry_run(&mut self, dry_run: bool) {
+        self.dry_run |= dry_run;
+    }
+
+    pub(super) async fn preflight(self) -> Result<PreparedDepsInstall> {
         ensure!(
             self.provider
                 .as_deref()
                 .is_none_or(|provider| provider == "python"),
             "dependency installation currently supports Python"
         );
-        let project = crate::programs::python::prepare_current_project(&[])?
+        let config = super::super::read_config_for_admission().await?;
+        let admission = crate::programs::python::capture_install_admission()?;
+        let project = admission
+            .project(&[], false)?
             .ok_or_else(|| eyre::eyre!("the project must declare an exact Python version"))?;
         ensure!(
             project.only_python_tools(),
             "dependency installation currently supports Python-only declarations"
         );
-        Ok(())
+        Ok(PreparedDepsInstall {
+            project,
+            config,
+            dry_run: self.dry_run,
+        })
     }
+}
+
+impl PreparedDepsInstall {
     pub(super) async fn run(self) -> Result<()> {
-        self.preflight().await?;
-        let project = crate::programs::python::prepare_current_project(&[])?
-            .ok_or_else(|| eyre::eyre!("the project no longer declares Python"))?;
         if self.dry_run {
+            self.project.recheck_admission()?;
             pakroprintln!(
                 "Would install the declared Python {} and its exact project packages",
-                project.version()
+                self.project.version()
             );
             return Ok(());
         }
-        project.install(Config::get().await?).await
+        self.project.install(self.config).await
     }
 }

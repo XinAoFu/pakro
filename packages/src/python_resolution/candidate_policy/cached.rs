@@ -29,6 +29,104 @@ impl CachedCandidateUniverse {
             .map(|candidate| candidate.file_index)
     }
 }
+
+/// Reorder only candidates that already passed the source/target policy.
+/// Priorities are descriptive adapter data: 0 is an exact old file, 1 is
+/// another file of the old version, and 2 retains the ordinary policy order.
+/// The visible mapping moves with each candidate; conditional eligibility
+/// continues to use the complete original immutable candidate facts.
+pub(crate) fn prefer_candidate_priorities(
+    ordered: &mut OrderedCandidates<'_>,
+    mut universe: Option<&mut CachedCandidateUniverse>,
+    priorities: &[u8],
+    limits: CandidatePolicyLimits,
+    usage: &mut CandidatePolicyUsage,
+) -> Result<(), CandidatePolicyError> {
+    validate_limits(limits)?;
+    let count = ordered.candidates.len();
+    if priorities.len() != count {
+        return Err(CandidatePolicyError::InvalidInput);
+    }
+    if ordered.project.files().len() > limits.max_files
+        || count > limits.max_files
+        || ordered.max_field > limits.max_field_bytes
+    {
+        return Err(CandidatePolicyError::Limit);
+    }
+    let mut budget = Budget {
+        usage,
+        limits,
+        max_field: 0,
+    };
+    // Rank validation, mapping validation and three stable partition passes
+    // for both representations are charged before allocating or mutating.
+    budget.work(count.checked_mul(12).ok_or(CandidatePolicyError::Limit)?)?;
+    if priorities.iter().any(|priority| *priority > 2) {
+        return Err(CandidatePolicyError::InvalidInput);
+    }
+    if let Some(cache) = universe.as_ref() {
+        if cache.input_files > limits.max_files
+            || cache.supported_tags > limits.max_supported_tags
+            || cache.max_static_field > limits.max_field_bytes
+        {
+            return Err(CandidatePolicyError::Limit);
+        }
+        if cache.visible.len() != count
+            || cache
+                .visible
+                .iter()
+                .zip(&ordered.candidates)
+                .any(|(index, choice)| {
+                    cache.candidates.get(*index).is_none_or(|candidate| {
+                        candidate.file_index != choice.file_index
+                            || candidate.raw_version != choice.file.version().unwrap_or_default()
+                    })
+                })
+        {
+            return Err(CandidatePolicyError::InvalidInput);
+        }
+    }
+    let mut slots = Vec::new();
+    let mut choices = Vec::new();
+    slots
+        .try_reserve_exact(count)
+        .map_err(|_| CandidatePolicyError::Limit)?;
+    choices
+        .try_reserve_exact(count)
+        .map_err(|_| CandidatePolicyError::Limit)?;
+    let mut visible = if let Some(cache) = universe.as_ref() {
+        let mut reordered = Vec::new();
+        reordered
+            .try_reserve_exact(count)
+            .map_err(|_| CandidatePolicyError::Limit)?;
+        for priority in 0..=2 {
+            for (index, actual) in priorities.iter().enumerate() {
+                if *actual == priority {
+                    reordered.push(cache.visible[index]);
+                }
+            }
+        }
+        Some(reordered)
+    } else {
+        None
+    };
+    slots.extend(ordered.candidates.drain(..).map(Some));
+    for priority in 0..=2 {
+        for (slot, actual) in slots.iter_mut().zip(priorities) {
+            if *actual == priority {
+                if let Some(choice) = slot.take() {
+                    choices.push(choice);
+                }
+            }
+        }
+    }
+    ordered.candidates = choices;
+    if let (Some(cache), Some(reordered)) = (universe.as_mut(), visible.take()) {
+        cache.visible = reordered;
+    }
+    Ok(())
+}
+
 pub(crate) fn classify_candidate_universe<'a>(
     project: &'a SimpleProject,
     supported: &SupportedWheelTags,
@@ -182,9 +280,11 @@ pub(crate) fn assess_cached_candidate(
         false,
     );
     if !allowed {
-        return Ok(alternative.map_or(ActiveCandidateAssessment::Reject, |index| {
-            ActiveCandidateAssessment::RejectWithAlternative(index)
-        }));
+        return Ok(
+            alternative.map_or(ActiveCandidateAssessment::Reject, |index| {
+                ActiveCandidateAssessment::RejectWithAlternative(index)
+            }),
+        );
     }
     if !knowledge
         .iter()
@@ -301,6 +401,177 @@ fn reduce(
 mod tests {
     use super::super::tests::{file, policy, project, python, target, wheel};
     use super::*;
+
+    #[test]
+    fn p3_preference_partition_preserves_policy_and_original_file_mapping() {
+        let mut yanked = wheel("4.0");
+        yanked["yanked"] = serde_json::json!(true);
+        let project = project(vec![wheel("1.0"), yanked, wheel("3.0rc1"), wheel("2.0")]);
+        let supported = target();
+        let python = python();
+        let policy = CandidatePolicy {
+            prereleases: Prereleases::IfNoMatchingFinal,
+            yanked: Yanked::Disallow,
+            ..policy()
+        };
+        let limits = CandidatePolicyLimits::default();
+        let mut usage = CandidatePolicyUsage::default();
+        let (mut ordered, mut cache) =
+            classify_candidate_universe(&project, &supported, &python, policy, limits, &mut usage)
+                .unwrap();
+        let original = ordered
+            .candidates()
+            .iter()
+            .map(|choice| choice.file_index())
+            .collect::<Vec<_>>();
+        let priorities = ordered
+            .candidates()
+            .iter()
+            .map(|choice| {
+                if choice.file().version() == Some("1.0") {
+                    0
+                } else {
+                    2
+                }
+            })
+            .collect::<Vec<_>>();
+        prefer_candidate_priorities(
+            &mut ordered,
+            Some(&mut cache),
+            &priorities,
+            limits,
+            &mut usage,
+        )
+        .unwrap();
+        assert_eq!(ordered.candidates()[0].file().version(), Some("1.0"));
+        assert_eq!(ordered.candidates().len(), original.len());
+        assert!(
+            !ordered
+                .candidates()
+                .iter()
+                .any(|choice| choice.file().yanked().is_yanked())
+        );
+        for (position, choice) in ordered.candidates().iter().enumerate() {
+            assert_eq!(cache.file_index(position), Some(choice.file_index()));
+            assert!(std::ptr::eq(
+                choice.file(),
+                &project.files()[choice.file_index()]
+            ));
+            let mut all = vec![CandidateKnowledge::Unknown; project.files().len()];
+            for visible in ordered.candidates() {
+                all[visible.file_index()] = CandidateKnowledge::Compatible;
+            }
+            let visible = (0..cache.len())
+                .map(|index| all[cache.file_index(index).unwrap()])
+                .collect::<Vec<_>>();
+            assert_eq!(
+                assess_cached_candidate(&cache, position, &[">=1"], &visible, limits, &mut usage)
+                    .unwrap(),
+                assess_active_candidate(
+                    ActiveCandidateContext {
+                        project: &project,
+                        supported: &supported,
+                        python: &python,
+                        policy,
+                        limits
+                    },
+                    choice.file_index(),
+                    &[">=1"],
+                    &all,
+                    &mut usage,
+                )
+                .unwrap(),
+            );
+        }
+        let remaining = ordered
+            .candidates()
+            .iter()
+            .skip(1)
+            .map(|choice| choice.file_index())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            remaining,
+            original
+                .into_iter()
+                .filter(|index| *index != ordered.candidates()[0].file_index())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn p3_preference_work_limit_and_invalid_ranks_leave_both_orders_unchanged() {
+        let project = project(vec![wheel("2.0"), wheel("1.0")]);
+        let supported = target();
+        let python = python();
+        let limits = CandidatePolicyLimits::default();
+        let (mut ordered, mut cache) = classify_candidate_universe(
+            &project,
+            &supported,
+            &python,
+            policy(),
+            limits,
+            &mut CandidatePolicyUsage::default(),
+        )
+        .unwrap();
+        let expected = ordered
+            .candidates()
+            .iter()
+            .map(|choice| choice.file_index())
+            .collect::<Vec<_>>();
+        for (priorities, tight, expected_error) in [
+            (
+                vec![2, 0],
+                CandidatePolicyLimits {
+                    max_work_units: 23,
+                    ..limits
+                },
+                CandidatePolicyError::Limit,
+            ),
+            (vec![3, 0], limits, CandidatePolicyError::InvalidInput),
+            (vec![0], limits, CandidatePolicyError::InvalidInput),
+        ] {
+            assert_eq!(
+                prefer_candidate_priorities(
+                    &mut ordered,
+                    Some(&mut cache),
+                    &priorities,
+                    tight,
+                    &mut CandidatePolicyUsage::default()
+                ),
+                Err(expected_error)
+            );
+            assert_eq!(
+                ordered
+                    .candidates()
+                    .iter()
+                    .map(|choice| choice.file_index())
+                    .collect::<Vec<_>>(),
+                expected
+            );
+            assert_eq!(
+                (0..cache.len())
+                    .map(|index| cache.file_index(index).unwrap())
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
+        prefer_candidate_priorities(
+            &mut ordered,
+            Some(&mut cache),
+            &[2, 0],
+            CandidatePolicyLimits {
+                max_work_units: 24,
+                ..limits
+            },
+            &mut CandidatePolicyUsage::default(),
+        )
+        .unwrap();
+        assert_eq!(ordered.candidates()[0].file().version(), Some("1.0"));
+        assert_eq!(
+            cache.file_index(0),
+            Some(ordered.candidates()[0].file_index())
+        );
+    }
 
     #[test]
     fn s4_cached_active_matches_uncached_policy_for_constraints_and_knowledge() {

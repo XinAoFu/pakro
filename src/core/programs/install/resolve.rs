@@ -4,8 +4,6 @@
 use std::collections::BTreeMap;
 
 use eyre::{Result, ensure};
-use pakro_index::python_source::NormalizedPythonName;
-use pakro_resolver::solve::{Pep440, VersionAdapter};
 use sha2::{Digest as _, Sha256};
 
 use crate::libraries::language::lease::LanguageLease;
@@ -21,6 +19,7 @@ use crate::packages::python_resolution::source::registry_depot::{
 };
 use crate::packages::python_wheel_source::InspectedWheelArchive;
 use crate::programs::OperationContext;
+use crate::programs::shared::python_roots::{self, PythonLockIntent, PythonRoot};
 
 pub(crate) struct ClosedGraph<'root> {
     roots: Vec<PackageRoot>,
@@ -240,6 +239,13 @@ impl<'root> ClosedGraph<'root> {
         language.check_binding()?;
         Ok(facts)
     }
+    pub(crate) fn into_package_sources(self) -> Result<(
+        Vec<crate::packages::python_resolution::source::registry_depot::closed::SharedRegistryPackageSource>,
+        RetainedGraphEvidence<'root>,
+    )>{
+        Ok(self.graph.into_shared_package_sources()?)
+    }
+    #[cfg(test)]
     pub(crate) fn into_sources(
         self,
     ) -> Result<(Vec<InspectedWheelArchive>, RetainedGraphEvidence<'root>)> {
@@ -247,30 +253,78 @@ impl<'root> ClosedGraph<'root> {
     }
 }
 
+#[cfg(test)]
 pub(crate) async fn resolve_exact_roots<'root, 'config>(
     context: &OperationContext,
     language: &'config LanguageLease,
     root: &'root BoundPythonLock,
     roots: &[(&str, &str)],
+    registry: RegistryDepotContext<'config>,
+) -> Result<ClosedGraph<'root>> {
+    let roots = roots
+        .iter()
+        .map(|(name, version)| PythonRoot::plain(name, version))
+        .collect::<Result<Vec<_>>>()?;
+    resolve_project_roots(
+        context,
+        language,
+        root,
+        &roots,
+        PythonLockIntent::Preserve,
+        registry,
+    )
+    .await
+}
+
+pub(crate) async fn resolve_project_roots<'root, 'config>(
+    context: &OperationContext,
+    language: &'config LanguageLease,
+    root: &'root BoundPythonLock,
+    roots: &[PythonRoot],
+    intent: PythonLockIntent,
     mut registry: RegistryDepotContext<'config>,
 ) -> Result<ClosedGraph<'root>> {
     context.checkpoint()?;
     language.check_binding()?;
-    // Use the observed interpreter target; host defaults or caller claims can
-    // never choose wheels for a different ABI/Python/platform.
     registry.environment = language.target().environment();
     registry.supported = language.target().supported();
     registry.semantics = language.target().semantics();
     registry.root_scope = RegistryRootScope::Environment;
-    let result = resolve_registry_roots(context, root, roots, registry, Some(language)).await?;
+    let result =
+        resolve_registry_declarations(context, root, roots, intent, registry, Some(language))
+            .await?;
     language.check_binding()?;
     Ok(result)
 }
 
+#[cfg(test)]
 async fn resolve_registry_roots<'root>(
     context: &OperationContext,
     root: &'root BoundPythonLock,
     roots: &[(&str, &str)],
+    registry: RegistryDepotContext<'_>,
+    language: Option<&LanguageLease>,
+) -> Result<ClosedGraph<'root>> {
+    let roots = roots
+        .iter()
+        .map(|(name, version)| PythonRoot::plain(name, version))
+        .collect::<Result<Vec<_>>>()?;
+    resolve_registry_declarations(
+        context,
+        root,
+        &roots,
+        PythonLockIntent::Preserve,
+        registry,
+        language,
+    )
+    .await
+}
+
+async fn resolve_registry_declarations<'root>(
+    context: &OperationContext,
+    root: &'root BoundPythonLock,
+    roots: &[PythonRoot],
+    intent: PythonLockIntent,
     mut registry: RegistryDepotContext<'_>,
     language: Option<&LanguageLease>,
 ) -> Result<ClosedGraph<'root>> {
@@ -283,34 +337,24 @@ async fn resolve_registry_roots<'root>(
         roots.len() <= registry.limits.max_roots,
         "package root limit exceeded"
     );
-    let mut exact = Vec::new();
-    let mut raw = Vec::new();
-    for (name, version) in roots {
-        let name = NormalizedPythonName::new(name)?;
-        ensure!(
-            !version.is_empty()
-                && version.trim() == *version
-                && Pep440::parse_version(version).is_some(),
-            "package root {} requires a complete exact upstream version",
-            name.as_str()
-        );
-        exact.push(PackageRoot {
-            name: name.as_str().into(),
-            version: (*version).into(),
-        });
-        raw.push(format!("{}=={version}", name.as_str()));
-    }
+    let exact = roots
+        .iter()
+        .map(|root| PackageRoot {
+            name: root.name.clone(),
+            version: root.version.clone(),
+        })
+        .collect();
+    let raw = python_roots::declarations(roots);
     registry.deadline = registry.deadline.min(context.policy().deadline);
     root.recheck()?;
     let declarations: Vec<_> = raw.iter().map(String::as_str).collect();
     let mut budget = super::build::BuildBudget::new();
     let prepared = if let Some(language) = language {
-        if context.policy().locked || root.model().is_some_and(|model| !model.graphs().is_empty()) {
-            let owned_roots = roots
-                .iter()
-                .map(|(name, version)| ((*name).to_owned(), (*version).to_owned()))
-                .collect::<Vec<_>>();
-            super::lock::validate_project_lock(root, language, &owned_roots)?;
+        if intent == PythonLockIntent::Preserve
+            && (context.policy().locked
+                || root.model().is_some_and(|model| !model.graphs().is_empty()))
+        {
+            super::lock::validate_project_lock_roots(root, language, roots)?;
             super::build::replay_registry(context, language, root, raw, registry, &mut budget, 0)
                 .await?
         } else {

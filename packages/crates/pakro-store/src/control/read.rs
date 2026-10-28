@@ -228,6 +228,19 @@ impl<'a> ReadControl<'a> {
         self.validate_name(name)?;
         self.ensure_catalog()?;
         before_open()?;
+        let snapshot = self.read_anchored_entry(namespace, name, max_bytes)?;
+        self.ensure_catalog()?;
+        Ok(snapshot)
+    }
+
+    // Both callers retain actual catalog protection: public reads check the
+    // full anchor around this IO; replace checks its original EX and namespace.
+    fn read_anchored_entry(
+        &self,
+        namespace: ControlNamespace,
+        name: &str,
+        max_bytes: u64,
+    ) -> Result<Option<ControlSnapshot>> {
         let parent = &self.anchor.namespaces[namespace.index()];
         let file = match openat(
             parent,
@@ -236,10 +249,7 @@ impl<'a> ReadControl<'a> {
             Mode::empty(),
         ) {
             Ok(file) => File::from(file),
-            Err(nix::errno::Errno::ENOENT) => {
-                self.ensure_catalog()?;
-                return Ok(None);
-            }
+            Err(nix::errno::Errno::ENOENT) => return Ok(None),
             Err(error) => return Err(error.into()),
         };
         self.validate_file(&file)?;
@@ -262,7 +272,6 @@ impl<'a> ReadControl<'a> {
             "environment control metadata changed while reading"
         );
         ensure_entry_identity(parent, name, identity)?;
-        self.ensure_catalog()?;
         Ok(Some(ControlSnapshot {
             namespace,
             name: name.into(),
@@ -275,14 +284,12 @@ impl<'a> ReadControl<'a> {
         }))
     }
 
-    pub(super) fn validate_snapshot(
+    fn validate_snapshot_destination(
         &self,
         namespace: ControlNamespace,
         name: &str,
         expected: &ControlSnapshot,
     ) -> Result<()> {
-        self.validate_name(name)?;
-        self.ensure_catalog()?;
         ensure!(
             expected.namespace == namespace
                 && expected.name == name
@@ -291,6 +298,59 @@ impl<'a> ReadControl<'a> {
                     == FileIdentity::of(&self.anchor.namespaces[namespace.index()])?,
             "environment control snapshot belongs to another destination"
         );
+        Ok(())
+    }
+
+    fn check_held_namespace(&self, namespace: ControlNamespace, held: &ObjectLease) -> Result<()> {
+        check_deadline(self.deadline)?;
+        held.check_binding()?;
+        ensure!(
+            held.mode() == LeaseMode::Exclusive && held.identity() == self.anchor.catalog.identity(),
+            "replacement requires the original catalog EX"
+        );
+        validate_owned_directory(&self.anchor.root, self.anchor.uid)?;
+        validate_private_directory(&self.anchor.control, self.anchor.uid)?;
+        ensure_entry_identity(&self.anchor.root, ".control", FileIdentity::of(&self.anchor.control)?)?;
+        let parent = &self.anchor.namespaces[namespace.index()];
+        validate_private_directory(parent, self.anchor.uid)?;
+        ensure_entry_identity(&self.anchor.control, namespace.name(), FileIdentity::of(parent)?)?;
+        check_deadline(self.deadline)
+    }
+
+    /// Only replace uses this between its complete anchor gates. The original
+    /// catalog EX stays in OrderedLocks; this clone grants no longer lifetime.
+    pub(super) fn validate_snapshot_for_replace(
+        &self,
+        namespace: ControlNamespace,
+        name: &str,
+        expected: &ControlSnapshot,
+    ) -> Result<()> {
+        self.validate_name(name)?;
+        ensure!(self.mode == LeaseMode::Exclusive, "readonly scope cannot replace metadata");
+        let held = self.locks.borrow_mut().catalog(&self.anchor.catalog, LeaseMode::Exclusive)?;
+        self.check_held_namespace(namespace, &held)?;
+        self.validate_snapshot_destination(namespace, name, expected)?;
+        let current = self.read_anchored_entry(namespace, name, self.limits.max_file_bytes)?
+            .ok_or_else(|| eyre::eyre!("expected environment control metadata is missing"))?;
+        self.check_held_namespace(namespace, &held)?;
+        ensure!(
+            current.entry_identity == expected.entry_identity
+                && current.sha256 == expected.sha256
+                && current.bytes == expected.bytes,
+            "environment control metadata changed since its snapshot"
+        );
+        Ok(())
+    }
+
+    pub(super) fn validate_snapshot(
+        &self,
+        namespace: ControlNamespace,
+        name: &str,
+        expected: &ControlSnapshot,
+    ) -> Result<()> {
+        self.validate_name(name)?;
+        self.ensure_catalog()?;
+        self.validate_snapshot_destination(namespace, name, expected)?;
         let current = self
             .read(namespace, name)?
             .ok_or_else(|| eyre::eyre!("expected environment control metadata is missing"))?;

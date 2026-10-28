@@ -6,14 +6,14 @@ use std::time::Duration;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct WireReply {
-    ok: bool,
+pub(super) struct WireReply {
+    pub(super) ok: bool,
     #[serde(default)]
-    missing: bool,
+    pub(super) missing: bool,
     #[serde(default)]
-    value: serde_json::Value,
+    pub(super) value: serde_json::Value,
     #[serde(default)]
-    error: Option<String>,
+    pub(super) error: Option<String>,
 }
 
 pub(super) struct HookReply {

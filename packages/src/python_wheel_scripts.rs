@@ -200,5 +200,18 @@ pub(crate) fn rewrite_python_script<R: Read, W: Write>(
     stream::rewrite(input, output, target, source_mode, limits)
 }
 
+/// Relocate only a launch prefix generated for the exact original target.
+/// This consumes installed bytes, not an invented original wheel archive.
+pub(crate) fn rebase_installed_python_script<R: Read, W: Write>(
+    input: R,
+    output: &mut W,
+    old_target: &PythonScriptTarget<'_>,
+    new_target: &PythonScriptTarget<'_>,
+    source_mode: u32,
+    limits: WheelScriptLimits,
+) -> Result<WheelScriptTransform> {
+    stream::rebase(input, output, old_target, new_target, source_mode, limits)
+}
+
 #[cfg(all(test, unix))]
 mod tests;

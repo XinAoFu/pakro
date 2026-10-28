@@ -522,8 +522,8 @@ impl<'de> Visitor<'de> for Catalog<'_> {
                     schema = Some(map.next_value::<u32>()?);
                     // Schema 3 adds language-only selections and project
                     // registrations; schema 2 documents decode as their
-                    // pre-extension equivalents. Nothing else is accepted.
-                    if !matches!(schema, Some(2 | 3)) {
+                    // pre-extension equivalents. Schema 4 carries native recipes.
+                    if !matches!(schema, Some(2 | 3 | 4)) {
                         return self.0.fail("unsupported catalog schema");
                     }
                 }
@@ -558,8 +558,16 @@ impl<'de> Visitor<'de> for Catalog<'_> {
                 _ => return self.0.fail("unknown catalog document field"),
             }
         }
-        self.0.required(schema)?;
+        let schema = self.0.required(schema)?;
         let generations = self.0.required(generations)?;
+        let native = generations.iter().any(|record| {
+            record.package_graph().is_some_and(|graph| graph.nodes.iter().any(|node| {
+                node.pin.build.as_ref().is_some_and(|build| build.native.is_some())
+            }))
+        });
+        if (schema == 4) != native {
+            return self.0.fail("catalog schema disagrees with native recipes");
+        }
         let selections = self.0.required(selections)?;
         let transactions = self.0.required(transactions)?;
         let projects = projects.unwrap_or_default();

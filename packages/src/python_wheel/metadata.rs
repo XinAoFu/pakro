@@ -170,20 +170,21 @@ pub(super) fn parse_wheel(
         _ => return Err(eyre!("WHEEL Root-Is-Purelib must be true or false")),
     };
     let mut tags = BTreeSet::new();
+    let mut expansion_work = 0;
     for value in fields
         .get("tag")
         .ok_or_else(|| eyre!("WHEEL missing Tag"))?
     {
-        let parts: Vec<_> = value.split('-').collect();
-        ensure!(parts.len() == 3, "WHEEL invalid expanded Tag");
-        let tag = WheelTag::new(parts[0], parts[1], parts[2])
-            .map_err(|_| eyre!("WHEEL invalid expanded Tag"))?;
-        tags.insert(tag);
-        ensure!(
-            tags.len() <= limits.max_tag_triples,
-            "wheel Tag count limit exceeded"
-        );
-        usage.tag_triples = usage.tag_triples.max(tags.len());
+        let mut parts = value.split('-');
+        let (python, abi, platform) = match (parts.next(), parts.next(), parts.next(), parts.next()) {
+            (Some(python), Some(abi), Some(platform), None) => (python, abi, platform),
+            _ => return Err(eyre!("WHEEL invalid compatibility Tag")),
+        };
+        // The specification requests expanded header tags. For compatibility
+        // with released wheels, accept an equivalent compressed spelling only
+        // through the same atom and bounded-product checks as the filename.
+        tags.extend(super::expand_tags([python.split('.'), abi.split('.'), platform.split('.')],
+            limits, usage, &mut expansion_work)?);
     }
     let tags: Vec<_> = tags.into_iter().collect();
     ensure!(

@@ -11,15 +11,29 @@ pub(crate) struct Deps {
 enum Commands {
     Install(install::DepsInstall),
 }
+
+pub(super) struct PreparedDeps {
+    install: install::PreparedDepsInstall,
+}
+
 impl Deps {
-    pub(super) async fn preflight(&self) -> Result<()> {
-        match &self.command {
-            Commands::Install(command) => command.preflight().await,
+    pub(super) fn inherit_root_dry_run(&mut self, dry_run: bool) {
+        match &mut self.command {
+            Commands::Install(command) => command.inherit_root_dry_run(dry_run),
         }
     }
-    pub(crate) async fn run(self) -> Result<()> {
+
+    pub(super) async fn preflight(self) -> Result<PreparedDeps> {
         match self.command {
-            Commands::Install(command) => command.run().await,
+            Commands::Install(command) => Ok(PreparedDeps {
+                install: command.preflight().await?,
+            }),
         }
+    }
+}
+
+impl PreparedDeps {
+    pub(super) async fn run(self) -> Result<()> {
+        self.install.run().await
     }
 }

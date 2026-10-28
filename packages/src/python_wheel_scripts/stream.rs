@@ -215,3 +215,256 @@ pub(super) fn rewrite<R: Read, W: Write>(
         mode,
     })
 }
+
+pub(super) fn rebase<R: Read, W: Write>(
+    input: R,
+    writer: &mut W,
+    old_target: &PythonScriptTarget<'_>,
+    new_target: &PythonScriptTarget<'_>,
+    source_mode: u32,
+    limits: WheelScriptLimits,
+) -> Result<WheelScriptTransform> {
+    super::validate_limits(limits)?;
+    let old = launcher::executable(old_target)?;
+    let new = launcher::executable(new_target)?;
+    let without_cookie = launcher::prefix(old, None, limits)?;
+    let maximum = limits.max_wrapper_bytes.min(
+        without_cookie
+            .len()
+            .checked_add(limits.max_first_line_bytes)
+            .ok_or_else(|| eyre!("installed script probe size overflow"))?,
+    );
+    let mut input = BufReader::with_capacity(
+        64 * 1024,
+        Input {
+            reader: input,
+            size: 0,
+            digest: Sha256::new(),
+            limit: limits.max_input_bytes,
+        },
+    );
+    let mut output = Output {
+        writer,
+        size: 0,
+        digest: Sha256::new(),
+        limit: limits.max_output_bytes,
+    };
+    let mut probe = Vec::new();
+    let mut buffer = [0; 64 * 1024];
+    while probe.len() < maximum {
+        let count = input
+            .read(&mut buffer[..(maximum - probe.len()).min(64 * 1024)])
+            .map_err(read_error)?;
+        if count == 0 {
+            break;
+        }
+        probe.extend_from_slice(&buffer[..count]);
+    }
+    let first_end = probe
+        .iter()
+        .position(|byte| *byte == b'\n')
+        .map(|index| index + 1);
+    let second_line = first_end.map(|start| {
+        let rest = &probe[start..];
+        &rest[..rest
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .unwrap_or(rest.len())]
+    });
+    let cookie = second_line.and_then(launcher::coding_cookie);
+    let canonical_cookie = cookie.filter(|cookie| {
+        second_line == Some(format!("# coding: {cookie}").as_bytes())
+            && first_end.is_some_and(|start| probe[start..].contains(&b'\n'))
+    });
+    let with_cookie = canonical_cookie
+        .map(|cookie| launcher::prefix(old, Some(cookie), limits))
+        .transpose()?;
+    let consumed = if let Some(prefix) = &with_cookie {
+        if probe.starts_with(prefix) {
+            Some((prefix.len(), canonical_cookie))
+        } else if probe.starts_with(&without_cookie) {
+            Some((without_cookie.len(), None))
+        } else {
+            None
+        }
+    } else if probe.starts_with(&without_cookie) {
+        Some((without_cookie.len(), None))
+    } else {
+        None
+    };
+    if let Some((consumed, canonical)) = consumed {
+        // A direct launch can retain an original noncanonical second-line
+        // cookie. A new trampoline must also put that encoding on line two.
+        let encoding = canonical.or_else(|| if launcher::complex(new) { cookie } else { None });
+        output.append(&launcher::prefix(new, encoding, limits)?)?;
+        output.append(&probe[consumed..])?;
+    } else {
+        output.append(&probe)?;
+    }
+    loop {
+        let count = input.read(&mut buffer).map_err(read_error)?;
+        if count == 0 {
+            break;
+        }
+        output.append(&buffer[..count])?;
+    }
+    let raw = input.into_inner();
+    Ok(WheelScriptTransform {
+        operation: if consumed.is_some() {
+            WheelScriptOperation::RewritePythonShebang
+        } else {
+            WheelScriptOperation::Copy
+        },
+        raw_sha256: raw.digest.finalize().into(),
+        raw_size: raw.size,
+        sha256: output.digest.finalize().into(),
+        size: output.size,
+        mode: source_mode & 0o777,
+    })
+}
+
+#[cfg(test)]
+mod rebase_tests {
+    use super::*;
+    use std::io::Cursor;
+    use std::path::Path;
+
+    fn target(prefix: &'static str, executable: &'static str) -> PythonScriptTarget<'static> {
+        PythonScriptTarget {
+            final_prefix: Path::new(prefix),
+            interpreter: Path::new(executable),
+        }
+    }
+
+    fn stats(input: &[u8], output: &[u8], receipt: &WheelScriptTransform) {
+        assert_eq!(receipt.raw_size(), input.len() as u64);
+        assert_eq!(
+            receipt.raw_sha256().as_slice(),
+            Sha256::digest(input).as_slice()
+        );
+        assert_eq!(receipt.size(), output.len() as u64);
+        assert_eq!(
+            receipt.sha256().as_slice(),
+            Sha256::digest(output).as_slice()
+        );
+    }
+
+    #[test]
+    fn p3_rebase_direct_prefix_preserves_canonical_cookie_body_mode_and_independent_hashes() {
+        let old = target("/opt/old", "/opt/old/bin/python");
+        let new = target("/opt/new", "/opt/new/bin/python");
+        let input = b"#!/opt/old/bin/python\n# coding: latin-1\nprint('\xe9')\n";
+        let expected = b"#!/opt/new/bin/python\n# coding: latin-1\nprint('\xe9')\n";
+        let mut output = Vec::new();
+        let receipt = rebase(
+            Cursor::new(input),
+            &mut output,
+            &old,
+            &new,
+            0o750,
+            WheelScriptLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(output, expected);
+        assert_eq!(
+            receipt.operation(),
+            WheelScriptOperation::RewritePythonShebang
+        );
+        assert_eq!(receipt.mode(), 0o750);
+        stats(input, &output, &receipt);
+    }
+
+    #[test]
+    fn p3_rebase_exact_trampoline_rewrites_only_its_generated_prefix() {
+        let old = target("/opt/old env", "/opt/old env/bin/.pakro python");
+        let new = target("/opt/new env", "/opt/new env/bin/.pakro python");
+        let limits = WheelScriptLimits::default();
+        let body = b"print('/opt/old env stays literal in the original body')\n";
+        let mut input =
+            launcher::prefix(launcher::executable(&old).unwrap(), Some("utf-8"), limits).unwrap();
+        input.extend_from_slice(body);
+        let mut expected =
+            launcher::prefix(launcher::executable(&new).unwrap(), Some("utf-8"), limits).unwrap();
+        expected.extend_from_slice(body);
+        let mut output = Vec::new();
+        let receipt = rebase(Cursor::new(&input), &mut output, &old, &new, 0o755, limits).unwrap();
+        assert_eq!(output, expected);
+        assert_eq!(
+            receipt.operation(),
+            WheelScriptOperation::RewritePythonShebang
+        );
+        stats(&input, &output, &receipt);
+    }
+
+    #[test]
+    fn p3_rebase_other_or_partial_prefixes_remain_exact_streaming_copies() {
+        let old = target("/opt/old", "/opt/old/bin/python");
+        let new = target("/opt/new", "/opt/new/bin/python");
+        for input in [
+            b"#!/bin/sh\nprintf '/opt/old is an unknown body reference'\n".to_vec(),
+            b"#!/opt/other/bin/python\nprint(1)\n".to_vec(),
+            b"#!/opt/old/bin/python".to_vec(),
+            vec![b'x'; 192 * 1024],
+        ] {
+            let mut output = Vec::new();
+            let receipt = rebase(
+                Cursor::new(&input),
+                &mut output,
+                &old,
+                &new,
+                0o640,
+                WheelScriptLimits::default(),
+            )
+            .unwrap();
+            assert_eq!(output, input);
+            assert_eq!(receipt.operation(), WheelScriptOperation::Copy);
+            assert_eq!(receipt.mode(), 0o640);
+            stats(&input, &output, &receipt);
+        }
+    }
+
+    #[test]
+    fn p3_rebase_validates_new_target_and_both_stream_budgets() {
+        let old = target("/opt/old", "/opt/old/bin/python");
+        let outside = target("/opt/new", "/opt/elsewhere/python");
+        assert!(
+            rebase(
+                Cursor::new(b"ordinary"),
+                &mut Vec::new(),
+                &old,
+                &outside,
+                0o644,
+                WheelScriptLimits::default()
+            )
+            .is_err()
+        );
+        let new = target("/opt/new longer", "/opt/new longer/bin/.pakro python");
+        let input = b"#!/opt/old/bin/python\nprint(1)\n";
+        let mut limits = WheelScriptLimits::default();
+        limits.max_input_bytes = input.len() as u64 - 1;
+        assert!(
+            rebase(
+                Cursor::new(input),
+                &mut Vec::new(),
+                &old,
+                &new,
+                0o755,
+                limits
+            )
+            .is_err()
+        );
+        limits = WheelScriptLimits::default();
+        limits.max_output_bytes = input.len() as u64;
+        assert!(
+            rebase(
+                Cursor::new(input),
+                &mut Vec::new(),
+                &old,
+                &new,
+                0o755,
+                limits
+            )
+            .is_err()
+        );
+    }
+}

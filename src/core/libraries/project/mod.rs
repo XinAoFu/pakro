@@ -8,6 +8,8 @@ pub(crate) mod read_views;
 pub(crate) mod repository;
 pub(crate) mod selections;
 pub(crate) mod snapshot;
+#[cfg(unix)]
+pub(crate) mod state;
 
 #[cfg(unix)]
 pub(crate) mod runtime_pin;

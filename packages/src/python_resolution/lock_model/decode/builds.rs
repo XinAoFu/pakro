@@ -1,10 +1,17 @@
 //! Build arrays use the same before-allocation collection and text budgets.
 use super::*;
 use crate::packages::python_environment::model::{
-    SourceBuildInput, SourceBuildObservation, SourceBuildRecord,
+    NativeToolchainRecord, SourceBuildInput, SourceBuildObservation, SourceBuildRecord,
 };
 
 pub(super) struct BuildWire(pub PinId, pub SourceBuildRecord);
+
+impl Wire for NativeToolchainRecord {
+    fn read<'de, D: de::Deserializer<'de>>(ctx: &mut Context, de: D) -> Result<Self, D::Error> {
+        let raw = TextSeed { ctx: &mut *ctx, mode: TextMode::Native }.deserialize(de)?;
+        NativeToolchainRecord::decode_json(&raw).map_err(|_| ctx.fail(LockModelError::InvalidField(LockField::Native)))
+    }
+}
 
 impl Wire for bool {
     fn read<'de, D: de::Deserializer<'de>>(_ctx: &mut Context, de: D) -> Result<Self, D::Error> {
@@ -68,6 +75,7 @@ record!(SourceBuildInput, f, {
 
 record!(BuildWire, f, {
     let mut observation = None;
+    let mut native = None;
     let (mut source_pin, mut source_digest, mut request_id, mut recipe, mut backend) =
         (None, None, None, None, None);
     let (mut inputs, mut output_filename, mut output_digest, mut output_size, mut metadata_sha256) =
@@ -75,6 +83,7 @@ record!(BuildWire, f, {
     while let Some(key) = f.next()? {
         match key {
             Key::Observation => observation = Some(f.value::<SourceBuildObservation>()?),
+            Key::Native => native = Some(f.value::<NativeToolchainRecord>()?),
             Key::Source => source_pin = Some(f.value::<PinId>()?),
             Key::SourceDigest => source_digest = Some(f.value::<Digest>()?),
             Key::RequestId => request_id = Some(f.value::<[u8; 32]>()?),
@@ -103,6 +112,7 @@ record!(BuildWire, f, {
         output_size: f.required(output_size)?,
         metadata_sha256: f.required(metadata_sha256)?,
         observation,
+        native,
     };
     if record.validate().is_err() {
         return Err(f.ctx.fail(LockModelError::IdentityMismatch));

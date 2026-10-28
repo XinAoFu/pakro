@@ -8,7 +8,7 @@ use eyre::{Result, bail, ensure, eyre};
 use super::WheelLimits;
 use super::usage::InspectionUsage;
 
-pub(super) struct CentralMember {
+pub(crate) struct CentralMember {
     pub archive_path: String,
     pub canonical_path: String,
     pub is_dir: bool,
@@ -19,10 +19,10 @@ pub(super) struct CentralMember {
     pub data_start: u64,
 }
 
-pub(super) struct DirectoryInventory {
+pub(crate) struct DirectoryInventory {
     pub entries: Vec<CentralMember>,
     pub eocd_end: u64,
-    pub usage: InspectionUsage,
+    pub(super) usage: InspectionUsage,
 }
 
 pub(super) fn normalize_path(path: &str, label: &str) -> Result<String> {
@@ -170,7 +170,7 @@ fn read_candidate_at<R: Read + Seek>(
     read_at(input, at, bytes)
 }
 
-pub(super) fn preflight<R: Read + Seek>(
+pub(crate) fn preflight<R: Read + Seek>(
     input: &mut R,
     limits: WheelLimits,
 ) -> Result<DirectoryInventory> {
@@ -640,13 +640,13 @@ fn preflight_candidate<R: Read + Seek>(
 /// Zip8's footer finder accepts decoys in a legitimate ZIP comment. Hide the
 /// already-validated comment and expose a zero comment length, without changing
 /// any source bytes or buffering/reopening the payload. Known(0) disables SFX.
-pub(super) struct ValidatedZipView<R> {
+pub(crate) struct ValidatedZipView<R> {
     input: R,
     end: u64,
     position: u64,
 }
 impl<R: Read + Seek> ValidatedZipView<R> {
-    pub(super) fn new(mut input: R, end: u64) -> io::Result<Self> {
+    pub(crate) fn new(mut input: R, end: u64) -> io::Result<Self> {
         input.seek(SeekFrom::Start(0))?;
         Ok(Self {
             input,

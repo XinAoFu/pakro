@@ -116,6 +116,150 @@ pub(crate) fn archive(version: &str) -> Vec<u8> {
         "",
     )
 }
+
+fn linux_protocol_fixture(target: &RuntimeArchiveTarget) -> (Vec<u8>, serde_json::Value) {
+    use std::io::Read;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    let path = PathBuf::from(
+        std::env::var_os("PAKRO_TEST_LINUX_PROTOCOL_FIXTURE")
+            .expect("native Linux protocol fixture is required"),
+    );
+    assert!(path.is_absolute());
+    let expected = std::env::var("PAKRO_TEST_LINUX_PROTOCOL_SHA256")
+        .expect("explicit Linux protocol fixture SHA256 is required");
+    assert!(
+        expected.len() == 64
+            && expected
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    );
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_CLOEXEC | nix::libc::O_NONBLOCK)
+        .open(path)
+        .unwrap();
+    let before = file.metadata().unwrap();
+    assert!(
+        before.is_file()
+            && before.uid() == nix::unistd::geteuid().as_raw()
+            && before.nlink() == 1
+            && before.mode() & 0o022 == 0
+            && before.mode() & 0o111 != 0
+            && before.len() >= 64
+            && before.len() <= 1024 * 1024
+    );
+    let mut bytes = Vec::new();
+    Read::by_ref(&mut file)
+        .take(1024 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .unwrap();
+    let after = file.metadata().unwrap();
+    assert_eq!(
+        (
+            before.dev(),
+            before.ino(),
+            before.len(),
+            before.mtime(),
+            before.mtime_nsec(),
+            before.ctime(),
+            before.ctime_nsec()
+        ),
+        (
+            after.dev(),
+            after.ino(),
+            after.len(),
+            after.mtime(),
+            after.mtime_nsec(),
+            after.ctime(),
+            after.ctime_nsec()
+        )
+    );
+    assert_eq!(bytes.len() as u64, before.len());
+    assert_eq!(
+        Digest::from_sha256_bytes(&bytes).to_string(),
+        format!("sha256-{expected}")
+    );
+    assert_eq!(&bytes[..6], b"\x7fELF\x02\x01");
+    let u16_at = |at: usize| u16::from_le_bytes(bytes.get(at..at + 2).unwrap().try_into().unwrap());
+    let u32_at = |at: usize| u32::from_le_bytes(bytes.get(at..at + 4).unwrap().try_into().unwrap());
+    let u64_at = |at: usize| u64::from_le_bytes(bytes.get(at..at + 8).unwrap().try_into().unwrap());
+    assert!(matches!(u16_at(16), 2 | 3));
+    let machine = match target.arch() {
+        "aarch64" => 183,
+        "x86_64" => 62,
+        other => panic!("unsupported protocol fixture ABI {other}"),
+    };
+    assert_eq!(u16_at(18), machine);
+    let offset = usize::try_from(u64_at(32)).unwrap();
+    assert_eq!(u16_at(54), 56);
+    let count = usize::from(u16_at(56));
+    assert!(count > 0 && count <= 128);
+    let mut interpreter = None;
+    for index in 0..count {
+        let at = offset.checked_add(index * 56).unwrap();
+        assert!(at.checked_add(56).unwrap() <= bytes.len());
+        if u32_at(at) != 3 {
+            continue;
+        }
+        assert!(interpreter.is_none(), "multiple PT_INTERP entries");
+        let start = usize::try_from(u64_at(at + 8)).unwrap();
+        let size = usize::try_from(u64_at(at + 32)).unwrap();
+        assert!(size > 1 && size <= 4096);
+        let raw = bytes.get(start..start.checked_add(size).unwrap()).unwrap();
+        assert_eq!(raw.last(), Some(&0));
+        assert!(!raw[..size - 1].contains(&0));
+        let loader = std::str::from_utf8(&raw[..size - 1]).unwrap();
+        assert!(Path::new(loader).is_absolute());
+        interpreter = Some(loader.to_owned());
+    }
+    let loader = interpreter.expect("native protocol fixture must have a real PT_INTERP");
+    let libc = match target.platform() {
+        RuntimePlatform::LinuxMusl => {
+            assert_eq!(
+                Path::new(&loader).file_name().unwrap(),
+                format!("ld-musl-{}.so.1", target.arch()).as_str()
+            );
+            // The unchanged production probe fills the actual version by
+            // independently reading this ELF and executing its real loader.
+            json!({"family":"musl","version":null,"loader":loader})
+        }
+        RuntimePlatform::LinuxGnu => {
+            #[cfg(all(target_os = "linux", target_env = "gnu"))]
+            {
+                assert!(loader.contains("ld-linux"));
+                let mut raw = [0u8; 128];
+                let used = unsafe {
+                    nix::libc::confstr(
+                        nix::libc::_CS_GNU_LIBC_VERSION,
+                        raw.as_mut_ptr().cast(),
+                        raw.len(),
+                    )
+                };
+                assert!(used > 0 && used <= raw.len());
+                let value = std::ffi::CStr::from_bytes_with_nul(&raw[..used])
+                    .unwrap()
+                    .to_str()
+                    .unwrap();
+                let (major, minor) = value
+                    .strip_prefix("glibc ")
+                    .unwrap()
+                    .split_once('.')
+                    .unwrap();
+                json!({"family":"glibc","major":major.parse::<u32>().unwrap(),"minor":minor.parse::<u32>().unwrap()})
+            }
+            #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+            {
+                panic!("a GNU protocol fixture requires a native GNU test host")
+            }
+        }
+        RuntimePlatform::Macos => unreachable!(),
+    };
+    let platform = json!({"os":"linux","elf":{"class":2,"little_endian":true,
+        "machine":machine,"flags":u32_at(48),"interpreter":loader},"libc":libc,
+        "manylinux":{"state":if target.platform() == RuntimePlatform::LinuxMusl {"unknown"} else {"default"}}});
+    println!("P6_SYNTHETIC_PROTOCOL_SHA256={expected} platform={platform}");
+    (bytes, platform)
+}
 /// Offline fixture archive for one exact version and target. `variant` adds a
 /// distinct member so two instances of one version can hold different digests;
 /// the descriptor fields track the target the way a real probe would report it.
@@ -137,7 +281,7 @@ pub(crate) fn archive_for(version: &str, target: &RuntimeArchiveTarget, variant:
         RuntimePlatform::Macos => "macos",
         RuntimePlatform::LinuxGnu | RuntimePlatform::LinuxMusl => "linux",
     };
-    let descriptor = json!({
+    let mut descriptor = json!({
         "schema":1,"observation_mode":"base_runtime_site_disabled","probe_flags":["-E","-s","-S","-B","-c"],
         "executable":"@ROOT@/bin/python","implementation":"cpython","language_version":tuple,"implementation_version":tuple,
         "implementation_version_source":"sys_implementation_version",
@@ -146,25 +290,47 @@ pub(crate) fn archive_for(version: &str, target: &RuntimeArchiveTarget, variant:
         "compatibility":{"pointer_bits":64,"debug":false,"pymalloc":true,"unicode_size":null,"platform":{"os":compatibility_os,"cpu_type":16777228,"product_version":{"major":14,"minor":5,"micro":0}}},
         "sysconfig_paths":{"stdlib":format!("@ROOT@/lib/python{short}")}
     });
-    // This is a process-protocol fixture, not a real Python distribution.
-    let script = format!(
-        "#!/bin/sh\n[ \"$#\" = 6 ] && [ \"$1\" = -E ] && [ \"$2\" = -s ] && [ \"$3\" = -S ] && [ \"$4\" = -B ] && [ \"$5\" = -c ] || exit 93\nroot=$(CDPATH= cd -P -- \"$(/usr/bin/dirname -- \"$0\")/..\" && /bin/pwd)\nprintf '%s\\n' '{}' | /usr/bin/sed \"s|@ROOT@|$root|g\"\n",
-        descriptor.to_string().replace('\'', "'\"'\"'")
-    );
+    // Keep the original macOS archive bytes unchanged. Linux must be a real
+    // native ELF so production musl PT_INTERP/loader checks remain in force.
+    let (payload, protocol) = if target.platform() == RuntimePlatform::Macos {
+        let script = format!(
+            "#!/bin/sh\n[ \"$#\" = 6 ] && [ \"$1\" = -E ] && [ \"$2\" = -s ] && [ \"$3\" = -S ] && [ \"$4\" = -B ] && [ \"$5\" = -c ] || exit 93\nroot=$(CDPATH= cd -P -- \"$(/usr/bin/dirname -- \"$0\")/..\" && /bin/pwd)\nprintf '%s\\n' '{}' | /usr/bin/sed \"s|@ROOT@|$root|g\"\n",
+            descriptor.to_string().replace('\'', "'\"'\"'")
+        );
+        (script.into_bytes(), None)
+    } else {
+        let (bytes, platform) = linux_protocol_fixture(target);
+        descriptor["compatibility"]["platform"] = platform;
+        let libc = if target.platform() == RuntimePlatform::LinuxMusl {
+            "musl"
+        } else {
+            "gnu"
+        };
+        let soabi = format!(
+            "cpython-{}{}-{}-linux-{libc}",
+            parts[0],
+            parts[1],
+            target.arch()
+        );
+        let suffix = format!(".{soabi}.so");
+        descriptor["soabi"] = json!(soabi);
+        descriptor["ext_suffix"] = json!(suffix);
+        descriptor["extension_suffixes"] = json!([suffix, ".abi3.so", ".so"]);
+        (bytes, Some(serde_json::to_vec(&descriptor).unwrap()))
+    };
     let mut tar = tar::Builder::new(GzEncoder::new(Vec::new(), Compression::default()));
     let stdlib_member = format!("bundle/lib/python{short}/stdlib-marker");
     let mut members: Vec<(String, u32, std::borrow::Cow<'_, [u8]>)> = vec![
-        (
-            "bundle/bin/python".to_string(),
-            0o755,
-            script.into_bytes().into(),
-        ),
+        ("bundle/bin/python".to_string(), 0o755, payload.into()),
         (
             stdlib_member,
             0o644,
             b"fixture standard library marker".as_slice().into(),
         ),
     ];
+    if let Some(protocol) = protocol {
+        members.push(("bundle/.pakro-probe.json".into(), 0o644, protocol.into()));
+    }
     if !variant.is_empty() {
         members.push((
             // Deterministic per-variant bytes distinguish same-version archives.

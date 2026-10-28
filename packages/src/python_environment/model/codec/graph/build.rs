@@ -1,6 +1,7 @@
 //! Catalog allocation bounds apply before source-build fields are retained.
 use super::super::super::source_build::MAX_BUILD_INPUTS;
 use super::*;
+use super::super::read::OptionalText;
 
 fn once<E: serde::de::Error>(
     state: &mut ParseState,
@@ -73,6 +74,7 @@ impl<'de> Visitor<'de> for Build<'_> {
         let mut output_size = None;
         let mut metadata_sha256 = None;
         let mut observation = None;
+        let mut native = None;
         while let Some(key) = map.next_key_seed(Text {
             state: self.0,
             maximum: 32,
@@ -133,6 +135,19 @@ impl<'de> Visitor<'de> for Build<'_> {
                     once(self.0, &mut seen, 512)?;
                     observation = map.next_value_seed(OptionalObservation(self.0))?;
                 }
+                "native" => {
+                    once(self.0, &mut seen, 1024)?;
+                    let raw = map.next_value_seed(OptionalText(Text {
+                        state: self.0,
+                        maximum: MAX_NATIVE_JSON_BYTES,
+                    }))?;
+                    if let Some(raw) = raw {
+                        native = Some(match NativeToolchainRecord::decode_json(&raw) {
+                            Ok(record) => record,
+                            Err(_) => return self.0.fail("invalid native toolchain record"),
+                        });
+                    }
+                }
                 _ => return self.0.fail("unknown source-build field"),
             }
         }
@@ -147,6 +162,7 @@ impl<'de> Visitor<'de> for Build<'_> {
             output_size: self.0.required(output_size)?,
             metadata_sha256: self.0.required(metadata_sha256)?,
             observation,
+            native,
         };
         if value.validate().is_err() {
             return self.0.fail("invalid source-build record");
@@ -423,6 +439,7 @@ mod tests {
             output_size: 100,
             metadata_sha256: [10; 32],
             observation: None,
+            native: None,
         }
     }
     fn decode(raw: &str) -> (bool, Option<&'static str>) {

@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# A complete optional closure must not become a plain root's shared graph.
+[[ $(uname -s) == Darwin && $(uname -m) == arm64 ]] || fail 'this real PBS fixture requires macOS arm64'
+: "${PAKRO_TEST_PYTHON_ARCHIVE:?set the verified original CPython 3.13.16 stripped archive}"
+: "${PAKRO_TEST_PYTHON_SECOND_ARCHIVE:?set the verified original CPython 3.14.9+20261021 archive for the shared fixture handler}"
+export PYTHONDONTWRITEBYTECODE=1
+export NO_PROXY=127.0.0.1,localhost,::1
+export no_proxy="$NO_PROXY"
+unset GITHUB_TOKEN PAKRO_GITHUB_TOKEN
+export PAKRO_OFFLINE=0 PAKRO_AUTO_UPDATE=0 PAKRO_CACHE_PRUNE_AGE=0 PAKRO_REGISTRY_FLOATING=0
+export PAKRO_PYTHON_GITHUB_ATTESTATIONS=0 PAKRO_PYTHON_COMPILE=0
+p3_extras_fixture="$TEST_DIR/p3_project_fixture.py"
+p3_extras_wheels="$TMPDIR/p3-extras-wheels"
+p3_extras_requests="$TMPDIR/p3-extras-requests"
+python3 -B "$TEST_ROOT/cli/p1_exact_python_fixture.py" "$PAKRO_TEST_PYTHON_ARCHIVE"
+python3 -B "$p3_extras_fixture" prepare "$p3_extras_wheels"
+python3 -B "$p3_extras_fixture" verify-second "$PAKRO_TEST_PYTHON_SECOND_ARCHIVE"
+mkdir -p "$p3_extras_requests"
+start_http_server --headers-log "$p3_extras_requests" --handler "$p3_extras_fixture" "$PAKRO_TEST_PYTHON_ARCHIVE" "$p3_extras_wheels" "$PAKRO_TEST_PYTHON_SECOND_ARCHIVE"
+export PAKRO_URL_REPLACEMENTS="{\"https://pypi.org\":\"http://127.0.0.1:$HTTP_PORT\",\"https://github.com\":\"http://127.0.0.1:$HTTP_PORT\",\"https://api.github.com\":\"http://127.0.0.1:$HTTP_PORT\"}"
+export PAKRO_P3_MANAGER_LOG="$TMPDIR/p3-extras-manager-invocations"
+for p3_extras_manager in pip pip3 uv conda mamba micromamba; do
+  cat >"$HOME/bin/$p3_extras_manager" <<'SH'
+#!/bin/sh
+printf '%s\n' "$0" >> "$PAKRO_P3_MANAGER_LOG"
+exit 91
+SH
+  chmod +x "$HOME/bin/$p3_extras_manager"
+done
+p3_extras_workspace="$PWD"
+p3_extras_write() {
+  local version="${3:-3.13.16}"
+  mkdir -p "$1"
+  cat >"$1/pakro.toml" <<TOML
+[tools]
+python = '$version'
+[settings.python]
+precompiled_flavor = 'install_only_stripped'
+github_attestations = false
+compile = false
+[packages.'python@$version']
+p3-extra = $2
+TOML
+}
+p3_extras_request_count() { find "$p3_extras_requests" -name 'request_*.json' -type f | wc -l | tr -d ' '; }
+p3_extras_python_in() {
+  local interpreter
+  interpreter="$(cd "$1" && pakro which python)"
+  PYTHONDONTWRITEBYTECODE=1 "$interpreter" -B -c "$2"
+}
+p3_extras_write a "{version='1.0', extras=['feature']}" 3.13.16+20261013
+p3_extras_write c "{version='1.0', extras=['feature']}"
+p3_extras_write b "'1.0'"
+(cd a && pakro install)
+p3_extras_write a "{version='1.0', extras=['feature']}"
+(cd a && pakro install --update-lock)
+p3_extras_python="$(cd a && pakro which python)"
+p3_extras_probe() { PYTHONDONTWRITEBYTECODE=1 "$p3_extras_python" -B "$p3_extras_fixture" "$@"; }
+p3_extras_probe assert-nodes a/pakro.lock '{"p3-extra":"1.0","p3-feature":"1.0"}'
+[[ $(p3_extras_python_in "$p3_extras_workspace/a" 'import p3_extra,p3_feature; print(p3_feature.VALUE)') == 'p3-feature:1.0' ]] || fail 'A did not receive its requested optional dependency'
+p3_extras_original_pin="$(p3_extras_probe pin a/pakro.lock p3-extra)"
+p3_extras_a_bin="$(cd a && pakro bin-paths python)"
+p3_extras_query_requests="$(p3_extras_request_count)"
+p3_extras_query_catalog="$(cksum <"$PAKRO_DATA_DIR/projects/.control/catalog/projects")"
+p3_extras_query_lock="$(cksum <a/pakro.lock)"
+(cd a && pakro env python@3.13.16+20261013 --json) >"$TMPDIR/p3-explicit-build-env.json"
+(cd a && pakro env python@3.13 --json) >"$TMPDIR/p3-explicit-prefix-env.json"
+[[ $(cd a && pakro bin-paths python@3.13.16+20261013) == "$p3_extras_a_bin" ]] || fail 'equivalent full-build query lost the project extras layout'
+[[ $(cd a && pakro which python --tool=python@3.13.16+20261013) == "$p3_extras_python" ]] || fail 'equivalent full-build query selected a different instance'
+cp a/pakro.toml "$TMPDIR/p3-before-query-edit.toml"
+printf '\n# external declaration edit\n' >>a/pakro.toml
+assert_fail_contains '(cd a && pakro env python@3.13.16+20261013 --json) 2>&1' 'declaration'
+cp "$TMPDIR/p3-before-query-edit.toml" a/pakro.toml
+[[ $(p3_extras_request_count) == "$p3_extras_query_requests" && $(cksum <a/pakro.lock) == "$p3_extras_query_lock" && $(cksum <"$PAKRO_DATA_DIR/projects/.control/catalog/projects") == "$p3_extras_query_catalog" ]] || fail 'equivalent or refused explicit query acquired content or changed committed state'
+printf 'P3_EXPLICIT_EQUIVALENT_RUNTIME_LOCK_QUERY_PASSED full_build=true local_prefix=true changed_intent_refused=true\n'
+
+# Complete equal intent may select and install the already verified layout
+# before its first lock, without a resolver request or project query write.
+p3_extras_no_network="$(p3_extras_request_count)"
+p3_extras_catalog="$PAKRO_DATA_DIR/projects/.control/catalog/projects"
+p3_extras_before_query="$(cksum <"$p3_extras_catalog")"
+(cd c && pakro env --json) >"$TMPDIR/p3-extras-c-env.json"
+[[ $(cd c && pakro bin-paths python) == "$p3_extras_a_bin" ]] || fail 'same complete extras intent did not select A shared layout'
+[[ ! -e c/pakro.lock && $(cksum <"$p3_extras_catalog") == "$p3_extras_before_query" ]] || fail 'same-intent query created a lock or registered C'
+[[ $(p3_extras_request_count) == "$p3_extras_no_network" ]] || fail 'same-intent query acquired registry inputs'
+(cd c && pakro install)
+[[ $(p3_extras_request_count) == "$p3_extras_no_network" ]] || fail 'same-intent first install did not reuse the complete graph without HTTP'
+[[ $(cd c && pakro bin-paths python) == "$p3_extras_a_bin" ]] || fail 'same-intent install created another layout'
+p3_extras_probe assert-nodes c/pakro.lock '{"p3-extra":"1.0","p3-feature":"1.0"}'
+
+# Name/version matches A, but its graph contains an unrequested optional root.
+p3_extras_before_query="$(cksum <"$p3_extras_catalog")"
+assert_fail_matches '(cd b && pakro env --json) 2>&1' 'p3-extra|MissingPackages|missing|Missing'
+[[ ! -e b/pakro.lock && $(cksum <"$p3_extras_catalog") == "$p3_extras_before_query" ]] || fail 'plain-root query reused or committed the feature-enabled graph'
+[[ $(p3_extras_request_count) == "$p3_extras_no_network" ]] || fail 'plain-root missing-layout query accessed the registry'
+(cd b && pakro install)
+p3_extras_probe assert-nodes b/pakro.lock '{"p3-extra":"1.0"}'
+[[ $(p3_extras_probe pin b/pakro.lock p3-extra) == "$p3_extras_original_pin" ]] || fail 'plain graph changed the original exact wheel artifact'
+[[ $(p3_extras_python_in "$p3_extras_workspace/b" 'import p3_extra,importlib.util; assert importlib.util.find_spec("p3_feature") is None; print("plain-root-only")') == 'plain-root-only' ]] || fail 'plain B inherited A optional dependency'
+[[ $(cd b && pakro bin-paths python) != "$p3_extras_a_bin" ]] || fail 'different dependency closures incorrectly share one runtime layout'
+[[ $(p3_extras_python_in "$p3_extras_workspace/a" 'import p3_extra,p3_feature; print(p3_feature.VALUE)') == 'p3-feature:1.0' ]] || fail 'installing plain B changed A extras environment'
+p3_extras_b_lock="$(cksum <b/pakro.lock)"
+p3_extras_c_lock="$(cksum <c/pakro.lock)"
+p3_extras_warm_requests="$(p3_extras_request_count)"
+(cd b && PAKRO_LOCKED=1 pakro install)
+(cd c && PAKRO_LOCKED=1 pakro install)
+[[ $(p3_extras_request_count) == "$p3_extras_warm_requests" ]] || fail 'warm strict extras/plain restore fetched source inputs'
+[[ $(cksum <b/pakro.lock) == "$p3_extras_b_lock" && $(cksum <c/pakro.lock) == "$p3_extras_c_lock" ]] || fail 'warm strict restore rewrote exact roots or artifacts'
+
+# One second cold store proves the newly generated plain lock is replayable.
+# The extra lock then shares its interpreter and restores the optional graph.
+mkdir cold-b cold-c
+cp b/pakro.toml b/pakro.lock cold-b/
+cp c/pakro.toml c/pakro.lock cold-c/
+export PAKRO_DATA_DIR="$TMPDIR/p3-extras-cold-data" PAKRO_CACHE_DIR="$TMPDIR/p3-extras-cold-cache"
+mkdir -p "$PAKRO_DATA_DIR" "$PAKRO_CACHE_DIR"
+(cd cold-b && PAKRO_LOCKED=1 pakro install)
+p3_extras_probe assert-nodes cold-b/pakro.lock '{"p3-extra":"1.0"}'
+[[ $(p3_extras_python_in "$p3_extras_workspace/cold-b" 'import p3_extra,importlib.util; assert importlib.util.find_spec("p3_feature") is None; print("cold-plain-root-only")') == 'cold-plain-root-only' ]] || fail 'cold plain lock replay failed or installed the unrequested optional dependency'
+(cd cold-c && PAKRO_LOCKED=1 pakro install)
+p3_extras_probe assert-nodes cold-c/pakro.lock '{"p3-extra":"1.0","p3-feature":"1.0"}'
+[[ $(p3_extras_python_in "$p3_extras_workspace/cold-c" 'import p3_extra,p3_feature; print(p3_feature.VALUE)') == 'p3-feature:1.0' ]] || fail 'cold exact extras graph did not restore its actual optional dependency'
+[[ $(p3_extras_python_in "$p3_extras_workspace/cold-b" 'import p3_extra,importlib.util; assert importlib.util.find_spec("p3_feature") is None; print("cold-plain-root-only")') == 'cold-plain-root-only' ]] || fail 'restoring the optional graph contaminated plain B'
+[[ $(cksum <cold-b/pakro.lock) == "$p3_extras_b_lock" && $(cksum <cold-c/pakro.lock) == "$p3_extras_c_lock" ]] || fail 'cold restore silently changed an invalid lock instead of replaying it'
+[[ $(find "$PAKRO_DATA_DIR/languages" -mindepth 1 -maxdepth 1 -type d -name 'language-*' | wc -l | tr -d ' ') == 1 ]] || fail 'cold extras/plain projects duplicated the actual interpreter'
+[[ ! -e "$PAKRO_P3_MANAGER_LOG" ]] || fail 'extras closure checks delegated to an external manager'
+printf 'P3_EXTRAS_CLOSURE_PASSED same_intent_http=0 plain_excludes_feature=true a_unchanged=true cold_plain_lock_valid=true cold_extra_lock_valid=true\n'

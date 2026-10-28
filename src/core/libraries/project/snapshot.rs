@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+use std::sync::OnceLock;
+use crate::libraries::language::source::{PythonRuntimeRequest, PythonRuntimeSource};
 
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
@@ -21,9 +23,6 @@ use crate::lockfile::transaction::{
     ReadOnlyFileError, ReadOnlyFileLimits, ReadOnlyFileObservation, ReadOnlyPathObservation,
 };
 use crate::packages::binding::{OwnedPackageRequest, merge_owned_requests};
-use crate::packages::python_project::{
-    BoundPythonProjectFile, PythonProjectFileError, PythonProjectFileLimits,
-};
 use crate::toolset::ToolSource;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -106,10 +105,10 @@ pub(crate) struct ObservedProjectInputs {
     policy: ReadPolicy,
     discovery: DiscoveredConfigInputs,
     files: Vec<ObservedDocument>,
-    python_project: Option<(PathBuf, BoundPythonProjectFile)>,
     missing_auxiliary: Vec<PathBuf>,
     root_owner: Option<ReadOnlyPathObservation>,
     namespace_inputs: Vec<(PathBuf, ReadOnlyPathObservation)>,
+    python_request: OnceLock<Result<Option<PythonRuntimeRequest>, String>>,
 }
 
 struct ObservedDocument {
@@ -134,7 +133,7 @@ pub(crate) fn observe_project(
 ) -> Result<ObservedProjectInputs, ProjectObservationError> {
     validate_path(root)?;
     checkpoint(&policy)?;
-    // A global query has no implicit local project, lock, or pyproject input.
+    // A global query has no implicit local project or lock input.
     if policy.scope == ReadScope::GlobalOnly {
         policy.discovery.local_patterns.clear();
         policy.discovery.ceiling_paths = vec![root.to_path_buf()];
@@ -197,10 +196,10 @@ pub(crate) fn observe_project(
         policy,
         discovery,
         files: Vec::new(),
-        python_project: None,
         missing_auxiliary: Vec::new(),
         root_owner,
         namespace_inputs: Vec::new(),
+        python_request: OnceLock::new(),
     };
     let mut remaining = observed.policy.max_total_bytes - input_bytes;
     for path in observed.discovery.files.clone() {
@@ -256,7 +255,7 @@ pub(crate) fn observe_project(
         let mut auxiliary = if observed.policy.scope == ReadScope::GlobalOnly {
             Vec::new()
         } else {
-            vec![root.join("pyproject.toml"), root.join("pakro.lock")]
+            vec![root.join("pakro.lock")]
         };
         let global_dirs: Vec<_> = observed
             .policy
@@ -285,20 +284,6 @@ pub(crate) fn observe_project(
         for path in auxiliary {
             if !entry_exists(&path)? {
                 observed.missing_auxiliary.push(path);
-            } else if path == root.join("pyproject.toml") {
-                observed.check_file_budget()?;
-                let mut limits = PythonProjectFileLimits::default();
-                limits.document.max_document_bytes = observed.allowed_file_bytes(remaining)?;
-                limits.max_path_bytes = observed.policy.file_limits.max_path_bytes;
-                limits.max_components = observed.policy.file_limits.max_components;
-                limits.max_symlink_hops = observed.policy.file_limits.max_symlink_hops;
-                let owner = BoundPythonProjectFile::open(&path, limits, observed.policy.deadline)
-                    .map_err(|error| match error {
-                    PythonProjectFileError::Observation(error) => file_error(error),
-                    _ => ProjectObservationError::InvalidDocument,
-                })?;
-                remaining -= owner.bytes().len();
-                observed.python_project = Some((path, owner));
             } else {
                 let owner = observed.open_file(&path, &mut remaining)?;
                 observed.files.push(ObservedDocument {
@@ -348,6 +333,67 @@ pub(crate) fn observe_project(
 }
 
 impl ObservedProjectInputs {
+    fn python_backend_name<'a>(&'a self, requested: &'a str) -> &'a str {
+        let name = crate::args::split_bracketed_opts(requested).map_or(requested, |(name, _)| name);
+        self.declarations().filter_map(|(_, declarations)| {
+            let fields = &declarations.unprojected_fields;
+            fields.get("tool_alias").and_then(|section| section.get(name))
+                .or_else(|| fields.get("alias").and_then(|section| section.get(name)))?
+                .get("backend")?.as_str()
+        }).last().unwrap_or(requested)
+    }
+
+    pub(crate) fn python_tool_name(&self, name: &str) -> bool {
+        let backend = self.python_backend_name(name);
+        let base = crate::args::split_bracketed_opts(backend).map_or(backend, |(base, _)| base);
+        matches!(base, "python" | "core:python" | "asdf:python")
+    }
+
+    /// Parse this immutable observation's effective declaration once. The
+    /// result contains no Config/cache/catalog observation and cannot reset
+    /// the calling operation's original project state.
+    pub(crate) fn python_request(&self) -> Result<Option<&PythonRuntimeRequest>, &str> {
+        self.python_request.get_or_init(|| {
+            let unsupported_backend = |name: &str| crate::args::split_bracketed_opts(name).is_some()
+                || crate::args::split_bracketed_opts(self.python_backend_name(name)).is_some();
+            if self.scope() != ReadScope::LocalOnly {
+                let mut versions = Vec::new();
+                for (key, value) in self.environment() {
+                    if let Some(name) = crate::toolset::tool_from_env_var_name(key) && self.python_tool_name(&name) {
+                        if unsupported_backend(&name) { return Err(format!("unsupported Python backend options for {name}")); }
+                        versions.push(value.as_str());
+                    }
+                }
+                versions.dedup();
+                if !versions.is_empty() { return Ok(Some(PythonRuntimeRequest { version: versions.join(" "), source: PythonRuntimeSource::Prebuilt })); }
+            }
+            for (_, declarations) in self.declarations() {
+                let tools = declarations.tools.iter().filter(|tool| self.python_tool_name(&tool.name)).collect::<Vec<_>>();
+                if tools.is_empty() { continue; }
+                let mut source = None;
+                for tool in &tools {
+                    if unsupported_backend(&tool.name) { return Err(format!("unsupported Python backend options for {}", tool.name)); }
+                    if tool.selector != "version" { return Err(format!("unsupported Python selector {} for {}", tool.selector, tool.version)); }
+                    let kind = PythonRuntimeSource::from_options(&tool.options).map_err(|error| error.to_string())?;
+                    if source.is_some_and(|previous| previous != kind) { return Err("conflicting Python runtime sources in the same declaration".into()); }
+                    source = Some(kind);
+                }
+                let version = tools.iter().map(|tool| tool.version.as_str()).collect::<Vec<_>>().join(" ");
+                let source = source.unwrap_or_default();
+                if source == PythonRuntimeSource::Source {
+                    let parts = version.split('.').map(str::parse::<u32>).collect::<std::result::Result<Vec<_>, _>>()
+                        .map_err(|_| "source CPython requires a complete ordinary release version without a PBS build suffix".to_owned())?;
+                    if parts.len() != 3 || parts[0] != 3 || !(11..=15).contains(&parts[1])
+                        || version != format!("{}.{}.{}", parts[0],parts[1],parts[2]) {
+                        return Err("source CPython requires a complete supported ordinary release version".into());
+                    }
+                }
+                return Ok(Some(PythonRuntimeRequest { version, source }));
+            }
+            Ok(None)
+        }).as_ref().map(|request| request.as_ref()).map_err(String::as_str)
+    }
+
     /// Preserve the invocation's frozen discovery, arguments, environment,
     /// budget and deadline while rebinding only the just-recovered lock.
     pub(crate) fn reobserve(&self) -> Result<Self, ProjectObservationError> {
@@ -399,12 +445,6 @@ impl ObservedProjectInputs {
             checkpoint(&self.policy)?;
             document.owner.recheck().map_err(file_error)?;
         }
-        if let Some((_, owner)) = &self.python_project {
-            owner.recheck().map_err(|error| match error {
-                PythonProjectFileError::Observation(error) => file_error(error),
-                _ => ProjectObservationError::StaleInput,
-            })?;
-        }
         for path in &self.missing_auxiliary {
             if Some(path.as_path()) == owned_lock {
                 continue;
@@ -420,12 +460,6 @@ impl ObservedProjectInputs {
             .iter()
             .find(|document| document.path == path)
             .map(|document| document.owner.bytes())
-            .or_else(|| {
-                self.python_project
-                    .as_ref()
-                    .filter(|(candidate, _)| candidate == path)
-                    .map(|(_, owner)| owner.bytes())
-            })
     }
     /// Both an existing auxiliary lock and its observed absence belong to
     /// this snapshot. An arbitrary path does not gain publication authority.
@@ -458,10 +492,6 @@ impl ObservedProjectInputs {
                 .missing_candidates
                 .iter()
                 .any(|candidate| candidate == path)
-            || self
-                .python_project
-                .as_ref()
-                .is_some_and(|(candidate, _)| candidate == path)
     }
     pub(crate) fn document_byte_limit(&self) -> usize {
         self.policy.file_limits.max_bytes
@@ -480,10 +510,7 @@ impl ObservedProjectInputs {
         &self.root
     }
     pub(crate) fn paths(&self) -> impl Iterator<Item = &Path> {
-        self.files
-            .iter()
-            .map(|document| document.path.as_path())
-            .chain(self.python_project.iter().map(|(path, _)| path.as_path()))
+        self.files.iter().map(|document| document.path.as_path())
     }
     pub(crate) fn cli_arguments(&self) -> &[String] {
         &self.policy.cli_arguments
@@ -527,7 +554,7 @@ impl ObservedProjectInputs {
         &self,
     ) -> Result<Vec<OwnedPackageRequest>, ProjectObservationError> {
         self.recheck()?;
-        Ok(merge_owned_requests(
+        merge_owned_requests(
             self.declarations().rev().map(|(path, declarations)| {
                 (
                     ToolSource::PakroToml(path.to_path_buf()),
@@ -536,14 +563,14 @@ impl ObservedProjectInputs {
             }),
             &[],
             &[],
-        ))
-    }
-    pub(crate) fn python_project(&self) -> Option<&BoundPythonProjectFile> {
-        self.python_project.as_ref().map(|(_, owner)| owner)
+        )
+        .map_err(|error| {
+            ProjectObservationError::Configuration(StaticConfigError::InvalidPackages(error))
+        })
     }
     fn check_file_budget(&self) -> Result<(), ProjectObservationError> {
         checkpoint(&self.policy)?;
-        if self.files.len() + usize::from(self.python_project.is_some()) >= self.policy.max_files {
+        if self.files.len() >= self.policy.max_files {
             return Err(ProjectObservationError::ResourceLimit);
         }
         Ok(())

@@ -10,8 +10,9 @@ use eyre::Result;
 use crate::libraries::language::identity::LanguageKey;
 use crate::libraries::project::identity::ProjectIdentity;
 use crate::libraries::project::snapshot::ObservedProjectInputs;
+use crate::libraries::project::state::ExpectedProjectState;
 use crate::programs::query::snapshot::LanguageCandidate;
-use crate::programs::shared::commit::{commit_selection, prepare_selection_commit};
+use crate::programs::shared::commit::{commit_selection, prepare_selection_commit_with_state};
 use crate::programs::shared::context::OperationContext;
 use crate::programs::shared::report::{OperationEffects, OperationReport, OperationState};
 
@@ -21,12 +22,24 @@ pub(crate) enum SelectionSubject {
     Language(LanguageKey),
 }
 
+#[cfg(test)]
 pub(crate) fn apply_directory_selection(
     context: &OperationContext,
     observed: &ObservedProjectInputs,
     candidate: &LanguageCandidate,
 ) -> Result<OperationReport<SelectionSubject>> {
-    let prepared = prepare_selection_commit(context, observed, candidate)?;
+    let identity = ProjectIdentity::from_observation(observed)?;
+    let state = ExpectedProjectState::capture(context, &identity)?;
+    apply_directory_selection_with_state(context, observed, candidate, &state)
+}
+
+pub(crate) fn apply_directory_selection_with_state(
+    context: &OperationContext,
+    observed: &ObservedProjectInputs,
+    candidate: &LanguageCandidate,
+    state: &ExpectedProjectState,
+) -> Result<OperationReport<SelectionSubject>> {
+    let prepared = prepare_selection_commit_with_state(context, observed, candidate, state)?;
     let _receipt = commit_selection(prepared)?;
     let effects = OperationEffects {
         added: Vec::new(),

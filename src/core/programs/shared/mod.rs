@@ -9,4 +9,6 @@ pub(crate) mod exact_version;
 pub(crate) mod lock_transaction;
 pub(crate) mod policy;
 pub(crate) mod python_entry;
+#[cfg(unix)]
+pub(crate) mod python_roots;
 pub(crate) mod report;

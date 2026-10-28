@@ -169,7 +169,12 @@ struct Catalog<'a>(&'a CatalogModel);
 impl Serialize for Catalog<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(Some(5))?;
-        map.serialize_entry("schema", &3_u32)?;
+        let native = self.0.generations.values().any(|record| {
+            record.package_graph().is_some_and(|graph| graph.nodes.iter().any(|node| {
+                node.pin.build.as_ref().is_some_and(|build| build.native.is_some())
+            }))
+        });
+        map.serialize_entry("schema", &if native { 4_u32 } else { 3_u32 })?;
         map.serialize_entry("generations", &Generations(&self.0.generations))?;
         map.serialize_entry("selections", &Selections(&self.0.selections))?;
         map.serialize_entry("transactions", &Transactions(&self.0.transactions))?;

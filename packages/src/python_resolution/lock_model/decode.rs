@@ -66,6 +66,7 @@ enum Key {
     Builds,
     DeclarationFingerprint,
     Observation,
+    Native,
     InitialRequirements,
     InitialInputs,
     DynamicRequirements,
@@ -130,6 +131,7 @@ impl<'de> DeserializeSeed<'de> for KeySeed {
                     "builds" => Key::Builds,
                     "declaration_fingerprint" => Key::DeclarationFingerprint,
                     "observation" => Key::Observation,
+                    "native" => Key::Native,
                     "initial_requirements" => Key::InitialRequirements,
                     "initial_inputs" => Key::InitialInputs,
                     "dynamic_requirements" => Key::DynamicRequirements,
@@ -226,6 +228,7 @@ enum TextMode {
     Name,
     Version,
     Declaration,
+    Native,
 }
 struct TextSeed<'a> {
     ctx: &'a mut Context,
@@ -233,11 +236,21 @@ struct TextSeed<'a> {
 }
 impl TextSeed<'_> {
     fn make<E: de::Error>(&mut self, raw: &str) -> Result<String, E> {
+        if matches!(self.mode, TextMode::Native) {
+            // This is a bounded aggregate JSON record, not a PEP 508 declaration.
+            let maximum = crate::packages::python_environment::model::MAX_NATIVE_JSON_BYTES
+                .min(self.ctx.limits.max_declaration_bytes);
+            self.ctx.checked(count(raw.len(), maximum, LockLimit::FieldBytes))?;
+            let checked = charge(&mut self.ctx.usage.utf8, raw.len(), self.ctx.limits.max_total_utf8_bytes, LockLimit::TotalUtf8Bytes);
+            self.ctx.checked(checked)?;
+            return Ok(raw.to_owned());
+        }
         let field = match self.mode {
             TextMode::Plain(field) => field,
             TextMode::Name => LockField::Project,
             TextMode::Version => LockField::Version,
             TextMode::Declaration => LockField::Declaration,
+            TextMode::Native => LockField::Native,
         };
         let declaration = matches!(self.mode, TextMode::Declaration);
         let checked = text(
@@ -699,7 +712,7 @@ record!(PythonLockModel, f, {
         match key {
             Key::Schema => {
                 let value = f.value::<u64>()?;
-                if !matches!(value, 2 | 3) {
+                if !matches!(value, 2 | 3 | 4) {
                     return Err(f.ctx.fail(LockModelError::UnsupportedSchema));
                 }
                 schema = Some(value);
@@ -712,8 +725,10 @@ record!(PythonLockModel, f, {
         }
     }
     let schema = f.required(schema)?;
+    let native = builds.as_ref().is_some_and(|builds| builds.iter().any(|build| build.1.native.is_some()));
     if (schema == 2 && (builds.is_some() || declaration_fingerprint.is_some()))
-        || (schema == 3 && builds.is_none())
+        || (schema >= 3 && builds.is_none())
+        || ((schema == 4) != native)
     {
         return Err(f.ctx.fail(LockModelError::UnsupportedSchema));
     }

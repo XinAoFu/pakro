@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 source "$TEST_DIR/f3_shared_wheel_helpers.sh"
 f3_setup
+f3_workspace="$PWD"
 f3_declare a z-root
 f3_declare b z-root
 f3_declare dep-only a-dep
@@ -15,7 +16,10 @@ requests_before="$(f3_request_count)"
 [[ -s a/pakro.lock && -s b/pakro.lock ]] || fail "install did not produce the unified exact project locks"
 grep -Fq '[python]' a/pakro.lock || fail 'A lock lacks the exact Python graph'
 grep -Fq '[python]' b/pakro.lock || fail 'B lock lacks the exact Python graph'
+export PYTHONDONTWRITEBYTECODE=0
 eval "$(pakro activate bash)"
+eval "$(pakro hook-env -s bash --force)"
+f3_unselected_path="$PATH"
 cd a
 eval "$(pakro hook-env -s bash --force)"
 a_python="$(command -v python)"
@@ -31,4 +35,87 @@ eval "$(pakro hook-env -s bash --force)"
 assert "python -c 'import a_dep,pth_marker; import importlib.util; assert importlib.util.find_spec(\"z_root\") is None; print(a_dep.VALUE)'" 'shared-dependency'
 [[ $(f3_package_count) == 2 ]] || fail "a common package was copied for another combination"
 [[ ! -d .venv && ! -d .pakro/venvs ]] || fail "install created a project environment copy"
+
+# The CLI reports must describe the actual committed selections, and rejected
+# removal must leave both shared contents and project documents intact.
+mkdir "$f3_workspace/empty"
+f3_readonly_requests="$(f3_request_count)"
+f3_committed_snapshot() {
+  python3 - "$PAKRO_DATA_DIR" "$f3_workspace" <<'PY'
+import hashlib, json, os, stat, sys
+from pathlib import Path
+rows = []
+for label, raw in enumerate(sys.argv[1:]):
+    root = Path(raw)
+    for path in [root] + sorted(root.rglob('*')):
+        info = path.lstat()
+        row = [label, str(path.relative_to(root)), info.st_dev, info.st_ino,
+               info.st_mode, info.st_size, info.st_mtime_ns]
+        if stat.S_ISREG(info.st_mode):
+            row.append(hashlib.sha256(path.read_bytes()).hexdigest())
+        elif stat.S_ISLNK(info.st_mode):
+            row.append(os.readlink(path))
+        rows.append(row)
+print(json.dumps(rows, separators=(',', ':')))
+PY
+}
+f3_committed_before="$(f3_committed_snapshot)"
+pakro project ls >"$TMPDIR/f3-project-ls.txt"
+pakro installs ls --json >"$TMPDIR/f3-inventory.json"
+for f3_project in a b dep-only; do
+  (cd "$f3_workspace/$f3_project" && pakro project status) >"$TMPDIR/f3-status-$f3_project.txt"
+done
+python3 - "$PAKRO_DATA_DIR/projects/.control/catalog/projects" "$TMPDIR" "$f3_workspace" <<'PY'
+import json, sys
+from pathlib import Path
+catalog = json.loads(Path(sys.argv[1]).read_text())
+output, workspace = map(Path, sys.argv[2:])
+generations = {row['allocation']: row for row in catalog['generations']}
+inventory = {row['instance']: row for row in json.loads((output / 'f3-inventory.json').read_text())}
+expected_lines = []
+roots = {str(workspace / name) for name in ('a', 'b', 'dep-only')}
+assert {row['root'] for row in catalog['projects']} == roots, 'catalog lost or invented a project registration'
+for project in catalog['projects']:
+    selections = [row['stamp'] for row in catalog['selections']
+                  if row['key']['project'] == project['project']
+                  and row['key']['group'] == 'default'
+                  and (row['stamp']['language'] or row['stamp']['generation'])]
+    assert len(selections) == 1, 'project has no unique active committed selection'
+    stamp = selections[0]
+    generation = generations[stamp['generation']]
+    languages = [row['digest'].replace('sha256-', 'language-', 1)
+                 for row in generation['inputs'] if row['kind'] == 'language']
+    packages = [row['digest'].replace('sha256-', 'package-', 1)
+                for row in generation['inputs'] if row['kind'] == 'package']
+    assert len(languages) == 1 and packages, 'fixture selection lacks its language or package references'
+    language = languages[0]
+    expected_lines.append(f"{project['project']}  {project['root']}  python={language}  packages={','.join(packages)}  registered")
+    status = (output / f"f3-status-{Path(project['root']).name}.txt").read_text().splitlines()
+    for line in (f"root: {project['root']}",
+                 f"registered: {project['project']} (revision {stamp['revision']})",
+                 f"language: {language}", f"selected packages: {', '.join(packages)}"):
+        assert line in status, f'project status differs from committed catalog: {line}'
+    for instance in [language] + packages:
+        assert instance in inventory, f'committed instance is absent from inventory: {instance}'
+        assert any(user.startswith(project['root'] + ' -> ') for user in inventory[instance]['users']), \
+            f'inventory omitted the committed project user for {instance}'
+assert sorted((output / 'f3-project-ls.txt').read_text().splitlines()) == sorted(expected_lines), \
+    'project ls differs from committed catalog registrations or selections'
+print('Shared project queries agree with committed catalog and inventory users')
+PY
+assert_fail_contains 'pakro uninstall python@3.13.16 2>&1' 'object is still referenced'
+assert_fail_contains 'pakro uninstall --package python@3.13.16+z-root@1.0 2>&1' 'object is still referenced'
+[[ $(f3_committed_snapshot) == "$f3_committed_before" ]] || fail 'queries or referenced removal changed shared contents, catalog, declarations or locks'
+
+# Leaving the project withdraws shell selection while keeping all three
+# persistent registrations and their object protections.
+f3_selected_python="$(command -v python)"
+assert 'printf %s "$PYTHONDONTWRITEBYTECODE"' '1'
+cd "$f3_workspace/empty"
+eval "$(pakro hook-env -s bash --force)"
+[[ "$PATH" == "$f3_unselected_path" ]] || fail 'leaving the project did not restore the original shell PATH'
+[[ $(command -v python || true) != "$f3_selected_python" ]] || fail 'leaving the project retained the shared layout command'
+assert 'printf %s "$PYTHONDONTWRITEBYTECODE"' '0'
+[[ $(f3_committed_snapshot) == "$f3_committed_before" ]] || fail 'leaving the project changed persistent associations or shared contents'
+[[ $(f3_request_count) == "$f3_readonly_requests" ]] || fail 'queries, rejected removal or directory exit acquired source inputs'
 f3_assert_no_manager

@@ -12,6 +12,8 @@ mod caller_deadline;
 mod closed;
 #[path = "tests/diagnostics.rs"]
 mod diagnostics;
+#[path = "tests/preferences.rs"]
+mod preferences;
 #[path = "tests/preflight.rs"]
 mod preflight;
 #[path = "tests/project_fixture.rs"]
@@ -331,6 +333,7 @@ impl Fixture {
                 sdists: Sdists::Include,
                 installed_version: None,
             },
+            preferred_pins: Vec::new(),
             supported: &self.supported,
             environment: environment(),
             root_scope: RegistryRootScope::Environment,

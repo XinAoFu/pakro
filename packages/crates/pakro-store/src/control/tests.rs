@@ -171,6 +171,54 @@ fn r05_compare_swap_rejects_stale_snapshot() {
 }
 
 #[test]
+fn p6_replace_rechecks_changed_bytes_and_inodes_inside_original_scope() {
+    use std::os::unix::fs::MetadataExt;
+    for change in ["bytes", "inode", "namespace"] {
+        let (_temp, path) = fixture();
+        let store = writer(&path);
+        let mut control = store.control(ControlLimits::default()).unwrap();
+        let original = control.replace(ControlNamespace::Catalog, "state", None, b"first").unwrap();
+        let state = path.join(".control/catalog/state");
+        let original_inode = fs::metadata(&state).unwrap().ino();
+        let changed_path = path.clone();
+        super::write::BEFORE_REPLACE_SECOND_CAS.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move || {
+                let state = changed_path.join(".control/catalog/state");
+                if change == "bytes" {
+                    fs::write(&state, b"other")?;
+                    assert_eq!(fs::metadata(&state)?.ino(), original_inode);
+                } else if change == "inode" {
+                    fs::rename(&state, changed_path.join(".control/catalog/original-state"))?;
+                    fs::write(&state, b"first")?;
+                    fs::set_permissions(&state, fs::Permissions::from_mode(0o600))?;
+                    assert_ne!(fs::metadata(&state)?.ino(), original_inode);
+                } else {
+                    fs::rename(changed_path.join(".control/catalog"), changed_path.join(".control/original-catalog"))?;
+                    fs::create_dir(changed_path.join(".control/catalog"))?;
+                    fs::set_permissions(changed_path.join(".control/catalog"), fs::Permissions::from_mode(0o700))?;
+                }
+                Ok(())
+            }));
+        });
+        let error = control.replace(ControlNamespace::Catalog, "state", Some(&original), b"second").unwrap_err();
+        if change == "namespace" {
+            assert!(format!("{error:#}").contains("environment entry identity changed"),
+                "change={change}: {error:#}");
+            fs::remove_dir(path.join(".control/catalog")).unwrap();
+            fs::rename(path.join(".control/original-catalog"), path.join(".control/catalog")).unwrap();
+        } else {
+            assert!(format!("{error:#}").contains("environment control metadata changed since its snapshot"),
+                "change={change}: {error:#}");
+        }
+        assert_eq!(fs::read(&state).unwrap(), if change == "bytes" { b"other" } else { b"first" });
+        assert!(fs::read_dir(path.join(".control/catalog")).unwrap().all(|entry|
+            !entry.unwrap().file_name().as_encoded_bytes().starts_with(b".tmp-")),
+            "change={change}: failed replacement retained its owned temporary file");
+        store.check_binding().unwrap();
+    }
+}
+
+#[test]
 fn f1_recovery_prepared_cas_publishes_the_predeclared_inode() {
     let (_temp, path) = fixture();
     let store = writer(&path);

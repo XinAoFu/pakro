@@ -300,7 +300,7 @@ async fn p2_package_lock_commit_reaches_catalog_with_recursive_source_build_inpu
 
 #[tokio::test]
 async fn p2_post_document_declaration_edits_stop_catalog_commit_and_survive_recovery() {
-    for filename in ["pakro.toml", "pyproject.toml"] {
+    for filename in ["pakro.toml"] {
         let owner = tempfile::tempdir().unwrap();
         let root = owner.path().canonicalize().unwrap();
         let fixture = package_fixture(&root, false).await;
@@ -351,6 +351,47 @@ async fn p2_post_document_declaration_edits_stop_catalog_commit_and_survive_reco
             b"user content stays\n"
         );
     }
+}
+
+#[tokio::test]
+async fn p3_ignored_user_file_edit_after_lock_publication_does_not_revoke_commit() {
+    let owner = tempfile::tempdir().unwrap();
+    let root = owner.path().canonicalize().unwrap();
+    let fixture = package_fixture(&root, false).await;
+    let pyproject = fixture.project.join("pyproject.toml");
+    let requirements = fixture.project.join("requirements.txt");
+    let edit_pyproject = pyproject.clone();
+    let edit_requirements = requirements.clone();
+    let receipt = lock_transaction::with_commit_test_hook(
+        move |stage| {
+            if stage == "documents-applied" {
+                std::fs::write(&edit_pyproject, b"invalid TOML is not a Pakro input\n").unwrap();
+                std::fs::write(&edit_requirements, b"unobserved==999\n").unwrap();
+            }
+        },
+        || commit_fixture(&fixture),
+    )
+    .unwrap();
+    assert_eq!(receipt.revision(), 1);
+    assert_eq!(
+        std::fs::read(&pyproject).unwrap(),
+        b"invalid TOML is not a Pakro input\n"
+    );
+    assert_eq!(std::fs::read(&requirements).unwrap(), b"unobserved==999\n");
+    assert_eq!(
+        std::fs::read(fixture.project.join("pakro.lock")).unwrap(),
+        fixture.document
+    );
+    lock_transaction::ensure_project_consistent(&fixture.context, &observe(&fixture.project))
+        .unwrap();
+    assert_eq!(
+        ProjectRepository::open_readonly(&fixture.context)
+            .unwrap()
+            .model()
+            .registered_projects()
+            .count(),
+        1
+    );
 }
 
 #[tokio::test]

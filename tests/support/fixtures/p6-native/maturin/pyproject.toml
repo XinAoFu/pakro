@@ -1,0 +1,11 @@
+[build-system]
+requires = ["maturin==1.8.6"]
+build-backend = "maturin"
+
+[project]
+name = "p6-maturin-native"
+version = "1.0.0"
+
+[tool.maturin]
+bindings = "pyo3"
+module-name = "p6_rust_demo"

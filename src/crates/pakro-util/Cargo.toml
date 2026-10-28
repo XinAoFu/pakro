@@ -151,6 +151,9 @@ mockito = "1"
 insta = { version = "1", features = ["filters", "json"] }
 pretty_assertions = "1"
 
+[build-dependencies]
+cc = "=1.6.0"
+
 [features]
 default = ["native-tls"]
 native-tls = [

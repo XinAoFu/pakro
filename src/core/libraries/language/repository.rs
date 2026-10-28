@@ -55,6 +55,9 @@ impl LanguageInstallSpec {
     pub(crate) fn key(&self) -> LanguageKey {
         self.key
     }
+    pub(crate) fn source_kind(&self) -> super::source::PythonRuntimeSource {
+        if self.plan.source_build().is_some() { super::source::PythonRuntimeSource::Source } else { super::source::PythonRuntimeSource::Prebuilt }
+    }
 }
 
 pub(crate) struct LanguageRepository {
@@ -95,6 +98,14 @@ impl PublishedLanguage {
     pub(crate) fn spec(&self) -> &LanguageInstallSpec {
         &self.spec
     }
+    /// Validate the stored descriptor's target facts. This is a description,
+    /// not a Ready check, content receipt or object lease.
+    pub(crate) fn recorded_target(
+        &self,
+    ) -> Result<crate::packages::python_resolution::source::locked_graph::FrozenRegistryTarget>
+    {
+        super::publication::validate_manifest(&self.spec, &self.manifest)
+    }
     pub(crate) fn payload_root(&self) -> &Path {
         &self.payload_root
     }
@@ -107,6 +118,7 @@ impl PublishedLanguage {
     /// The distribution build date parsed from the stored archive filename,
     /// e.g. `20261013` for `cpython-3.13.16+20261013-...`.
     pub(crate) fn build(&self) -> Option<&str> {
+        if self.manifest.source_build.is_some() { return None; }
         self.manifest
             .filename
             .rsplit_once(".tar.gz")
@@ -115,6 +127,17 @@ impl PublishedLanguage {
             .map(|(_, build)| build)
             .and_then(|build| build.split_once('-'))
             .map(|(build, _)| build)
+    }
+    pub(crate) fn source_kind(&self) -> super::source::PythonRuntimeSource { self.spec.source_kind() }
+    pub(crate) fn matches_source_pin(
+        &self,
+        request: &str,
+        pin: &crate::lockfile::PlatformInfo,
+        settings: &crate::config::Settings,
+    ) -> Result<bool> {
+        super::lease::matches_source_pin_facts(
+            &self.spec, self.manifest.source_build.as_ref(), request, pin, settings,
+        )
     }
     pub(crate) fn platform_system(&self) -> &str {
         &self.manifest.descriptor.markers.platform_system
@@ -181,6 +204,13 @@ impl LanguageRepository {
     pub(crate) fn spec_from_manifest(
         manifest: &super::manifest::LanguageManifest,
     ) -> Result<LanguageInstallSpec> {
+        if manifest.schema == 2 {
+            let input = manifest.source_build.as_ref().context("source language manifest is missing its build result")?.input()?;
+            let spec = LanguageInstallSpec::from_plan(&RuntimeInstallPlan::from_source(&input)?, false)?;
+            ensure!(spec.key().fingerprint() == manifest.key, "source language manifest disagrees with its build identity");
+            return Ok(spec);
+        }
+        ensure!(manifest.schema == 1 && manifest.source_build.is_none(), "unsupported language manifest source/schema");
         let Some((version, _build, target, flavor)) =
             crate::plugins::core::python::native::pbs_filename(&manifest.filename)?
         else {
@@ -263,6 +293,23 @@ impl LanguageRepository {
     /// Re-acquires the real lease of one published key by rebuilding its spec
     /// from the stored manifest, then walking the full acquire validation.
     pub(crate) fn acquire_by_key(&self, key: &LanguageKey) -> Result<Option<LanguageLease>> {
+        self.acquire_by_key_verified(key, true)
+    }
+
+    /// Same acquisition, but the Ready manifest and physical binding without a
+    /// re-hash of the published tree. Only read-only queries use this.
+    pub(crate) fn acquire_by_key_for_query(
+        &self,
+        key: &LanguageKey,
+    ) -> Result<Option<LanguageLease>> {
+        self.acquire_by_key_verified(key, false)
+    }
+
+    pub(crate) fn acquire_by_key_verified(
+        &self,
+        key: &LanguageKey,
+        full_inventory: bool,
+    ) -> Result<Option<LanguageLease>> {
         self.context.checkpoint()?;
         let Some(read) = ReadStore::open_readonly(
             &self.path,
@@ -284,12 +331,20 @@ impl LanguageRepository {
             "stored language manifest disagrees with the requested key"
         );
         let spec = Self::spec_from_manifest(&manifest)?;
-        self.acquire_existing(&spec)
+        self.acquire_existing_verified(&spec, full_inventory)
     }
 
     pub(crate) fn acquire_existing(
         &self,
         spec: &LanguageInstallSpec,
+    ) -> Result<Option<LanguageLease>> {
+        self.acquire_existing_verified(spec, true)
+    }
+
+    fn acquire_existing_verified(
+        &self,
+        spec: &LanguageInstallSpec,
+        full_inventory: bool,
     ) -> Result<Option<LanguageLease>> {
         self.context.checkpoint()?;
         let Some(read) = ReadStore::open_readonly(
@@ -425,7 +480,11 @@ impl LanguageRepository {
                 target,
             }),
         };
-        lease.check_binding()?;
+        if full_inventory {
+            lease.check_binding()?;
+        } else {
+            lease.inner.check_metadata()?;
+        }
         Ok(Some(lease))
     }
     pub(crate) fn reserve_install(
@@ -450,6 +509,15 @@ impl LanguageRepository {
         // for the object EX; established missing locks are never recreated.
         let lock = {
             let mut control = writer.control(ControlLimits::default())?;
+            ensure!(
+                control
+                    .read(
+                        ControlNamespace::Journals,
+                        &format!("deleting-{}.json", key)
+                    )?
+                    .is_none(),
+                "PendingRecovery: language has an unfinished deletion"
+            );
             let registration =
                 control.read(ControlNamespace::Ownership, &registration_name(spec))?;
             match registration {
@@ -513,6 +581,15 @@ impl LanguageRepository {
         let existing = control
             .read(ControlNamespace::Catalog, &manifest_name(spec))?
             .is_some();
+        ensure!(
+            control
+                .read(
+                    ControlNamespace::Journals,
+                    &format!("deleting-{}.json", key)
+                )?
+                .is_none(),
+            "PendingRecovery: language has an unfinished deletion"
+        );
         drop(control);
         if existing {
             drop(held);
@@ -542,6 +619,7 @@ impl LanguageRepository {
         root.sync_all()?;
         allocation.sync_all()?;
         let owner = LanguageBuildOwner {
+            native_cleanup: Default::default(),
             context: self.context.clone(),
             writer: writer.clone(),
             spec: spec.clone(),
@@ -615,6 +693,7 @@ struct WrittenFile {
 }
 
 pub(crate) struct LanguageBuildOwner {
+    native_cleanup: pakro_util::native_build::NativeWorkspaceOwnership,
     pub(super) context: OperationContext,
     pub(super) writer: Arc<StoreWriter>,
     pub(super) spec: LanguageInstallSpec,
@@ -634,6 +713,7 @@ pub(crate) struct LanguageBuildOwner {
     pub(super) retain_allocation: Cell<bool>,
 }
 impl LanguageBuildOwner {
+    pub(crate) fn native_cleanup_owner(&self) -> pakro_util::native_build::NativeWorkspaceOwnership { self.native_cleanup.clone() }
     pub(crate) fn final_path(&self) -> &Path {
         &self.path
     }
@@ -1285,7 +1365,7 @@ impl LanguageBuildOwner {
 }
 impl Drop for LanguageBuildOwner {
     fn drop(&mut self) {
-        if !self.retain_allocation.get() {
+        if !self.retain_allocation.get() && !self.native_cleanup.is_delegated() {
             let _ = self.discard_unpublished();
         }
     }

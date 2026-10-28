@@ -206,3 +206,70 @@ fn s2_source_build_normalizes_the_generated_wheel_distribution_name() {
     let node: PackageGraphNode = serde_json::from_value(wire).unwrap();
     node.content_pin().unwrap();
 }
+
+#[test]
+fn p6_native_catalog_roundtrip_requires_schema4_and_preserves_typed_receipt() {
+    let mut graph = built_graph();
+    let build = graph.nodes[0].pin.build.as_mut().unwrap();
+    build.recipe = 2;
+    build.native = Some(NativeToolchainRecord::test_record());
+    let record = GenerationRecord::new_shared(
+        &allocation(702), [3; 32], graph.fingerprint().unwrap(), [5; 32], [6; 32],
+        vec![reference(InputKind::Language, 20), reference(InputKind::Package, 21)],
+        ModelLimits::default(),
+    ).unwrap().with_package_graph(graph.clone(), ModelLimits::default()).unwrap();
+    let mut state = model();
+    state.register_shared_generation(record).unwrap();
+    let bytes = state.encode_catalog(CatalogCodecLimits::default()).unwrap();
+    let decoded = CatalogModel::decode_catalog(&bytes, CatalogCodecLimits::default()).unwrap();
+    assert_eq!(decoded.generation(&allocation(702)).unwrap().package_graph(), Some(&graph));
+    assert_eq!(decoded.encode_catalog(CatalogCodecLimits::default()).unwrap(), bytes);
+    let mut wire: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(wire["schema"], 4);
+    assert!(wire["generations"][0]["package_graph"]["nodes"][0]["pin"]["build"]["native"].is_string());
+    for schema in [2, 3] {
+        wire["schema"] = serde_json::json!(schema);
+        assert!(CatalogModel::decode_catalog(&serde_json::to_vec(&wire).unwrap(), CatalogCodecLimits::default()).is_err());
+    }
+    wire["schema"] = serde_json::json!(4);
+    let native = &mut wire["generations"][0]["package_graph"]["nodes"][0]["pin"]["build"]["native"];
+    let changed = native.as_str().unwrap().replacen("\"schema\":1", "\"schema\":1,\"unknown\":true", 1);
+    *native = serde_json::json!(changed);
+    assert!(CatalogModel::decode_catalog(&serde_json::to_vec(&wire).unwrap(), CatalogCodecLimits::default()).is_err());
+}
+
+#[test]
+fn p6_recipe1_receipt_keeps_original_serialization_and_fingerprint() {
+    #[derive(serde::Serialize)]
+    struct Legacy<'a> {
+        source_digest: &'a str,
+        request_id: [u8; 32],
+        recipe: u32,
+        backend: &'a str,
+        inputs: &'a [SourceBuildInput],
+        output_filename: &'a str,
+        output_digest: &'a str,
+        output_size: u64,
+        metadata_sha256: [u8; 32],
+        #[serde(skip_serializing_if = "Option::is_none")]
+        observation: &'a Option<SourceBuildObservation>,
+    }
+    let graph = built_graph();
+    let mut record = graph.nodes[0].pin.build.clone().unwrap();
+    let expected = record.fingerprint().unwrap();
+    record.normalize();
+    let legacy = Legacy {
+        source_digest: &record.source_digest, request_id: record.request_id, recipe: record.recipe,
+        backend: &record.backend, inputs: &record.inputs, output_filename: &record.output_filename,
+        output_digest: &record.output_digest, output_size: record.output_size,
+        metadata_sha256: record.metadata_sha256, observation: &record.observation,
+    };
+    let old_bytes = serde_json::to_vec(&legacy).unwrap();
+    assert_eq!(serde_json::to_vec(&record).unwrap(), old_bytes);
+    use sha2::{Digest as _, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(b"pakro.source-build-record/v1\0");
+    hash.update(old_bytes);
+    let old_fingerprint: [u8; 32] = hash.finalize().into();
+    assert_eq!(expected, old_fingerprint);
+}

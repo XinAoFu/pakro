@@ -28,6 +28,277 @@ async fn fixture() -> (tempfile::TempDir, OperationContext, LanguageLease) {
     (owner, context, language)
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn p6_fresh_layout_admits_language_once_and_preserves_held_binding_checks() {
+    use super::acquire_layout_with_held_inputs;
+    use crate::libraries::language::lease::full_inventory_checks as language_walks;
+    let (_owner, context, language) = fixture().await;
+    let input = wheel(&context, &language, "p6freshguard", [211; 32], vec![],
+        vec![("p6freshguard/__init__.py", b"VALUE=42\n")], None);
+    let created = prepare_layout(&context, &language, [212; 32], vec![input]).unwrap();
+    let key = created.key(); drop(created);
+
+    // Setup may use spawn_blocking. Only the following synchronous acquire
+    // and checks on this current thread belong to these exact count deltas.
+    let before = language_walks();
+    let layout = acquire_layout(&context, key).unwrap().unwrap();
+    assert_eq!(language_walks(), before + 1,
+        "fresh layout acquisition must fully verify Python once without walking the same admitted tree again");
+    assert!(!std::ptr::eq(layout.language_lease().root(), language.root()),
+        "this must exercise fresh acquisition, not only a supplied held input");
+    layout.language_lease().check_held_binding().unwrap();
+    layout.language_lease().check_held_binding().unwrap();
+    assert_eq!(language_walks(), before + 1);
+
+    let manifest = context.requested_data_root().join("languages/.control/catalog")
+        .join(format!("{}.json", language.key().filename()));
+    let original = fs::read(&manifest).unwrap();
+    let inode = fs::metadata(&manifest).unwrap().ino();
+    let mut changed = original.clone(); changed.push(b' '); fs::write(&manifest, changed).unwrap();
+    assert_eq!(fs::metadata(&manifest).unwrap().ino(), inode);
+    assert!(layout.language_lease().check_held_binding().is_err(),
+        "internal reuse must still reject manifest-byte changes on the original inode");
+    assert_eq!(language_walks(), before + 1);
+    fs::write(&manifest, original).unwrap();
+    layout.language_lease().check_held_binding().unwrap();
+
+    fs::write(language.root().join("lib/python3.15/stdlib-marker"), b"changed").unwrap();
+    let before = language_walks();
+    assert!(acquire_layout(&context, key).is_err(), "fresh entry must still reject changed Python contents");
+    assert_eq!(language_walks(), before + 1);
+    let before = language_walks();
+    assert!(acquire_layout_with_held_inputs(&context, key, &language, &[]).is_err(),
+        "a supplied held capability must retain its complete entry verification");
+    assert_eq!(language_walks(), before + 1);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn p3_layout_handoff_reuses_members_without_reacquiring_and_still_verifies_contents() {
+    use super::acquire_layout_with_held_inputs;
+    use crate::libraries::package::layouts::prepare_layout_with_sources;
+    use crate::packages::python_resolution::source::registry_depot::closed::SharedRegistryPackageSource;
+    let (_owner, context, language) = fixture().await;
+    let first = package(
+        &context,
+        &language,
+        "handoffalpha",
+        [87; 32],
+        b"alpha bytes",
+    );
+    let second = package(&context, &language, "handoffbeta", [88; 32], b"beta bytes");
+    let sources = || {
+        vec![
+            (
+                first.manifest().facts.clone(),
+                SharedRegistryPackageSource::Existing(first.clone()),
+            ),
+            (
+                second.manifest().facts.clone(),
+                SharedRegistryPackageSource::Existing(second.clone()),
+            ),
+        ]
+    };
+    let created = prepare_layout_with_sources(&context, &language, [89; 32], sources()).unwrap();
+    let warm = prepare_layout_with_sources(&context, &language, [89; 32], sources()).unwrap();
+    for layout in [&created, &warm] {
+        assert!(
+            std::ptr::eq(layout.language_lease().root(), language.root()),
+            "the actual held language owner must be shared"
+        );
+        for source in [&first, &second] {
+            let member = layout
+                .packages()
+                .iter()
+                .find(|package| package.manifest().key() == source.manifest().key())
+                .unwrap();
+            assert!(
+                std::sync::Arc::ptr_eq(&member.protection, &source.protection),
+                "the actual held package protection must be shared"
+            );
+        }
+        layout.check_binding().unwrap();
+    }
+    let before = full_inventory_checks(first.manifest().key());
+    let partial = acquire_layout_with_held_inputs(
+        &context,
+        created.key(),
+        &language,
+        std::slice::from_ref(&first),
+    )
+    .unwrap()
+    .unwrap();
+    assert!(std::sync::Arc::ptr_eq(
+        &partial.packages()[0].protection,
+        &first.protection
+    ));
+    assert_eq!(
+        partial.packages().len(),
+        2,
+        "unsupplied manifest members must still acquire real leases"
+    );
+    assert!(
+        full_inventory_checks(first.manifest().key()) > before,
+        "sharing a protection cannot skip full content verification"
+    );
+    let next_context = operation_context(
+        context.requested_data_root().parent().unwrap(),
+        true,
+        Duration::from_secs(120),
+    );
+    assert!(!next_context.same_invocation(&context));
+    acquire_layout_with_held_inputs(
+        &next_context,
+        created.key(),
+        &language,
+        &[first.clone(), second.clone()],
+    )
+    .unwrap()
+    .unwrap()
+    .check_binding()
+    .unwrap();
+    let mut derived_facts = first.manifest().facts.clone();
+    derived_facts.key = [94; 32];
+    derived_facts.dependencies = vec![second.manifest().key()];
+    let derived_sources = || {
+        vec![
+            (
+                derived_facts.clone(),
+                SharedRegistryPackageSource::Existing(first.clone()),
+            ),
+            (
+                second.manifest().facts.clone(),
+                SharedRegistryPackageSource::Existing(second.clone()),
+            ),
+        ]
+    };
+    prepare_layout_with_sources(&context, &language, [95; 32], derived_sources()).unwrap();
+    let derived_warm =
+        prepare_layout_with_sources(&context, &language, [95; 32], derived_sources()).unwrap();
+    assert!(
+        derived_warm
+            .packages()
+            .iter()
+            .any(|package| package.manifest().key() == [94; 32])
+    );
+    assert!(
+        !derived_warm
+            .packages()
+            .iter()
+            .any(|package| package.manifest().key() == first.manifest().key()),
+        "an old protected source is not a member of an already published derived layout"
+    );
+    derived_warm.check_binding().unwrap();
+    fs::write(
+        first.site_packages().join("handoffalpha.bin"),
+        b"corrupt same-key bytes",
+    )
+    .unwrap();
+    let error = match acquire_layout_with_held_inputs(
+        &context,
+        created.key(),
+        &language,
+        &[first.clone(), second.clone()],
+    ) {
+        Ok(_) => panic!("damaged held package bytes must not produce a usable layout"),
+        Err(error) => error,
+    };
+    assert!(
+        error
+            .chain()
+            .any(|cause| cause.to_string() == "published package inventory changed"),
+        "handoff damage must reach the full inventory verifier, not an unrelated resource error: {error:#}"
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn p3_layout_handoff_rejects_same_key_members_from_another_library() {
+    use super::acquire_layout_with_held_inputs;
+    use crate::libraries::package::layouts::prepare_layout_with_sources;
+    use crate::packages::python_resolution::source::registry_depot::closed::SharedRegistryPackageSource;
+    let (_owner, context, language) = fixture().await;
+    let (_foreign_owner, foreign_context, foreign_language) = fixture().await;
+    assert_eq!(language.key(), foreign_language.key());
+    let first = package(&context, &language, "handoffcross", [91; 32], b"same bytes");
+    let foreign = package(
+        &foreign_context,
+        &foreign_language,
+        "handoffcross",
+        [91; 32],
+        b"same bytes",
+    );
+    assert_eq!(first.manifest().facts, foreign.manifest().facts);
+    let layout = prepare_layout_with_sources(
+        &context,
+        &language,
+        [92; 32],
+        vec![(
+            first.manifest().facts.clone(),
+            SharedRegistryPackageSource::Existing(first.clone()),
+        )],
+    )
+    .unwrap();
+    let before = fs::read(
+        manifest::store_path(&context)
+            .join(".control/catalog")
+            .join(manifest::layout_name(&layout.key())),
+    )
+    .unwrap();
+    let wrong_language = match acquire_layout_with_held_inputs(
+        &context,
+        layout.key(),
+        &foreign_language,
+        std::slice::from_ref(&first),
+    ) {
+        Ok(_) => panic!("a foreign same-key language cannot authorize this layout"),
+        Err(error) => error,
+    };
+    assert!(
+        wrong_language
+            .chain()
+            .any(|cause| cause.to_string()
+                == "held language belongs to another operation library root"),
+        "wrong library language must be rejected by membership, not an unrelated resource error: {wrong_language:#}"
+    );
+    let wrong_package = match acquire_layout_with_held_inputs(
+        &context,
+        layout.key(),
+        &language,
+        std::slice::from_ref(&foreign),
+    ) {
+        Ok(_) => panic!("a foreign same-key package cannot become this layout's member"),
+        Err(error) => error,
+    };
+    assert!(
+        wrong_package.chain().any(|cause| cause.to_string()
+            == "held package does not belong to this operation's library context"),
+        "wrong library package must be rejected by membership, not an unrelated resource error: {wrong_package:#}"
+    );
+    assert!(
+        prepare_layout_with_sources(
+            &context,
+            &language,
+            [93; 32],
+            vec![(
+                foreign.manifest().facts.clone(),
+                SharedRegistryPackageSource::Existing(foreign.clone())
+            ),]
+        )
+        .is_err(),
+        "a missing layout cannot admit a foreign protected member"
+    );
+    assert_eq!(
+        fs::read(
+            manifest::store_path(&context)
+                .join(".control/catalog")
+                .join(manifest::layout_name(&layout.key()))
+        )
+        .unwrap(),
+        before
+    );
+    first.check_binding().unwrap();
+    foreign.check_binding().unwrap();
+}
+
 fn package(
     context: &OperationContext,
     language: &LanguageLease,
@@ -64,6 +335,42 @@ fn measured_check(package: &PackageLease) -> usize {
         "the complete observer must remain surrounded by store binding checks"
     );
     store_walks
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn p3_inventory_file_capability_accepts_0644_metadata_and_rejects_unowned_paths() {
+    use std::io::Read;
+    use std::path::Path;
+    let (_owner, context, language) = fixture().await;
+    let source = package(
+        &context,
+        &language,
+        "inventorycap",
+        [81; 32],
+        b"original bytes",
+    );
+    source.check_binding().unwrap();
+    let path = Path::new("site-packages/inventorycap-1.0.dist-info/METADATA");
+    let mut file = source.open_inventory_file(path).unwrap();
+    assert_eq!(file.metadata().unwrap().mode() & 0o7777, 0o644);
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).unwrap();
+    assert!(bytes.starts_with(b"Metadata-Version: 2.4\nName: inventorycap\n"));
+    assert_eq!(source.read_wheel_metadata(1024).unwrap(), bytes);
+    for invalid in [
+        "",
+        "/etc/passwd",
+        "../outside",
+        "site-packages/../outside",
+        "site-packages",
+        "site-packages/unlisted.py",
+    ] {
+        assert!(
+            source.open_inventory_file(Path::new(invalid)).is_err(),
+            "opened {invalid:?}"
+        );
+    }
+    source.check_binding().unwrap();
 }
 
 #[tokio::test(flavor = "current_thread")]

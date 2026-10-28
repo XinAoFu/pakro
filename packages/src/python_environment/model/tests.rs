@@ -31,6 +31,72 @@ fn model() -> CatalogModel {
 }
 
 #[test]
+fn p3_unregister_keeps_clear_stamps_history_and_other_projects() {
+    let mut state = model();
+    let first = key(1, "default");
+    let auxiliary = key(1, "auxiliary");
+    let second = key(2, "default");
+    let language = Digest::Sha256([7; 32]).to_string();
+    for (id, root) in [(1, "/gone/project-a"), (2, "/project-b")] {
+        state
+            .register_project(Uuid::from_u128(id), root, &"a".repeat(64))
+            .unwrap();
+    }
+    for (index, owner) in [&first, &auxiliary, &second].into_iter().enumerate() {
+        state
+            .apply_language_selection(
+                owner,
+                &state.snapshot(owner),
+                &language,
+                Uuid::from_u128(100 + index as u128),
+            )
+            .unwrap();
+    }
+    assert!(state.unregister_project(first.project()).is_err());
+    assert!(state.project_registration(first.project()).is_some());
+    let second_before = state.snapshot(&second);
+    let first_before = state.snapshot(&first);
+    for (index, owner) in [&first, &auxiliary].into_iter().enumerate() {
+        state
+            .apply_selection(
+                owner,
+                &state.snapshot(owner),
+                None,
+                Uuid::from_u128(200 + index as u128),
+            )
+            .unwrap();
+    }
+    assert!(state.unregister_project(first.project()).unwrap());
+    assert!(!state.unregister_project(first.project()).unwrap());
+    assert_eq!(state.snapshot(&first).revision(), 2);
+    assert_eq!(state.snapshot(&second), second_before);
+    assert!(state.applied_transaction(Uuid::from_u128(100)).is_some());
+    assert!(
+        state
+            .apply_language_selection(&first, &first_before, &language, Uuid::from_u128(999))
+            .is_err()
+    );
+    let encoded = state.encode_catalog(CatalogCodecLimits::default()).unwrap();
+    let mut decoded =
+        CatalogModel::decode_catalog(&encoded, CatalogCodecLimits::default()).unwrap();
+    assert!(decoded.project_registration(first.project()).is_none());
+    assert_eq!(decoded.snapshot(&first), state.snapshot(&first));
+    assert_eq!(decoded.snapshot(&second), second_before);
+    decoded
+        .register_project(first.project(), "/gone/project-a", &"b".repeat(64))
+        .unwrap();
+    decoded
+        .apply_language_selection(
+            &first,
+            &decoded.snapshot(&first),
+            &language,
+            Uuid::from_u128(300),
+        )
+        .unwrap();
+    assert_eq!(decoded.snapshot(&first).revision(), 3);
+}
+
+#[test]
 fn applied_transaction_lookup_preserves_a_commit_after_later_selection_changes() {
     let mut model = model();
     let owner = key(1, "main");

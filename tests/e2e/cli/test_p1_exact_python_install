@@ -23,15 +23,23 @@ precompiled_flavor = "install_only_stripped"
 github_attestations = false
 compile = false
 TOML
-printf 'lockfile_version = 3\n' >pakro.lock
+cat >pakro.lock <<'TOML'
+# Preserve unrelated native lock content during first project installation.
+lockfile_version = 3
+[future]
+value = 'preserved'
+TOML
 p1_config_before="$(cksum pakro.toml)"
-p1_lock_before="$(cksum pakro.lock)"
 for library in languages packages projects; do
   [[ ! -e "$PAKRO_DATA_DIR/$library" ]] || fail "cold fixture unexpectedly already has $library"
 done
 [[ ! -e "$PAKRO_CACHE_DIR/python/native-v1" ]] || fail 'cold fixture already has native acquisition cache'
 assert_succeed 'pakro install python 3.13.16+20261013'
-[[ $(cksum pakro.toml) == "$p1_config_before" && $(cksum pakro.lock) == "$p1_lock_before" ]] || fail 'explicit install changed the project declaration or lock'
+[[ $(cksum pakro.toml) == "$p1_config_before" ]] || fail 'explicit install changed the project declaration'
+grep -Fxq '[python]' pakro.lock || fail 'first project install did not generate the precise Python lock'
+grep -Fq '# Preserve unrelated native lock content during first project installation.' pakro.lock || fail 'first project install removed native lock comments'
+grep -Fq "value = 'preserved'" pakro.lock || fail 'first project install removed unrelated native lock fields'
+p1_lock_before="$(cksum pakro.lock)"
 [[ ! -e "$PAKRO_DATA_DIR/installs/python" ]] || fail 'explicit install used the legacy Python directory'
 
 python3 - "$p1_requests" "$PAKRO_DATA_DIR" <<'PY'

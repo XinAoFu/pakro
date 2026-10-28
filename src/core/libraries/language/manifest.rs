@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub(super) struct DiskIdentity {
+pub(in crate::libraries) struct DiskIdentity {
     pub device: u64,
     pub inode: u64,
 }
@@ -35,7 +35,7 @@ impl DiskIdentity {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct LanguageManifest {
+pub(in crate::libraries) struct LanguageManifest {
     pub schema: u32,
     pub key: [u8; 32],
     pub target: [u8; 32],
@@ -43,6 +43,10 @@ pub(super) struct LanguageManifest {
     pub filename: String,
     pub source: String,
     pub patch_sysconfig: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_build: Option<super::source::SourcePythonBuildRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_layout: Option<super::source::SourcePythonLayout>,
     pub lock: DiskIdentity,
     pub allocation: DiskIdentity,
     pub payload: DiskIdentity,
@@ -51,9 +55,31 @@ pub(super) struct LanguageManifest {
     pub descriptor: PythonRuntimeDescriptor,
 }
 
+/// Validate complete published facts without acquiring a lease or walking the
+/// payload. A protected language still needs this schema/source/location gate.
+/// The returned identity is descriptive and never grants filesystem rights.
+pub(crate) fn validate_published_metadata(
+    bytes: &[u8],
+    catalog_name: &str,
+    library_root: &std::path::Path,
+) -> eyre::Result<[u8; 32]> {
+    let manifest: LanguageManifest = serde_json::from_slice(bytes)?;
+    let spec = super::repository::LanguageRepository::spec_from_manifest(&manifest)?;
+    super::publication::validate_manifest(&spec, &manifest)?;
+    eyre::ensure!(
+        catalog_name == super::repository::manifest_name(&spec),
+        "language manifest filename differs from its complete identity"
+    );
+    super::publication::validate_manifest_location(
+        &manifest,
+        &library_root.join(spec.key().filename()).join("payload"),
+    )?;
+    Ok(manifest.key)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct LockRegistration {
+pub(in crate::libraries) struct LockRegistration {
     pub schema: u32,
     pub key: [u8; 32],
     pub lock: DiskIdentity,

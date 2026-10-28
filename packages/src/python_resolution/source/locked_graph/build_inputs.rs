@@ -247,29 +247,10 @@ pub(crate) async fn acquire_build_input<'lock, 'config>(
     .map_err(LockedGraphError::Replay)?;
     clock(context.deadline)?;
     if pin.file().kind() == RegistryArtifactKind::Sdist {
-        let expected = build::expected(root, &pin)?;
-        let artifact = crate::artifact_snapshot::cached_verified_artifact(
-            &expected.output_filename,
-            expected
-                .output_digest
-                .parse()
-                .map_err(|_| LockedGraphError::BuildMismatch)?,
-            context.cache_root,
-            context.limits.lock.max_artifact_bytes,
-        )
-        .map_err(|_| LockedGraphError::BuildMismatch)?;
-        if let Some(artifact) = artifact {
-            let archive = build::inspect_output(
-                artifact,
-                &pin,
-                expected,
-                context.supported,
-                context.limits.wheel,
-            )?;
-            return Ok(LockedBuildInputPreparation::Ready(finish(
-                root, input, source, archive, &context,
-            )?));
-        }
+        build::expected(root, &pin)?;
+        // Source output reuse needs actual source/runtime preparation, just
+        // as a runtime node does. This continuation retains the source owner
+        // until the caller supplies a checked CompletedSourceBuild.
         let target = FrozenRegistryTarget::new(
             context.environment,
             context.supported,

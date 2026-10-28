@@ -42,7 +42,7 @@ pub(super) fn retain_metadata(
     // Bound the directly retained archive metadata and projected text before
     // retaining this owner in the whole-attempt map. Parser-internal/ZIP memory
     // has its own explicit limits; this is not an exact heap/RSS assertion.
-    charge(used, owner.manifest().core_metadata().raw().len(), maximum)?;
+    charge(used, owner.core_metadata().raw().len(), maximum)?;
     let facts = owner.facts();
     for value in [
         facts.name().as_str(),
@@ -197,23 +197,10 @@ async fn work<'lock, 'config>(
                 if source.pin().id() != pin.id() {
                     return Err(LockedGraphError::GraphMismatch);
                 }
-                if let Some(archive) =
-                    build::cached_output(root, pin, &replay.target, &replay.context)?
-                {
-                    let record = build::expected(root, pin)?.clone();
-                    let built = super::super::registry_depot::ReplayedBuiltRegistryWheel::from_locked_output(
-                        source, archive, record, limits.metadata,
-                    ).map_err(|_| LockedGraphError::BuildMismatch)?;
-                    let owner = RegistryMetadataOwner::Built(built);
-                    retain_metadata(
-                        &mut replay.retained_utf8,
-                        &owner,
-                        limits.max_retained_utf8_bytes,
-                    )?;
-                    if replay.owners.insert(key, owner).is_some() {
-                        return Err(LockedGraphError::GraphMismatch);
-                    }
-                } else if replay.builds.insert(key, source).is_some() {
+                // An output ZIP alone cannot bind a receipt's backend or
+                // request identity to the actual source and language. The
+                // build continuation must validate even a cached output.
+                if replay.builds.insert(key, source).is_some() {
                     return Err(LockedGraphError::GraphMismatch);
                 }
             }

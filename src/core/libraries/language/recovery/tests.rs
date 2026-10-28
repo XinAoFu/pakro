@@ -23,6 +23,38 @@ struct RecoveryFixture {
     archive: Vec<u8>,
 }
 
+#[tokio::test]
+async fn p4_bytecode_pending_projection_is_readonly_and_rejects_damaged_facts() {
+    let fixture = RecoveryFixture::new().await;
+    fixture.damage();
+    restore_bytecode_inner(&fixture.context, &fixture.target, false, &mut |step| {
+        eyre::ensure!(
+            step != RecoveryStep::AfterJournal,
+            "stop with durable bytecode journal"
+        );
+        Ok(())
+    })
+    .unwrap_err();
+    let path = fixture
+        .context
+        .requested_data_root()
+        .join("languages/.control/journals")
+        .join(journal_name(&fixture.target));
+    let before = fs::read(&path).unwrap();
+    let manifest = fs::read(fixture.manifest_path()).unwrap();
+    let roots = pending_protections(&fixture.context).unwrap();
+    assert_eq!(roots.len(), 1);
+    assert_eq!(roots[0].language, fixture.target.key().fingerprint());
+    assert!(roots[0].journals.contains(&journal_name(&fixture.target)));
+    assert_eq!(fs::read(&path).unwrap(), before);
+    assert_eq!(fs::read(fixture.manifest_path()).unwrap(), manifest);
+    let mut damaged: serde_json::Value = serde_json::from_slice(&before).unwrap();
+    damaged["prepared"]["sha256"] = serde_json::json!(vec![0u8; 32]);
+    fs::write(&path, serde_json::to_vec(&damaged).unwrap()).unwrap();
+    assert!(pending_protections(&fixture.context).is_err());
+    assert_eq!(fs::read(fixture.manifest_path()).unwrap(), manifest);
+}
+
 fn bytecode_archive() -> Vec<u8> {
     let base = archive("3.11.17");
     let mut input = tar::Archive::new(GzDecoder::new(base.as_slice()));

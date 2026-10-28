@@ -15,14 +15,23 @@ fn syscall_number<T: Into<i64>>(number: T) -> i64 {
 /// Blocks AF_INET and AF_INET6 sockets while allowing AF_UNIX (needed by many tools).
 /// Based on the syscall list from OpenAI's codex-linux-sandbox.
 pub(super) fn apply_seccomp_filter(deny_net: bool, deny_process: bool) -> Result<()> {
-    apply_filter(deny_net, deny_process, false)
+    apply_filter(deny_net, deny_process, false, false)
 }
 
 pub(super) fn apply_worker_filter(deny_process: bool) -> Result<()> {
-    apply_filter(true, deny_process, true)
+    apply_filter(true, deny_process, true, false)
 }
 
-fn apply_filter(deny_net: bool, deny_process: bool, build_worker: bool) -> Result<()> {
+pub(super) fn apply_native_worker_filter() -> Result<()> {
+    apply_filter(true, false, true, true)
+}
+
+fn apply_filter(
+    deny_net: bool,
+    deny_process: bool,
+    build_worker: bool,
+    native: bool,
+) -> Result<()> {
     // Must set PR_SET_NO_NEW_PRIVS before installing seccomp filter
     let ret = unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
     if ret != 0 {
@@ -93,13 +102,54 @@ fn apply_filter(deny_net: bool, deny_process: bool, build_worker: bool) -> Resul
             syscall_number(libc::SYS_tkill),
             syscall_number(libc::SYS_tgkill),
         ] {
-            rules.insert(syscall, Vec::new());
+            // Native workers are already inside their owned PID namespace.
+            // Ninja's ordinary job groups and signal forwarding stay usable.
+            if !native
+                || ![
+                    syscall_number(libc::SYS_setsid),
+                    syscall_number(libc::SYS_setpgid),
+                    syscall_number(libc::SYS_kill),
+                    syscall_number(libc::SYS_tkill),
+                    syscall_number(libc::SYS_tgkill),
+                ]
+                .contains(&syscall)
+            {
+                rules.insert(syscall, Vec::new());
+            }
+        }
+        if native {
+            // Rust's fork/exec error channel is one anonymous Unix seqpacket pair.
+            // Every other domain/type/protocol keeps the original EPERM rule.
+            let mut pair_rules = Vec::new();
+            for (argument, expected) in [
+                (0, libc::AF_UNIX as u64),
+                (1, (libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC) as u64),
+                (2, 0),
+            ] {
+                pair_rules.push(SeccompRule::new(vec![SeccompCondition::new(
+                    argument, SeccompCmpArgLen::Dword, SeccompCmpOp::Ne, expected,
+                )?])?);
+            }
+            rules.insert(syscall_number(libc::SYS_socketpair), pair_rules);
+            let mut receive_rules = Vec::new();
+            for (argument, width) in [
+                (3, SeccompCmpArgLen::Dword),
+                (4, SeccompCmpArgLen::Qword),
+                (5, SeccompCmpArgLen::Qword),
+            ] {
+                receive_rules.push(SeccompRule::new(vec![SeccompCondition::new(
+                    argument, width, SeccompCmpOp::Ne, 0,
+                )?])?);
+            }
+            rules.insert(syscall_number(libc::SYS_recvfrom), receive_rules);
         }
         if !deny_process {
             // clone3's pointed-to flags cannot be inspected by a classic BPF
             // rule. Ordinary fixed compiler children may fork/clone, but may
             // not create a new namespace that changes process ownership.
-            rules.insert(syscall_number(libc::SYS_clone3), Vec::new());
+            if !native {
+                rules.insert(syscall_number(libc::SYS_clone3), Vec::new());
+            }
             let mut namespace_rules = Vec::new();
             for flag in [
                 libc::CLONE_NEWCGROUP,
@@ -171,6 +221,24 @@ fn apply_filter(deny_net: bool, deny_process: bool, build_worker: bool) -> Resul
     .try_into()?;
 
     seccompiler::apply_filter(&filter).map_err(|e| eyre!("failed to apply seccomp filter: {e}"))?;
+
+    if native {
+        // glibc posix_spawn falls back to inspectable clone only for ENOSYS
+        // (or EINVAL), not EPERM. Keep namespace flag checks in the first filter.
+        let fallback: BpfProgram = SeccompFilter::new(
+            BTreeMap::from([(syscall_number(libc::SYS_clone3), Vec::new())]),
+            SeccompAction::Allow,
+            SeccompAction::Errno(libc::ENOSYS as u32),
+            match arch {
+                "x86_64" => TargetArch::x86_64,
+                "aarch64" => TargetArch::aarch64,
+                _ => unreachable!(),
+            },
+        )?
+        .try_into()?;
+        seccompiler::apply_filter(&fallback)
+            .map_err(|e| eyre!("failed to apply native spawn fallback: {e}"))?;
+    }
 
     Ok(())
 }

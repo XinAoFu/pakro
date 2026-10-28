@@ -25,7 +25,14 @@ impl InstallsLs {
         let mut table = PakroTable::new(
             self.no_header,
             &[
-                "Instance", "Kind", "Name", "Version", "Build", "Platform", "Users",
+                "Instance",
+                "Kind",
+                "Name",
+                "Version",
+                "Build",
+                "Platform",
+                "Runtime configuration",
+                "Users",
             ],
         );
         for entry in entries {
@@ -36,6 +43,17 @@ impl InstallsLs {
                 Cell::new(entry.version),
                 Cell::new(entry.build.unwrap_or_default()),
                 Cell::new(entry.platform),
+                Cell::new(
+                    entry
+                        .runtime_configuration
+                        .map(|configuration| {
+                            format!(
+                                "source recipe{}: {configuration}",
+                                entry.source_recipe.expect("source configuration has its recipe")
+                            )
+                        })
+                        .unwrap_or_default(),
+                ),
                 Cell::new(entry.users.join("\n")),
             ]);
         }

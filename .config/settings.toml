@@ -2150,6 +2150,71 @@ lockfiles that already require provenance for the tool being installed.
 env = "PAKRO_PROVENANCE_API_FAILURES_FATAL"
 type = "Bool"
 
+[python.build.tools.cc]
+description = "Installed C compiler path for supported Python source builds."
+optional = true
+type = "Path"
+
+[python.build.tools.cxx]
+description = "Installed C++ compiler path for supported Python source builds."
+optional = true
+type = "Path"
+
+[python.build.tools.ar]
+description = "Installed archive tool path for supported Python source builds."
+optional = true
+type = "Path"
+
+[python.build.tools.linker]
+description = "Installed linker path for supported Python source builds."
+optional = true
+type = "Path"
+
+[python.build.tools.cmake]
+description = "Installed CMake path for supported Python source builds."
+optional = true
+type = "Path"
+
+[python.build.tools.ninja]
+description = "Installed Ninja path for supported Python source builds."
+optional = true
+type = "Path"
+
+[python.build.tools.meson]
+description = "Installed Meson path for supported Python source builds."
+optional = true
+type = "Path"
+
+[python.build.tools.cargo]
+description = "Installed Cargo path for supported Python source builds."
+optional = true
+type = "Path"
+
+[python.build.tools.rustc]
+description = "Installed rustc path for supported Python source builds."
+optional = true
+type = "Path"
+
+[python.build.tools.pkg_config]
+description = "Installed pkg-config path for supported Python source builds."
+optional = true
+type = "Path"
+
+[python.build.tools.make]
+description = "Installed Make path for supported Python source builds."
+optional = true
+type = "Path"
+
+[python.build.sdk]
+description = "Explicit SDK directory for supported Python source builds; otherwise discover the native SDK."
+optional = true
+type = "Path"
+
+[python.build.sysroot]
+description = "Explicit compiler sysroot for supported Python source builds."
+optional = true
+type = "Path"
+
 [python.compile]
 description = "If true, compile python from source. If false, use precompiled binaries. If not set, use precompiled binaries if available."
 docs = """

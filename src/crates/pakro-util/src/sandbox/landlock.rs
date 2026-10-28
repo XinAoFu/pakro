@@ -212,7 +212,7 @@ fn apply_worker_landlock(
     config: &SandboxConfig,
     initial_program: Option<&std::path::Path>,
 ) -> Result<()> {
-    let abi = ABI::V5;
+    let abi = ABI::V3;
     let execute: BitFlags<AccessFs> = AccessFs::Execute.into();
     let mut read = AccessFs::from_read(abi);
     read.remove(execute);
@@ -252,6 +252,27 @@ fn apply_worker_landlock(
             .add_rule(PathBeneath::new(fd, execute))
             .map_err(|error| eyre!("failed to restrict source-build executable: {error}"))?;
     }
+    for path in &config.runtime_loaders {
+        let fd = PathFd::new(path)
+            .map_err(|error| eyre!("ELF runtime loader is unavailable: {error}"))?;
+        ruleset = ruleset
+            .add_rule(PathBeneath::new(fd, execute | AccessFs::ReadFile))
+            .map_err(|error| eyre!("failed to permit the selected ELF runtime loader: {error}"))?;
+    }
+    if config.native_build {
+        ruleset = ruleset
+            .add_rule(PathBeneath::new(PathFd::new("/dev/null")?, AccessFs::WriteFile))
+            .map_err(|error| eyre!("failed to permit native null output: {error}"))?;
+        let pool = config
+            .native_exec_pool
+            .as_ref()
+            .ok_or_else(|| eyre!("native build executable pool is missing"))?;
+        let fd = PathFd::new(pool)
+            .map_err(|error| eyre!("native build executable pool is unavailable: {error}"))?;
+        ruleset = ruleset
+            .add_rule(PathBeneath::new(fd, execute | AccessFs::ReadFile))
+            .map_err(|error| eyre!("failed to restrict native build executable pool: {error}"))?;
+    }
     let status = ruleset
         .restrict_self()
         .map_err(|error| eyre!("failed to apply source-build filesystem restrictions: {error}"))?;
@@ -259,4 +280,109 @@ fn apply_worker_landlock(
         eyre::bail!("source-build filesystem restrictions were not fully enforced");
     }
     Ok(())
+}
+
+#[cfg(test)]
+#[tokio::test]
+async fn p6_linux_worker_abi3_keeps_external_files_and_exec_confined() {
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::time::Duration;
+
+    let temporary = tempfile::tempdir().unwrap();
+    let root = temporary.path().canonicalize().unwrap();
+    let input = root.join("fixed-input");
+    let work = root.join("private-work");
+    let outside = root.join("unrelated");
+    for directory in [&input, &work, &outside] {
+        fs::create_dir(directory).unwrap();
+    }
+    fs::write(input.join("value"), b"fixed").unwrap();
+    fs::write(outside.join("secret"), b"unrelated").unwrap();
+    let program = fs::canonicalize(
+        std::env::var_os("PAKRO_TEST_SYSTEM_PYTHON")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/usr/bin/python3")),
+    )
+    .expect("the Linux worker regression requires a real system Python");
+    let forbidden_program = fs::canonicalize("/bin/true").unwrap();
+    let mut reads = vec![input.clone(), program.clone(), forbidden_program.clone()];
+    for path in [
+        PathBuf::from("/lib"),
+        PathBuf::from("/lib64"),
+        PathBuf::from("/usr/lib"),
+        PathBuf::from("/dev/null"),
+        PathBuf::from("/dev/urandom"),
+        program.parent().unwrap().parent().unwrap().join("lib"),
+    ] {
+        if path.exists() {
+            reads.push(path);
+        }
+    }
+    let mut config = SandboxConfig {
+        build_worker: true,
+        deny_process: true,
+        allow_read: reads,
+        allow_write: vec![work.clone()],
+        ..Default::default()
+    };
+    config.resolve_paths();
+    let script = r#"
+import errno, os, pathlib, sys
+fixed, owned, secret, escaped, executable = map(pathlib.Path, sys.argv[1:])
+assert fixed.read_bytes() == b'fixed'
+owned.write_bytes(b'owned')
+for label, operation in [
+    ('outside read', lambda: secret.read_bytes()),
+    ('outside write', lambda: escaped.write_bytes(b'escaped')),
+    ('readonly truncate', lambda: os.open(fixed, os.O_RDONLY | os.O_TRUNC)),
+    ('other executable', lambda: os.execv(executable, [str(executable)])),
+]:
+    try:
+        operation()
+    except OSError as error:
+        assert error.errno == errno.EACCES, (label, error)
+    else:
+        raise AssertionError(label + ' escaped')
+    print(label + ' denied', flush=True)
+assert fixed.read_bytes() == b'fixed'
+print('P6_ABI3_WORKER_COMPLETE', flush=True)
+"#;
+    let mut command = crate::cmd::CmdLineRunner::new(&program)
+        .env_clear()
+        .env("HOME", &work)
+        .env("TMPDIR", &work)
+        .env("PATH", Path::new("/unavailable"))
+        .env("LC_ALL", "C")
+        .current_dir(&work)
+        .args(["-I", "-S", "-B", "-c", script])
+        .arg(input.join("value"))
+        .arg(work.join("result"))
+        .arg(outside.join("secret"))
+        .arg(outside.join("escaped"))
+        .arg(&forbidden_program)
+        .with_timeout(Duration::from_secs(5))
+        .with_sandbox(config);
+    command.apply_sandbox().await.unwrap();
+    let output = command.output_isolated(8 * 1024).await.unwrap();
+    assert!(
+        output.status.success(),
+        "ABI3 worker failed: {}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for expected in [
+        "outside read denied",
+        "outside write denied",
+        "readonly truncate denied",
+        "other executable denied",
+        "P6_ABI3_WORKER_COMPLETE",
+    ] {
+        assert!(stdout.contains(expected), "missing {expected}: {stdout}");
+    }
+    assert_eq!(fs::read(input.join("value")).unwrap(), b"fixed");
+    assert_eq!(fs::read(outside.join("secret")).unwrap(), b"unrelated");
+    assert_eq!(fs::read(work.join("result")).unwrap(), b"owned");
+    assert!(!outside.join("escaped").exists());
 }

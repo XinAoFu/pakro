@@ -2,7 +2,9 @@
 use super::*;
 use crate::packages::python_environment::model::SourceBuildRecord;
 use crate::packages::python_source_build::CompletedSourceBuild;
+#[cfg(test)]
 use crate::packages::python_wheel::{WheelExpectation, WheelLimits};
+#[cfg(test)]
 use crate::packages::python_wheel_source::{InspectedWheelArchive, inspect_owned_wheel};
 
 pub(super) fn expected<'a>(
@@ -25,6 +27,7 @@ pub(super) fn expected<'a>(
     Ok(record)
 }
 
+#[cfg(test)]
 pub(super) fn inspect_output(
     artifact: VerifiedArtifact,
     source: &ContentPin,
@@ -57,40 +60,44 @@ pub(super) fn inspect_output(
     Ok(archive)
 }
 
-pub(super) fn cached_output(
-    root: &BoundPythonLock,
-    source: &ContentPin,
-    target: &FrozenRegistryTarget,
-    context: &LockedGraphContext<'_>,
-) -> Result<Option<InspectedWheelArchive>, LockedGraphError> {
-    let Some(record) = root.source_build(source.id()) else {
-        return Ok(None);
-    };
-    expected(root, source)?;
-    let artifact = crate::artifact_snapshot::cached_verified_artifact(
-        &record.output_filename,
-        record
-            .output_digest
-            .parse()
-            .map_err(|_| LockedGraphError::BuildMismatch)?,
-        context.cache_root,
-        context.limits.lock.max_artifact_bytes,
-    )
-    .map_err(|_| LockedGraphError::BuildMismatch)?;
-    artifact
-        .map(|artifact| {
-            inspect_output(
-                artifact,
-                source,
-                record,
-                target.supported(),
-                context.limits.wheel,
-            )
-        })
-        .transpose()
-}
-
 impl<'lock, 'config> LockedGraphBuildContinuation<'lock, 'config> {
+    pub(crate) async fn resume_with_published(
+        mut self,
+        package: crate::libraries::package::lease::PackageLease,
+        language: crate::libraries::language::lease::LanguageLease,
+    ) -> Result<LockedGraphPreparation<'lock, 'config>, LockedGraphError> {
+        self.expected_record()?;
+        let source_id = self.source.pin().id();
+        let owner =
+            super::super::registry_depot::ReplayedPublishedRegistryWheel::from_locked_published(
+                self.source,
+                package,
+                language,
+                self.replay.root,
+                &self.replay.target,
+                self.replay.context.limits.wheel,
+                self.replay.context.limits.metadata,
+            )
+            .map_err(|_| LockedGraphError::BuildMismatch)?;
+        let key = self
+            .replay
+            .nodes
+            .iter()
+            .find(|node| node.pin.id() == source_id)
+            .map(|node| node.key)
+            .ok_or(LockedGraphError::GraphMismatch)?;
+        let owner = RegistryMetadataOwner::Published(owner);
+        prepare::retain_metadata(
+            &mut self.replay.retained_utf8,
+            &owner,
+            self.replay.context.limits.max_retained_utf8_bytes,
+        )?;
+        if self.replay.owners.insert(key, owner).is_some() {
+            return Err(LockedGraphError::GraphMismatch);
+        }
+        prepare::run(self.replay, || {}).await
+    }
+
     pub(crate) fn expected_record(&self) -> Result<&SourceBuildRecord, LockedGraphError> {
         expected(self.replay.root, self.source.pin())
     }
@@ -134,7 +141,12 @@ impl<'lock, 'config> LockedGraphBuildContinuation<'lock, 'config> {
         }
         let (archive, record) = completed
             .into_parts()
-            .map_err(|_| LockedGraphError::BuildMismatch)?;
+            .map_err(|error| {
+                #[cfg(test)]
+                eprintln!("P6_LOCKED_RESUME_COMPLETED_CAUSE {error:#}");
+                let _ = error;
+                LockedGraphError::BuildMismatch
+            })?;
         let key = self
             .replay
             .nodes
@@ -148,7 +160,12 @@ impl<'lock, 'config> LockedGraphBuildContinuation<'lock, 'config> {
             record,
             self.replay.context.limits.metadata,
         )
-        .map_err(|_| LockedGraphError::BuildMismatch)?;
+        .map_err(|error| {
+            #[cfg(test)]
+            eprintln!("P6_LOCKED_RESUME_OUTPUT_CAUSE {error:#}");
+            let _ = error;
+            LockedGraphError::BuildMismatch
+        })?;
         let owner = RegistryMetadataOwner::Built(owner);
         prepare::retain_metadata(
             &mut self.replay.retained_utf8,

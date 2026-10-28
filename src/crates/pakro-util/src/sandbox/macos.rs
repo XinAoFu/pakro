@@ -235,21 +235,43 @@ pub async fn generate_seatbelt_profile(
 
 /// A build worker receives no interactive-task convenience grants. Its caller
 /// has already validated canonical fixed inputs and private writable roots.
-fn build_worker_profile(config: &SandboxConfig, initial_program: Option<&Path>) -> String {
+pub(crate) fn build_worker_profile(
+    config: &SandboxConfig,
+    initial_program: Option<&Path>,
+) -> String {
     let mut rules = vec![
         "(version 1)".to_owned(),
         "(allow default)".to_owned(),
         "(deny file-read*)".to_owned(),
         "(deny file-write*)".to_owned(),
         "(deny network*)".to_owned(),
-        "(deny process-fork)".to_owned(),
         "(deny process-exec)".to_owned(),
-        "(deny signal)".to_owned(),
-        "(allow signal (target self))".to_owned(),
         // getcwd and process startup need the root vnode; this grant does not
         // allow reading any descendant's contents.
         "(allow file-read-data (literal \"/\"))".to_owned(),
     ];
+    if !config.native_build {
+        rules.extend([
+            "(deny process-fork)".to_owned(),
+            "(deny signal)".to_owned(),
+            "(allow signal (target self))".to_owned(),
+        ]);
+    }
+    if config.native_build {
+        rules.push("(allow file-write-data (literal \"/dev/null\"))".to_owned());
+        rules.push("(allow file-read-metadata (literal \"/\"))".to_owned());
+    }
+    if let Some(pool) = &config.native_exec_pool {
+        rules.push(format!(
+            "(allow process-exec (subpath \"{}\"))",
+            sbpl_escape(&pool.to_string_lossy())
+        ));
+    }
+    if config.native_build && config.symlinked_allow_paths.iter().any(|path| path == Path::new("/private/var/select/sh")) {
+        // macOS sh reads the selector symlink itself before executing its
+        // separately captured shell. resolve_paths retained this exact alias.
+        rules.push("(allow file-read* (literal \"/private/var/select/sh\"))".to_owned());
+    }
     for path in &config.allow_read {
         let path = sbpl_escape(&path.to_string_lossy());
         rules.push(format!("(allow file-read* (subpath \"{path}\"))"));

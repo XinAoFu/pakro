@@ -132,6 +132,97 @@ fn read_store(context: &OperationContext) -> Result<Option<ReadStore>> {
     )
 }
 
+/// Describe a validated unfinished commit owned by this exact project/lock
+/// observation. This is execution admission, not recovery permission: the
+/// mutation path must still reacquire protection and check original evidence.
+/// Reading this result creates no writer, project guard, or document session.
+pub(crate) fn own_pending_lock_commit(
+    context: &OperationContext,
+    observed: &ObservedProjectInputs,
+) -> Result<bool> {
+    context.checkpoint()?;
+    observed.recheck()?;
+    let project = ProjectIdentity::from_observation(observed)?.as_uuid();
+    let mut lock_targets = std::collections::BTreeSet::new();
+    for path in observed.paths().filter(|path| {
+        path.extension()
+            .is_some_and(|extension| extension == "lock")
+    }) {
+        context.checkpoint()?;
+        lock_targets.insert(std::fs::canonicalize(path).map_err(|_| {
+            eyre::eyre!("observed lock target cannot be verified for pending recovery")
+        })?);
+    }
+    observed.recheck()?;
+    let Some(read) = read_store(context)? else {
+        context.checkpoint()?;
+        observed.recheck()?;
+        return Ok(false);
+    };
+    let control = read.control(ControlLimits::default())?;
+    let mut pending = false;
+    for entry in control.list_names(ControlNamespace::Journals, 65536, 8 * 1024 * 1024)? {
+        if !entry.starts_with(PREFIX) {
+            continue;
+        }
+        context.checkpoint()?;
+        let snapshot = control
+            .read(ControlNamespace::Journals, &entry)?
+            .context("PendingRecovery: lock journal disappeared during admission")?;
+        let journal = decode(&snapshot, None)?;
+        ensure!(
+            entry == name(journal.project),
+            "PendingRecovery: lock journal project name changed"
+        );
+        if journal.project != project {
+            ensure!(
+                !observed.observed_auxiliary(&journal.path)
+                    && !lock_targets.contains(&journal.path),
+                "PendingRecovery: an observed lock document belongs to another unfinished project transaction"
+            );
+            continue;
+        }
+        ensure!(
+            observed.observed_auxiliary(&journal.path),
+            "PendingRecovery: this project's journal lock target is outside observed inputs"
+        );
+        let parent = journal
+            .path
+            .parent()
+            .context("PendingRecovery: journal lock parent is missing")?;
+        ensure!(
+            std::fs::canonicalize(parent)? == parent
+                && parent_identity(&journal.path)? == journal.parent,
+            "PendingRecovery: journal lock namespace changed"
+        );
+        if observed.document(&journal.path).is_some() {
+            ensure!(
+                std::fs::canonicalize(&journal.path)? == journal.path,
+                "PendingRecovery: journal lock target was replaced by an alias"
+            );
+        }
+        ensure!(
+            journal.rollback_staged.is_none() || journal.old_bytes.is_some(),
+            "PendingRecovery: rollback journal has no original lock document"
+        );
+        for (staged, _) in journal.staged.iter().chain(journal.rollback_staged.iter()) {
+            ensure!(
+                staged.parent() == Some(parent)
+                    && staged
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.starts_with(".pakro.lock.txn-")),
+                "PendingRecovery: staged lock namespace differs from its journal target"
+            );
+        }
+        pending = true;
+    }
+    read.check_binding()?;
+    observed.recheck()?;
+    context.checkpoint()?;
+    Ok(pending)
+}
+
 /// Scoped query admission. It never creates a guard, repairs, or changes a
 /// journal. Other projects can continue reading their complete snapshots.
 pub(crate) fn ensure_project_consistent(
@@ -176,7 +267,7 @@ pub(crate) fn ensure_project_consistent(
     observed.recheck()?;
     Ok(())
 }
-pub(super) fn ensure_identity_consistent(context: &OperationContext, project: Uuid) -> Result<()> {
+pub(crate) fn ensure_identity_consistent(context: &OperationContext, project: Uuid) -> Result<()> {
     if let Some(read) = read_store(context)? {
         let control = read.control(ControlLimits::default())?;
         if let Some(snapshot) = control.read(ControlNamespace::Journals, &name(project))? {
@@ -213,28 +304,65 @@ pub(super) fn project_state(
 
 /// Unfinished preparation protects its exact new objects as well as the old
 /// selection retained by the catalog. Malformed journals are unknown, not zero.
-pub(crate) fn pending_reference_chains(
+pub(crate) struct PendingProjectProtection {
+    pub journal: String,
+    pub project: Uuid,
+    pub transaction: Uuid,
+    pub references: Vec<[u8; 32]>,
+}
+
+/// One bounded scan of the original P2 journals. References remain projections
+/// of those journals; no additional persistent reference authority is created.
+pub(crate) fn pending_protections(
     context: &OperationContext,
-    target: [u8; 32],
-) -> Result<Vec<String>> {
+) -> Result<Vec<PendingProjectProtection>> {
     let Some(read) = read_store(context)? else {
         return Ok(Vec::new());
     };
     let control = read.control(ControlLimits::default())?;
-    let mut users = Vec::new();
+    let mut result = Vec::new();
+    let mut total = 0usize;
     for entry in control.list_names(ControlNamespace::Journals, 65536, 8 * 1024 * 1024)? {
         if !entry.starts_with(PREFIX) {
             continue;
         }
+        context.checkpoint()?;
         let snapshot = control
             .read(ControlNamespace::Journals, &entry)?
-            .context("pending lock journal disappeared")?;
+            .context("PendingRecovery: lock journal disappeared")?;
+        total = total
+            .checked_add(snapshot.bytes().len())
+            .filter(|value| *value <= 64 * 1024 * 1024)
+            .context("pending project journal byte budget exceeded")?;
         let journal = decode(&snapshot, None)?;
         ensure!(
             entry == name(journal.project),
             "PendingRecovery: lock journal name differs from its project"
         );
-        let target = pakro_store::Digest::Sha256(target).to_string();
+        let mut references = Vec::new();
+        for reference in journal.references {
+            if let pakro_store::Digest::Sha256(key) = reference.parse()? {
+                references.push(key);
+            }
+        }
+        references.sort_unstable();
+        references.dedup();
+        result.push(PendingProjectProtection {
+            journal: entry,
+            project: journal.project,
+            transaction: journal.transaction,
+            references,
+        });
+    }
+    Ok(result)
+}
+
+pub(crate) fn pending_reference_chains(
+    context: &OperationContext,
+    target: [u8; 32],
+) -> Result<Vec<String>> {
+    let mut users = Vec::new();
+    for journal in pending_protections(context)? {
         if journal.references.contains(&target) {
             users.push(format!(
                 "pending project {} transaction {}",
@@ -483,7 +611,7 @@ fn recover_project_lock_guarded(
     drop(read);
     let mut repository = ProjectRepository::open_writer(context)?;
     let writer = repository.writer()?;
-    let lock = super::commit::open_project_lock(&writer, &project)?;
+    let lock = super::commit::open_existing_project_lock(&writer, &project)?;
     let guard = writer
         .control(ControlLimits::default())?
         .acquire_project(&lock)?;

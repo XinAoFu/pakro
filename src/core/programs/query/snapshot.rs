@@ -125,13 +125,80 @@ pub(crate) fn select_existing(query: &QueryContext<'_>) -> Result<SelectionRepor
 
 /// Decode only bytes held by the readonly project observation. Explicit
 /// queries for a different runtime retain their independent inventory scope.
-pub(crate) fn project_lock_for_query(
+pub(crate) fn project_lock_for_selected_query(
+    context: &OperationContext,
     observed: &ObservedProjectInputs,
     target: Option<&str>,
+    language: &crate::libraries::language::lease::LanguageLease,
 ) -> eyre::Result<Option<crate::packages::python_resolution::lock_model::PythonLockModel>> {
-    if target.is_some() && effective_python_declaration(observed).as_deref() != target {
-        return Ok(None);
+    let mut native_binding = None;
+    if target.is_some() {
+        let Some(declared) = effective_python_declaration(observed) else {
+            return Ok(None);
+        };
+        let declared = crate::programs::shared::exact_version::exact_python_request(&declared)?;
+        let selected = language.lock_version()?;
+        let selected = crate::programs::shared::exact_version::exact_python_request(&selected)?;
+        if declared.version_only() != selected.version_only()
+            || declared
+                .build_pin()
+                .is_some_and(|build| Some(build) != selected.build_pin())
+        {
+            return Ok(None);
+        }
+        // Equivalent upstream/build spellings must retain the same lock.
+        // A genuinely different selected source remains an independent query.
+        if let Some(pin) =
+            crate::libraries::project::runtime_pin::observed_runtime_pin(observed, &declared)?
+        {
+            if !language.matches_source_pin(declared.as_str(), &pin, context.settings())? {
+                return Ok(None);
+            }
+            native_binding = Some((declared, pin));
+        }
     }
+    let model = read_project_lock_model(observed)?;
+    if let Some(model) = &model {
+        if target.is_some() {
+            let selected = language.key().fingerprint();
+            let same_runtime = model.graphs().iter().any(|graph| {
+                graph.key().config_scope().is_empty()
+                    && graph.key().group() == "shared-runtime"
+                    && *graph.runtime().content_tree() == selected
+            });
+            // Native source pins do not identify the extraction recipe. A
+            // different, provably legal recipe is an independent instance;
+            // unknown keys and missing targets stay on the strict path.
+            if !same_runtime
+                && let Some(graph) =
+                    model.graph(&crate::programs::install::lock::group_key(language)?)
+                && let Some((declared, pin)) = &native_binding
+            {
+                let legal = [false, true]
+                    .into_iter()
+                    .map(|patch| {
+                        crate::plugins::core::python::pinned_shared_language_spec(
+                            declared.as_str(),
+                            pin,
+                            patch,
+                            context.settings(),
+                        )
+                        .map(|spec| spec.key().fingerprint())
+                    })
+                    .collect::<eyre::Result<std::collections::BTreeSet<_>>>();
+                if legal.is_ok_and(|keys| keys.contains(graph.runtime().content_tree())) {
+                    return Ok(None);
+                }
+            }
+        }
+        crate::programs::install::lock_document::validate_declarations(observed, model)?;
+    }
+    Ok(model)
+}
+
+fn read_project_lock_model(
+    observed: &ObservedProjectInputs,
+) -> eyre::Result<Option<crate::packages::python_resolution::lock_model::PythonLockModel>> {
     observed.recheck()?;
     let mut model = None;
     for path in observed.paths().filter(|path| {
@@ -151,7 +218,6 @@ pub(crate) fn project_lock_for_query(
             model.is_none(),
             "strict Python queries require one applicable exact lock document"
         );
-        crate::programs::install::lock_document::validate_declarations(observed, &candidate)?;
         model = Some(candidate);
     }
     observed.recheck()?;
@@ -195,6 +261,9 @@ fn select_target_inner(
         return Ok(SelectionReport::NoLanguageRequest);
     };
     let exact = crate::programs::shared::exact_version::exact_python_request(&raw).ok();
+    let source_kind = if target.is_none() || declared.as_deref() == Some(raw.as_str()) {
+        query.observed.python_request().ok().flatten().map_or(crate::libraries::language::source::PythonRuntimeSource::Prebuilt, |request| request.source)
+    } else { crate::libraries::language::source::PythonRuntimeSource::Prebuilt };
     let prefix = target.is_some() && local_prefix(&raw);
     if exact.is_none() && !prefix {
         return Ok(SelectionReport::InvalidDeclaration { requested: raw });
@@ -246,6 +315,7 @@ fn select_target_inner(
         .into_iter()
         .filter(|language| {
             language.matches_host_platform()
+                && language.source_kind() == source_kind
                 && match &exact {
                     Some(requested) => {
                         language.version() == requested.version_only()
@@ -260,23 +330,9 @@ fn select_target_inner(
     if let Some(pin) = runtime_pin {
         let mut pinned = Vec::new();
         for language in matching {
-            let expected = crate::plugins::core::python::pinned_shared_language_spec(
-                &raw,
-                &pin,
-                language.spec().patch_sysconfig(),
-                query.context.settings(),
-            )
-            .map_err(|error| {
-                QueryError::Unreadable(format!("project runtime source pin is unusable: {error:#}"))
-            })?;
-            let actual_source = language.spec().plan().source();
-            let expected_source = expected.plan().source();
-            if expected.key() == language.key()
-                && expected_source.filename() == actual_source.filename()
-                && expected_source.digest() == actual_source.digest()
+            if language.matches_source_pin(&raw, &pin, query.context.settings())
+                .map_err(|error| QueryError::Unreadable(format!("project runtime source pin is unusable: {error:#}")))?
             {
-                expected.plan().validate_source_locator(actual_source.url().as_str())
-                    .map_err(|error|QueryError::Unreadable(format!("published runtime differs from the project's canonical source: {error:#}")))?;
                 pinned.push(language);
             }
         }
@@ -320,127 +376,19 @@ fn local_prefix(raw: &str) -> bool {
         })
 }
 
-/// Resolve only inert backend identity from the same frozen declarations.
-/// Never ask a plugin or a second Config observation to classify ownership.
-fn frozen_backend_name<'a>(observed: &'a ObservedProjectInputs, requested: &'a str) -> &'a str {
-    let name = crate::args::split_bracketed_opts(requested).map_or(requested, |(name, _)| name);
-    // Match Config::load_aliases and PakroToml::aliases without consulting a
-    // second Config: later backends win; current entries replace legacy ones.
-    observed
-        .declarations()
-        .filter_map(|(_, declarations)| {
-            let fields = &declarations.unprojected_fields;
-            fields
-                .get("tool_alias")
-                .and_then(|section| section.get(name))
-                .or_else(|| fields.get("alias").and_then(|section| section.get(name)))?
-                .get("backend")?
-                .as_str()
-        })
-        .last()
-        .unwrap_or(requested)
-}
-
 pub(crate) fn python_tool_name(observed: &ObservedProjectInputs, name: &str) -> bool {
-    let backend = frozen_backend_name(observed, name);
-    let base = crate::args::split_bracketed_opts(backend).map_or(backend, |(base, _)| base);
-    matches!(base, "python" | "core:python" | "asdf:python")
-}
-
-fn python_backend_options(observed: &ObservedProjectInputs, name: &str) -> Option<String> {
-    let backend = frozen_backend_name(observed, name);
-    (crate::args::split_bracketed_opts(name).is_some()
-        || crate::args::split_bracketed_opts(backend).is_some())
-    .then(|| format!("{name} ({backend})"))
+    observed.python_tool_name(name)
 }
 
 fn effective_python_backend_options(observed: &ObservedProjectInputs) -> Option<String> {
-    if observed.scope() != crate::libraries::project::snapshot::ReadScope::LocalOnly {
-        let names: Vec<_> = observed
-            .environment()
-            .keys()
-            .filter_map(|key| crate::toolset::tool_from_env_var_name(key))
-            .filter(|name| python_tool_name(observed, name))
-            .collect();
-        if !names.is_empty() {
-            return names
-                .iter()
-                .find_map(|name| python_backend_options(observed, name));
-        }
-    }
-    for (_, declarations) in observed.declarations() {
-        let mut tools = declarations
-            .tools
-            .iter()
-            .filter(|tool| python_tool_name(observed, &tool.name))
-            .peekable();
-        if tools.peek().is_some() {
-            return tools.find_map(|tool| python_backend_options(observed, &tool.name));
-        }
-    }
-    None
+    observed.python_request().err().filter(|error| error.starts_with("unsupported Python backend options")).map(str::to_owned)
 }
 
 /// Config discovery is ordered from nearest/highest-priority document to
 /// ancestors and defaults. The first document declaring Python wins, using
 /// the same order as the snapshot's effective-package merge kernel.
 pub(crate) fn effective_python_declaration(observed: &ObservedProjectInputs) -> Option<String> {
-    if observed.scope() != crate::libraries::project::snapshot::ReadScope::LocalOnly {
-        let mut versions: Vec<_> = observed
-            .environment()
-            .iter()
-            .filter_map(|(key, value)| {
-                let name = crate::toolset::tool_from_env_var_name(key)?;
-                python_tool_name(observed, &name).then_some(value.as_str())
-            })
-            .collect();
-        versions.dedup();
-        if !versions.is_empty() {
-            if let Some(backend) = effective_python_backend_options(observed) {
-                return Some(format!("unsupported Python backend options for {backend}"));
-            }
-            return Some(versions.join(" "));
-        }
-    }
-    observed.declarations().find_map(|(_, declarations)| {
-        let tools: Vec<_> = declarations
-            .tools
-            .iter()
-            .filter(|tool| python_tool_name(observed, &tool.name))
-            .collect();
-        if tools.is_empty() {
-            return None;
-        }
-        if let Some(tool) = tools
-            .iter()
-            .find(|tool| python_backend_options(observed, &tool.name).is_some())
-        {
-            return Some(format!(
-                "unsupported Python backend options for {}",
-                tool.name
-            ));
-        }
-        if let Some(tool) = tools.iter().find(|tool| tool.selector != "version") {
-            return Some(format!(
-                "unsupported Python selector {} for {}",
-                tool.selector, tool.version
-            ));
-        }
-        if let Some(tool) = tools.iter().find(|tool| !tool.options.is_empty()) {
-            return Some(format!(
-                "unsupported Python options [{}] for {}",
-                tool.options.keys().cloned().collect::<Vec<_>>().join(", "),
-                tool.version
-            ));
-        }
-        Some(
-            tools
-                .iter()
-                .map(|tool| tool.version.as_str())
-                .collect::<Vec<_>>()
-                .join(" "),
-        )
-    })
+    match observed.python_request() { Ok(request) => request.map(|request| request.version.clone()), Err(error) => Some(error.to_owned()) }
 }
 
 /// Cross-checks the same committed graph against the actual guarded layout.

@@ -3,6 +3,8 @@ use eyre::Result;
 use serde::Serialize;
 use std::path::PathBuf;
 
+pub use crate::libraries::reclaim::{ReclaimEntry, ReclaimId, ReclaimReport, ReclaimStatus};
+
 #[derive(Debug, Clone, Serialize)]
 pub struct LibraryEntry {
     pub kind: String,
@@ -10,6 +12,10 @@ pub struct LibraryEntry {
     pub name: String,
     pub version: String,
     pub build: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_recipe: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_configuration: Option<String>,
     pub platform: String,
     pub path: PathBuf,
     pub users: Vec<String>,
@@ -77,14 +83,39 @@ pub fn restore_python_bytecode(
     })
 }
 
+/// Read-only and selection work finishes in seconds; the cap only stops a
+/// stuck query.
+const QUERY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Controlled deletion fsyncs every parent directory and records progress
+/// before the next entry, so a large Python installation needs minutes. The
+/// deadline still bounds a stuck removal, but a normal explicit uninstall must
+/// finish in one command instead of returning repeated `prune --resume` work.
+const RECLAIM_DEADLINE: std::time::Duration = std::time::Duration::from_secs(300);
+
 fn context(write: bool) -> Result<crate::programs::OperationContext> {
+    context_with_deadline(write, false, QUERY_DEADLINE)
+}
+
+fn context_with_project_writes(
+    write: bool,
+    project_selection: bool,
+) -> Result<crate::programs::OperationContext> {
+    context_with_deadline(write, project_selection, QUERY_DEADLINE)
+}
+
+fn context_with_deadline(
+    write: bool,
+    project_selection: bool,
+    limit: std::time::Duration,
+) -> Result<crate::programs::OperationContext> {
     use crate::programs::*;
     Ok(capture_operation_context(OperationContextInputs {
         settings: &crate::config::Settings::get(),
         policy: OperationPolicy {
             locked: false,
             offline: true,
-            deadline: std::time::Instant::now() + std::time::Duration::from_secs(30),
+            deadline: std::time::Instant::now() + limit,
             budget: RequestBudget {
                 max_arguments: 32,
                 max_total_argument_bytes: 16384,
@@ -93,7 +124,7 @@ fn context(write: bool) -> Result<crate::programs::OperationContext> {
             },
             writes: AllowedWrites {
                 libraries: write,
-                project_selection: false,
+                project_selection,
                 lockfile: false,
                 declarations: false,
             },
@@ -104,6 +135,10 @@ fn context(write: bool) -> Result<crate::programs::OperationContext> {
         python_sources: None,
         python_target_description: None,
     })?)
+}
+
+fn reclaim_context(dry_run: bool) -> Result<crate::programs::OperationContext> {
+    context_with_deadline(!dry_run, false, RECLAIM_DEADLINE)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -118,6 +153,24 @@ pub struct ProjectEntry {
 
 pub fn projects() -> Result<Vec<ProjectEntry>> {
     crate::programs::query::projects::projects(&crate::programs::directory::query_context()?)
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProjectForgetReport {
+    pub identity: String,
+    pub path: Option<PathBuf>,
+    pub associations: Vec<String>,
+    pub dry_run: bool,
+    pub forgotten: bool,
+    pub already_forgotten: bool,
+}
+
+pub fn forget_project(identity: &str, dry_run: bool) -> Result<ProjectForgetReport> {
+    crate::programs::uninstall::project::forget(
+        &context_with_project_writes(false, !dry_run)?,
+        identity,
+        dry_run,
+    )
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -275,7 +328,25 @@ pub(crate) fn current_observed(
 /// Removes only the explicitly selected exact Python instance. The report is
 /// descriptive; internal removal authority never crosses this facade.
 pub fn uninstall_python(version: &str, instance: Option<&str>, dry_run: bool) -> Result<String> {
-    crate::programs::uninstall::reclaim::language(&context(!dry_run)?, version, instance, dry_run)
+    crate::programs::uninstall::reclaim::language(
+        &reclaim_context(dry_run)?,
+        version,
+        instance,
+        dry_run,
+    )
+}
+
+pub fn uninstall_python_report(
+    version: &str,
+    instance: Option<&str>,
+    dry_run: bool,
+) -> Result<ReclaimReport> {
+    crate::programs::uninstall::reclaim::language_report(
+        &reclaim_context(dry_run)?,
+        version,
+        instance,
+        dry_run,
+    )
 }
 
 pub fn uninstall_package(
@@ -283,7 +354,29 @@ pub fn uninstall_package(
     instance: Option<&str>,
     dry_run: bool,
 ) -> Result<String> {
-    crate::programs::uninstall::reclaim::package(&context(!dry_run)?, request, instance, dry_run)
+    crate::programs::uninstall::reclaim::package(
+        &reclaim_context(dry_run)?,
+        request,
+        instance,
+        dry_run,
+    )
+}
+
+pub fn uninstall_package_report(
+    request: &crate::packages::PackageInstallRequest,
+    instance: Option<&str>,
+    dry_run: bool,
+) -> Result<ReclaimReport> {
+    crate::programs::uninstall::reclaim::package_report(
+        &reclaim_context(dry_run)?,
+        request,
+        instance,
+        dry_run,
+    )
+}
+
+pub fn prune(dry_run: bool, resume: Option<uuid::Uuid>) -> Result<ReclaimReport> {
+    crate::programs::uninstall::prune::run(&reclaim_context(dry_run)?, dry_run, resume)
 }
 
 /// Pure CLI classification without exposing the registry or backend owners.

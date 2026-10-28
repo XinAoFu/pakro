@@ -2565,6 +2565,12 @@
     },
     "tool_core_python_options": {
       "properties": {
+        "source": {
+          "description": "Use an exact prebuilt CPython result or an explicit official-source build.",
+          "enum": ["prebuilt", "source"],
+          "default": "prebuilt",
+          "type": "string"
+        },
         "patch_sysconfig": {
           "$ref": "#/$defs/tool_bool",
           "description": "patch sysconfig paths of precompiled python after install (default true, unix only)"
@@ -4479,7 +4485,42 @@
       "additionalProperties": {
         "type": "object",
         "additionalProperties": {
-          "type": "string"
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "An exact PyPI package version."
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["version"],
+              "properties": {
+                "version": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "A complete exact PyPI version; ranges and selectors are rejected."
+                },
+                "source": {
+                  "type": "string",
+                  "enum": ["pypi"],
+                  "default": "pypi",
+                  "description": "The package source. Conda support is not available yet."
+                },
+                "extras": {
+                  "type": "array",
+                  "maxItems": 256,
+                  "uniqueItems": true,
+                  "items": {"type": "string", "minLength": 1}
+                },
+                "marker": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "A PEP 508 condition evaluated against the selected CPython target."
+                }
+              }
+            }
+          ]
         }
       }
     }

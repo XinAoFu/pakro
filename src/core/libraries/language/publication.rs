@@ -30,6 +30,7 @@ pub(crate) async fn verify_language(
     owner: LanguageBuildOwner,
     receipt: NativeExtractionReceipt,
 ) -> Result<VerifiedLanguage> {
+    ensure!(owner.spec.plan().source_build().is_none(), "source CPython publication requires its actual build receipt");
     receipt.validate_owner(&owner)?;
     let inventory = owner.capture_inventory()?;
     ensure!(
@@ -75,6 +76,8 @@ pub(crate) async fn verify_language(
         filename: owner.spec.plan().source().filename().to_owned(),
         source: owner.spec.plan().source().url().to_string(),
         patch_sysconfig: owner.spec.patch_sysconfig(),
+        source_build: None,
+        source_layout: None,
         lock: DiskIdentity::from_file_identity(owner.lock.identity()),
         allocation: DiskIdentity::from_file_identity(FileIdentity::of(&owner.allocation)?),
         payload: DiskIdentity::from_file_identity(FileIdentity::of(&owner.root)?),
@@ -88,7 +91,28 @@ pub(crate) async fn verify_language(
     Ok(VerifiedLanguage { owner, manifest })
 }
 
-pub(super) fn validate_manifest(
+pub(crate) fn verify_source_python(owner: LanguageBuildOwner,
+    receipt: super::source::SourcePythonBuildReceipt) -> Result<VerifiedLanguage> {
+    receipt.validate_owner(&owner)?;
+    let (inventory, descriptor, record, layout) = receipt.into_parts();
+    owner.spec.plan().validate_observed(&descriptor)?;
+    ensure!(descriptor.gil_disabled == Some(false)
+        && descriptor.compatibility.as_ref().is_some_and(|compatibility| compatibility.debug == Some(false)),
+        "source CPython requires an ordinary release/GIL runtime");
+    let relative = descriptor.executable.strip_prefix(owner.final_path())
+        .context("source CPython entrypoint is outside its owned payload")?.to_owned();
+    let manifest = LanguageManifest { schema: 2, key: owner.spec.key().fingerprint(), target: owner.spec.key().target(),
+        artifact: owner.spec.plan().source().digest().to_string(), filename: owner.spec.plan().source().filename().into(),
+        source: owner.spec.plan().source().url().to_string(), patch_sysconfig: false, source_build: Some(record), source_layout: Some(layout),
+        lock: DiskIdentity::from_file_identity(owner.lock.identity()),
+        allocation: DiskIdentity::from_file_identity(FileIdentity::of(&owner.allocation)?),
+        payload: DiskIdentity::from_file_identity(FileIdentity::of(&owner.root)?), entrypoint: relative, inventory, descriptor };
+    validate_manifest(&owner.spec, &manifest)?;
+    validate_manifest_location(&manifest, owner.final_path())?;
+    Ok(VerifiedLanguage { owner, manifest })
+}
+
+pub(in crate::libraries) fn validate_manifest(
     spec: &LanguageInstallSpec,
     manifest: &LanguageManifest,
 ) -> Result<FrozenRegistryTarget> {
@@ -96,11 +120,17 @@ pub(super) fn validate_manifest(
     manifest.allocation.validate()?;
     manifest.payload.validate()?;
     ensure!(
-        manifest.schema == 1
-            && manifest.key == spec.key().fingerprint()
+        manifest.key == spec.key().fingerprint()
             && manifest.target == spec.key().target(),
         "language manifest identity does not match its requested key"
     );
+    match (spec.plan().source_build(), manifest.source_build.as_ref()) {
+        (None, None) => ensure!(manifest.schema == 1 && manifest.source_layout.is_none(), "unsupported prebuilt language manifest schema"),
+        (Some(input), Some(record)) => ensure!(manifest.schema == 2 && manifest.source_layout.as_ref().is_some_and(|layout| layout.schema == 1)
+            && &input.record(record.output_sha256, record.runtime_target)? == record,
+            "source language manifest differs from its complete build result"),
+        _ => eyre::bail!("language manifest source kind differs from its specification"),
+    }
     ensure!(
         manifest.artifact == spec.plan().source().digest().to_string()
             && manifest.filename == spec.plan().source().filename()
@@ -119,16 +149,23 @@ pub(super) fn validate_manifest(
         "language manifest entrypoint is not contained in its inventory"
     );
     spec.plan().validate_observed(&manifest.descriptor)?;
-    freeze_observed_target(
+    let target = freeze_observed_target(
         &manifest.descriptor,
         PythonMarkerScope::Environment,
         MarkerSemantics::Current2026,
         FrozenTargetLimits::default(),
     )
-    .map_err(Into::into)
+    .map_err(eyre::Report::from)?;
+    if let Some(record) = &manifest.source_build {
+        ensure!(record.runtime_target == *target.fingerprint(), "source CPython build target differs from its stored runtime observation");
+    }
+    Ok(target)
 }
 
-pub(super) fn validate_manifest_location(manifest: &LanguageManifest, root: &Path) -> Result<()> {
+pub(in crate::libraries) fn validate_manifest_location(
+    manifest: &LanguageManifest,
+    root: &Path,
+) -> Result<()> {
     ensure!(
         manifest.descriptor.executable == root.join(&manifest.entrypoint),
         "language executable belongs to another payload"
@@ -220,6 +257,15 @@ fn publish_language_inner(
     );
     sync_payload(&owner, &manifest.inventory)?;
     let mut control = owner.writer.control(ControlLimits::default())?;
+    ensure!(
+        control
+            .read(
+                ControlNamespace::Journals,
+                &format!("deleting-{}.json", owner.spec.key().filename())
+            )?
+            .is_none(),
+        "PendingRecovery: language has an unfinished deletion"
+    );
     let registration = control
         .read(ControlNamespace::Ownership, &registration_name(&owner.spec))?
         .context("language publication lock registration is missing")?;

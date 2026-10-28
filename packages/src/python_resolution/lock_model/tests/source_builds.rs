@@ -38,6 +38,7 @@ fn receipt(fixture: &Fixture) -> (PinId, SourceBuildRecord) {
                 initial_inputs: vec![input],
                 dynamic_requirements: vec![],
             }),
+            native: None,
         },
     )
 }
@@ -135,4 +136,42 @@ fn p2_declaration_commitment_roundtrips_without_rewriting_wheel_identity() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn p6_native_build_lock_roundtrip_requires_schema4_and_closed_native_json() {
+    use crate::packages::python_environment::model::NativeToolchainRecord;
+    let fixture = Fixture::new();
+    let mut receipt = receipt(&fixture);
+    receipt.1.recipe = 2;
+    receipt.1.native = Some(NativeToolchainRecord::test_record());
+    let model = PythonLockModel::from_parts_with_builds(
+        &fixture.pins,
+        &[fixture.input()],
+        std::slice::from_ref(&receipt),
+        Default::default(),
+    ).unwrap();
+    let encoded = model.encode_projection(Default::default()).unwrap();
+    assert!(encoded.contains("schema = 4\n") && encoded.contains("native = \""));
+    let decoded = PythonLockModel::decode_projection(&encoded, Default::default()).unwrap();
+    assert_eq!(decoded, model);
+    assert_eq!(decoded.encode_projection(Default::default()).unwrap(), encoded);
+    for schema in [2, 3] {
+        assert_eq!(
+            PythonLockModel::decode_projection(&encoded.replacen("schema = 4", &format!("schema = {schema}"), 1), Default::default()),
+            Err(LockModelError::UnsupportedSchema),
+        );
+    }
+    let raw = receipt.1.native.as_ref().unwrap().canonical_json().unwrap();
+    let unknown = raw.replacen("\"schema\":1", "\"schema\":1,\"unknown\":true", 1);
+    let malicious = encoded.replace(&serde_json::to_string(&raw).unwrap(), &serde_json::to_string(&unknown).unwrap());
+    assert_ne!(malicious, encoded);
+    assert!(PythonLockModel::decode_projection(&malicious, Default::default()).is_err());
+    let limits = LockModelLimits { max_declaration_bytes: raw.len() - 1, ..Default::default() };
+    assert!(PythonLockModel::decode_projection(&encoded, limits).is_err());
+    receipt.1.recipe = 1;
+    assert!(receipt.1.validate().is_err());
+    receipt.1.recipe = 2;
+    receipt.1.native = None;
+    assert!(receipt.1.validate().is_err());
 }

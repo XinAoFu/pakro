@@ -2082,10 +2082,16 @@ impl<'a> CmdLineRunner<'a> {
     /// Prepare sandbox restrictions on the command. Must be called before execute()
     /// when sandbox is configured. This is async because macOS DNS resolution is async.
     pub async fn apply_sandbox(&mut self) -> eyre::Result<()> {
-        let Some(sandbox) = self.sandbox.take() else {
+        let Some(mut sandbox) = self.sandbox.take() else {
             return Ok(());
         };
         let initial_program = std::path::PathBuf::from(self.cmd.as_std().get_program());
+        #[cfg(target_os = "linux")]
+        if sandbox.build_worker && sandbox.runtime_loaders.is_empty() {
+            let mut programs = sandbox.allow_process.clone();
+            programs.push(initial_program.clone());
+            sandbox.capture_runtime_loaders(&programs)?;
+        }
         sandbox.validate_build_worker(Some(&initial_program))?;
         if !sandbox.is_active() {
             return Ok(());

@@ -53,24 +53,22 @@ fn actual_file_uses_the_existing_parser_and_checked_requests_without_writing_a_g
 }
 
 #[test]
-fn a_new_file_receipt_cannot_label_old_cached_or_proposed_parsed_values() {
+fn a_new_file_receipt_cannot_label_old_cached_or_cloned_parsed_values() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("pakro.toml");
     fs::write(&path, RAW_ONE).unwrap();
     let old_data = PakroToml::from_str(RAW_ONE, &path).unwrap();
     let cloned_data = old_data.clone();
-    let proposed_data = PakroToml::for_history_preflight(RAW_ONE, &path).unwrap();
     let old_requests = |data: &PakroToml| {
         crate::packages::requests_from_config(&data.packages.lock().unwrap()).unwrap()
     };
     assert_eq!(old_requests(&cloned_data)[0].version, "1.0");
-    assert_eq!(old_requests(&proposed_data)[0].version, "1.0");
     fs::write(&path, RAW_TWO).unwrap();
     let observed = load(&path);
     assert_eq!(
         version(&observed),
         "2.0",
-        "the proof must parse its own held bytes, never adopt an old Arc or proposed data"
+        "the proof must parse its own held bytes, never adopt old cached or cloned data"
     );
     observed
         .for_python()
@@ -164,11 +162,10 @@ fn utf8_toml_path_byte_deadline_and_package_errors_fail_without_raw_source_diagn
         assert!(!format!("{error:?} {error}").contains("PRIVATE_SENTINEL"));
     }
     fs::write(&path, "[packages.\"invalid-group\"]\ndemo='1'\n").unwrap();
-    let invalid_packages = load(&path);
     assert!(
         matches!(
-            invalid_packages.checked_package_requests(),
-            Err(NativeConfigError::InvalidPackages)
+            NativePythonConfigFile::open(&path, Default::default(), deadline()),
+            Err(NativeConfigError::InvalidDocument)
         ),
         "invalid legacy package declarations cannot become empty roots"
     );
@@ -271,10 +268,10 @@ fn checked_projection_preserves_package_errors_and_returns_independent_data() {
         "[packages.\"python@3.13\"]\ndemo=''\n",
     ] {
         fs::write(&path, raw).unwrap();
-        assert_eq!(
-            load(&path).checked_package_requests(),
-            Err(NativeConfigError::InvalidPackages)
-        );
+        assert!(matches!(
+            NativePythonConfigFile::open(&path, Default::default(), deadline()),
+            Err(NativeConfigError::InvalidDocument)
+        ));
     }
     for raw in [
         "packages=[]\n",
