@@ -18,12 +18,9 @@ use std::sync::OnceLock;
 use dashmap::DashMap;
 use eyre::Result;
 
-use super::catalog::{
-    Catalog, merge_provenance, read_receipt, write_receipt, write_unpublished_receipt,
-};
+use super::catalog::{Catalog, read_receipt, write_receipt};
 use super::identity::{Digest, InstallIdentity, Mode};
-use super::publication::{PublicationUndo, PublicationValue};
-use super::record::{IdentityRecord, Provenance, RECEIPT_FILE, Receipt};
+use super::record::{IdentityRecord, RECEIPT_FILE, Receipt};
 use crate::file;
 use crate::toolset::{ToolRequest, ToolVersion};
 use crate::{dirs, env};
@@ -1390,58 +1387,6 @@ pub(crate) fn finish(
     Ok(())
 }
 
-pub(crate) fn finish_tracked(
-    tv: &ToolVersion,
-    allocated: &Allocated,
-    adopt_new_artifact: bool,
-    undo: &mut PublicationUndo,
-) -> Result<()> {
-    let catalog = Catalog::new(dirs::INSTALLS.to_path_buf());
-    let _lock = catalog.lock()?;
-    // The allocation may predate another pin's adoption. Merge only this
-    // installation's new facts into the record currently protected by the lock.
-    let mut record = catalog.publication_record(&allocated.record.identity)?;
-    eyre::ensure!(
-        same_path(&catalog.install_dir(&record), &allocated.dir),
-        "install publication allocated directory changed"
-    );
-    let acquired = tv
-        .backend()
-        .ok()
-        .map(|backend| backend.get_platform_key())
-        .and_then(|platform| tv.lock_platforms.get(&platform))
-        .and_then(|info| info.checksum.clone());
-    if allocated.reused && !adopt_new_artifact {
-        check_restored_artifact(tv, &record, acquired.as_deref())?;
-    }
-    let mut incoming = Provenance {
-        generation: allocated.record.provenance.generation,
-        ..Default::default()
-    };
-    if let Some(checksum) = acquired {
-        incoming.artifacts.insert("checksum".into(), checksum);
-    }
-    if let Some(pin) = pin_of(&record.identity) {
-        incoming.pinned_by.push(pin.to_string());
-    }
-    merge_provenance(&mut record.provenance, incoming);
-    write_unpublished_receipt(
-        &allocated.dir,
-        &Receipt {
-            record: record.clone(),
-            requested_as: Some(tv.ba().short.clone()),
-            pakro_version: Some(crate::version::VERSION.to_string()),
-        },
-    )?;
-    catalog.write_record_tracked(&record, undo)?;
-    link_unlocked(tv, &allocated.dir, Some(undo))?;
-    if let Some(key) = &allocated.selects {
-        catalog.write_selection_tracked(key, &record, undo)?;
-    }
-    reset_cache();
-    Ok(())
-}
-
 /// Fail when the artifact just acquired for a restored installation is not the one
 /// its record names. Compares only what both sides know; an installation recorded
 /// without a checksum (a plugin that does not report one) has nothing to compare.
@@ -1545,17 +1490,12 @@ pub(crate) fn note_reuse(tv: &ToolVersion) -> Result<()> {
 pub(crate) fn link(tv: &ToolVersion, dir: &Path) -> Result<()> {
     let catalog = Catalog::new(dirs::INSTALLS.to_path_buf());
     let _lock = catalog.lock()?;
-    link_unlocked(tv, dir, None)
+    link_unlocked(tv, dir)
 }
 
-/// The caller holds the primary catalog lock; selection and tracked finish
+/// The caller holds the primary catalog lock; selection and finish
 /// must not reacquire it while keeping record, slot and selector in step.
-fn link_unlocked(tv: &ToolVersion, dir: &Path, undo: Option<&mut PublicationUndo>) -> Result<()> {
-    #[cfg(not(unix))]
-    eyre::ensure!(
-        undo.is_none(),
-        "tracked install links require a supported POSIX platform"
-    );
+fn link_unlocked(tv: &ToolVersion, dir: &Path) -> Result<()> {
     let tool_dir = tv.ba().installs_path().to_path_buf();
     let slot = tool_dir.join(tv.tv_pathname());
     if let Ok(meta) = std::fs::symlink_metadata(&slot)
@@ -1569,18 +1509,7 @@ fn link_unlocked(tv: &ToolVersion, dir: &Path, undo: Option<&mut PublicationUndo
     }
     file::create_dir_all(&tool_dir)?;
     let target = link_value(&tool_dir, dir);
-    let before = undo
-        .as_ref()
-        .map(|_| PublicationValue::capture(&slot))
-        .transpose()?;
-    let current = if let Some(before) = &before {
-        match before {
-            PublicationValue::Symlink { target } => Some(target.clone()),
-            _ => None,
-        }
-    } else {
-        file::resolve_symlink(&slot)?
-    };
+    let current = file::resolve_symlink(&slot)?;
     if current.is_some_and(|current| same_link_target(&slot, &current, dir)) {
         return Ok(());
     }
@@ -1596,14 +1525,6 @@ fn link_unlocked(tv: &ToolVersion, dir: &Path, undo: Option<&mut PublicationUndo
             return Ok(());
         }
         return Err(err);
-    }
-    if let Some(undo) = undo {
-        undo.track_change(
-            &Catalog::new(dirs::INSTALLS.to_path_buf()).lock_path(),
-            &slot,
-            before.expect("tracked link captured its original entry"),
-            PublicationValue::Symlink { target },
-        )?;
     }
     Ok(())
 }
@@ -2182,88 +2103,6 @@ pub fn dir_name_of(path: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    #[cfg(unix)]
-    fn tracked_finish_undo_restores_its_record_selector_and_exact_version_link() {
-        struct Cleanup(Vec<PathBuf>);
-        impl Drop for Cleanup {
-            fn drop(&mut self) {
-                for path in &self.0 {
-                    let _ = file::remove_all(path);
-                }
-            }
-        }
-        let _settings = crate::test::SettingsGuard::lock();
-        let version = format!(
-            "0.0.{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        );
-        let ba = std::sync::Arc::new(crate::args::BackendArg::new(
-            "python".into(),
-            Some("core:python".into()),
-        ));
-        let request = ToolRequest::new(ba, &version, crate::toolset::ToolSource::Argument).unwrap();
-        let mut tv = ToolVersion::new(request, version.clone());
-        let platform = tv.backend().unwrap().get_platform_key();
-        tv.lock_platforms.insert(
-            platform.clone(),
-            crate::lockfile::PlatformInfo {
-                checksum: Some(format!("sha256:{}", "a".repeat(64))),
-                ..Default::default()
-            },
-        );
-        let catalog = Catalog::new(dirs::INSTALLS.to_path_buf());
-        let key = InstallIdentity {
-            backend: "core:python".into(),
-            version,
-            platform,
-            ..Default::default()
-        };
-        let previous = catalog.allocate(&key).unwrap();
-        let mut next = key.clone();
-        next.inputs.insert("generation".into(), "1".into());
-        let record = catalog.allocate(&next).unwrap();
-        let previous_dir = catalog.install_dir(&previous);
-        let new_dir = catalog.install_dir(&record);
-        std::fs::create_dir_all(&previous_dir).unwrap();
-        std::fs::create_dir_all(&new_dir).unwrap();
-        let slot = tv.ba().installs_path().join(tv.tv_pathname());
-        let _cleanup = Cleanup(vec![slot.clone(), previous_dir.clone(), new_dir.clone()]);
-        std::fs::create_dir_all(slot.parent().unwrap()).unwrap();
-        let target = link_value(slot.parent().unwrap(), &previous_dir);
-        std::os::unix::fs::symlink(&target, &slot).unwrap();
-        catalog.select(&key, &previous, None).unwrap();
-        let allocated = Allocated {
-            dir: new_dir.clone(),
-            record: record.clone(),
-            reused: false,
-            read_only: false,
-            selects: Some(key.clone()),
-        };
-        let mut undo = PublicationUndo::new();
-        finish_tracked(&tv, &allocated, true, &mut undo).unwrap();
-        assert_eq!(catalog.selection(&key).unwrap().selected, record.digest);
-        assert_eq!(
-            std::fs::read_link(&slot).unwrap(),
-            link_value(slot.parent().unwrap(), &new_dir)
-        );
-        assert!(
-            catalog
-                .lookup(&next)
-                .unwrap()
-                .provenance
-                .artifacts
-                .contains_key("checksum")
-        );
-        undo.rollback().unwrap();
-        assert_eq!(catalog.lookup(&next).unwrap(), record);
-        assert_eq!(catalog.selection(&key).unwrap().selected, previous.digest);
-        assert_eq!(std::fs::read_link(&slot).unwrap(), target);
-    }
 
     #[test]
     fn windows_spellings_of_one_root_compare_equal() {

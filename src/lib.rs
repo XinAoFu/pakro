@@ -91,8 +91,6 @@ pub mod watch_files;
 pub mod install_before;
 #[path = "../runtimes/src/toolinstall/install_context.rs"]
 pub mod install_context;
-#[path = "../runtimes/src/toolinstall/install_rollback.rs"]
-pub(crate) mod install_rollback;
 #[path = "../runtimes/src/toolinstall/python_runtime.rs"]
 pub mod python_runtime;
 #[path = "../runtimes/src/toolinstall/runtime_symlinks.rs"]

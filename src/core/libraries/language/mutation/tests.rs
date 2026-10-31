@@ -59,7 +59,6 @@ async fn f2_legacy_mutation_is_rejected_before_effects() {
         LegacyMutation::PostInstall,
         LegacyMutation::Uninstall,
         LegacyMutation::Purge,
-        LegacyMutation::Rollback,
         LegacyMutation::DelayedCleanup,
     ] {
         assert!(
@@ -74,7 +73,6 @@ async fn f2_legacy_mutation_is_rejected_before_effects() {
         LegacyMutation::Force,
         LegacyMutation::Uninstall,
         LegacyMutation::Purge,
-        LegacyMutation::Rollback,
     ] {
         assert!(
             reject_legacy_mutation(context.requested_data_root(), mutation, &outside).is_ok(),

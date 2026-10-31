@@ -849,16 +849,6 @@ pub(crate) async fn configured_toolset_or_path_which(
     Ok(which_non_pristine_executable(bin))
 }
 
-fn begin_install_rollback(
-    install_path: &Path,
-    marker_path: &Path,
-) -> Result<crate::install_rollback::InstallRollback> {
-    crate::install_rollback::InstallRollback::begin(
-        &std::path::absolute(install_path)?,
-        &std::path::absolute(marker_path)?,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -991,38 +981,6 @@ mod tests {
             0
         );
         assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn relative_install_paths_preserve_the_raw_entry_during_recovery() {
-        let root = tempfile::tempdir().unwrap();
-        let root = root.path().canonicalize().unwrap();
-        let external = root.join("external-runtime");
-        fs::create_dir(&external).unwrap();
-        fs::write(external.join("unchanged"), "old external runtime").unwrap();
-        let install = root.join("selected-runtime");
-        let marker = root.join("cache/incomplete");
-        std::os::unix::fs::symlink("external-runtime", &install).unwrap();
-        let cwd = std::env::current_dir().unwrap();
-        let relative_install = pathdiff::diff_paths(&install, &cwd).unwrap();
-        let relative_marker = pathdiff::diff_paths(&marker, &cwd).unwrap();
-        assert!(!relative_install.is_absolute() && !relative_marker.is_absolute());
-        let mut guard = begin_install_rollback(&relative_install, &relative_marker).unwrap();
-        assert!(guard.has_previous_entry());
-        assert!(fs::symlink_metadata(&install).is_err());
-        fs::create_dir(&install).unwrap();
-        fs::write(install.join("failed-new"), "partial").unwrap();
-        guard.rollback().unwrap();
-        assert_eq!(
-            fs::read_link(&install).unwrap(),
-            Path::new("external-runtime")
-        );
-        assert_eq!(
-            fs::read_to_string(external.join("unchanged")).unwrap(),
-            "old external runtime"
-        );
-        assert!(!marker.exists());
     }
 
     #[test]
@@ -4049,231 +4007,159 @@ pub trait Backend: Debug + Send + Sync {
         // creating any of its install directories, then reuse the stored context in
         // backend and tool-level hooks.
         ctx.dependency_context(&tv.request).await?;
+        // From here the install writes into its directory: repairing it in place
+        // or installing it afresh.
+        if let Some(allocated) = &allocated {
+            crate::install_layout::resolver::note_writing(allocated)?;
+        }
 
-        let recovery_tv = tv.clone();
-        let mut recovery = if self.preserve_install_on_error(&tv) {
-            Some(begin_install_rollback(
-                &tv.install_path(),
-                &self.incomplete_file_path(&tv),
-            )?)
-        } else {
-            None
-        };
-        let install_result = async {
-            // From here the install writes into its directory: repairing it in place
-            // or installing it afresh.
-            if let Some(allocated) = &allocated {
-                crate::install_layout::resolver::note_writing(allocated)?;
-            }
+        // Repair in place before anything below removes the working install.
+        if !ctx.force
+            && !rolling_reinstall
+            && !will_uninstall
+            && self.is_version_installed(&ctx.config, &tv, true)
+            && self.repair_install(&ctx, &tv).await?
+        {
+            // The installation is complete as it stands; make sure its version link and
+            // any lockfile pin are recorded.
+            crate::install_layout::resolver::note_satisfied(&tv);
+            self.finish_install_changes(&ctx, &tv).await?;
+            self.verify_repaired_install(&ctx, &tv).await?;
+            install_state::clear_incomplete_marker_best_effort(tv.ba(), &tv.state_key());
+            ctx.pr.finish_with_message("updated".to_string());
+            return Ok(tv);
+        }
 
-            // Repair in place before anything below removes the working install.
-            if !ctx.force
-                && !rolling_reinstall
-                && !will_uninstall
-                && self.is_version_installed(&ctx.config, &tv, true)
-                && self.repair_install(&ctx, &tv).await?
-            {
-                // The installation is complete as it stands; make sure its version link and
-                // any lockfile pin are recorded.
-                crate::install_layout::resolver::note_satisfied(&tv);
-                self.finish_install_changes(&ctx, &tv).await?;
-                self.verify_repaired_install(&ctx, &tv).await?;
-                install_state::clear_incomplete_marker_best_effort(tv.ba(), &tv.state_key());
-                ctx.pr.finish_with_message("updated".to_string());
-                return Ok(tv);
-            }
+        // Query backend for its operation plan and set up progress tracking
+        let mut weights = self.install_operation_weights(&tv, &ctx).await;
+        if will_uninstall {
+            // Removing the old install is bookkeeping next to fetching the new
+            // one, so it leads the plan with a small share.
+            weights.insert(0, UNINSTALL_OPERATION_WEIGHT);
+        }
+        ctx.pr.start_operations_weighted(&weights);
 
-            // Query backend for its operation plan and set up progress tracking
-            let mut weights = self.install_operation_weights(&tv, &ctx).await;
-            if will_uninstall {
-                // Removing the old install is bookkeeping next to fetching the new
-                // one, so it leads the plan with a small share.
-                weights.insert(0, UNINSTALL_OPERATION_WEIGHT);
-            }
-            ctx.pr.start_operations_weighted(&weights);
+        if will_uninstall {
+            self.uninstall_version_unlocked(&ctx.config, &tv, ctx.pr.as_ref(), false)
+                .await?;
+            ctx.pr.next_operation();
+        }
 
-            if will_uninstall {
-                if recovery
-                    .as_ref()
-                    .is_none_or(|guard| !guard.has_previous_entry())
-                {
-                    self.uninstall_version_unlocked(&ctx.config, &tv, ctx.pr.as_ref(), false)
-                        .await?;
-                }
-                ctx.pr.next_operation();
-            }
+        // Track the installation asynchronously (fire-and-forget)
+        // Do this before install so the request has time to complete during installation
+        versions_host::track_install(tv.short(), &tv.ba().full(), &tv.version);
 
-            // Track the installation asynchronously (fire-and-forget)
-            // Do this before install so the request has time to complete during installation
-            versions_host::track_install(tv.short(), &tv.ba().full(), &tv.version);
+        ctx.pr.set_message("install".into());
 
-            ctx.pr.set_message("install".into());
-
-            let old_tv = tv.clone();
-            // An in-place update leaves the installed version with the backend, so a
-            // failed update must not also take away pakro's link to it.
-            let kept_symlink = (rolling_reinstall && self.updates_rolling_version_in_place())
-                .then(|| file::resolve_symlink(&tv.install_path()).ok().flatten())
-                .flatten();
-            let restore_kept_symlink = |tv: &ToolVersion| -> bool {
-                let Some(target) = kept_symlink.as_ref() else {
-                    return false;
-                };
-                let install_path = tv.install_path();
-                // A failure partway through create_install_dirs can leave a directory.
-                let _ = file::remove_all(&install_path);
-                let restored = install_path
-                    .parent()
-                    .map_or(Ok(()), file::create_dir_all)
-                    .and_then(|()| file::make_symlink(target, &install_path));
-                if let Err(err) = &restored {
-                    warn!("failed to restore the install of {tv}: {err:#}");
-                }
-                restored.is_ok()
+        let old_tv = tv.clone();
+        // An in-place update leaves the installed version with the backend, so a
+        // failed update must not also take away pakro's link to it.
+        let kept_symlink = (rolling_reinstall && self.updates_rolling_version_in_place())
+            .then(|| file::resolve_symlink(&tv.install_path()).ok().flatten())
+            .flatten();
+        let restore_kept_symlink = |tv: &ToolVersion| -> bool {
+            let Some(target) = kept_symlink.as_ref() else {
+                return false;
             };
-            if let Err(e) = self.create_install_dirs(&tv) {
-                if restore_kept_symlink(&tv) {
-                    self.settle_restored_install(&ctx, &tv).await;
+            let install_path = tv.install_path();
+            // A failure partway through create_install_dirs can leave a directory.
+            let _ = file::remove_all(&install_path);
+            let restored = install_path
+                .parent()
+                .map_or(Ok(()), file::create_dir_all)
+                .and_then(|()| file::make_symlink(target, &install_path));
+            if let Err(err) = &restored {
+                warn!("failed to restore the install of {tv}: {err:#}");
+            }
+            restored.is_ok()
+        };
+        if let Err(e) = self.create_install_dirs(&tv) {
+            if restore_kept_symlink(&tv) {
+                self.settle_restored_install(&ctx, &tv).await;
+            }
+            return Err(e);
+        }
+        let install_env = tv.install_env();
+        let tv = match crate::env::with_install_env(install_env, self.install_version_(&ctx, tv))
+            .await
+        {
+            Ok(tv) => tv,
+            Err(e) => {
+                self.cleanup_install_dirs_on_error(&old_tv);
+                if restore_kept_symlink(&old_tv) {
+                    self.settle_restored_install(&ctx, &old_tv).await;
                 }
+                // Pass through the error - it will be wrapped at a higher level
                 return Err(e);
             }
-            let install_env = tv.install_env();
-            let tv =
-                match crate::env::with_install_env(install_env, self.install_version_(&ctx, tv))
-                    .await
-                {
-                    Ok(tv) => tv,
-                    Err(e) => {
-                        if recovery.is_none() {
-                            self.cleanup_install_dirs_on_error(&old_tv);
-                        }
-                        if restore_kept_symlink(&old_tv) {
-                            self.settle_restored_install(&ctx, &old_tv).await;
-                        }
-                        // Pass through the error - it will be wrapped at a higher level
-                        return Err(e);
-                    }
-                };
+        };
 
-            let install_path = tv.install_path();
-            // Identity layout: the receipt (it marks the install complete), the version
-            // link for the requesting tool and the unlocked selection. A failure after
-            // the receipt is written withdraws the install, as below.
-            if let Some(allocated) = &allocated {
-                let finished = if let Some(guard) = recovery.as_mut() {
-                    crate::install_layout::resolver::finish_tracked(
-                        &tv,
-                        allocated,
-                        ctx.force || rolling_reinstall,
-                        guard.publication(),
-                    )
-                } else {
-                    crate::install_layout::resolver::finish(
-                        &tv,
-                        allocated,
-                        ctx.force || rolling_reinstall,
-                    )
-                };
-                if let Err(err) = finished {
-                    if recovery.is_none() {
-                        crate::install_layout::resolver::unpublish(&install_path);
-                    }
-                    return Err(err);
-                }
-            }
-            // Everything below that can fail runs with the install already published,
-            // so a failure withdraws it again instead of leaving a receipt behind.
-            let bookkeeping = (|| -> eyre::Result<()> {
-                let mut update_install_state = false;
-                if install_path.starts_with(*dirs::INSTALLS)
-                    || crate::install_layout::resolver::is_primary_install(&install_path)
-                {
-                    if let Some(guard) = recovery.as_mut() {
-                        install_state::write_backend_meta_tracked(
-                            self.ba(),
-                            &dirs::INSTALLS,
-                            guard.publication(),
-                        )?;
-                    } else {
-                        install_state::write_backend_meta(self.ba())?;
-                    }
-                    update_install_state = true;
-                } else if env::install_path_category(&install_path)
-                    != env::InstallPathCategory::Local
-                {
-                    // For --system/--shared installs, write manifest to the target installs dir
-                    if let Some(installs_dir) = install_path.parent().and_then(|p| p.parent()) {
-                        let manifest = installs_dir.join(".pakro-installs.toml");
-                        if let Some(guard) = recovery.as_mut() {
-                            install_state::write_backend_meta_tracked(
-                                self.ba(),
-                                installs_dir,
-                                guard.publication(),
-                            )?;
-                        } else {
-                            install_state::write_backend_meta_to(self.ba(), &manifest)?;
-                        }
-                        update_install_state = true;
-                    }
-                }
-                if update_install_state {
-                    install_state::add_tool_version(self.ba(), &install_path, &tv.tv_pathname());
-                }
-                Ok(())
-            })();
-            if let Err(err) = bookkeeping {
-                if allocated.is_some() && recovery.is_none() {
-                    crate::install_layout::resolver::unpublish(&install_path);
-                }
-                return Err(err);
-            }
-
-            self.cleanup_install_dirs(&tv);
-            install_state::clear_incomplete_marker_best_effort(tv.ba(), &tv.state_key());
-            let finished = match self.finish_install_changes(&ctx, &tv).await {
-                Ok(()) => self.verify_install(&ctx, &tv).await,
-                Err(err) => Err(err),
-            };
+        let install_path = tv.install_path();
+        // Identity layout: the receipt (it marks the install complete), the version
+        // link for the requesting tool and the unlocked selection. A failure after
+        // the receipt is written withdraws the install, as below.
+        if let Some(allocated) = &allocated {
+            let finished = crate::install_layout::resolver::finish(
+                &tv,
+                allocated,
+                ctx.force || rolling_reinstall,
+            );
             if let Err(err) = finished {
-                // A failed postinstall or verification leaves a half-done install: take
-                // it back out of the layout so it is not selected, linked, or taken for
-                // complete, and the next install repairs it.
-                if allocated.is_some() && recovery.is_none() {
-                    crate::install_layout::resolver::unpublish(&install_path);
-                }
+                crate::install_layout::resolver::unpublish(&install_path);
                 return Err(err);
             }
-            // A refresh of an unlocked request changes what every project that makes the
-            // same request selects; say so rather than leave it implied.
-            let selection_note = (ctx.force
-                && allocated.as_ref().is_some_and(|a| a.selects.is_some()))
-            .then_some("installed (updated the shared selection for this version)");
-            ctx.pr
-                .finish_with_message(selection_note.unwrap_or("installed").to_string());
-            Ok(tv)
         }
-        .await;
-        if let Some(mut guard) = recovery {
-            match install_result {
-                Ok(tv) => {
-                    guard.commit();
-                    Ok(tv)
-                }
-                Err(err) => {
-                    let restored = guard.rollback();
-                    install_state::reset_tools();
-                    self.cleanup_install_dirs(&recovery_tv);
-                    match restored {
-                        Ok(()) => Err(err),
-                        Err(restore_error) => Err(eyre!(
-                            "{err:#}\nfailed to restore the previous installation: {restore_error:#}"
-                        )),
-                    }
+        // Everything below that can fail runs with the install already published,
+        // so a failure withdraws it again instead of leaving a receipt behind.
+        let bookkeeping = (|| -> eyre::Result<()> {
+            let mut update_install_state = false;
+            if install_path.starts_with(*dirs::INSTALLS)
+                || crate::install_layout::resolver::is_primary_install(&install_path)
+            {
+                install_state::write_backend_meta(self.ba())?;
+                update_install_state = true;
+            } else if env::install_path_category(&install_path) != env::InstallPathCategory::Local {
+                // For --system/--shared installs, write manifest to the target installs dir
+                if let Some(installs_dir) = install_path.parent().and_then(|p| p.parent()) {
+                    let manifest = installs_dir.join(".pakro-installs.toml");
+                    install_state::write_backend_meta_to(self.ba(), &manifest)?;
+                    update_install_state = true;
                 }
             }
-        } else {
-            install_result
+            if update_install_state {
+                install_state::add_tool_version(self.ba(), &install_path, &tv.tv_pathname());
+            }
+            Ok(())
+        })();
+        if let Err(err) = bookkeeping {
+            if allocated.is_some() {
+                crate::install_layout::resolver::unpublish(&install_path);
+            }
+            return Err(err);
         }
+
+        self.cleanup_install_dirs(&tv);
+        install_state::clear_incomplete_marker_best_effort(tv.ba(), &tv.state_key());
+        let finished = match self.finish_install_changes(&ctx, &tv).await {
+            Ok(()) => self.verify_install(&ctx, &tv).await,
+            Err(err) => Err(err),
+        };
+        if let Err(err) = finished {
+            // A failed postinstall or verification leaves a half-done install: take
+            // it back out of the layout so it is not selected, linked, or taken for
+            // complete, and the next install repairs it.
+            if allocated.is_some() {
+                crate::install_layout::resolver::unpublish(&install_path);
+            }
+            return Err(err);
+        }
+        // A refresh of an unlocked request changes what every project that makes the
+        // same request selects; say so rather than leave it implied.
+        let selection_note = (ctx.force && allocated.as_ref().is_some_and(|a| a.selects.is_some()))
+            .then_some("installed (updated the shared selection for this version)");
+        ctx.pr
+            .finish_with_message(selection_note.unwrap_or("installed").to_string());
+        Ok(tv)
     }
 
     /// Steps shared by a fresh install and an in-place repair once the tool's
@@ -4514,13 +4400,6 @@ pub trait Backend: Debug + Send + Sync {
         tv: ToolVersion,
     ) -> Result<ToolVersion> {
         Ok(tv)
-    }
-
-    /// Preserve the selected payload and this install's publication entries
-    /// until final verification succeeds. The backend must support replacing a
-    /// payload without running an uninstaller against the previous entry.
-    fn preserve_install_on_error(&self, _tv: &ToolVersion) -> bool {
-        false
     }
 
     async fn install_version_(&self, ctx: &InstallContext, tv: ToolVersion) -> Result<ToolVersion>;

@@ -15,7 +15,6 @@ pub(crate) enum LegacyMutation {
     PostInstall,
     Uninstall,
     Purge,
-    Rollback,
     DelayedCleanup,
     SystemPublish,
 }

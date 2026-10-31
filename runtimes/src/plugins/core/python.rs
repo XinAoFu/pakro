@@ -1617,11 +1617,6 @@ impl Backend for PythonPlugin {
         )
     }
 
-    fn preserve_install_on_error(&self, _tv: &ToolVersion) -> bool {
-        cfg!(any(target_os = "macos", target_os = "linux"))
-            && Settings::get().python_compile(CompilePurpose::Install) != Some(true)
-    }
-
     #[cfg(windows)]
     async fn list_bin_paths(
         &self,

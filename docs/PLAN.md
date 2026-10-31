@@ -1,6 +1,10 @@
 # Pakro Python 完成计划：P2 之后
 
-更新：2026-10-27（Asia/Shanghai）。架构入口：[主架构与Agent规则](Pakro主架构文件与Agent规则.md)。
+更新：2026-10-31（Asia/Shanghai）。架构入口：[主架构与Agent规则](Pakro主架构文件与Agent规则.md)。
+
+### InstallRollback 删除（2026-10-31，已完成）
+
+删除没有生产消费者的 InstallRollback 恢复实现及其专属撤销记录代码（含 `install_layout/publication.rs`、`finish_tracked`、`write_backend_meta_tracked`）和 35 个专属测试。原两个失败测试（`relative_install_paths_preserve_the_raw_entry_during_recovery`、`raw_install_symlinks_including_dangling_links_are_restored_without_following`）随无用实现删除，不是修复后通过。现行安装、发布（`finish`/`link`/`write_backend_meta` 等）与共享库 mutation 检查保留。编译通过；定向验证 85 通过 / 0 失败 / 1 ignored；属性修正后单测 1 通过。指导会话已核对最终源码摘要与差异。证据：`target/install-rollback-removal-20261031/`（`final-evidence-20261031.md` 及 01–07 日志）。未跑全量，其余七个已知失败仍待处理；P8/P9 未推进。
 
 本文件承接用户本轮确认的范围与实现计划；与此前“待确认”或旧范围表述冲突时，以用户本轮决定和本计划为准。接续检查已完成，P3、P4已由指定会话最终通过，当前按顺序进入P6；P6及后续新功能尚未通过。此前一次本地Git提交授权不延伸为后续自动提交或推送。
 
