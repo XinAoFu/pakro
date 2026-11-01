@@ -6,7 +6,6 @@ pub(crate) mod journal;
 
 pub(crate) mod model;
 pub(crate) mod prefix;
-pub(crate) mod resolved_build;
 pub(crate) mod runtime_bootstrap;
 pub(crate) mod runtime_layout;
 pub(crate) mod runtime_snapshot;

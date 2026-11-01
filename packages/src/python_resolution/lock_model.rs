@@ -107,18 +107,6 @@ impl LockModelLimits {
     pub(crate) fn validate(self) -> LockModelResult<()> {
         valid_limits(self)
     }
-    pub(crate) fn check_group_shape(
-        self,
-        pins: usize,
-        declarations: usize,
-        roots: usize,
-        nodes: usize,
-        edges: usize,
-    ) -> LockModelResult<()> {
-        valid_limits(self)?;
-        count(pins, self.max_pins, LockLimit::Pins)?;
-        group_shape(declarations, roots, nodes, edges, self)
-    }
 }
 impl Default for LockModelLimits {
     fn default() -> Self {

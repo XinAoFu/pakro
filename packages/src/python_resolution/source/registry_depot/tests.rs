@@ -4,8 +4,6 @@
 use super::*;
 #[path = "tests/active_policy.rs"]
 mod active_policy;
-#[path = "tests/build_fixture.rs"]
-pub(super) mod build_fixture;
 #[path = "tests/caller_deadline.rs"]
 mod caller_deadline;
 #[path = "tests/closed.rs"]

@@ -18,8 +18,6 @@ use futures_util::{FutureExt, future::BoxFuture};
 use std::collections::BTreeMap;
 use std::time::Instant;
 #[cfg(test)]
-pub(crate) use tests::build_fixture::RegistryBuildFixture;
-#[cfg(test)]
 pub(crate) use tests::project_fixture::ProjectRegistryFixture;
 
 use crate::packages::python_resolution::candidate_policy::{

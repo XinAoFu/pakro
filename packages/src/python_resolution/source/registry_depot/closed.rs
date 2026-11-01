@@ -176,14 +176,20 @@ pub(super) fn close_with_finish<'root>(
 
 // Source-owned retention. Every field comes from the consumed real closed
 // attempt; no DTO constructor or archive extraction is exposed.
-use crate::packages::python_environment::resolved_build::{
-    PreparedResolvedEnvironment, ResolvedBuildError, ResolvedBuildPermit,
-};
 use crate::packages::python_resolution::candidate_policy::PolicyNotice;
 use crate::packages::python_resolution::source::fresh::wheel::sidecar::RetainedFreshWheel;
-use crate::packages::python_resolution::source::locked_graph::FrozenRegistryTarget;
 use crate::packages::python_resolution::source::replay::metadata::RetainedLockedWheel;
 use crate::packages::python_wheel_install::PreparedWheelSource;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub(crate) enum ResolvedBuildError {
+    #[error("resolved build deadline expired")]
+    Deadline,
+    #[error("resolved source scope is no longer current")]
+    Revoked,
+    #[error("installed source receipt differs from the closed graph")]
+    SourceReceipt,
+}
 
 pub(crate) struct RetainedGraphEvidence<'root> {
     root: &'root BoundPythonLock,
@@ -459,37 +465,6 @@ impl<'root> ClosedRegistryGraph<'root> {
         evidence.recheck(tokio::time::Instant::from_std(deadline))?;
         Ok((archives, evidence))
     }
-    pub(crate) async fn build_with(
-        self,
-        permit: ResolvedBuildPermit,
-    ) -> Result<PreparedResolvedEnvironment<'root>, ResolvedBuildError> {
-        // Reuse the original closure engine for this caller's limits; no
-        // alternate graph checker or metadata/ZIP inspection is introduced.
-        let mut prepared = self.prepared;
-        // Narrow the existing source budget before its actual-owner loop.
-        prepared.deadline = prepared.deadline.min(permit.source_deadline());
-        let closed =
-            close_registry_plan(prepared, permit.graph_limits()).map_err(|error| match error {
-                RegistryClosureError::Deadline => ResolvedBuildError::Deadline,
-                RegistryClosureError::Revoked => ResolvedBuildError::Revoked,
-                _ => ResolvedBuildError::SourceReceipt,
-            })?;
-        let target = closed
-            .prepared
-            .root_scope
-            .with_scope(|scope| {
-                FrozenRegistryTarget::new(
-                    closed.prepared.environment(),
-                    closed.prepared.supported(),
-                    scope,
-                    closed.prepared.semantics(),
-                    permit.target_limits(),
-                )
-            })
-            .map_err(|_| ResolvedBuildError::TargetMismatch)?;
-        let (archives, evidence) = closed.into_shared_sources()?;
-        permit.build_with_sources(archives, evidence, target).await
-    }
 }
 
 pub(crate) enum SharedRegistryPackageSource {
@@ -504,7 +479,3 @@ impl SharedRegistryPackageSource {
         }
     }
 }
-
-#[path = "closed/projection.rs"]
-mod projection;
-pub(crate) use projection::RetainedProjectionError;

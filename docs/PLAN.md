@@ -1,6 +1,10 @@
 # Pakro Python 完成计划：P2 之后
 
-更新：2026-10-31（Asia/Shanghai）。架构入口：[主架构与Agent规则](Pakro主架构文件与Agent规则.md)。
+更新：2026-11-01（Asia/Shanghai）。架构入口：[主架构与Agent规则](Pakro主架构文件与Agent规则.md)。
+
+### resolved_build 完整入口删除（2026-11-01，已完成）
+
+删除没有生产消费者的 resolved_build 完整准备与锁生成入口、专属连接方法（`build_with`、`complete_resolved_build`）、专属投影（`closed/projection.rs`、`check_group_shape`）、准备工具 `RegistryBuildFixture` 及 15 个专属测试（12 个未标 ignore，3 个删除前标 ignore）。生产仍使用的 `ResolvedBuildError` 迁移至 `closed.rs`，仅保留 Deadline/Revoked/SourceReceipt 三变体，原有报错文字与触发条件不变。当前生产锁生成（由 LanguageLease 推导）、数据上限数值及读取一致性检查未改变。编译通过；定向测试 98 通过 / 0 失败 / 0 ignored；指导会话已核对当前源码及证据。原三个相关失败测试随无用实现删除，不是修复后通过。证据：`target/resolved-build-removal-20261101/`。未运行全量，原失败清单中另外四项尚未处理，当前全量结果未知；Build/Inventory 历史失败底层原因未确定。第二层模块（build、seal、runtime_bootstrap、runtime_source、runtime_startup、runtime_snapshot、runtime_layout 及 runtime_target 保留部分）与删除后新增的无用警告仍待逐项审查，本轮未扩大删除。用户已决定取消"安装期间检查锁文件外部修改"的行为，尚未在现行生产流程实施，不计为本批完成。
 
 ### InstallRollback 删除（2026-10-31，已完成）
 

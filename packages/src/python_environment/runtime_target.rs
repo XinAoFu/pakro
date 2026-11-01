@@ -70,18 +70,6 @@ impl ObservedRegistryRuntimeTarget {
         check_deadline(deadline)
     }
 }
-impl ObservedRegistryRuntimeTarget {
-    /// A fixed consumer of the private snapshot; no general extraction exists.
-    pub(super) async fn complete_resolved_build<'lock>(
-        self,
-        permit: super::resolved_build::RuntimeBuildPermit<'lock>,
-    ) -> Result<
-        super::resolved_build::PreparedResolvedEnvironment<'lock>,
-        super::resolved_build::ResolvedBuildError,
-    > {
-        permit.complete(self.snapshot, self.target).await
-    }
-}
 impl std::fmt::Debug for ObservedRegistryRuntimeTarget {
     fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         out.debug_struct("ObservedRegistryRuntimeTarget")
