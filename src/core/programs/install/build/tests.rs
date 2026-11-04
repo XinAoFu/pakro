@@ -140,7 +140,13 @@ async fn nonce_installed_output_fixture() {
     // Separate install calls model separate CLI invocations. Preserve the
     // identity description, not an extra test-only runtime lease across them.
     drop(language);
-    let project = fixture.project_path().parent().unwrap().to_owned();
+    let raw_project = fixture.project_path().parent().unwrap().to_owned();
+    let project = std::fs::canonicalize(&raw_project).unwrap();
+    eprintln!(
+        "P3_NONCE_PROJECT raw={} canonical={}",
+        raw_project.display(),
+        project.display()
+    );
     let declaration = format!(
         "[tools]\npython='{}'\n[packages.\"python@{}\"]\ndemo-pkg='1.0'\n",
         language_version, language_version

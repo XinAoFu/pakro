@@ -110,7 +110,37 @@ impl AcquireCounter {
 #[tokio::test]
 async fn f2_exact_install_reuses_and_records_only_real_projects() {
     let workspace = Workspace::new();
-    let context = workspace.context();
+    // A first project install generates the initial lock document, so this
+    // success scenario uses a writable lockfile policy; the shared
+    // Workspace::context() keeps its narrower policy for the other tests.
+    let stage = workspace.stage.clone();
+    let context =
+        crate::programs::capture_operation_context(crate::programs::OperationContextInputs {
+            settings: &Settings::default(),
+            policy: crate::programs::OperationPolicy {
+                locked: false,
+                offline: true,
+                deadline: Instant::now() + Duration::from_secs(300),
+                budget: crate::programs::RequestBudget {
+                    max_arguments: 8,
+                    max_total_argument_bytes: 4096,
+                    max_declarations: 16,
+                    max_runtime_candidates: 8,
+                },
+                writes: crate::programs::AllowedWrites {
+                    libraries: true,
+                    project_selection: true,
+                    lockfile: true,
+                    declarations: false,
+                },
+            },
+            cancellation: tokio_util::sync::CancellationToken::new(),
+            data_root: stage.join("data"),
+            cache_root: stage.join("cache"),
+            python_sources: Some(crate::programs::python::public_sources().unwrap()),
+            python_target_description: None,
+        })
+        .unwrap();
     let counter = AcquireCounter {
         bytes: archive("3.15.0"),
         calls: RefCell::new(0),
@@ -135,6 +165,17 @@ async fn f2_exact_install_reuses_and_records_only_real_projects() {
         .unwrap();
     assert_eq!(*counter.calls.borrow(), 1);
 
+    // The first install also wrote a valid project lock with an exact graph.
+    let lock_path = project.join("pakro.lock");
+    let first_lock = std::fs::read(&lock_path).unwrap();
+    let model = crate::packages::python_resolution::lock_session::decode_root(
+        &first_lock,
+        Default::default(),
+    )
+    .unwrap()
+    .expect("the first install writes a lock with an exact graph model");
+    assert!(!model.graphs().is_empty());
+
     let spec = install_spec(&counter.bytes);
     let repository = LanguageRepository::open_readonly(&context).unwrap();
     match repository.lookup(&spec).unwrap() {
@@ -155,6 +196,11 @@ async fn f2_exact_install_reuses_and_records_only_real_projects() {
         .install(config.clone())
         .await
         .unwrap();
+    assert_eq!(
+        std::fs::read(&lock_path).unwrap(),
+        first_lock,
+        "a satisfied strict reinstall must not rewrite the lock"
+    );
     drop(
         prepare_language(&spec, &context, || async { counter.acquire(&context) })
             .await
