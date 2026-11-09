@@ -19,6 +19,8 @@ use uuid::Uuid;
 const PREFIX: &str = "p2-lock-";
 const MAX_LOCK: usize = 16 * 1024 * 1024;
 
+mod package_recovery;
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Journal {
@@ -37,6 +39,20 @@ struct Journal {
     staged: Option<(PathBuf, (u64, u64))>,
     rollback_staged: Option<(PathBuf, (u64, u64))>,
     references: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    preparing_packages: Option<PreparingPackages>,
+}
+
+/// Original prepared allocations. These facts describe a pending operation;
+/// recovery must reopen the original locks before they authorize publication.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PreparingPackages {
+    declaration_digest: String,
+    store: [u64; 2],
+    leases: [u64; 2],
+    build: [u64; 2],
+    members: Vec<crate::libraries::package::manifest::PackageManifest>,
 }
 
 // Journal UUIDs have one fixed wire spelling without enabling additional
@@ -93,7 +109,7 @@ fn decode(snapshot: &ControlSnapshot, expected: Option<Uuid>) -> Result<Journal>
     let journal: Journal = serde_json::from_slice(snapshot.bytes())
         .map_err(|_| eyre::eyre!("PendingRecovery: project lock journal is damaged"))?;
     ensure!(
-        journal.schema == 1
+        matches!(journal.schema, 1 | 2)
             && !journal.project.is_nil()
             && !journal.transaction.is_nil()
             && expected.is_none_or(|project| project == journal.project)
@@ -112,6 +128,36 @@ fn decode(snapshot: &ControlSnapshot, expected: Option<Uuid>) -> Result<Journal>
             && journal.references.len() <= 65536,
         "PendingRecovery: project lock journal has unsupported facts"
     );
+    match (&journal.preparing_packages, journal.schema) {
+        (None, 1) => {}
+        (Some(preparing), 2) => {
+            ensure!(
+                preparing.declaration_digest.len() == 64
+                    && preparing
+                        .declaration_digest
+                        .bytes()
+                        .all(|byte| byte.is_ascii_hexdigit())
+                    && journal.new_bytes.is_empty()
+                    && journal.staged.is_none()
+                    && journal.rollback_staged.is_none()
+                    && !preparing.members.is_empty()
+                    && preparing.members.len() <= 65536,
+                "PendingRecovery: invalid package preparation stage"
+            );
+            let mut keys = std::collections::BTreeSet::new();
+            let mut allocations = std::collections::BTreeSet::new();
+            for member in &preparing.members {
+                member.validate_metadata()?;
+                ensure!(
+                    member.conda.is_some()
+                        && keys.insert(member.key())
+                        && allocations.insert(&member.storage.allocation),
+                    "PendingRecovery: duplicate or unsupported prepared package"
+                );
+            }
+        }
+        _ => eyre::bail!("PendingRecovery: unsupported project journal stage"),
+    }
     for reference in &journal.references {
         let digest: pakro_store::Digest = reference
             .parse()
@@ -141,6 +187,13 @@ pub(crate) fn own_pending_lock_commit(
     observed: &ObservedProjectInputs,
 ) -> Result<bool> {
     context.checkpoint()?;
+    let Some(read) = read_store(context)? else {
+        // No journal store: there is nothing to recover. An early strict
+        // recheck here would refuse an installation whose lock file changed
+        // after its own observation; the caller's input checks remain.
+        context.checkpoint()?;
+        return Ok(false);
+    };
     observed.recheck()?;
     let project = ProjectIdentity::from_observation(observed)?.as_uuid();
     let mut lock_targets = std::collections::BTreeSet::new();
@@ -149,16 +202,20 @@ pub(crate) fn own_pending_lock_commit(
             .is_some_and(|extension| extension == "lock")
     }) {
         context.checkpoint()?;
-        lock_targets.insert(std::fs::canonicalize(path).map_err(|_| {
-            eyre::eyre!("observed lock target cannot be verified for pending recovery")
-        })?);
+        // The fixed installation lock keeps the real target its initial
+        // observation resolved; re-resolving the current entry would make a
+        // deleted or replaced lock refuse an install that already owns its
+        // input, or move the target to a later re-pointed link.
+        let target = if observed.fixed_lock_path() == Some(path) {
+            observed.fixed_lock_target().unwrap_or(path).to_path_buf()
+        } else {
+            std::fs::canonicalize(path).map_err(|_| {
+                eyre::eyre!("observed lock target cannot be verified for pending recovery")
+            })?
+        };
+        lock_targets.insert(target);
     }
     observed.recheck()?;
-    let Some(read) = read_store(context)? else {
-        context.checkpoint()?;
-        observed.recheck()?;
-        return Ok(false);
-    };
     let control = read.control(ControlLimits::default())?;
     let mut pending = false;
     for entry in control.list_names(ControlNamespace::Journals, 65536, 8 * 1024 * 1024)? {
@@ -238,9 +295,16 @@ pub(crate) fn ensure_project_consistent(
             .is_some_and(|extension| extension == "lock")
     }) {
         context.checkpoint()?;
-        lock_targets.insert(std::fs::canonicalize(path).map_err(|_| {
-            eyre::eyre!("observed lock target cannot be verified for pending recovery")
-        })?);
+        // As above: the fixed installation lock keeps the real target its
+        // initial observation resolved, not a later re-pointed entry.
+        let target = if observed.fixed_lock_path() == Some(path) {
+            observed.fixed_lock_target().unwrap_or(path).to_path_buf()
+        } else {
+            std::fs::canonicalize(path).map_err(|_| {
+                eyre::eyre!("observed lock target cannot be verified for pending recovery")
+            })?
+        };
+        lock_targets.insert(target);
     }
     observed.recheck()?;
     if let Some(read) = read_store(context)? {
@@ -302,6 +366,208 @@ pub(super) fn project_state(
     hash.finalize().into()
 }
 
+/// Record prepared Conda package owners in the project's existing P2 journal.
+/// The caller must already hold the project guard and retain all package owners.
+/// This prepares recovery only; it does not publish a package or change the lock.
+#[allow(dead_code)]
+pub(crate) fn prepare_package_publication(
+    context: &OperationContext,
+    observed: &ObservedProjectInputs,
+    expected: &crate::libraries::project::state::ExpectedProjectState,
+    writer: &StoreWriter,
+    project_lock: &pakro_store::control::lease::StableLock,
+    project_guard: &pakro_store::control::lease::ObjectLease,
+    transaction: Uuid,
+    lock_path: &Path,
+    members: &mut [(
+        &mut crate::packages::python_environment::prefix::UnpublishedPrefix,
+        &crate::libraries::package::manifest::PackageManifest,
+    )],
+    dependencies: &[crate::libraries::package::lease::PackageLease],
+    language: Option<&crate::libraries::language::lease::LanguageLease>,
+) -> Result<()> {
+    use crate::packages::python_environment::prefix::verify::{
+        InventoryRoot, PrefixInventoryLimits, observe_tree_inventory,
+    };
+    use pakro_store::control::lease::LeaseMode;
+    context.checkpoint()?;
+    ensure!(
+        context.policy().writes.libraries && context.policy().writes.project_selection,
+        "operation policy forbids package publication"
+    );
+    ensure!(
+        !transaction.is_nil() && !members.is_empty() && members.len() <= 65536,
+        "invalid package publication group"
+    );
+    let identity = ProjectIdentity::from_observation(observed)?;
+    expected.ensure_identity(&identity)?;
+    project_lock.check_location(
+        writer.build_handle(),
+        &format!("project-{}.lock", identity.as_uuid().hyphenated()),
+    )?;
+    project_guard.check_binding()?;
+    ensure!(
+        project_guard.mode() == LeaseMode::Exclusive
+            && project_guard.identity() == project_lock.identity(),
+        "package preparation requires the original project guard"
+    );
+    ensure_project_consistent(context, observed)?;
+    observed.recheck()?;
+    let repository = ProjectRepository::open_readonly(context)?;
+    expected.ensure_current(repository.model())?;
+    let actual_store = pakro_store::control::open_trusted_store_with_deadline(
+        &context.requested_data_root().join("projects"),
+        repository_uid(),
+        false,
+        context.policy().deadline,
+    )?;
+    ensure!(
+        pakro_store::control::FileIdentity::of(&actual_store)?
+            == pakro_store::control::FileIdentity::of(writer.root_handle())?,
+        "package preparation project store differs from the operation"
+    );
+    let expected_project = project_state(repository.model(), identity.as_uuid());
+    ensure!(
+        observed.observed_auxiliary(lock_path)
+            && lock_path.extension().is_some_and(|name| name == "lock"),
+        "package preparation lock target was not observed"
+    );
+    let session = ProjectLockSession::acquire(lock_path, MAX_LOCK, context.policy().deadline)?;
+    ensure!(
+        session.canonical_target() == lock_path,
+        "package preparation lock target is an alias"
+    );
+    let old = session.snapshot()?;
+    ensure!(
+        old.bytes() == observed.document(lock_path),
+        "package preparation lock changed"
+    );
+    let mut keys = std::collections::BTreeSet::new();
+    let mut references = std::collections::BTreeSet::new();
+    for dependency in dependencies {
+        dependency.ensure_library_context(context)?;
+        dependency.check_binding()?;
+        ensure!(
+            keys.insert(dependency.manifest().key()),
+            "duplicate held package"
+        );
+        references.insert(pakro_store::Digest::Sha256(dependency.manifest().key()).to_string());
+    }
+    if let Some(language) = language {
+        language.ensure_library_context(context)?;
+        language.check_binding()?;
+        references.insert(pakro_store::Digest::Sha256(language.key().fingerprint()).to_string());
+    }
+    let mut manifests = Vec::with_capacity(members.len());
+    let mut namespace = None;
+    for (prefix, manifest) in members.iter_mut() {
+        manifest.validate_metadata()?;
+        ensure!(
+            manifest.conda.is_some() && keys.insert(manifest.key()),
+            "invalid or duplicate prepared Conda package"
+        );
+        ensure!(
+            manifest
+                .language
+                .is_none_or(|key| language.is_some_and(|held| held.key().fingerprint() == key)),
+            "prepared package's Python is not held"
+        );
+        let facts = prefix.generation_identity()?.facts()?;
+        ensure!(
+            prefix.final_path().parent()
+                == Some(crate::libraries::package::manifest::store_path(context).as_path())
+                && facts.allocation == manifest.storage.allocation
+                && facts.generation == manifest.storage.root_identity
+                && facts.lock == manifest.storage.lock,
+            "prepared package differs from its actual owner"
+        );
+        let directories = (facts.store, facts.leases, facts.build);
+        ensure!(
+            namespace.is_none_or(|expected| expected == directories),
+            "prepared packages belong to different stores"
+        );
+        namespace = Some(directories);
+        ensure!(
+            observe_tree_inventory(&**prefix, PrefixInventoryLimits::default())?
+                == manifest.storage.inventory,
+            "prepared package inventory changed"
+        );
+        crate::libraries::package::lease::validate_package_facts(prefix.root_file(), manifest)?;
+        references.insert(pakro_store::Digest::Sha256(manifest.key()).to_string());
+        manifests.push((**manifest).clone());
+    }
+    for manifest in &manifests {
+        ensure!(
+            manifest
+                .facts
+                .dependencies
+                .iter()
+                .all(|key| keys.contains(key)),
+            "prepared package dependency is not held by this group"
+        );
+    }
+    let (store, leases, build) = namespace.context("package preparation has no store")?;
+    let journal = Journal {
+        schema: 2,
+        project: identity.as_uuid(),
+        transaction,
+        expected_revision: 0,
+        expected_project,
+        path: lock_path.to_owned(),
+        parent: parent_identity(lock_path)?,
+        old_bytes: old.bytes().map(<[u8]>::to_vec),
+        old_identity: old.file_identity(),
+        new_bytes: Vec::new(),
+        staged: None,
+        rollback_staged: None,
+        references: references.into_iter().collect(),
+        preparing_packages: Some(PreparingPackages {
+            declaration_digest: super::commit::declaration_digest(observed),
+            store,
+            leases,
+            build,
+            members: manifests,
+        }),
+    };
+    let bytes = serde_json::to_vec(&journal)?;
+    ensure!(
+        bytes.len() as u64 <= ControlLimits::default().max_file_bytes,
+        "package preparation journal exceeds its budget"
+    );
+    observed.recheck()?;
+    session.recheck(&old)?;
+    project_guard.check_binding()?;
+    // On an uncertain CAS outcome every original allocation stays available to
+    // recovery. If absence is confirmed, cleanup can be re-enabled.
+    for index in 0..members.len() {
+        if let Err(error) = members[index].0.retain_for_publication_journal() {
+            for (prefix, _) in &mut members[..index] {
+                prefix.release_publication_journal_retention();
+            }
+            return Err(error);
+        }
+    }
+    let result = writer.control(ControlLimits::default())?.replace(
+        ControlNamespace::Journals,
+        &name(identity.as_uuid()),
+        None,
+        &bytes,
+    );
+    if let Err(error) = result {
+        if writer
+            .control(ControlLimits::default())?
+            .read(ControlNamespace::Journals, &name(identity.as_uuid()))?
+            .is_none()
+        {
+            for (prefix, _) in members.iter_mut() {
+                prefix.release_publication_journal_retention();
+            }
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
 /// Unfinished preparation protects its exact new objects as well as the old
 /// selection retained by the catalog. Malformed journals are unknown, not zero.
 pub(crate) struct PendingProjectProtection {
@@ -345,6 +611,9 @@ pub(crate) fn pending_protections(
                 references.push(key);
             }
         }
+        if let Some(preparing) = journal.preparing_packages {
+            references.extend(preparing.members.iter().map(|member| member.key()));
+        }
         references.sort_unstable();
         references.dedup();
         result.push(PendingProjectProtection {
@@ -376,7 +645,6 @@ pub(crate) fn pending_reference_chains(
 pub(super) struct PendingLockCommit {
     writer: std::sync::Arc<StoreWriter>,
     session: ProjectLockSession,
-    installed: LockImage,
     path: PathBuf,
     snapshot: ControlSnapshot,
 }
@@ -422,11 +690,10 @@ impl PendingLockCommit {
             session.canonical_target() == path,
             "P2 lock publication does not support a symlink lock target"
         );
+        // One write-time backup of the current entry: bytes, identity and
+        // mode from this single observation. It is never compared against the
+        // installation's initial input and never parsed as dependency data.
         let original = session.snapshot()?;
-        ensure!(
-            original.bytes() == observed.document(path),
-            "project lock differs from the operation observation"
-        );
         observed.recheck()?;
         let mut journal = Journal {
             schema: 1,
@@ -442,6 +709,7 @@ impl PendingLockCommit {
             staged: None,
             rollback_staged: None,
             references,
+            preparing_packages: None,
         };
         let key = name(project);
         let mut snapshot = writer.control(ControlLimits::default())?.replace(
@@ -451,7 +719,7 @@ impl PendingLockCommit {
             &serde_json::to_vec(&journal)?,
         )?;
         let installed =
-            session.compare_and_replace_journaled(&original, bytes, |temporary, identity| {
+            session.replace_journaled_install(&original, bytes, |temporary, identity| {
                 journal.staged = Some((temporary.to_owned(), identity));
                 snapshot = writer.control(ControlLimits::default())?.replace(
                     ControlNamespace::Journals,
@@ -470,19 +738,18 @@ impl PendingLockCommit {
         Ok(Self {
             writer,
             session,
-            installed,
             path: path.to_owned(),
             snapshot,
         })
     }
     pub(super) fn recheck_inputs(&self, observed: &ObservedProjectInputs) -> Result<()> {
-        self.session.recheck(&self.installed)?;
+        self.session.check_binding()?;
         observed.recheck_except_owned_auxiliary_lock(&self.path)?;
-        self.session.recheck(&self.installed)
+        self.session.check_binding()
     }
     pub(super) fn finalize(self) -> Result<()> {
         let mut control = self.writer.control(ControlLimits::default())?;
-        self.session.recheck(&self.installed)?;
+        self.session.check_binding()?;
         control.remove(&self.snapshot)
     }
 }
@@ -635,6 +902,32 @@ fn recover_project_lock_guarded(
     );
     repository.reload()?;
     let current = session.snapshot()?;
+    if let Some(preparing) = journal.preparing_packages.as_ref() {
+        ensure!(
+            project_state(repository.model(), journal.project) == journal.expected_project
+                && super::commit::declaration_digest(observed) == preparing.declaration_digest
+                && current.file_identity() == journal.old_identity
+                && current.bytes() == journal.old_bytes.as_deref(),
+            "PendingRecovery: package preparation project inputs changed"
+        );
+        observed.recheck()?;
+        session.recheck(&current)?;
+        package_recovery::resume(context, &journal)?;
+        observed.recheck()?;
+        session.recheck(&current)?;
+        writer
+            .control(ControlLimits::default())?
+            .remove(&snapshot)?;
+        return Ok(Some(RecoveredProjectLock {
+            writer,
+            lock,
+            guard,
+            session,
+            image: current,
+            path: journal.path,
+            project: project.as_uuid(),
+        }));
+    }
     let installed = journal.staged.as_ref().map(|(_, identity)| *identity)
         == current.file_identity()
         && current.bytes() == Some(journal.new_bytes.as_slice());

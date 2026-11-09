@@ -21,6 +21,11 @@ pub(crate) struct ReadOnlyIo {
     deadline: Instant,
 }
 impl ReadOnlyIo {
+    /// The real target this observation resolved and pinned, recorded at
+    /// observation time. Read-only; the current entry is never re-resolved.
+    pub(crate) fn resolved_target(&self) -> PathBuf {
+        self.namespace.parent.path.join(&self.namespace.name)
+    }
     pub(crate) fn recheck(&self, bytes: &[u8], sha256: &[u8; 32]) -> ReadOnlyFileResult<()> {
         clock(self.deadline)?;
         self.namespace.check(self.deadline)?;

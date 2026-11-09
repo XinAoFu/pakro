@@ -119,6 +119,35 @@ impl ProjectLockSession {
             eyre::bail!("project lock IO requires Unix")
         }
     }
+    /// Install publication of the prepared bytes. The current entry's content
+    /// is not a write precondition, and the write result is taken from the
+    /// temporary this session itself wrote and renamed; the current entry is
+    /// never re-read to define the outcome.
+    pub(crate) fn replace_journaled_install(
+        &mut self,
+        expected: &LockImage,
+        new_bytes: &[u8],
+        staged: impl FnOnce(&Path, (u64, u64)) -> Result<()>,
+    ) -> Result<LockImage> {
+        #[cfg(unix)]
+        return self
+            .io
+            .replace_journaled_install(expected, new_bytes, staged);
+        #[cfg(not(unix))]
+        {
+            let _ = (expected, new_bytes, staged);
+            eyre::bail!("project lock IO requires Unix")
+        }
+    }
+    /// Binding, session-state and deadline check only. Unlike
+    /// [`Self::recheck`], this never compares the observed entry's current
+    /// on-disk bytes, digest, inode or existence.
+    pub(crate) fn check_binding(&self) -> Result<()> {
+        #[cfg(unix)]
+        return self.io.check_binding();
+        #[cfg(not(unix))]
+        Ok(())
+    }
     pub(crate) fn compare_and_remove(&mut self, expected: &LockImage) -> Result<LockImage> {
         #[cfg(unix)]
         return self.io.remove(expected);
@@ -814,6 +843,9 @@ mod unix {
             );
             self.check()
         }
+        pub(super) fn check_binding(&self) -> Result<()> {
+            self.check()
+        }
         pub(super) fn replace(
             &mut self,
             expected: &LockImage,
@@ -837,6 +869,7 @@ mod unix {
             );
             self.recheck(expected)?;
             let mode = expected.pin.as_ref().map(|pin| pin.observed.mode & 0o777);
+            let gate = || self.recheck(expected);
             let result = guarded_write(
                 &self.domain,
                 &self.name,
@@ -844,7 +877,8 @@ mod unix {
                 bytes,
                 self.max_bytes,
                 self.deadline,
-                || self.recheck(expected),
+                Some(&gate as &dyn Fn() -> Result<()>),
+                InstallWrite::No,
                 |path| {
                     let metadata = std::fs::symlink_metadata(path)?;
                     use std::os::unix::fs::MetadataExt;
@@ -863,6 +897,54 @@ mod unix {
                 };
                 self.recheck(&image)
                     .context("project lock replacement may be committed; owned image changed")?;
+                Ok(image)
+            });
+            if result.is_err() {
+                self.failed = true;
+            }
+            result
+        }
+        pub(super) fn replace_journaled_install(
+            &mut self,
+            expected: &LockImage,
+            bytes: &[u8],
+            hook: impl FnOnce(&Path, (u64, u64)) -> Result<()>,
+        ) -> Result<LockImage> {
+            ensure!(
+                bytes.len() <= self.max_bytes,
+                "project lock replacement byte limit exceeded"
+            );
+            // Real session preconditions, without comparing the observed
+            // entry's on-disk content: a failed session cannot write again,
+            // and the backup must belong to this session.
+            self.check()?;
+            ensure!(
+                Arc::ptr_eq(&self.token, &expected.session),
+                "project lock image belongs to another session"
+            );
+            let mode = expected.pin.as_ref().map(|pin| pin.observed.mode & 0o777);
+            let result = guarded_write(
+                &self.domain,
+                &self.name,
+                mode,
+                bytes,
+                self.max_bytes,
+                self.deadline,
+                None,
+                InstallWrite::Yes,
+                |path| {
+                    let metadata = std::fs::symlink_metadata(path)?;
+                    use std::os::unix::fs::MetadataExt;
+                    hook(path, (metadata.dev(), metadata.ino()))
+                },
+            )
+            .and_then(|(bytes, pin)| {
+                let image = LockImage {
+                    sha256: Some(observed_sha256(&bytes, self.deadline)?),
+                    bytes: Some(bytes),
+                    pin: Some(pin),
+                    session: Arc::clone(&self.token),
+                };
                 Ok(image)
             });
             if result.is_err() {
@@ -959,6 +1041,7 @@ mod unix {
         pin.check_dangling()?;
         let domain = GuardDomain::acquire(pin.parent.duplicate()?, limit)?;
         pin.check_dangling()?;
+        let gate = || pin.check_dangling();
         guarded_write(
             &domain,
             &pin.name,
@@ -966,7 +1049,8 @@ mod unix {
             bytes,
             maximum,
             limit,
-            || pin.check_dangling(),
+            Some(&gate as &dyn Fn() -> Result<()>),
+            InstallWrite::No,
             |path| {
                 hook(path);
                 Ok(())
@@ -976,7 +1060,19 @@ mod unix {
     }
 
     // Both writers need this actual exclusive domain. Their independent
-    // predicates bind either a strict image or the native original alias.
+    // predicates bind either a strict image or the native original alias; the
+    // install publication passes no predicate and takes its write result from
+    // the temporary it wrote, never from a re-read of the replaced entry.
+    enum InstallWrite {
+        No,
+        Yes,
+    }
+    fn null_file() -> Result<File> {
+        std::fs::OpenOptions::new()
+            .read(true)
+            .open("/dev/null")
+            .context("project lock write result handle is unavailable")
+    }
     fn guarded_write(
         domain: &GuardDomain,
         name: &OsStr,
@@ -984,12 +1080,19 @@ mod unix {
         bytes: &[u8],
         maximum: usize,
         limit: Instant,
-        predicate: impl Fn() -> Result<()>,
+        predicate: Option<&dyn Fn() -> Result<()>>,
+        install: InstallWrite,
         hook: impl FnOnce(&Path) -> Result<()>,
     ) -> Result<(Vec<u8>, PinnedFile)> {
+        let run_predicate = || -> Result<()> {
+            if let Some(predicate) = predicate {
+                predicate()?;
+            }
+            Ok(())
+        };
         validate_publication(bytes, maximum, limit)?;
         domain.check(limit)?;
-        predicate()?;
+        run_predicate()?;
         let parent = &domain.parent;
         let mut temporary = Temporary::create(parent)?;
         let result = (|| {
@@ -1004,7 +1107,7 @@ mod unix {
             temporary.file.sync_all()?;
             let observed = Stamp::file(&temporary.file)?;
             hook(&parent.path.join(&temporary.name))?;
-            predicate()?;
+            run_predicate()?;
             domain.check(limit)?;
             let current = read_entry(parent, &temporary.name, maximum, limit)?
                 .context("project lock temporary disappeared")?;
@@ -1014,7 +1117,7 @@ mod unix {
                     && current.0 == bytes,
                 "project lock temporary binding or bytes changed"
             );
-            predicate()?;
+            run_predicate()?;
             domain.check(limit)?;
             deadline(limit)?;
             renameat(&parent.file, temporary.name.as_os_str(), &parent.file, name)?;
@@ -1024,12 +1127,37 @@ mod unix {
                 .sync_all()
                 .context("project lock replacement is visible but parent durability failed")?;
             domain.check(limit)?;
-            let committed = read_entry(parent, name, maximum, limit)?
-                .context("project lock replacement may be committed; current entry disappeared")?;
-            ensure!(
-                committed.0 == bytes && committed.1.observed == Stamp::file(&temporary.file)?,
-                "project lock replacement may be committed; current entry changed"
-            );
+            let committed = match install {
+                InstallWrite::Yes => {
+                    // Test cutpoint at the exact instant after the install
+                    // rename is durable but before this write returns its own
+                    // result; compiled out of production builds.
+                    install_write_renamed_cutpoint();
+                    // The temporary this session wrote is the published entry
+                    // after the rename; its own handle and stamp are the write
+                    // result. The entry itself is not re-read.
+                    let written = std::mem::replace(&mut temporary.file, null_file()?);
+                    (
+                        bytes.to_vec(),
+                        PinnedFile {
+                            file: written,
+                            observed,
+                        },
+                    )
+                }
+                InstallWrite::No => {
+                    let committed = read_entry(parent, name, maximum, limit)?.context(
+                        "project lock replacement may be committed; current entry disappeared",
+                    )?;
+                    ensure!(
+                        committed.0 == bytes
+                            && committed.1.observed == Stamp::file(&temporary.file)?,
+                        "project lock replacement may be committed; current entry changed"
+                    );
+                    domain.check(limit)?;
+                    committed
+                }
+            };
             domain.check(limit)?;
             Ok(committed)
         })();
@@ -1111,6 +1239,42 @@ mod unix {
             let _ = self.cleanup();
         }
     }
+}
+
+/// Tests inject an external replacement of the lock entry at the exact
+/// instant after the install rename is durable but before the write returns
+/// its own result. No environment-triggered cutpoint is compiled into
+/// production.
+#[cfg(all(test, unix))]
+thread_local! {
+    static INSTALL_WRITE_RENAMED_HOOK:
+        std::cell::RefCell<Option<Box<dyn FnMut() + 'static>>> =
+        const { std::cell::RefCell::new(None) };
+}
+#[cfg(all(test, unix))]
+pub(crate) fn with_install_write_renamed_hook<T>(
+    hook: impl FnMut() + 'static,
+    body: impl FnOnce() -> T,
+) -> T {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            INSTALL_WRITE_RENAMED_HOOK.with(|hook| *hook.borrow_mut() = None);
+        }
+    }
+    INSTALL_WRITE_RENAMED_HOOK.with(|cell| *cell.borrow_mut() = Some(Box::new(hook)));
+    let _reset = Reset;
+    body()
+}
+fn install_write_renamed_cutpoint() {
+    #[cfg(all(test, unix))]
+    INSTALL_WRITE_RENAMED_HOOK.with(|hook| {
+        if let Some(hook) = hook.borrow_mut().as_mut() {
+            hook();
+        }
+    });
+    #[cfg(not(all(test, unix)))]
+    {}
 }
 
 #[cfg(all(test, unix))]

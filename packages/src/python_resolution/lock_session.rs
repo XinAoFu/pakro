@@ -23,14 +23,79 @@ pub(crate) enum ResolutionIntent {
     Resolve,
 }
 
+/// How this bound lock's facts were established. `Acquired` read the entry
+/// through its session, so recheck compares the current entry against that
+/// real IO image. `Fixed` was bound to the installation's initial observed
+/// bytes; recheck only verifies the session binding, state and deadline and
+/// never compares the project lock file's current on-disk content.
+enum LockOrigin {
+    Acquired(LockImage),
+    Fixed(Option<Vec<u8>>),
+}
+
 pub(crate) struct BoundPythonLock {
-    image: LockImage,
+    origin: LockOrigin,
     model: Option<PythonLockModel>,
     session: ProjectLockSession,
     limits: LockModelLimits,
 }
 impl BoundPythonLock {
     pub(crate) fn acquire(path: &Path, limits: LockModelLimits, deadline: Instant) -> Result<Self> {
+        Self::acquire_inner(path, limits, deadline, false)
+    }
+
+    pub(crate) fn acquire_conda(path: &Path, limits: LockModelLimits, deadline: Instant) -> Result<Self> {
+        Self::acquire_inner(path, limits, deadline, true)
+    }
+
+    /// Bind this installation's initial observed lock bytes. The bytes pass
+    /// the same admission as an acquired document, the real session (with its
+    /// exclusive parent guard) is still taken and held, and no disk content is
+    /// read back as installation input.
+    pub(crate) fn bind_fixed(
+        path: &Path,
+        bytes: Option<&[u8]>,
+        limits: LockModelLimits,
+        deadline: Instant,
+    ) -> Result<Self> {
+        Self::bind_fixed_inner(path, bytes, limits, deadline, false)
+    }
+
+    pub(crate) fn bind_fixed_conda(
+        path: &Path,
+        bytes: Option<&[u8]>,
+        limits: LockModelLimits,
+        deadline: Instant,
+    ) -> Result<Self> {
+        Self::bind_fixed_inner(path, bytes, limits, deadline, true)
+    }
+
+    fn bind_fixed_inner(
+        path: &Path,
+        bytes: Option<&[u8]>,
+        limits: LockModelLimits,
+        deadline: Instant,
+        allow_conda: bool,
+    ) -> Result<Self> {
+        limits.validate()?;
+        let session = ProjectLockSession::acquire(path, limits.max_document_bytes, deadline)?;
+        let model = match bytes {
+            None => None,
+            Some(bytes) => decode_root(bytes, limits)?,
+        };
+        if !allow_conda && model.as_ref().is_some_and(|model| !model.conda().is_empty()) {
+            bail!("Conda lock installation is not supported yet");
+        }
+        session.check_binding()?;
+        Ok(Self {
+            origin: LockOrigin::Fixed(bytes.map(<[u8]>::to_vec)),
+            model,
+            session,
+            limits,
+        })
+    }
+
+    fn acquire_inner(path: &Path, limits: LockModelLimits, deadline: Instant, allow_conda: bool) -> Result<Self> {
         limits.validate()?;
         let session = ProjectLockSession::acquire(path, limits.max_document_bytes, deadline)?;
         let image = session.snapshot()?;
@@ -38,9 +103,12 @@ impl BoundPythonLock {
             None => None,
             Some(bytes) => decode_root(bytes, limits)?,
         };
+        if !allow_conda && model.as_ref().is_some_and(|model| !model.conda().is_empty()) {
+            bail!("Conda lock installation is not supported yet");
+        }
         session.recheck(&image)?;
         Ok(Self {
-            image,
+            origin: LockOrigin::Acquired(image),
             model,
             session,
             limits,
@@ -61,7 +129,19 @@ impl BoundPythonLock {
     }
 
     pub(crate) fn recheck(&self) -> Result<()> {
-        self.session.recheck(&self.image)
+        match &self.origin {
+            LockOrigin::Acquired(image) => self.session.recheck(image),
+            LockOrigin::Fixed(_) => self.session.check_binding(),
+        }
+    }
+    /// The bound document's original wire bytes. For a fixed installation
+    /// input these are the initial observed bytes the new document builds on;
+    /// they are never re-read from disk.
+    fn document_bytes(&self) -> Option<&[u8]> {
+        match &self.origin {
+            LockOrigin::Acquired(image) => image.bytes(),
+            LockOrigin::Fixed(bytes) => bytes.as_deref(),
+        }
     }
 
     pub(crate) fn existing_pin(&self, id: PinId) -> Result<Option<ExistingFileSlot<'_>>> {
@@ -84,8 +164,7 @@ impl BoundPythonLock {
         limits.validate()?;
         self.recheck()?;
         if self
-            .image
-            .bytes()
+            .document_bytes()
             .is_some_and(|bytes| bytes.len() > limits.max_document_bytes)
         {
             bail!("Python lock document exceeds the current byte budget");
@@ -112,7 +191,7 @@ impl BoundPythonLock {
             },
             self.limits,
         )?;
-        self.session.recheck(&self.image)?;
+        self.recheck()?;
         let expected = self.expected_pin(&file)?;
         match (expected, intent) {
             (Some(pin), _) => Ok(FilePinLookup::Existing(ExistingFileSlot {
@@ -284,7 +363,7 @@ impl ExistingFileSlot<'_> {
         Ok(record)
     }
     pub(crate) fn recheck(&self) -> Result<()> {
-        self.owner.session.recheck(&self.owner.image)
+        self.owner.recheck()
     }
     pub(crate) fn recheck_for(&self, owner: &BoundPythonLock) -> Result<()> {
         if !std::ptr::eq(self.owner, owner) {
@@ -319,7 +398,7 @@ impl FreshFileSlot<'_> {
     }
 
     pub(crate) fn recheck(&self) -> Result<()> {
-        self.owner.session.recheck(&self.owner.image)
+        self.owner.recheck()
     }
     pub(crate) fn recheck_for(&self, owner: &BoundPythonLock) -> Result<()> {
         if !std::ptr::eq(self.owner, owner) {

@@ -83,6 +83,12 @@ impl ReadOnlyFileObservation {
     pub(crate) fn sha256(&self) -> &[u8; 32] {
         &self.sha256
     }
+    /// The actual target this observation read, with links resolved and
+    /// recorded at observation time; it is never re-resolved later.
+    #[cfg(unix)]
+    pub(crate) fn resolved_target(&self) -> std::path::PathBuf {
+        self.io.resolved_target()
+    }
     pub(crate) fn recheck(&self) -> ReadOnlyFileResult<()> {
         #[cfg(unix)]
         return self.io.recheck(&self.bytes, &self.sha256);

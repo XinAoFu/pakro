@@ -70,7 +70,7 @@ fn prepare_with_finish(
 ) -> Result<PreparedPythonLockDocument<'_>, LockDocumentError> {
     limits.validate().map_err(model_error)?;
     owner.recheck().map_err(|_| LockDocumentError::Revoked)?;
-    let original = owner.image.bytes();
+    let original = owner.document_bytes();
     if original.is_some_and(|bytes| bytes.len() > limits.max_document_bytes) {
         return Err(LockDocumentError::Limit);
     }

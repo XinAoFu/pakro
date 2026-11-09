@@ -109,6 +109,14 @@ pub(crate) struct ObservedProjectInputs {
     root_owner: Option<ReadOnlyPathObservation>,
     namespace_inputs: Vec<(PathBuf, ReadOnlyPathObservation)>,
     python_request: OnceLock<Result<Option<PythonRuntimeRequest>, String>>,
+    /// Set once by the actual installation entry: this project lock's later
+    /// on-disk content or appearance no longer fails input rechecks. Every
+    /// other observed input keeps its original observation.
+    fixed_lock: Option<PathBuf>,
+    /// The real target the initial observation resolved and pinned for the
+    /// fixed lock. For an entry observed missing nothing was pinned; the
+    /// recorded candidate path is then the only available target fact.
+    fixed_lock_target: Option<PathBuf>,
 }
 
 struct ObservedDocument {
@@ -200,6 +208,8 @@ pub(crate) fn observe_project(
         root_owner,
         namespace_inputs: Vec::new(),
         python_request: OnceLock::new(),
+        fixed_lock: None,
+        fixed_lock_target: None,
     };
     let mut remaining = observed.policy.max_total_bytes - input_bytes;
     for path in observed.discovery.files.clone() {
@@ -365,30 +375,37 @@ impl ObservedProjectInputs {
                     }
                 }
                 versions.dedup();
-                if !versions.is_empty() { return Ok(Some(PythonRuntimeRequest { version: versions.join(" "), source: PythonRuntimeSource::Prebuilt })); }
+                if !versions.is_empty() { return Ok(Some(PythonRuntimeRequest { version: versions.join(" "), source: PythonRuntimeSource::Prebuilt, channel: None, build: None })); }
             }
             for (_, declarations) in self.declarations() {
                 let tools = declarations.tools.iter().filter(|tool| self.python_tool_name(&tool.name)).collect::<Vec<_>>();
                 if tools.is_empty() { continue; }
                 let mut source = None;
+                let mut conda_options: Option<(Option<String>, Option<String>)> = None;
                 for tool in &tools {
                     if unsupported_backend(&tool.name) { return Err(format!("unsupported Python backend options for {}", tool.name)); }
                     if tool.selector != "version" { return Err(format!("unsupported Python selector {} for {}", tool.selector, tool.version)); }
                     let kind = PythonRuntimeSource::from_options(&tool.options).map_err(|error| error.to_string())?;
                     if source.is_some_and(|previous| previous != kind) { return Err("conflicting Python runtime sources in the same declaration".into()); }
                     source = Some(kind);
+                    if kind == PythonRuntimeSource::Conda {
+                        let value = (tool.options.get("channel").and_then(toml::Value::as_str).map(str::to_owned), tool.options.get("build").and_then(toml::Value::as_str).map(str::to_owned));
+                        if conda_options.as_ref().is_some_and(|previous| previous != &value) { return Err("conflicting Conda Python channel or build in the same declaration".into()); }
+                        conda_options = Some(value);
+                    }
                 }
                 let version = tools.iter().map(|tool| tool.version.as_str()).collect::<Vec<_>>().join(" ");
                 let source = source.unwrap_or_default();
-                if source == PythonRuntimeSource::Source {
+                if matches!(source, PythonRuntimeSource::Source | PythonRuntimeSource::Conda) {
                     let parts = version.split('.').map(str::parse::<u32>).collect::<std::result::Result<Vec<_>, _>>()
-                        .map_err(|_| "source CPython requires a complete ordinary release version without a PBS build suffix".to_owned())?;
+                        .map_err(|_| "CPython source and Conda require a complete ordinary release version without a PBS build suffix".to_owned())?;
                     if parts.len() != 3 || parts[0] != 3 || !(11..=15).contains(&parts[1])
                         || version != format!("{}.{}.{}", parts[0],parts[1],parts[2]) {
-                        return Err("source CPython requires a complete supported ordinary release version".into());
+                        return Err("CPython source and Conda require a complete supported ordinary release version".into());
                     }
                 }
-                return Ok(Some(PythonRuntimeRequest { version, source }));
+                let (channel, build) = conda_options.unwrap_or_default();
+                return Ok(Some(PythonRuntimeRequest { version, source, channel, build }));
             }
             Ok(None)
         }).as_ref().map(|request| request.as_ref()).map_err(String::as_str)
@@ -400,7 +417,43 @@ impl ObservedProjectInputs {
         observe_project(&self.root, self.policy.clone())
     }
     pub(crate) fn recheck(&self) -> Result<(), ProjectObservationError> {
-        self.recheck_inputs(None)
+        self.recheck_inputs(self.fixed_lock.as_deref())
+    }
+    /// Bind this installation to its initial observed project lock. Only a
+    /// path this observation actually recorded — present or missing — may be
+    /// fixed; arbitrary configuration paths are refused. After this call the
+    /// project lock's later on-disk content or appearance no longer fails
+    /// [`Self::recheck`]; declarations, discovery and every other input keep
+    /// their original observation.
+    pub(crate) fn with_fixed_project_lock(
+        self,
+        lock: &Path,
+    ) -> Result<Self, ProjectObservationError> {
+        if !self.observed_auxiliary(lock) || lock.extension().is_none_or(|e| e != "lock") {
+            return Err(ProjectObservationError::StaleInput);
+        }
+        #[cfg(unix)]
+        let target = self
+            .files
+            .iter()
+            .find(|document| document.path == lock && document.declarations.is_none())
+            .map(|document| document.owner.resolved_target())
+            .unwrap_or_else(|| lock.to_path_buf());
+        #[cfg(not(unix))]
+        let target = lock.to_path_buf();
+        Ok(Self {
+            fixed_lock: Some(lock.to_owned()),
+            fixed_lock_target: Some(target),
+            ..self
+        })
+    }
+    pub(crate) fn fixed_lock_path(&self) -> Option<&Path> {
+        self.fixed_lock.as_deref()
+    }
+    /// The fixed lock's real target as the initial observation recorded it;
+    /// later re-resolution of the current entry never changes it.
+    pub(crate) fn fixed_lock_target(&self) -> Option<&Path> {
+        self.fixed_lock_target.as_deref()
     }
     /// The caller must still hold the actual published lock image. Only that
     /// auxiliary entry is exempt; every declaration and discovery input keeps

@@ -788,7 +788,9 @@ impl TryFrom<toml::Value> for PlatformInfo {
                     None => None,
                 };
                 let install = match t.remove("install") {
-                    Some(toml::Value::String(s)) if s == "source" => Some(s),
+                    Some(toml::Value::String(s)) if matches!(s.as_str(), "source" | "conda") => {
+                        Some(s)
+                    }
                     Some(toml::Value::String(s)) => {
                         bail!("unrecognized install {s:?} in lockfile")
                     }
@@ -8743,6 +8745,118 @@ pkgx_provides = ["bin/onig-config"]
                 .iter()
                 .all(|tool| tool.platforms.contains_key("linux-x64"))
         );
+    }
+
+    #[test]
+    fn conda_runtime_lock_text_parses_and_round_trips() {
+        use crate::packages::python_resolution::lock_model::{
+            CondaLockGraph, LockModelLimits, PythonLockModel,
+        };
+        use rattler_conda_types::package::{
+            ArchiveIdentifier, CondaArchiveType, DistArchiveIdentifier, DistArchiveType,
+        };
+        use rattler_conda_types::{PackageRecord, RepoDataRecord};
+
+        let filename = "python-3.13.13-h20e6be0_100_cp313.conda";
+        let url = format!("https://conda.anaconda.org/conda-forge/osx-arm64/{filename}");
+        let mut package = PackageRecord::new(
+            "python".parse().unwrap(),
+            "3.13.13".parse::<rattler_conda_types::Version>().unwrap(),
+            "h20e6be0_100_cp313".into(),
+        );
+        package.subdir = "osx-arm64".into();
+        package.sha256 = Some([42u8; 32].into());
+        package.size = Some(123);
+        let record = RepoDataRecord {
+            package_record: package,
+            identifier: DistArchiveIdentifier::new(
+                ArchiveIdentifier {
+                    name: "python".into(),
+                    version: "3.13.13".into(),
+                    build_string: "h20e6be0_100_cp313".into(),
+                },
+                DistArchiveType::Conda(CondaArchiveType::Conda),
+            ),
+            url: url.parse().unwrap(),
+            channel: Some("https://conda.anaconda.org/conda-forge/".into()),
+        };
+        let limits = LockModelLimits::default();
+        let model = PythonLockModel::from_parts(&[], &[], limits)
+            .unwrap()
+            .with_conda(
+                CondaLockGraph {
+                    config_scope: "".into(),
+                    group: "default".into(),
+                    target: "osx-arm64".into(),
+                    target_fingerprint: [7; 32],
+                    channels: vec!["conda-forge".into()],
+                    roots: vec!["conda-forge::python ==3.13.13".into()],
+                    virtual_packages: vec![],
+                    records: vec![record],
+                },
+                limits,
+            )
+            .unwrap();
+        let projection = model.encode_projection(limits).unwrap();
+        let checksum = format!("sha256:{}", "2a".repeat(32));
+        let text = format!(
+            r#"lockfile_version = 4
+{projection}
+[[tools.python]]
+version = "3.13.13"
+backend = "core:python"
+specifiers = ["3.13.13"]
+[tools.python.options]
+source = "conda"
+channel = "conda-forge"
+build = "h20e6be0_100_cp313"
+[tools.python.platforms.macos-arm64]
+install = "conda"
+url = "{url}"
+checksum = "{checksum}"
+"#
+        );
+        let parsed = Lockfile::parse_observed(text.as_bytes()).unwrap();
+        let tool = &parsed.tools["python"][0];
+        assert_eq!(tool.options.get("source").map(String::as_str), Some("conda"));
+        assert_eq!(tool.options.get("channel").map(String::as_str), Some("conda-forge"));
+        assert_eq!(tool.options.get("build").map(String::as_str), Some("h20e6be0_100_cp313"));
+        let platform = &tool.platforms["macos-arm64"];
+        assert_eq!(platform.install.as_deref(), Some("conda"));
+        assert_eq!(platform.url.as_deref(), Some(url.as_str()));
+        assert_eq!(platform.checksum.as_deref(), Some(checksum.as_str()));
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("pakro.lock");
+        std::fs::write(&path, &text).unwrap();
+        parsed.write(&path).unwrap();
+        let encoded = std::fs::read(&path).unwrap();
+        let reloaded = Lockfile::parse_observed(&encoded).unwrap();
+        let tool = &reloaded.tools["python"][0];
+        assert_eq!(tool.options.get("source").map(String::as_str), Some("conda"));
+        assert_eq!(tool.options.get("channel").map(String::as_str), Some("conda-forge"));
+        assert_eq!(tool.options.get("build").map(String::as_str), Some("h20e6be0_100_cp313"));
+        let platform = &tool.platforms["macos-arm64"];
+        assert_eq!(platform.install.as_deref(), Some("conda"));
+        assert_eq!(platform.url.as_deref(), Some(url.as_str()));
+        assert_eq!(platform.checksum.as_deref(), Some(checksum.as_str()));
+        assert_eq!(
+            crate::packages::python_resolution::lock_session::decode_root(&encoded, limits)
+                .unwrap()
+                .unwrap(),
+            model
+        );
+        let source = b"lockfile_version = 4\n[[tools.python]]\nversion = '3.13.13'\n[tools.python.platforms.macos-arm64]\ninstall = 'source'\n";
+        assert_eq!(
+            Lockfile::parse_observed(source).unwrap().tools["python"][0]
+                .platforms["macos-arm64"].install.as_deref(),
+            Some("source")
+        );
+        let prebuilt = b"lockfile_version = 4\n[[tools.python]]\nversion = '3.13.13'\n[tools.python.platforms.macos-arm64]\n";
+        assert!(Lockfile::parse_observed(prebuilt).unwrap().tools["python"][0]
+            .platforms["macos-arm64"].install.is_none());
+        let unknown = text.replace("install = \"conda\"", "install = \"unknown\"");
+        assert!(Lockfile::parse_observed(unknown.as_bytes()).is_err());
     }
 
     #[test]

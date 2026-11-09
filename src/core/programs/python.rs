@@ -35,6 +35,8 @@ pub struct PythonProjectInstall {
     version: String,
     source: PythonRuntimeSource,
     roots: Vec<PythonRoot>,
+    conda_requests: Vec<PackageInstallRequest>,
+    conda_admission: Option<super::install::conda_project::CondaAdmission>,
     intent: PythonLockIntent,
     expected_project: ExpectedProjectState,
     extra: Vec<PackageInstallRequest>,
@@ -45,7 +47,7 @@ impl PythonProjectInstall {
         &self.version
     }
     pub fn has_packages(&self) -> bool {
-        !self.roots.is_empty()
+        !self.roots.is_empty() || !self.conda_requests.is_empty()
     }
     pub fn only_python_tools(&self) -> bool {
         self.observed.declarations().all(|(_, declarations)| {
@@ -80,6 +82,22 @@ impl PythonProjectInstall {
             })
             .transpose()?
             .flatten();
+        if self.source == PythonRuntimeSource::Conda {
+            let mut lines = vec![format!("Lock update preview for Conda Python {}", self.version)];
+            if let Some(model) = &model {
+                let locked = model.conda().first().context("existing Conda graph is missing")?;
+                lines.push(format!("Locked direct requests: {}", locked.roots.join(", ")));
+            } else {
+                lines.push("No existing Conda lock".into());
+            }
+            lines.push(format!("Current direct packages: {}", self.conda_requests.iter()
+                .map(|request| format!("{}=={}", request.name, request.version))
+                .collect::<Vec<_>>().join(", ")));
+            lines.push("Unresolved: channel/build selection, transitive dependencies and artifacts; preview does not resolve".into());
+            self.observed.recheck()?;
+            self.context.checkpoint()?;
+            return Ok(lines);
+        }
         let previous: std::collections::BTreeSet<_> = model
             .as_ref()
             .into_iter()
@@ -168,9 +186,9 @@ impl PythonProjectInstall {
     ) -> futures_util::future::BoxFuture<'static, Result<()>> {
         Box::pin(async move {
             self.context.checkpoint()?;
-            self.observed.recheck()?;
             // Preparation also serves dry-run and admission. Recovery belongs
-            // only here, after the CLI has accepted actual execution.
+            // only here, after the CLI has accepted actual execution, and it
+            // runs with the plain, unfixed observation semantics.
             if let Some(refreshed) =
                 super::shared::lock_transaction::recover_project_lock_and_observe(
                     &self.context,
@@ -183,16 +201,31 @@ impl PythonProjectInstall {
                         && refreshed.python_request().map_err(|error| eyre::eyre!("{error}"))?.is_some_and(|request| request.source == self.source),
                     "project Python declaration changed during recovery"
                 );
-                ensure!(
-                    project_roots(&refreshed, &self.version, &self.extra)? == self.roots,
-                    "project direct roots changed during recovery"
-                );
+                if self.source == PythonRuntimeSource::Conda {
+                    ensure!(super::install::conda_project::requests(&refreshed, &self.version, &self.extra)? == self.conda_requests,
+                        "project Conda declarations changed during recovery");
+                } else {
+                    ensure!(project_roots(&refreshed, &self.version, &self.extra)? == self.roots,
+                        "project direct roots changed during recovery");
+                }
                 self.observed = refreshed;
             }
+            // The observation that survived recovery is this installation's
+            // initial project lock input, present or missing. Fixing it here
+            // keeps configuration and project facts checked while an
+            // externally changed lock file can no longer refuse the install.
+            self = self.with_fixed_lock_input()?;
+            self.observed.recheck()?;
             super::shared::lock_transaction::ensure_project_consistent(
                 &self.context,
                 &self.observed,
             )?;
+            if self.source == PythonRuntimeSource::Conda {
+                return super::install::conda_project::install(
+                    &self.context, &self.observed, &self.conda_requests, &self.expected_project,
+                    self.conda_admission.as_ref().expect("Conda project admission"),
+                ).await;
+            }
             preflight_project_lock(
                 &self.context,
                 &self.observed,
@@ -214,6 +247,7 @@ impl PythonProjectInstall {
                     .install_shared_exact_in_context(&self.context, &version, config, pin).await?,
                 PythonRuntimeSource::Source => crate::libraries::language::source::install_source(
                     &self.context, &version, pin, self.intent == PythonLockIntent::Update).await?,
+                PythonRuntimeSource::Conda => eyre::bail!("Conda runtime installation is not implemented"),
             };
             install_project_packages_with_intent(
                 &self.context,
@@ -276,6 +310,14 @@ fn project_plan_with_state(
     };
     let version = request.version;
     super::shared::exact_version::exact_python_request(&version)?;
+    if request.source == PythonRuntimeSource::Conda {
+        let conda_requests = super::install::conda_project::requests(&observed, &version, extra)?;
+        let conda_admission = super::install::conda_project::preflight(&context, &observed, intent)?;
+        return Ok(Some(PythonProjectInstall {
+            context, observed, version, source: request.source, roots: Vec::new(), conda_requests,
+            conda_admission: Some(conda_admission), intent, expected_project, extra: extra.to_vec(),
+        }));
+    }
     let roots = project_roots(&observed, &version, extra)?;
     preflight_project_lock(&context, &observed, &version, &roots, intent)?;
     expected_project.ensure_current(
@@ -287,6 +329,8 @@ fn project_plan_with_state(
         version,
         source: request.source,
         roots,
+        conda_requests: Vec::new(),
+        conda_admission: None,
         intent,
         expected_project,
         extra: extra.to_vec(),
@@ -649,8 +693,11 @@ impl PythonExactInstall {
         config: std::sync::Arc<crate::config::Config>,
     ) -> futures_util::future::BoxFuture<'static, Result<()>> {
         Box::pin(async move {
-            self.recheck_admission()?;
             match self.choice {
+                // The project installation entry performs its recovery and
+                // fixes its lock input in one place; an admission recheck here
+                // would refuse an externally changed lock file before the
+                // installation's own semantics start.
                 ExactInstallChoice::Project(project) => {
                     project.install_version(self.version, config).await
                 }
@@ -668,6 +715,16 @@ impl PythonExactInstall {
 }
 
 impl PythonProjectInstall {
+    /// Fix this installation's project lock input, present or missing, to its
+    /// initial observation. Only the actual installation entry calls this;
+    /// preview, dry-run, queries and directory selection keep the plain
+    /// observation with its original recheck semantics.
+    fn with_fixed_lock_input(self) -> Result<Self> {
+        let path = project_lock_path(&self.observed)?;
+        let observed = self.observed.with_fixed_project_lock(&path)?;
+        Ok(Self { observed, ..self })
+    }
+
     pub fn recheck_admission(&self) -> Result<()> {
         self.context.checkpoint()?;
         self.observed.recheck()?;
@@ -753,8 +810,16 @@ async fn install_project_packages_with_intent(
         candidate
     };
     let lock_path = project_lock_path(observed)?;
-    let root = crate::packages::python_resolution::lock_session::BoundPythonLock::acquire(
-        &lock_path,
+    // Bind and guard the real target the initial observation resolved; a
+    // later re-pointed link must not move the installation's input or its
+    // synchronization to a different directory.
+    let bind_target = observed
+        .fixed_lock_target()
+        .map(|target| target.to_path_buf())
+        .unwrap_or_else(|| lock_path.clone());
+    let root = crate::packages::python_resolution::lock_session::BoundPythonLock::bind_fixed(
+        &bind_target,
+        observed.document(&lock_path),
         Default::default(),
         context.policy().deadline,
     )?;
@@ -903,6 +968,11 @@ async fn install_project_packages_with_intent(
                     &[],
                     intent,
                 )?;
+                let model = if let Some(urls) = graph.source_locators() {
+                    model.with_locators(urls.clone(), Default::default())?
+                } else {
+                    model
+                };
                 Some(prepare_project_document(
                     &root,
                     observed,
@@ -1079,6 +1149,8 @@ async fn resolve_and_commit(
             graph.builds(),
             intent,
         )?;
+        let urls = graph.locators_for_lock(&root, &model)?;
+        let model = model.with_locators(urls, Default::default())?;
         Some(prepare_project_document(
             &root, observed, &language, model, intent,
         )?)
@@ -1262,7 +1334,7 @@ pub(crate) fn public_sources() -> Result<crate::programs::PythonSourceInputs> {
     })
 }
 
-fn project_lock_path(observed: &ObservedProjectInputs) -> Result<std::path::PathBuf> {
+pub(super) fn project_lock_path(observed: &ObservedProjectInputs) -> Result<std::path::PathBuf> {
     let existing: Vec<_> = observed
         .paths()
         .filter(|path| path.extension() == Some(std::ffi::OsStr::new("lock")))
@@ -1286,7 +1358,7 @@ fn project_lock_path(observed: &ObservedProjectInputs) -> Result<std::path::Path
     Ok(crate::lockfile::lockfile_path_for_config_with_folder_fragment(config, None, false).0)
 }
 
-struct PublicCredentials;
+pub(super) struct PublicCredentials;
 impl pakro_index::simple::SourceCredentials for PublicCredentials {
     fn authorization_for(
         &self,
@@ -1298,8 +1370,8 @@ impl pakro_index::simple::SourceCredentials for PublicCredentials {
         Err(pakro_index::simple::SimpleClientError::Authentication)
     }
 }
-struct FrozenRouter<'a> {
-    settings: &'a crate::config::Settings,
+pub(super) struct FrozenRouter<'a> {
+    pub(super) settings: &'a crate::config::Settings,
 }
 impl pakro_index::simple::SourceRequestRouter for FrozenRouter<'_> {
     fn fingerprint(&self) -> pakro_index::python_source::TransportRulesFingerprint {
@@ -1324,7 +1396,7 @@ impl pakro_index::simple::SourceRequestRouter for FrozenRouter<'_> {
     }
 }
 
-fn shared_registry_http_config(
+pub(super) fn shared_registry_http_config(
     settings: &crate::config::Settings,
 ) -> pakro_index::simple::SimpleHttpConfig {
     use crate::config::SettingsExt;
@@ -1525,3 +1597,7 @@ mod integration_tests;
 #[cfg(test)]
 #[path = "python/p3_recovery_tests.rs"]
 mod p3_recovery_tests;
+
+#[cfg(all(test, unix))]
+#[path = "python/fixed_lock_install_tests.rs"]
+mod fixed_lock_install_tests;
