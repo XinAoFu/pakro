@@ -4449,6 +4449,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_load() {
+        let _cwd_config = crate::test::CwdConfigGuard::lock();
         let config = Config::reset().await.unwrap();
         assert_debug_snapshot!(config);
     }

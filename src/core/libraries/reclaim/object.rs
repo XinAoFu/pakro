@@ -278,7 +278,7 @@ impl Record {
             ReclaimId::Language(key) => {
                 let m: LanguageManifest = serde_json::from_slice(&bytes)?;
                 ensure!(
-                    matches!(m.schema, 1 | 2) && m.key == key,
+                    matches!(m.schema, 1 | 2 | 3) && m.key == key,
                     "reclaim language identity differs"
                 );
                 let spec =
@@ -296,7 +296,7 @@ impl Record {
                     Some([m.payload.device, m.payload.inode]),
                     [m.lock.device, m.lock.inode],
                     m.inventory,
-                    Vec::new(),
+                    m.runtime_dependencies.into_iter().map(ReclaimId::Package).collect(),
                 )
             }
             ReclaimId::Package(key) => {
@@ -311,7 +311,7 @@ impl Record {
                     .dependencies
                     .iter()
                     .map(|k| ReclaimId::Package(*k))
-                    .chain([ReclaimId::Language(m.language)])
+                    .chain(m.language.into_iter().map(ReclaimId::Language))
                     .collect();
                 (
                     m.storage.allocation,

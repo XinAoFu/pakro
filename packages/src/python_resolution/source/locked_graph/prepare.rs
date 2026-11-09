@@ -1,6 +1,6 @@
 //! Deterministic old-pin acquisitions and original-AST closure; no solving.
 use super::super::replay::metadata::{LockedMetadataState, route_locked_metadata};
-use super::super::replay::{LockedReplayContext, acquire_locked_registry_file};
+use super::super::replay::{LockedReplayContext, acquire_locked_registry_file, acquire_locked_url};
 use super::*;
 use crate::packages::python_resolution::graph_check::{
     GraphCandidateObservation, derive_graph_scoped,
@@ -129,34 +129,35 @@ async fn work<'lock, 'config>(
         let pin = binding.pin;
         let endpoint = &replay.context.endpoints[binding.endpoint];
         let slot = actual_slot(root, pin.id())?;
-        let artifact = acquire_locked_registry_file(
-            slot,
-            LockedReplayContext {
-                client: replay.context.client,
-                project_session: PythonSourceSession {
-                    registry: endpoint.project.registry,
-                    auth_scope: endpoint.project.auth_scope,
-                    credentials: endpoint.project.credentials,
-                    auth_origins: endpoint.project.auth_origins,
-                    transport: endpoint.project.transport,
-                },
-                file_session: SourceFileSession {
-                    credential_ref: endpoint.file.credential_ref,
-                    auth_scope: endpoint.file.auth_scope,
-                    credentials: endpoint.file.credentials,
-                    auth_origins: endpoint.file.auth_origins,
-                    transport: endpoint.file.transport,
-                },
-                policy: replay.context.fetch,
-                project_limits: limits.project,
-                source_limits: limits.source,
-                lock_limits: limits.lock,
-                cache_root: replay.context.cache_root,
-                scratch_root: replay.context.scratch_root,
-                deadline: replay.context.deadline,
+        let context = LockedReplayContext {
+            client: replay.context.client,
+            project_session: PythonSourceSession {
+                registry: endpoint.project.registry,
+                auth_scope: endpoint.project.auth_scope,
+                credentials: endpoint.project.credentials,
+                auth_origins: endpoint.project.auth_origins,
+                transport: endpoint.project.transport,
             },
-        )
-        .await;
+            file_session: SourceFileSession {
+                credential_ref: endpoint.file.credential_ref,
+                auth_scope: endpoint.file.auth_scope,
+                credentials: endpoint.file.credentials,
+                auth_origins: endpoint.file.auth_origins,
+                transport: endpoint.file.transport,
+            },
+            policy: replay.context.fetch,
+            project_limits: limits.project,
+            source_limits: limits.source,
+            lock_limits: limits.lock,
+            cache_root: replay.context.cache_root,
+            scratch_root: replay.context.scratch_root,
+            deadline: replay.context.deadline,
+        };
+        let artifact = if root.model().is_some_and(|model| model.has_locators()) {
+            acquire_locked_url(root, slot, context).await
+        } else {
+            acquire_locked_registry_file(slot, context).await
+        };
         let artifact = match artifact {
             Ok(value) => value,
             Err(LockedReplayError::MissingInputs)

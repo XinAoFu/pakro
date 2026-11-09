@@ -154,42 +154,91 @@ pub(super) fn verify_remaining(
     );
     Ok(())
 }
-pub(super) fn parent(
-    owner: &OwnedObject,
-    entries: &BTreeMap<&Path, &TreeInventoryEntry>,
-    relative: &Path,
-) -> Result<File> {
-    let mut directory = owner
-        .root
-        .as_ref()
-        .context("reclaim payload is absent")?
-        .try_clone()?;
-    let mut partial = PathBuf::new();
-    for component in relative
-        .parent()
-        .context("reclaim member has no parent")?
-        .components()
-    {
-        let std::path::Component::Normal(name) = component else {
-            eyre::bail!("unsafe reclaim parent")
-        };
-        partial.push(name);
-        let entry = entries
-            .get(partial.as_path())
-            .context("untracked reclaim parent")?;
-        ensure!(
-            matches!(entry.kind, TreeInventoryKind::Directory),
-            "reclaim parent is not a directory"
-        );
-        let next = pakro_store::control::open_directory(&directory, name)?;
-        ensure!(
-            pair(&next)? == entry.identity,
-            "reclaim parent directory was replaced"
-        );
-        directory = next;
-    }
-    Ok(directory)
+pub(super) struct ParentCache {
+    root: File,
+    directories: Vec<(std::ffi::OsString, File)>,
+    #[cfg(test)]
+    pub(super) opens: usize,
 }
+impl ParentCache {
+    pub(super) fn new(owner: &OwnedObject) -> Result<Self> {
+        Ok(Self {
+            root: owner
+                .root
+                .as_ref()
+                .context("reclaim payload is absent")?
+                .try_clone()?,
+            directories: Vec::new(),
+            #[cfg(test)]
+            opens: 0,
+        })
+    }
+
+    pub(super) fn parent(
+        &mut self,
+        entries: &BTreeMap<&Path, &TreeInventoryEntry>,
+        relative: &Path,
+    ) -> Result<&File> {
+        let mut partial = PathBuf::new();
+        let mut depth = 0;
+        for component in relative
+            .parent()
+            .context("reclaim member has no parent")?
+            .components()
+        {
+            let std::path::Component::Normal(name) = component else {
+                eyre::bail!("unsafe reclaim parent")
+            };
+            partial.push(name);
+            let entry = entries
+                .get(partial.as_path())
+                .context("untracked reclaim parent")?;
+            ensure!(
+                matches!(entry.kind, TreeInventoryKind::Directory),
+                "reclaim parent is not a directory"
+            );
+            if self
+                .directories
+                .get(depth)
+                .is_some_and(|(cached, _)| cached != name)
+            {
+                self.directories.truncate(depth);
+            }
+            let parent = if depth == 0 {
+                &self.root
+            } else {
+                &self.directories[depth - 1].1
+            };
+            if self.directories.len() > depth {
+                let stat = fstatat(parent, name, AtFlags::AT_SYMLINK_NOFOLLOW)?;
+                ensure!(
+                    SFlag::from_bits_truncate(stat.st_mode) & SFlag::S_IFMT == SFlag::S_IFDIR
+                        && [stat.st_dev as u64, stat.st_ino as u64] == entry.identity,
+                    "reclaim parent directory was replaced"
+                );
+            } else {
+                let next = pakro_store::control::open_directory(parent, name)?;
+                ensure!(
+                    pair(&next)? == entry.identity,
+                    "reclaim parent directory was replaced"
+                );
+                self.directories.push((name.to_os_string(), next));
+                #[cfg(test)]
+                {
+                    self.opens += 1;
+                }
+            }
+            depth += 1;
+        }
+        self.directories.truncate(depth);
+        Ok(if depth == 0 {
+            &self.root
+        } else {
+            &self.directories[depth - 1].1
+        })
+    }
+}
+
 fn verify_entry(
     directory: &File,
     entry: &TreeInventoryEntry,
@@ -280,8 +329,8 @@ pub(super) fn remove(
     owner.verify(context, cursor)?;
     let order = ordered(&owner.record);
     // Derive this lookup once from the verified immutable record while its
-    // original EX is held. It describes parents; every use still opens the
-    // actual directory through the original root FD and checks its identity.
+    // original EX is held. Cached directory descriptors retain their binding
+    // checks against the original root on every use.
     let entries = owner
         .record
         .inventory
@@ -357,12 +406,17 @@ pub(super) fn remove(
         session.save_cursor(index, cursor, pin)?;
         durable("captured");
     }
+    let mut parents = (cursor.next < order.len())
+        .then(|| ParentCache::new(owner))
+        .transpose()?;
     while cursor.next < order.len() {
-        context.checkpoint()?;
-        owner.check(context)?;
+        owner.check_held(context)?;
         let entry = order[cursor.next];
-        let directory = parent(owner, &entries, &entry.relative)?;
-        let existed = verify_entry(&directory, entry, context)?;
+        let directory = parents
+            .as_mut()
+            .expect("members need a parent")
+            .parent(&entries, &entry.relative)?;
+        let existed = verify_entry(directory, entry, context)?;
         ensure!(
             existed || cursor.pending,
             "unstarted reclaim member disappeared"
@@ -373,12 +427,8 @@ pub(super) fn remove(
         }
         durable("entry-intent");
         if existed {
-            ensure!(
-                verify_entry(&directory, entry, context)?,
-                "reclaim member disappeared during removal"
-            );
             unlinkat(
-                &directory,
+                directory,
                 entry.relative.file_name().expect("validated name"),
                 if matches!(entry.kind, TreeInventoryKind::Directory) {
                     UnlinkatFlags::RemoveDir
@@ -390,7 +440,7 @@ pub(super) fn remove(
         }
         sync_parent(
             context,
-            &directory,
+            directory,
             "entry-parent",
             Some(owner.record.object),
         )?;

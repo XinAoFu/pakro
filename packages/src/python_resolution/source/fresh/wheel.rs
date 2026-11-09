@@ -25,8 +25,8 @@ pub(crate) enum FreshWheelError {
     Revoked,
     #[error("fresh wheel source identity is inconsistent")]
     IdentityMismatch,
-    #[error("fresh wheel archive inspection failed")]
-    Archive,
+    #[error("fresh wheel archive inspection failed: {0}")]
+    Archive(String),
     #[error("fresh wheel dependency metadata failed: {0}")]
     Metadata(PythonMetadataError),
 }
@@ -82,7 +82,7 @@ fn observation_error(error: WheelMetadataError) -> FreshWheelError {
     match error {
         WheelMetadataError::InvalidLimits => FreshWheelError::InvalidLimits,
         WheelMetadataError::IdentityMismatch => FreshWheelError::IdentityMismatch,
-        WheelMetadataError::Archive => FreshWheelError::Archive,
+        WheelMetadataError::Archive(error) => FreshWheelError::Archive(error),
         WheelMetadataError::Metadata(error) => FreshWheelError::Metadata(error),
     }
 }

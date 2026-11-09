@@ -98,6 +98,7 @@ fn query_observed_inner(
         bin_dirs: vec![paths.bin_dir().to_owned()],
         executable: paths.executable().to_owned(),
         version: candidate.version().to_owned(),
+        activation: None,
     };
     if request.scope == PythonQueryScope::Language {
         observed.recheck()?;
@@ -108,6 +109,9 @@ fn query_observed_inner(
             graph: None,
             already_applied: false,
         });
+    }
+    if language.spec().plan().conda_record().is_some() {
+        return query_conda_environment(context, observed, candidate, selected, &language);
     }
     // Full selection validates complete Pakro intent; marker activation uses
     // the actual selected interpreter while inactive declarations stay locked.
@@ -256,4 +260,68 @@ fn query_observed_inner(
         graph: chosen_graph,
         already_applied,
     })
+}
+
+fn query_conda_environment(
+    context: &OperationContext,
+    observed: &ObservedProjectInputs,
+    candidate: LanguageCandidate,
+    mut selected: DirectoryPython,
+    language: &crate::libraries::language::lease::LanguageLease,
+) -> Result<ObservedSelection> {
+    let requested = observed.effective_packages()?.iter()
+        .map(|item| format!("{}=={}", item.request.name, item.request.version))
+        .collect::<Vec<_>>();
+    let Some(model) = super::snapshot::read_project_lock_model(observed)? else {
+        return Ok(ObservedSelection {
+            report: PythonQueryReport::MissingPackages { requested: candidate.exact_version().into(), packages: requested },
+            candidate: Some(candidate), graph: None, already_applied: false,
+        });
+    };
+    crate::programs::install::lock_document::validate_declarations(observed, &model)?;
+    let mut repository = ProjectRepository::open_readonly(context)?;
+    let identity = ProjectIdentity::from_observation(observed)?;
+    let graphs = repository.read_views().conda_package_graphs(candidate.key().fingerprint())?;
+    let mut ready = Vec::new();
+    for graph in graphs {
+        let record = crate::packages::python_environment::model::PackageGraphRecord {
+            roots: graph.roots().to_vec(), nodes: graph.nodes().to_vec(), edges: graph.edges().to_vec(),
+        };
+        if crate::programs::shared::commit::validate_conda_lock(observed, &model, language, &record).is_err() {
+            continue;
+        }
+        let Some(layout) = crate::libraries::package::lease::acquire_layout_for_query(context, *graph.layout())? else { continue };
+        layout.check_metadata()?;
+        super::snapshot::validate_layout_graph(&graph, &layout)?;
+        let activation = layout.activation_plan()?.map(|plan| (plan, layout.prefix().to_owned()));
+        ready.push((graph, layout.bin(), layout.bin().join("python"), activation));
+    }
+    if ready.is_empty() {
+        return Ok(ObservedSelection {
+            report: PythonQueryReport::MissingPackages { requested: candidate.exact_version().into(), packages: requested },
+            candidate: Some(candidate), graph: None, already_applied: false,
+        });
+    }
+    if ready.len() > 1 {
+        return Ok(ObservedSelection {
+            report: PythonQueryReport::Ambiguous { requested: candidate.exact_version().into(),
+                candidates: ready.iter().map(|(graph, _, _, _)| format!("layout-{}", hex::encode(graph.layout()))).collect() },
+            candidate: Some(candidate), graph: None, already_applied: false,
+        });
+    }
+    let (graph, bin, executable, activation) = ready.pop().expect("one Ready graph");
+    selected.bin_dirs = vec![bin.clone()];
+    selected.bin_dir = bin;
+    selected.executable = executable;
+    selected.activation = activation;
+    repository.reload()?;
+    let declaration = crate::programs::shared::commit::declaration_digest(observed);
+    let same_observation = repository.model().project_registration(identity.as_uuid())
+        .is_some_and(|registered| registered.declaration() == declaration);
+    let current = repository.read_views().language_selection(&identity);
+    let current_graph = repository.read_views().package_graph(&identity)?;
+    let already_applied = same_observation
+        && current.as_ref().is_some_and(|selection| selection.language() == &candidate.key().fingerprint())
+        && current_graph.as_ref().is_some_and(|current| current.layout() == graph.layout());
+    Ok(ObservedSelection { report: PythonQueryReport::Ready(selected), candidate: Some(candidate), graph: Some(graph), already_applied })
 }

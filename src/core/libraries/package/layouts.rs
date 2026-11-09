@@ -42,6 +42,16 @@ pub(in crate::libraries) fn layout_key_for(
             language,
             graph,
         )),
+        5 => Ok(hash_layout_key(
+            b"pakro.shared-conda-layout.v1\0",
+            language,
+            graph,
+        )),
+        6 => Ok(hash_layout_key(
+            b"pakro.shared-conda-layout.v2\0",
+            language,
+            graph,
+        )),
         _ => eyre::bail!("unsupported shared layout recipe"),
     }
 }
@@ -73,7 +83,7 @@ fn hash_layout_key(recipe: &[u8], language: [u8; 32], graph: [u8; 32]) -> [u8; 3
     hash.update(graph);
     hash.finalize().into()
 }
-fn quote(path: &Path) -> Result<String> {
+pub(super) fn quote(path: &Path) -> Result<String> {
     let value = path.to_str().context("shared startup path is not UTF-8")?;
     ensure!(
         !value.contains(['\n', '\r', '\0']),
@@ -81,7 +91,7 @@ fn quote(path: &Path) -> Result<String> {
     );
     Ok(format!("'{}'", value.replace('\'', "'\\''")))
 }
-fn write(
+pub(super) fn write(
     prefix: &mut UnpublishedPrefix,
     path: &Path,
     bytes: &[u8],
@@ -103,7 +113,7 @@ fn write(
         mode,
     })
 }
-fn startup_environment(prefix: &Path) -> Result<String> {
+pub(super) fn startup_environment(prefix: &Path) -> Result<String> {
     Ok(format!(
         "export PYTHONDONTWRITEBYTECODE=1\nexport PYTHONNOUSERSITE=1\nexport PYTHONPATH={}\nexport PATH={}:\"$PATH\"\n",
         quote(&prefix.join("bootstrap"))?,
@@ -141,7 +151,7 @@ pub(crate) fn prepare_layout_with_sources(
         if let SharedRegistryPackageSource::Existing(package) = source {
             package.ensure_library_context(context)?;
             ensure!(
-                package.manifest().language == language.key().fingerprint()
+                package.manifest().language == Some(language.key().fingerprint())
                     && package.manifest().facts.name == facts.name
                     && package.manifest().facts.version == facts.version
                     && package.manifest().facts.source == facts.source
@@ -200,7 +210,7 @@ pub(crate) fn prepare_layout_with_sources(
                     SharedRegistryPackageSource::Existing(lease) => {
                         lease.check_binding()?;
                         ensure!(
-                            lease.manifest().language == scope.language().key().fingerprint(),
+                            lease.manifest().language == Some(scope.language().key().fingerprint()),
                             "published package language differs from the selected source"
                         );
                         if lease.manifest().facts == facts {
@@ -225,7 +235,7 @@ pub(crate) fn prepare_layout_with_sources(
                 if let Some(lease) = super::lease::acquire_package(context, facts.key)? {
                     ensure!(
                         lease.manifest().facts == facts
-                            && lease.manifest().language == scope.language().key().fingerprint(),
+                            && lease.manifest().language == Some(scope.language().key().fingerprint()),
                         "conflicting package facts or language binding"
                     );
                     existing.push(lease);
@@ -259,7 +269,7 @@ pub(crate) fn prepare_layout_with_sources(
                 } {
                     Ok(Some(winner))
                         if winner.manifest().facts == facts
-                            && winner.manifest().language == language.key().fingerprint() =>
+                            && winner.manifest().language == Some(language.key().fingerprint()) =>
                     {
                         existing.push(winner)
                     }
@@ -448,6 +458,7 @@ pub(crate) fn prepare_layout_with_sources(
         packages: packages.iter().map(|p| p.manifest().facts.key).collect(),
         storage,
         recipe,
+        activation: false,
         projection,
     };
     language

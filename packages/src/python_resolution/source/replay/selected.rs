@@ -57,7 +57,10 @@ pub(crate) async fn acquire_selected_existing_registry_file<'lock>(
             return Ok(LockedRegistryArtifact {
                 slot,
                 artifact,
-                provenance: ReplayProvenance::Cache,
+                provenance: ReplayProvenance::SelectedCache {
+                    project: Arc::clone(&selected.project.data),
+                    file_index: selected.file_index,
+                },
             });
         }
         if context.policy.network == NetworkPolicy::Offline {

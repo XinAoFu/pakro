@@ -2,6 +2,10 @@
 //! glue between resolver/index/store and the rest of pakro.
 
 pub(crate) mod binding;
+#[cfg(unix)]
+pub(crate) mod conda_artifact;
+#[cfg(unix)]
+pub(crate) mod conda_scripts;
 pub(crate) mod python_declarations;
 pub(crate) mod python_environment;
 pub(crate) mod python_resolution;

@@ -321,6 +321,7 @@ pub(crate) fn portable_graph(
                     size: pin.size(),
                     advertised: pin.evidence() == PinEvidence::Advertised,
                     build,
+                    conda: None,
                 },
             })
         })

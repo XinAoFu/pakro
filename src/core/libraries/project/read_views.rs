@@ -287,6 +287,19 @@ impl<'a> ProjectReadViews<'a> {
         Ok(results.into_values().collect())
     }
 
+    pub(crate) fn conda_package_graphs(&self, language: [u8; 32]) -> Result<Vec<CommittedGraph>> {
+        let mut results = std::collections::BTreeMap::new();
+        for record in self.repository.model().generations() {
+            let Some(graph) = CommittedGraph::from_record(record)? else { continue };
+            if *graph.language() == language
+                && graph.nodes().iter().any(|node| node.pin.conda.is_some())
+            {
+                results.insert(*graph.layout(), graph);
+            }
+        }
+        Ok(results.into_values().collect())
+    }
+
     /// Project roots and real dependency declarations explain each protection.
     /// Missing project registration or an incomplete generation is an error.
     pub(crate) fn reference_chains(&self, fingerprint: [u8; 32]) -> Result<Vec<String>> {

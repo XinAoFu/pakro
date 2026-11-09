@@ -68,7 +68,7 @@ fn retained_references(
         .collect();
     for package in &packages {
         context.checkpoint()?;
-        if package.language == target {
+        if package.language == Some(target) {
             users.insert(format!(
                 "retained package {}=={} -> Python language-{}",
                 package.name(),
@@ -104,6 +104,44 @@ fn retained_references(
     Ok(users)
 }
 
+fn retained_language_references(
+    context: &OperationContext,
+    target: [u8; 32],
+) -> Result<BTreeSet<String>> {
+    let mut users = BTreeSet::new();
+    let Some(read) = ReadStore::open_readonly(
+        &context.requested_data_root().join("languages"),
+        crate::libraries::package::lease::uid(),
+        Default::default(),
+        context.policy().deadline,
+    )? else {
+        return Ok(users);
+    };
+    let control = read.control(ControlLimits::default())?;
+    let mut bytes_read = 0usize;
+    for name in control.list_names(ControlNamespace::Catalog, 65536, 8 * 1024 * 1024)? {
+        context.checkpoint()?;
+        let snapshot = control
+            .read(ControlNamespace::Catalog, &name)?
+            .ok_or_else(|| eyre::eyre!("language manifest disappeared during reference query"))?;
+        bytes_read = bytes_read
+            .checked_add(snapshot.bytes().len())
+            .filter(|total| *total <= 64 * 1024 * 1024)
+            .ok_or_else(|| eyre::eyre!("reference query byte budget exceeded"))?;
+        let (key, dependencies) = crate::libraries::language::manifest::validate_published_metadata(
+            snapshot.bytes(),
+            &name,
+            read.root_path(),
+        )?;
+        if dependencies.contains(&target) {
+            users.insert(format!("retained language-{} -> package-{}", hex::encode(key), hex::encode(target)));
+        }
+    }
+    read.check_binding()?;
+    control.check_binding()?;
+    Ok(users)
+}
+
 pub(crate) fn references(context: &OperationContext, target: [u8; 32]) -> Result<Vec<String>> {
     let repository = ProjectRepository::open_readonly(context)?;
     references_with_project_snapshot(context, target, &repository)
@@ -116,6 +154,7 @@ pub(crate) fn references_with_project_snapshot(
     repository: &ProjectRepository,
 ) -> Result<Vec<String>> {
     let mut users = project_references_from_snapshot(context, target, repository)?;
+    users.extend(retained_language_references(context, target)?);
     if let Some(read) = ReadStore::open_readonly(
         &manifest::store_path(context),
         crate::libraries::package::lease::uid(),

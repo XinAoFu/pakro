@@ -582,8 +582,167 @@ pub(crate) struct PythonLockModel {
         PinId,
         crate::packages::python_environment::model::SourceBuildRecord,
     )>,
+    conda: Vec<CondaLockGraph>,
+    mixed: Vec<MixedLockGraph>,
+    locators: Option<BTreeMap<String, String>>,
+}
+
+#[path = "lock_model/mixed.rs"]
+mod mixed;
+pub(crate) use mixed::{MixedLockEdge, MixedLockGraph, MixedLockNode, MixedLockRoot, MixedLockSource, valid_registry_url};
+
+/// The exact solve result is data, not permission to fetch or install it.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CondaLockGraph {
+    pub config_scope: String,
+    pub group: String,
+    pub target: String,
+    pub target_fingerprint: [u8; 32],
+    pub channels: Vec<String>,
+    pub roots: Vec<String>,
+    pub virtual_packages: Vec<rattler_conda_types::GenericVirtualPackage>,
+    pub records: Vec<rattler_conda_types::RepoDataRecord>,
+}
+
+impl CondaLockGraph {
+    fn validate(&self, limits: LockModelLimits) -> LockModelResult<()> {
+        if self.group.is_empty() || self.channels.is_empty()
+            || self.roots.is_empty() || self.records.is_empty()
+            || !matches!(self.target.as_str(), "osx-arm64" | "osx-64" | "linux-64" | "linux-aarch64")
+        {
+            return Err(LockModelError::InvalidField(LockField::Group));
+        }
+        valid_scope(&self.config_scope)?;
+        count(self.records.len(), limits.max_nodes_per_group, LockLimit::Nodes)?;
+        count(self.roots.len(), limits.max_roots_per_group, LockLimit::Roots)?;
+        let mut names = BTreeSet::new();
+        for record in &self.records {
+            let item = &record.package_record;
+            if item.sha256.is_none() || item.size.is_none() || item.size.unwrap_or(0) > limits.max_artifact_bytes
+                || !matches!(item.subdir.as_str(), "noarch") && item.subdir != self.target
+                || record.channel.is_none()
+                || !matches!(record.url.scheme(), "https" | "http")
+                || !record.url.username().is_empty() || record.url.password().is_some()
+                || !names.insert(item.name.as_normalized())
+            {
+                return Err(LockModelError::InvalidField(LockField::Native));
+            }
+        }
+        Ok(())
+    }
+
+    // Only run when admitting a decoded or newly solved graph. Subsequent
+    // model limit checks and encoding do not need to resolve these facts again.
+    fn validate_semantics(&self) -> LockModelResult<()> {
+        use rattler_conda_types::{Channel, ChannelConfig, MatchSpec, Matches, PackageName, ParseStrictness, Version};
+        use rattler_conda_types::package::DistArchiveType;
+
+        let invalid = || LockModelError::InvalidField(LockField::Native);
+        let config = ChannelConfig::default_with_root_dir(std::path::PathBuf::from("/"));
+        let channels = self.channels.iter().map(|name| {
+            let channel = Channel::from_str(name, &config).map_err(|_| invalid())?;
+            if channel.base_url.url().scheme() != "https" || channel.platforms.is_some() {
+                return Err(invalid());
+            }
+            Ok(channel)
+        }).collect::<LockModelResult<Vec<_>>>()?;
+        let mut records = BTreeMap::new();
+        for record in &self.records {
+            let source = Channel::from_str(record.channel.as_deref().ok_or_else(invalid)?, &config)
+                .map_err(|_| invalid())?;
+            if source.platforms.is_some() || !channels.iter().any(|channel| channel.base_url == source.base_url) {
+                return Err(invalid());
+            }
+            let identity = &record.identifier.identifier;
+            let name = PackageName::try_from(identity.name.as_str()).map_err(|_| invalid())?;
+            let version = identity.version.parse::<Version>().map_err(|_| invalid())?;
+            if !matches!(record.identifier.archive_type, DistArchiveType::Conda(_))
+                || name != record.package_record.name
+                || &version != record.package_record.version.version()
+                || identity.build_string != record.package_record.build {
+                return Err(invalid());
+            }
+            if record.url.path_segments().and_then(Iterator::last)
+                != Some(record.identifier.to_string().as_str()) {
+                return Err(invalid());
+            }
+            records.insert(record.package_record.name.as_normalized(), (record, source));
+        }
+        let mut virtuals = BTreeMap::new();
+        for package in &self.virtual_packages {
+            if virtuals.insert(package.name.as_normalized(), package).is_some()
+                || records.contains_key(package.name.as_normalized()) {
+                return Err(invalid());
+            }
+        }
+        let check = |raw: &str, required: bool, strictness: ParseStrictness| -> LockModelResult<()> {
+            let spec = MatchSpec::from_str(raw, strictness).map_err(|_| invalid())?;
+            let check_record = |record: &rattler_conda_types::RepoDataRecord, source: &Channel| -> LockModelResult<()> {
+                if !spec.matches(record)
+                    || spec.channel.as_ref().is_some_and(|channel| channel.base_url != source.base_url)
+                    || spec.subdir.as_ref().is_some_and(|subdir| subdir != &record.package_record.subdir)
+                {
+                    return Err(LockModelError::Reference(LockReference::Edge));
+                }
+                Ok(())
+            };
+            let check_virtual = |package: &rattler_conda_types::GenericVirtualPackage| -> LockModelResult<()> {
+                if spec.channel.is_some() || spec.subdir.is_some() || !spec.matches(package) {
+                    return Err(LockModelError::Reference(LockReference::Edge));
+                }
+                Ok(())
+            };
+            let mut satisfied = false;
+            let mut mismatched = false;
+            if let Some(name) = spec.name.as_exact() {
+                if let Some((record, source)) = records.get(name.as_normalized()) {
+                    if check_record(record, source).is_ok() { satisfied = true; } else { mismatched = true; }
+                }
+                if let Some(package) = virtuals.get(name.as_normalized()) {
+                    if check_virtual(package).is_ok() { satisfied = true; } else { mismatched = true; }
+                }
+            } else {
+                for (record, source) in records.values() {
+                    if spec.name.matches(&record.package_record.name) {
+                        if check_record(record, source).is_ok() { satisfied = true; } else { mismatched = true; }
+                    }
+                }
+                for package in virtuals.values() {
+                    if spec.name.matches(&package.name) {
+                        if check_virtual(package).is_ok() { satisfied = true; } else { mismatched = true; }
+                    }
+                }
+            }
+            if (required && !satisfied) || (!required && mismatched) {
+                return Err(LockModelError::Reference(LockReference::Edge));
+            }
+            Ok(())
+        };
+        for root in &self.roots {
+            check(root, true, ParseStrictness::Strict)?;
+        }
+        for record in &self.records {
+            for dependency in &record.package_record.depends {
+                check(dependency, true, ParseStrictness::Lenient)?;
+            }
+            for constraint in &record.package_record.constrains {
+                check(constraint, false, ParseStrictness::Lenient)?;
+            }
+        }
+        Ok(())
+    }
 }
 impl PythonLockModel {
+    pub(crate) fn conda(&self) -> &[CondaLockGraph] {
+        &self.conda
+    }
+    pub(crate) fn with_conda(mut self, graph: CondaLockGraph, limits: LockModelLimits) -> LockModelResult<Self> {
+        self.conda.push(graph);
+        validate_owned(&self, limits)?;
+        self.conda.last().expect("just inserted").validate_semantics()?;
+        Ok(self)
+    }
     pub(crate) fn with_declaration_fingerprint(mut self, fingerprint: [u8; 32]) -> Self {
         self.declaration_fingerprint = Some(fingerprint);
         self
@@ -722,7 +881,20 @@ impl PythonLockModel {
             pins: by_pin.into_values().collect(),
             graphs: by_group.into_values().collect(),
             builds: Vec::new(),
+            conda: Vec::new(),
+            mixed: Vec::new(),
+            locators: None,
         })
+    }
+    /// URL is a portable lock fact, never a replacement for the source pin.
+    pub(crate) fn locator(&self, id: PinId) -> Option<&str> {
+        self.locators.as_ref().and_then(|map| map.get(&hex::encode(id.as_bytes())).map(String::as_str))
+    }
+    pub(crate) fn has_locators(&self) -> bool { self.locators.is_some() }
+    pub(crate) fn with_locators(mut self, locators: BTreeMap<String, String>, limits: LockModelLimits) -> LockModelResult<Self> {
+        self.locators = Some(locators);
+        validate_owned(&self, limits)?;
+        Ok(self)
     }
     pub(crate) fn pins(&self) -> &[ContentPin] {
         &self.pins
@@ -1055,6 +1227,51 @@ fn validate_owned(model: &PythonLockModel, limits: LockModelLimits) -> LockModel
     count(model.pins.len(), limits.max_pins, LockLimit::Pins)?;
     count(model.graphs.len(), limits.max_groups, LockLimit::Groups)?;
     let mut usage = Usage::default();
+    count(model.conda.len(), limits.max_groups, LockLimit::Groups)?;
+    let mut conda_keys = BTreeSet::new();
+    for graph in &model.conda {
+        graph.validate(limits)?;
+        if !conda_keys.insert((&graph.config_scope, &graph.group, graph.target_fingerprint)) {
+            return Err(LockModelError::Duplicate(LockIdentity::Group));
+        }
+        let raw = serde_json::to_string(graph).map_err(|_| LockModelError::InvalidToml)?;
+        count(raw.len(), limits.max_document_bytes, LockLimit::DocumentBytes)?;
+        charge(&mut usage.utf8, raw.len(), limits.max_total_utf8_bytes, LockLimit::TotalUtf8Bytes)?;
+    }
+    count(model.mixed.len(), limits.max_groups, LockLimit::Groups)?;
+    let mut mixed_keys = BTreeSet::new();
+    for graph in &model.mixed {
+        if !mixed_keys.insert((&graph.config_scope, &graph.group, graph.target_fingerprint)) {
+            return Err(LockModelError::Duplicate(LockIdentity::Group));
+        }
+        group_shape(graph.root_declarations.len(), graph.roots.len(), graph.nodes.len(), graph.edges.len(), limits)?;
+        charge(&mut usage.nodes, graph.nodes.len(), limits.max_total_nodes, LockLimit::TotalNodes)?;
+        charge(&mut usage.references, graph.roots.len() + graph.nodes.len() + graph.edges.len(),
+            limits.max_total_references, LockLimit::References)?;
+        let raw = serde_json::to_string(graph).map_err(|_| LockModelError::InvalidToml)?;
+        count(raw.len(), limits.max_document_bytes, LockLimit::DocumentBytes)?;
+        charge(&mut usage.utf8, raw.len(), limits.max_total_utf8_bytes, LockLimit::TotalUtf8Bytes)?;
+    }
+    if let Some(locators) = &model.locators {
+        count(locators.len(), limits.max_pins, LockLimit::Pins)?;
+        if locators.len() != model.pins.len() { return Err(LockModelError::Reference(LockReference::NodePin)); }
+        let pins = model.pins.iter().map(|pin| (pin.id(), pin)).collect::<BTreeMap<_, _>>();
+        for (id, url) in locators {
+            text(id, LockField::Filename, false, &mut usage, limits)?;
+            text(url, LockField::Filename, false, &mut usage, limits)?;
+            let parsed = PinId::parse_hex(id)?;
+            if id != &hex::encode(parsed.as_bytes()) { return Err(LockModelError::IdentityMismatch); }
+            let pin = pins.get(&parsed).ok_or(LockModelError::Reference(LockReference::NodePin))?;
+            if !valid_registry_url(url, pin.file().filename()) { return Err(LockModelError::IdentityMismatch); }
+        }
+        for graph in &model.mixed {
+            for node in &graph.nodes {
+                if let MixedLockSource::Registry { pin, url: Some(url) } = &node.source {
+                    if locators.get(pin) != Some(url) { return Err(LockModelError::IdentityMismatch); }
+                }
+            }
+        }
+    }
     for pin in &model.pins {
         for (value, field) in [
             (pin.file.registry_id.as_str(), LockField::Registry),
@@ -1220,6 +1437,17 @@ fn validate_owned(model: &PythonLockModel, limits: LockModelLimits) -> LockModel
         }
         reachable(nodes.len(), &graph.roots, &graph.edges)?;
     }
+    for graph in &model.mixed {
+        for node in &graph.nodes {
+            if let MixedLockSource::Registry { pin, .. } = &node.source {
+                let id = PinId::parse_hex(pin)?;
+                if !pins.contains_key(&id) {
+                    return Err(LockModelError::Reference(LockReference::NodePin));
+                }
+                used.insert(id);
+            }
+        }
+    }
     source_builds::validate(model, &mut used, &mut usage, limits)?;
     if used.len() != pins.len() {
         return Err(LockModelError::Reference(LockReference::UnusedPin));
@@ -1240,6 +1468,12 @@ fn close_owned(
             .sort_by(|left, right| left.name.cmp(&right.name));
     }
     model.graphs.sort_by(|left, right| left.key.cmp(&right.key));
+    for graph in &mut model.mixed {
+        graph.roots.sort_by_key(|root| root.declaration_index);
+        graph.nodes.sort_by(|left, right| left.name.cmp(&right.name));
+        graph.edges.sort_by(|left, right| (&left.from, &left.to, &left.declaration).cmp(&(&right.from, &right.to, &right.declaration)));
+    }
+    model.mixed.sort_by(|left, right| (&left.config_scope, &left.group, left.target_fingerprint).cmp(&(&right.config_scope, &right.group, right.target_fingerprint)));
     Ok(model)
 }
 

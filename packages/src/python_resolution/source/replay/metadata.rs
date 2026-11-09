@@ -22,8 +22,8 @@ pub(crate) enum LockedMetadataError {
     Revoked,
     #[error("locked wheel byte identity is inconsistent")]
     IdentityMismatch,
-    #[error("locked wheel archive inspection failed")]
-    Archive,
+    #[error("locked wheel archive inspection failed: {0}")]
+    Archive(String),
     #[error("locked wheel dependency metadata failed: {0}")]
     Metadata(PythonMetadataError),
 }
@@ -40,19 +40,29 @@ impl LockedWheelCandidate<'_> {
     }
     pub(crate) fn origin(&self) -> LockedReplayOrigin {
         match self.provenance {
-            ReplayProvenance::Cache => LockedReplayOrigin::Cache,
-            ReplayProvenance::Registry(_) => LockedReplayOrigin::Registry,
+            ReplayProvenance::Cache | ReplayProvenance::SelectedCache { .. } => {
+                LockedReplayOrigin::Cache
+            }
+            ReplayProvenance::Registry(_) | ReplayProvenance::LockedUrl => {
+                LockedReplayOrigin::Registry
+            }
         }
     }
     pub(crate) fn source_key(&self) -> Option<SourceObservationKey> {
         match &self.provenance {
-            ReplayProvenance::Cache => None,
+            ReplayProvenance::Cache
+            | ReplayProvenance::SelectedCache { .. }
+            | ReplayProvenance::LockedUrl => None,
             ReplayProvenance::Registry(identity) => Some(identity.source_key),
         }
     }
     pub(crate) fn file_facts(&self) -> Option<&SimpleFile> {
         match &self.provenance {
-            ReplayProvenance::Cache => None,
+            ReplayProvenance::Cache | ReplayProvenance::LockedUrl => None,
+            ReplayProvenance::SelectedCache {
+                project,
+                file_index,
+            } => Some(&project.project.files()[*file_index]),
             ReplayProvenance::Registry(identity) => {
                 Some(&identity.project.project.files()[identity.file_index])
             }
@@ -94,7 +104,7 @@ fn observation_error(error: WheelMetadataError) -> LockedMetadataError {
     match error {
         WheelMetadataError::InvalidLimits => LockedMetadataError::InvalidLimits,
         WheelMetadataError::IdentityMismatch => LockedMetadataError::IdentityMismatch,
-        WheelMetadataError::Archive => LockedMetadataError::Archive,
+        WheelMetadataError::Archive(error) => LockedMetadataError::Archive(error),
         WheelMetadataError::Metadata(error) => LockedMetadataError::Metadata(error),
     }
 }

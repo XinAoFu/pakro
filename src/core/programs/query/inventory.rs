@@ -74,6 +74,17 @@ pub(crate) fn inventory(context: &OperationContext) -> Result<Vec<LibraryEntry>>
             crate::libraries::package::lease::acquire_package_for_query(context, package.key())?
                 .context("package publication disappeared during query")?;
         lease.check_metadata()?;
+        let (platform, language) = if let Some(language) = package.language {
+            (
+                platforms
+                    .get(&language)
+                    .cloned()
+                    .context("package language instance is missing from the published library")?,
+                Some(format!("language-{}", hex::encode(language))),
+            )
+        } else {
+            (package.target.clone().context("native package target is missing")?, None)
+        };
         result.push(LibraryEntry {
             kind: "package".into(),
             instance: format!("package-{}", hex::encode(package.key())),
@@ -82,11 +93,8 @@ pub(crate) fn inventory(context: &OperationContext) -> Result<Vec<LibraryEntry>>
             build: None,
             source_recipe: None,
             runtime_configuration: None,
-            platform: platforms
-                .get(&package.language)
-                .cloned()
-                .context("package language instance is missing from the published library")?,
-            language: Some(format!("language-{}", hex::encode(package.language))),
+            platform,
+            language,
             dependencies: package
                 .facts
                 .dependencies

@@ -524,6 +524,39 @@ pub(crate) struct LayoutLease {
     pub(super) packages: Vec<PackageLease>,
 }
 impl LayoutLease {
+    pub(crate) fn activation_plan(&self) -> Result<Option<crate::packages::conda_scripts::activation::ActivationPlan>> {
+        use crate::packages::python_environment::prefix::verify::TreeInventoryKind;
+        use nix::{fcntl::{OFlag, openat}, sys::stat::Mode};
+        use sha2::{Digest as _, Sha256};
+        if !self.manifest.activation { return Ok(None); }
+        self.protection.check_manifest()?;
+        let entries = self.manifest.storage.inventory.entries();
+        let directory = entries.iter().find(|entry| entry.relative == Path::new("bootstrap"))
+            .context("activation plan directory is missing")?;
+        let expected = entries.iter().find(|entry| entry.relative == Path::new("bootstrap/.pakro-conda-activation.json"))
+            .context("activation plan is missing")?;
+        let TreeInventoryKind::File { size, sha256 } = &expected.kind else { eyre::bail!("activation plan is not a file") };
+        ensure!(matches!(directory.kind, TreeInventoryKind::Directory) && *size <= 1024 * 1024,
+            "activation plan inventory is invalid");
+        let parent = open_directory(&self.protection.root, "bootstrap")?;
+        let meta = parent.metadata()?;
+        ensure!([meta.dev(), meta.ino()] == directory.identity && meta.uid() == uid() && meta.mode() & 0o7777 == directory.mode,
+            "activation plan directory changed");
+        let mut file = File::from(openat(&parent, ".pakro-conda-activation.json",
+            OFlag::O_RDONLY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC | OFlag::O_NONBLOCK, Mode::empty())?);
+        let meta = file.metadata()?;
+        ensure!(meta.is_file() && meta.nlink() == 1 && [meta.dev(), meta.ino()] == expected.identity
+            && meta.uid() == uid() && meta.mode() & 0o7777 == expected.mode && meta.len() == *size,
+            "activation plan file changed");
+        let mut bytes = Vec::new();
+        file.by_ref().take(*size + 1).read_to_end(&mut bytes)?;
+        ensure!(bytes.len() as u64 == *size && <[u8; 32]>::from(Sha256::digest(&bytes)) == *sha256,
+            "activation plan bytes changed");
+        let plan: crate::packages::conda_scripts::activation::ActivationPlan = serde_json::from_slice(&bytes)?;
+        plan.validate()?;
+        self.protection.check_manifest()?;
+        Ok(Some(plan))
+    }
     pub(crate) fn key(&self) -> [u8; 32] {
         self.manifest.storage.key
     }
@@ -730,7 +763,10 @@ fn acquire_layout_verified(
     for package in &value.packages {
         if let Some(held) = supplied.get(package) {
             ensure!(
-                held.manifest().language == value.language,
+                (matches!(value.recipe, 5 | 6)
+                    && (value.recipe == 6 || held.manifest().conda.is_some())
+                    && super::conda::layout_member_matches(&language, held.manifest()))
+                    || (!matches!(value.recipe, 5 | 6) && held.manifest().language == Some(value.language)),
                 "held package language differs from the layout"
             );
             members.push(Member::Held((**held).clone()));
@@ -779,7 +815,10 @@ fn acquire_layout_verified(
             .eq(value.packages.iter().copied())
             && packages
                 .iter()
-                .all(|package| package.manifest().language == value.language),
+                .all(|package| (matches!(value.recipe, 5 | 6)
+                    && (value.recipe == 6 || package.manifest().conda.is_some())
+                    && super::conda::layout_member_matches(&language, package.manifest()))
+                    || (!matches!(value.recipe, 5 | 6) && package.manifest().language == Some(value.language))),
         "protected layout members differ from its complete manifest reference set"
     );
     let protection = if full_inventory {

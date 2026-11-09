@@ -148,7 +148,7 @@ impl HookEnv {
         *previous_withdrawn = true;
 
         // Use env_with_path_and_split which handles caching internally
-        let (mut pakro_env, env_remove, user_paths, tool_paths, env_watch_files) =
+        let (mut pakro_env, mut env_remove, user_paths, tool_paths, env_watch_files) =
             ts.env_with_path_and_split(&config).await?;
         // Shared library python: entering the directory selects the exact
         // published instance (D07); the controlled registration happens inside
@@ -168,6 +168,15 @@ impl HookEnv {
         };
         #[cfg(unix)]
         if let Some(shared) = shared_python {
+            for (key, value) in shared.activation_changes(&env::PRISTINE_ENV)? {
+                if let Some(value) = value {
+                    env_remove.remove(&key);
+                    pakro_env.insert(key, value);
+                } else {
+                    pakro_env.remove(&key);
+                    env_remove.insert(key);
+                }
+            }
             // Normal interpreter startup must not replace bytecode in the
             // immutable shared payload. EnvDiff restores the prior value when
             // this directory's selection is withdrawn.

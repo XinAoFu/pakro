@@ -82,6 +82,10 @@ impl AsRef<[u8; 32]> for TargetIdentity {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LanguageInput {
     Artifact(ArtifactId),
+    CondaArtifact {
+        artifact: ArtifactId,
+        channel: [u8; 32],
+    },
     Build(BuildRequestId),
 }
 
@@ -120,6 +124,11 @@ impl LanguageKey {
             LanguageInput::Artifact(artifact) => {
                 hash.field(b"artifact");
                 hash.digest(artifact.digest());
+            }
+            LanguageInput::CondaArtifact { artifact, channel } => {
+                hash.field(b"conda-artifact");
+                hash.digest(artifact.digest());
+                hash.field(&channel);
             }
             LanguageInput::Build(build) => {
                 if build.target() != input.target.fingerprint() {

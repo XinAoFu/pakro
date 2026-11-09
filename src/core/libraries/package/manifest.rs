@@ -50,7 +50,7 @@ pub(crate) const PACKAGE_FACTS_FILE: &str = ".pakro-package-facts.json";
 
 pub(crate) fn package_facts_bytes(
     facts: &PackageFacts,
-    language: &[u8; 32],
+    language: &Option<[u8; 32]>,
     filename: &str,
 ) -> Result<Vec<u8>> {
     let bytes = serde_json::to_vec(&(1u32, facts, language, filename))?;
@@ -65,7 +65,11 @@ pub(crate) fn package_facts_bytes(
 #[serde(deny_unknown_fields)]
 pub(crate) struct PackageManifest {
     pub facts: PackageFacts,
-    pub language: [u8; 32],
+    pub language: Option<[u8; 32]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conda: Option<rattler_conda_types::RepoDataRecord>,
     pub filename: String,
     pub storage: StorageManifest,
 }
@@ -75,10 +79,31 @@ impl PackageManifest {
     pub(crate) fn validate_metadata(&self) -> Result<()> {
         self.storage.validate()?;
         ensure!(
+            self.language.is_some() || self.target.as_ref().is_some_and(|target| matches!(target.as_str(), "noarch" | "osx-arm64" | "osx-64" | "linux-64" | "linux-aarch64")),
+            "native package target is missing or unsupported"
+        );
+        ensure!(
             self.facts.key == self.storage.key,
             "package manifest key differs"
         );
         let artifact: pakro_store::Digest = self.facts.artifact.parse()?;
+        if let Some(record) = &self.conda {
+            let digest: [u8; 32] = record.package_record.sha256.ok_or_else(|| eyre::eyre!("Conda package lacks SHA256"))?.into();
+            let archive = self.storage.inventory.entries().iter()
+                .find(|entry| entry.relative == std::path::Path::new("conda-archive"))
+                .ok_or_else(|| eyre::eyre!("Conda package archive is missing"))?;
+            ensure!(matches!(&archive.kind,
+                crate::packages::python_environment::prefix::verify::TreeInventoryKind::File { size, sha256 }
+                    if Some(*size) == record.package_record.size && *sha256 == digest),
+                "Conda package archive differs from its recorded digest or size");
+            ensure!(self.facts.source == super::conda::record_source(record)?
+                && artifact == pakro_store::Digest::Sha256(digest)
+                && self.filename == record.identifier.to_string()
+                && self.facts.name == record.package_record.name.as_normalized()
+                && self.facts.version == record.package_record.version.to_string()
+                && self.target.as_ref().is_none_or(|target| target == &record.package_record.subdir),
+                "Conda package manifest differs from its recorded artifact");
+        }
         ensure!(
             artifact.to_string() == self.facts.artifact
                 && !self.facts.source.is_empty()
@@ -121,6 +146,8 @@ pub(crate) struct LayoutManifest {
         skip_serializing_if = "is_legacy_layout_recipe"
     )]
     pub(in crate::libraries) recipe: u32,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub(in crate::libraries::package) activation: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(in crate::libraries::package) projection:
         Option<super::layouts::projection::NativeProjection>,
@@ -129,6 +156,8 @@ pub(crate) struct LayoutManifest {
 impl LayoutManifest {
     pub(crate) fn validate_metadata(&self) -> Result<()> {
         self.storage.validate()?;
+        ensure!(!self.activation || (self.recipe == 6 && self.storage.inventory.contains_file(std::path::Path::new("bootstrap/.pakro-conda-activation.json"))),
+            "Conda activation plan is absent from the layout inventory");
         super::layouts::projection::validate_metadata(self.recipe, self.projection.as_ref())?;
         ensure!(
             self.storage.key
@@ -141,6 +170,8 @@ impl LayoutManifest {
         Ok(())
     }
 }
+
+fn is_false(value: &bool) -> bool { !*value }
 
 fn legacy_layout_recipe() -> u32 {
     1
@@ -237,4 +268,27 @@ pub(crate) fn enumerate_published(context: &OperationContext) -> Result<Vec<Pack
         );
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn optional_language_keeps_legacy_package_fact_bytes() {
+        let facts = PackageFacts {
+            key: [1; 32],
+            name: "example".into(),
+            version: "1.0".into(),
+            artifact: "sha256:abc".into(),
+            source: "pypi".into(),
+            dependencies: vec![],
+        };
+        let language = [2; 32];
+        let legacy = serde_json::to_vec(&(1u32, &facts, &language, "example.whl")).unwrap();
+        assert_eq!(
+            package_facts_bytes(&facts, &Some(language), "example.whl").unwrap(),
+            legacy
+        );
+    }
 }

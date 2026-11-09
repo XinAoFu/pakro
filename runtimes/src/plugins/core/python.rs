@@ -498,6 +498,7 @@ impl PythonPlugin {
         config: Arc<Config>,
         runtime_pin: Option<&PlatformInfo>,
     ) -> Result<crate::libraries::language::identity::LanguageKey> {
+        ensure_supported_runtime_request(version)?;
         let requested = crate::programs::shared::exact_version::exact_python_request(version)?;
         let progress: Arc<dyn SingleReport> = Arc::from(
             crate::ui::multi_progress_report::MultiProgressReport::get()
@@ -1055,7 +1056,6 @@ impl PythonPlugin {
 
     async fn native_version_infos(&self) -> Result<Vec<VersionInfo>> {
         let target = Self::native_target(&PlatformTarget::from_current())?;
-        let pypy = self.native_releases(&target, true).await?;
         let cpython = self.native_releases(&target, false).await?;
         let infos = |releases: Vec<native::RuntimeRelease>| -> Result<Vec<VersionInfo>> {
             let requests = releases
@@ -1089,7 +1089,7 @@ impl PythonPlugin {
                 })
                 .collect())
         };
-        Ok(merge_pypy_and_cpython(infos(pypy)?, infos(cpython)?))
+        infos(cpython)
     }
 
     async fn fetch_precompiled_remote_versions(
@@ -1561,7 +1561,7 @@ impl Backend for PythonPlugin {
         if cfg!(any(target_os = "macos", target_os = "linux")) {
             let target = Self::native_target(&PlatformTarget::from_current())?;
             return Ok(Some(crate::hash::hash_to_str(&(
-                "python-native-catalog-v1",
+                "python-native-cpython-catalog-v2",
                 target.arch(),
                 format!("{:?}", target.platform()),
                 Settings::get().python.precompiled_flavor.clone(),
@@ -1739,6 +1739,7 @@ impl Backend for PythonPlugin {
         tv: &ToolVersion,
         target: &PlatformTarget,
     ) -> Result<PlatformInfo> {
+        ensure_supported_runtime_request(&tv.version)?;
         if cfg!(any(target_os = "macos", target_os = "linux"))
             && Settings::get().python_compile(CompilePurpose::Inspect) != Some(true)
         {
@@ -1955,6 +1956,14 @@ fn validate_python_precompiled_settings(settings: &Settings) -> Result<()> {
     Ok(())
 }
 
+fn ensure_supported_runtime_request(version: &str) -> Result<()> {
+    eyre::ensure!(
+        !version.starts_with("pypy"),
+        "PyPy installation and new runtime locks are not supported; use CPython"
+    );
+    Ok(())
+}
+
 fn split_python_precompiled_triple(value: &str) -> Option<(&str, &str)> {
     ["-unknown-linux", "-apple-darwin", "-pc-windows"]
         .iter()
@@ -2150,6 +2159,13 @@ mod tests {
     #[cfg(all(unix, feature = "self_update"))]
     mod shared_bridge;
     use super::*;
+
+    #[test]
+    fn new_runtime_requests_exclude_pypy_without_removing_legacy_parsing() {
+        assert!(ensure_supported_runtime_request("3.13.13").is_ok());
+        assert!(ensure_supported_runtime_request("pypy3.10-7.3.17").is_err());
+        assert!(native::is_exact_request("pypy3.10-7.3.17"));
+    }
 
     #[test]
     fn native_provenance_cache_is_exact_and_survives_an_offline_replay() {

@@ -378,6 +378,7 @@ fn verify_entry(
     let kind = match tracked.kind {
         EntryKind::Directory => OwnershipEntryKind::Directory,
         EntryKind::File => OwnershipEntryKind::File,
+        EntryKind::Symlink => eyre::bail!("journaled prefixes cannot contain layout symlinks"),
     };
     ensure!(
         kind == fact.kind()
@@ -582,6 +583,7 @@ fn unlink_entry(
         let flags = match tracked.kind {
             EntryKind::Directory => nix::unistd::UnlinkatFlags::RemoveDir,
             EntryKind::File => nix::unistd::UnlinkatFlags::NoRemoveDir,
+            EntryKind::Symlink => eyre::bail!("journaled prefixes cannot contain layout symlinks"),
         };
         nix::unistd::unlinkat(&parent, name, flags)?;
         parent.sync_all()?;

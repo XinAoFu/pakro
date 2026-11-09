@@ -128,7 +128,7 @@ pub(super) fn prepare(
         "operation policy forbids derived package publication"
     );
     ensure!(
-        original.language == scope.language().key().fingerprint()
+        original.language == Some(scope.language().key().fingerprint())
             && original.facts.name == facts.name
             && original.facts.version == facts.version
             && original.facts.source == facts.source
@@ -369,6 +369,8 @@ pub(super) fn prepare(
     let value = PackageManifest {
         facts,
         language: original.language,
+        target: original.target.clone(),
+        conda: original.conda.clone(),
         filename: original.filename.clone(),
         storage,
     };

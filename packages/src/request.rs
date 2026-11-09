@@ -45,6 +45,8 @@ pub struct PackageInstallRequest {
     pub name: String,
     pub version: String,
     pub source: PackageSource,
+    pub channel: Option<String>,
+    pub build: Option<String>,
     pub extras: Vec<String>,
     pub marker: Option<String>,
 }
@@ -104,6 +106,8 @@ pub struct PackageDeclarationOptions {
     pub version: String,
     #[serde(default)]
     pub source: PackageSource,
+    pub channel: Option<String>,
+    pub build: Option<String>,
     #[serde(default)]
     pub extras: Vec<String>,
     pub marker: Option<String>,
@@ -130,6 +134,8 @@ impl PackageInstallRequest {
             name: name.into(),
             version: version.into(),
             source: PackageSource::Pypi,
+            channel: None,
+            build: None,
             extras: Vec::new(),
             marker: None,
         }
@@ -143,22 +149,60 @@ impl PackageInstallRequest {
         if self.runtime_name.is_empty() || self.runtime_version.is_empty() {
             return Err("package declarations require an explicit runtime binding".into());
         }
-        if self.source == PackageSource::Conda {
-            return Err("Conda package installation is not supported yet".into());
-        }
         if self.name.len() > 4096 || self.version.len() > 4096 {
             return Err("package declaration exceeds its text limit".into());
         }
-        NormalizedPythonName::new(&self.name)
-            .map_err(|error| format!("invalid package name {:?}: {error}", self.name))?;
-        if self.version.is_empty()
-            || self.version.trim() != self.version
-            || self.version.parse::<pep440_rs::Version>().is_err()
-        {
-            return Err(format!(
-                "package {} requires a complete exact version, not a range or selector",
-                self.name
-            ));
+        if self.source == PackageSource::Conda {
+            if self.name.is_empty() {
+                return Err("Conda package name cannot be empty".into());
+            }
+            rattler_conda_types::PackageName::try_from(self.name.as_str())
+                .map_err(|error| format!("invalid Conda package name {:?}: {error}", self.name))?;
+            if !self.version.starts_with(|c: char| c.is_ascii_digit())
+                || self.version.chars().any(|c| {
+                    c.is_whitespace() || matches!(c, '*' | '<' | '>' | '=' | ',' | '|' | '~')
+                })
+                || self
+                    .version
+                    .parse::<rattler_conda_types::Version>()
+                    .is_err()
+            {
+                return Err(format!(
+                    "Conda package {} requires a complete exact version",
+                    self.name
+                ));
+            }
+            if !self.extras.is_empty() {
+                return Err("Conda packages do not support PyPI extras".into());
+            }
+            if self
+                .channel
+                .as_ref()
+                .is_some_and(|s| s.is_empty() || s.trim() != s)
+                || self.build.as_ref().is_some_and(|s| {
+                    s.is_empty()
+                        || s.trim() != s
+                        || s.chars()
+                            .any(|c| c.is_whitespace() || matches!(c, '*' | '|' | ','))
+                })
+            {
+                return Err("Conda channel and build must be nonempty exact values".into());
+            }
+        } else {
+            if self.channel.is_some() || self.build.is_some() {
+                return Err("channel and build are only supported for Conda packages".into());
+            }
+            NormalizedPythonName::new(&self.name)
+                .map_err(|error| format!("invalid package name {:?}: {error}", self.name))?;
+            if self.version.is_empty()
+                || self.version.trim() != self.version
+                || self.version.parse::<pep440_rs::Version>().is_err()
+            {
+                return Err(format!(
+                    "package {} requires a complete exact version, not a range or selector",
+                    self.name
+                ));
+            }
         }
         if self.extras.len() > 256 {
             return Err("package extras exceed the declaration limit".into());
@@ -205,6 +249,9 @@ impl PackageInstallRequest {
     pub fn requirement(&self) -> Result<String, String> {
         use pakro_index::python_source::NormalizedPythonName;
         self.validate()?;
+        if self.source == PackageSource::Conda {
+            return Err("Conda package installation is not supported yet".into());
+        }
         let name = NormalizedPythonName::new(&self.name).map_err(|error| error.to_string())?;
         let mut extras = self
             .extras
@@ -338,7 +385,8 @@ pub fn requests_from_config(
                     "[packages] group key {group:?} must name a runtime like \"python@3.10.14\""
                 )
             })?;
-        let mut names = BTreeSet::new();
+        let mut pypi_names = BTreeSet::new();
+        let mut conda_names = BTreeSet::new();
         for (name, declaration) in packages {
             let mut request = match declaration {
                 PackageDeclaration::Version(version) => {
@@ -350,14 +398,23 @@ pub fn requests_from_config(
                     name: name.clone(),
                     version: options.version.clone(),
                     source: options.source,
+                    channel: options.channel.clone(),
+                    build: options.build.clone(),
                     extras: options.extras.clone(),
                     marker: options.marker.clone(),
                 },
             };
             request.validate()?;
-            let normalized = pakro_index::python_source::NormalizedPythonName::new(name)
-                .map_err(|error| error.to_string())?;
-            if !names.insert(normalized.as_str().to_owned()) {
+            let conflict = if request.source == PackageSource::Conda {
+                !conda_names.insert(name.to_ascii_lowercase())
+            } else {
+                let normalized = pakro_index::python_source::NormalizedPythonName::new(name)
+                    .map_err(|error| error.to_string())?
+                    .as_str()
+                    .to_owned();
+                !pypi_names.insert(normalized)
+            };
+            if conflict {
                 return Err(format!(
                     "conflicting normalized package name {name:?} in [packages.{group}]"
                 ));
@@ -634,7 +691,10 @@ mod tests {
             "' 1.0'",
             "{version='1.0',unknown=true}",
             "{version='1.0',source='private'}",
-            "{version='1.0',source='conda'}",
+            "{version='>=1.0',source='conda'}",
+            "{version='latest',source='conda'}",
+            "{version='1.0',source='conda',build='py*'}",
+            "{version='1.0',source='conda',extras=['feature']}",
             "{version='1.0',channel='conda-forge'}",
             "{version='1.0',build='py_0'}",
             "{extras=['feature']}",
@@ -648,10 +708,25 @@ mod tests {
                 "accepted {value}"
             );
         }
-        let error = config_requests("['python@3.13.16']\ndemo={version='1.0',source='conda'}\n")
-            .unwrap_err();
-        assert!(error.contains("Conda package installation is not supported"));
+        let requests = config_requests("['python@3.13.16']\ndemo={version='1.0',source='conda',channel='conda-forge',build='py_0'}\n")
+            .unwrap();
+        assert_eq!(requests[0].source, PackageSource::Conda);
+        assert_eq!(requests[0].channel.as_deref(), Some("conda-forge"));
+        assert_eq!(requests[0].build.as_deref(), Some("py_0"));
+        assert!(
+            requests[0]
+                .requirement()
+                .unwrap_err()
+                .contains("Conda package installation is not supported")
+        );
+        let mut empty = requests[0].clone();
+        empty.name.clear();
+        assert!(empty.validate().is_err());
         assert!(config_requests("['python@3.13.16']\nDemo_Pkg='1.0'\ndemo-pkg='1.0'\n").is_err());
+        assert!(config_requests("['python@3.13.16']\nDemo_Pkg='1.0'\ndemo-pkg={version='1.0',source='conda'}\n").is_ok());
+        assert!(config_requests("['python@3.13.16']\ndemo-pkg={version='1.0',source='conda'}\nDemo_Pkg='1.0'\n").is_ok());
+        assert!(config_requests("['python@3.13.16']\nDemo_Pkg={version='1.0',source='conda'}\ndemo_pkg={version='1.0',source='conda'}\n").is_err());
+        assert!(config_requests("['python@3.13.16']\ndemo_pkg={version='1.0',source='conda'}\ndemo-pkg={version='1.0',source='conda'}\n").is_ok());
     }
 
     #[test]

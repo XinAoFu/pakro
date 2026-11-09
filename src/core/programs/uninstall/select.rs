@@ -1,5 +1,6 @@
 //! Selects one exact target without granting removal authority.
 use crate::libraries::language::repository::{LanguageRepository, PublishedLanguage};
+use crate::libraries::reclaim::ReclaimId;
 use crate::programs::OperationContext;
 use crate::programs::shared::exact_version::exact_python_request;
 use eyre::{Result, bail, ensure};
@@ -78,7 +79,7 @@ pub(crate) fn package(
                     .ok()
                     .as_ref()
                     == Some(&version)
-                && language_keys.contains(&candidate.language)
+                && candidate.language.is_some_and(|key| language_keys.contains(&key))
                 && instance.is_none_or(|instance| {
                     instance == format!("package-{}", hex::encode(candidate.key()))
                 })
@@ -102,4 +103,38 @@ pub(crate) fn package(
         );
     }
     Ok(candidates.remove(0))
+}
+
+/// Resolve a full displayed identity to a published object; the returned ID
+/// remains descriptive until the normal removal kernel acquires its guards.
+pub(crate) fn instance(context: &OperationContext, instance: &str) -> Result<ReclaimId> {
+    if instance.starts_with("language-") {
+        let mut matches = LanguageRepository::open_readonly(context)?
+            .enumerate_published()
+            .map_err(|error| eyre::eyre!("language inventory is unavailable: {error:?}"))?
+            .into_iter()
+            .filter(|candidate| candidate.key().filename() == instance);
+        let target = matches
+            .next()
+            .ok_or_else(|| eyre::eyre!("no published language matches {instance}"))?;
+        ensure!(
+            matches.next().is_none(),
+            "multiple published languages match {instance}"
+        );
+        Ok(ReclaimId::Language(target.key().fingerprint()))
+    } else if instance.starts_with("package-") {
+        let mut matches = crate::libraries::package::manifest::enumerate_published(context)?
+            .into_iter()
+            .filter(|candidate| format!("package-{}", hex::encode(candidate.key())) == instance);
+        let target = matches
+            .next()
+            .ok_or_else(|| eyre::eyre!("no published package matches {instance}"))?;
+        ensure!(
+            matches.next().is_none(),
+            "multiple published packages match {instance}"
+        );
+        Ok(ReclaimId::Package(target.key()))
+    } else {
+        bail!("--instance requires a complete language- or package- identity from pakro installs ls")
+    }
 }

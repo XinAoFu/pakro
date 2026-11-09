@@ -375,6 +375,13 @@ pub fn uninstall_package_report(
     )
 }
 
+/// Resolve the displayed identity through the actual library before removal.
+pub fn uninstall_instance_report(instance: &str, dry_run: bool) -> Result<ReclaimReport> {
+    crate::programs::uninstall::reclaim::instance_report(
+        &reclaim_context(dry_run)?, instance, dry_run,
+    )
+}
+
 pub fn prune(dry_run: bool, resume: Option<uuid::Uuid>) -> Result<ReclaimReport> {
     crate::programs::uninstall::prune::run(&reclaim_context(dry_run)?, dry_run, resume)
 }

@@ -47,6 +47,7 @@ pub(crate) struct BuildBudget {
     // also binds the original registry ContentPin and complete actual target.
     completed: BTreeMap<([u8; 32], [u8; 32], [u8; 32]), (CompletedSourceBuild, u64)>,
     records: BTreeMap<PinId, SourceBuildRecord>,
+    locators: BTreeMap<String, String>,
 }
 impl BuildBudget {
     pub(crate) fn new() -> Self {
@@ -68,6 +69,7 @@ impl BuildBudget {
             copied_bytes: 0,
             completed: BTreeMap::new(),
             records: BTreeMap::new(),
+            locators: BTreeMap::new(),
         }
     }
     pub(crate) fn records(&self) -> Vec<(PinId, SourceBuildRecord)> {
@@ -75,6 +77,30 @@ impl BuildBudget {
             .iter()
             .map(|(id, record)| (*id, record.clone()))
             .collect()
+    }
+    pub(crate) fn locators(&self) -> BTreeMap<String, String> { self.locators.clone() }
+    fn record_locator(&mut self, pin: &crate::packages::python_resolution::lock_model::ContentPin, url: &str) -> Result<()> {
+        ensure!(crate::packages::python_resolution::lock_model::valid_registry_url(url, pin.file().filename()),
+            "source build input has no portable registry URL");
+        let id = hex::encode(pin.id().as_bytes());
+        if let Some(previous) = self.locators.get(&id) {
+            ensure!(previous == url, "source build input has conflicting registry URLs");
+        } else {
+            self.locators.insert(id, url.to_owned());
+        }
+        Ok(())
+    }
+    fn record_graph_locators(&mut self, graph: &ClosedRegistryGraph<'_>) -> Result<()> {
+        for node in &graph.plan().selected {
+            let owner = graph.owner(node.key).context("build input source owner is missing")?;
+            if let Some(url) = graph.registry_url(node.key) {
+                self.record_locator(owner.pin(), url)?;
+            } else {
+                ensure!(self.locators.contains_key(&hex::encode(owner.pin().id().as_bytes())),
+                    "build input source has no retained portable URL");
+            }
+        }
+        Ok(())
     }
     fn charge(&mut self, previous: &mut RegistryDepotUsage, now: RegistryDepotUsage) -> Result<()> {
         let bytes = now
@@ -265,7 +291,7 @@ fn reusable_published_package(
     if let Some(package) = &package {
         package.check_binding()?;
         ensure!(
-            package.manifest().language == language.key().fingerprint()
+            package.manifest().language == Some(language.key().fingerprint())
                 && package.manifest().facts.source == hex::encode(source.as_bytes())
                 && package.manifest().facts.artifact == expected.output_digest
                 && package.manifest().filename == expected.output_filename,
@@ -313,8 +339,12 @@ where
                     budget.charge(&mut accounted, prepared.usage())?;
                     return Ok(prepared);
                 }
+                RegistryPreparation::Mixed(_) => {
+                    eyre::bail!("mixed Conda dependencies are not supported in source builds yet");
+                }
                 RegistryPreparation::NeedsBuild(mut continuation) => {
                     budget.charge(&mut accounted, continuation.usage())?;
+                    budget.record_locator(continuation.pin(), continuation.observed_url()?)?;
                     let source_id = *continuation.pin().id().as_bytes();
                     let source_name = continuation.pin().file().project().to_owned();
                     let source_version = continuation.pin().file().version().to_owned();
@@ -479,6 +509,7 @@ where
                         )
                         .await?;
                         let initial_graph = close_registry_plan(initial_plan, Default::default())?;
+                        budget.record_graph_locators(&initial_graph)?;
                         let initial_inputs = build_inputs(&initial_graph)?;
                         let (initial_archives, initial_evidence) =
                             initial_graph.into_shared_sources()?;
@@ -540,6 +571,7 @@ where
                         )
                         .await?;
                         let final_graph = close_registry_plan(final_plan, Default::default())?;
+                        budget.record_graph_locators(&final_graph)?;
                         let final_inputs = build_inputs(&final_graph)?;
                         for initial in &initial_inputs {
                             let Some(final_input) =

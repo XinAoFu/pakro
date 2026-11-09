@@ -2312,11 +2312,11 @@ list_identity_prefix = "https://github.com/jdx/packslip/.github/workflows/packsl
         );
         assert_eq!(
             well_known_url("example.com"),
-            "https://mise.jdx.dev/.well-known/packslip.json"
+            "https://example.com/.well-known/packslip.json"
         );
         assert_eq!(
             well_known_url("jdx.dev/pakro"),
-            "https://jdx.dev/.well-known/packslip/mise.json"
+            "https://jdx.dev/.well-known/packslip/pakro.json"
         );
     }
 

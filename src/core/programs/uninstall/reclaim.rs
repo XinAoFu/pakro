@@ -42,6 +42,15 @@ fn completed_label(report: ReclaimReport, id: ReclaimId) -> Result<String> {
     Ok(id.label())
 }
 
+pub(crate) fn instance_report(
+    context: &OperationContext,
+    instance: &str,
+    dry_run: bool,
+) -> Result<ReclaimReport> {
+    let id = super::select::instance(context, instance)?;
+    exact(context, id, dry_run)
+}
+
 pub(crate) fn language_report(
     context: &OperationContext,
     version: &str,

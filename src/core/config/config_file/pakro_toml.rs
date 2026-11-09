@@ -2723,6 +2723,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_env() {
+        let _cwd_config = crate::test::CwdConfigGuard::lock();
         let _config = Config::get().await.unwrap();
         let p = CWD.as_ref().unwrap().join(".test.pakro.toml");
         file::write(
@@ -2755,6 +2756,7 @@ mod tests {
         // rather than the previous fixed path -> file -> source order, so a later
         // directive's template can reference a variable set by an earlier one.
         // https://github.com/jdx/mise/discussions/3783
+        let _cwd_config = crate::test::CwdConfigGuard::lock();
         let _config = Config::get().await.unwrap();
         let p = CWD.as_ref().unwrap().join(".test.pakro.toml");
         file::write(
@@ -2784,6 +2786,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_env_var_in_tool() {
+        let _cwd_config = crate::test::CwdConfigGuard::lock();
         let _config = Config::get().await.unwrap();
         let p = CWD.as_ref().unwrap().join(".test.pakro.toml");
         file::write(
@@ -2813,6 +2816,7 @@ mod tests {
     /// See: <https://github.com/jdx/mise/discussions/5531>
     #[tokio::test]
     async fn test_colon_in_templated_tool_version() {
+        let _cwd_config = crate::test::CwdConfigGuard::lock();
         let _config = Config::get().await.unwrap();
         let p = CWD.as_ref().unwrap().join(".test.pakro.toml");
         file::write(
@@ -2850,6 +2854,7 @@ mod tests {
     /// the file, the template, and what it became.
     #[tokio::test]
     async fn test_templated_tool_version_rendering_to_bad_selector() {
+        let _cwd_config = crate::test::CwdConfigGuard::lock();
         let _config = Config::get().await.unwrap();
         let p = CWD.as_ref().unwrap().join(".test.pakro.toml");
         file::write(
@@ -2910,6 +2915,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_core_options_do_not_normalize_version_placeholder() {
+        let _cwd_config = crate::test::CwdConfigGuard::lock();
         let _config = Config::get().await.unwrap();
         let p = CWD.as_ref().unwrap().join(".test.pakro.toml");
         file::write(
@@ -2945,6 +2951,7 @@ mod tests {
     /// See: <https://github.com/jdx/mise/discussions/13306>
     #[tokio::test]
     async fn test_install_env_renders_templates() {
+        let _cwd_config = crate::test::CwdConfigGuard::lock();
         let _config = Config::get().await.unwrap();
         let p = CWD.as_ref().unwrap().join(".test.pakro.toml");
         file::write(
@@ -3004,6 +3011,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_env_source_var_in_tool() {
+        let _cwd_config = crate::test::CwdConfigGuard::lock();
         let cwd = CWD.as_ref().unwrap();
         let script = cwd.join("set-go-version.sh");
         let config_file = cwd.join(".test.pakro.toml");
@@ -3190,6 +3198,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_alias() {
+        let _cwd_config = crate::test::CwdConfigGuard::lock();
         let _config = Config::get().await.unwrap();
         let p = CWD.as_ref().unwrap().join(".test.pakro.toml");
         file::write(
@@ -3216,6 +3225,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_alias() {
+        let _cwd_config = crate::test::CwdConfigGuard::lock();
         let _config = Config::get().await.unwrap();
         let p = CWD.as_ref().unwrap().join(".test.pakro.toml");
         file::write(

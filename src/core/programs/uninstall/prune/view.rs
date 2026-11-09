@@ -390,14 +390,14 @@ fn snapshot_namespace(
             .context("reclamation metadata byte budget exceeded")?;
         let result = (|| -> Result<()> {
             if namespace == "languages" {
-                let key = crate::libraries::language::manifest::validate_published_metadata(
+                let (key, dependencies) = crate::libraries::language::manifest::validate_published_metadata(
                     snapshot.bytes(),
                     &name,
                     read.root_path(),
                 )?;
                 let id = ReclaimId::Language(key);
                 known.insert(id.label());
-                view.insert(id, Vec::new(), id.label())?;
+                view.insert(id, dependencies.into_iter().map(ReclaimId::Package).collect(), id.label())?;
             } else if name.starts_with("package-") {
                 let package: PackageManifest = serde_json::from_slice(snapshot.bytes())?;
                 package.validate_metadata()?;
@@ -414,7 +414,7 @@ fn snapshot_namespace(
                     let root = open_directory(&store, package.storage.allocation.as_str())?;
                     crate::libraries::package::lease::validate_package_facts(&root, &package)?;
                 }
-                let mut edges = vec![ReclaimId::Language(package.language)];
+                let mut edges: Vec<_> = package.language.into_iter().map(ReclaimId::Language).collect();
                 edges.extend(
                     package
                         .facts

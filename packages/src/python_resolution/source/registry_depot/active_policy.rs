@@ -29,6 +29,12 @@ impl ActiveCandidatePolicy for RegistryActivePolicy<'_, '_, '_> {
             .projects
             .get(query.name)
             .ok_or(ActivePolicyError::InvalidInput)?;
+        if entry.candidates.len() == 1 && self.depot.conda.contains_key(&entry.candidates[0].key) {
+            if query.candidates.len() != 1 || query.selected != entry.candidates[0].key {
+                return Err(ActivePolicyError::InvalidInput);
+            }
+            return Ok(ActivePolicyDecision::Allow);
+        }
         let project = entry
             .owner
             .as_ref()

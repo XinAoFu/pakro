@@ -6,7 +6,7 @@ use eyre::{Result, bail, eyre};
 #[usage(verbatim_doc_comment)]
 pub(crate) struct Uninstall {
     /// Tool(s) to remove
-    #[usage(value_name = "INSTALLED_TOOL@VERSION", required_unless = "package")]
+    #[usage(value_name = "INSTALLED_TOOL@VERSION", required_unless = ["package", "instance"])]
     installed_tool: Vec<ToolArg>,
 
     /// Exact bound package request, e.g. python@3.13.16+idna@3.10
@@ -36,6 +36,16 @@ pub(crate) struct Uninstall {
 mod tests {
     use super::*;
     use crate::programs::library::{ReclaimEntry, ReclaimId, ReclaimReport, ReclaimStatus};
+
+    #[test]
+    fn p8_instance_alone_is_accepted_by_the_cli_parser() {
+        let instance = format!("package-{}", "ab".repeat(32));
+        let args = ["pakro", "uninstall", "--instance", instance.as_str(), "--dry-run"]
+            .into_iter()
+            .map(std::ffi::OsStr::new)
+            .collect::<Vec<_>>();
+        assert!(super::super::Cli::parse_from_argv(&args).is_ok());
+    }
 
     #[test]
     fn p4_exact_uninstall_cannot_claim_success_from_an_auxiliary_layout_removal() {
@@ -110,11 +120,19 @@ impl Uninstall {
             return Ok(true);
         }
         if python.is_empty() {
-            eyre::ensure!(
-                self.instance.is_none(),
-                "--instance requires an exact Python or --package target"
-            );
-            eyre::bail!("uninstall requires one exact shared Python or --package target");
+            if let Some(instance) = &self.instance {
+                eyre::ensure!(
+                    self.installed_tool.is_empty(),
+                    "--instance alone cannot be combined with another tool"
+                );
+                let report = crate::programs::library::uninstall_instance_report(
+                    instance,
+                    self.is_dry_run(),
+                )?;
+                self.finish_report(report, instance.starts_with("package-"))?;
+                return Ok(true);
+            }
+            eyre::bail!("uninstall requires one exact Python, --package, or --instance target");
         }
         eyre::ensure!(
             self.installed_tool.len() == 1,

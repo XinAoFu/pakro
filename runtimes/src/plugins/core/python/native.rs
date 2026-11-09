@@ -25,6 +25,7 @@ pub(crate) enum RuntimeDistribution {
     Pbs,
     PyPy,
     CpythonSource,
+    Conda,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -284,6 +285,7 @@ fn validate_locator(
         ),
         RuntimeDistribution::PyPy => ("downloads.python.org", vec!["pypy", filename]),
         RuntimeDistribution::CpythonSource => ("www.python.org", vec!["ftp", "python", build, filename]),
+        RuntimeDistribution::Conda => eyre::bail!("Conda runtime sources use their fixed package record"),
     };
     ensure!(
         url.scheme() == "https"

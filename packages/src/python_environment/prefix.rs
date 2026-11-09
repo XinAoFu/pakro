@@ -269,6 +269,7 @@ impl EnvironmentStore {
                     tainted: false,
                     discarded: false,
                     workspace_cleanup: false,
+                    journal_retained: false,
                     recovery: None,
                     ownership: observer::OwnershipRegistration::Unbound,
                 })
@@ -379,6 +380,7 @@ impl PrefixBinding {
 enum EntryKind {
     Directory,
     File,
+    Symlink,
 }
 
 #[cfg(unix)]
@@ -415,6 +417,7 @@ pub(crate) struct UnpublishedPrefix {
     #[cfg(unix)]
     discarded: bool,
     workspace_cleanup: bool,
+    journal_retained: bool,
     #[cfg(unix)]
     recovery: Option<Recovery>,
     #[cfg(unix)]
@@ -465,8 +468,10 @@ impl UnpublishedPrefix {
     /// Native dependency environments share the enclosing source workspace's
     /// watcher lifetime; their destructor must never race its process cleanup.
     pub(crate) fn delegate_cleanup_to_workspace(&mut self, workspace: &Path) -> Result<()> {
-        ensure!(self.final_path.starts_with(workspace) && self.final_path != workspace,
-            "delegated prefix is outside its owned source workspace");
+        ensure!(
+            self.final_path.starts_with(workspace) && self.final_path != workspace,
+            "delegated prefix is outside its owned source workspace"
+        );
         self.workspace_cleanup = true;
         Ok(())
     }
@@ -476,6 +481,17 @@ impl UnpublishedPrefix {
     }
     pub(crate) fn allocation_id(&self) -> &str {
         &self.allocation_id
+    }
+
+    /// A durable publication journal owns cleanup until its recovery completes.
+    pub(crate) fn retain_for_publication_journal(&mut self) -> Result<()> {
+        self.check_binding()?;
+        self.journal_retained = true;
+        Ok(())
+    }
+
+    pub(crate) fn release_publication_journal_retention(&mut self) {
+        self.journal_retained = false;
     }
     pub(crate) fn check_binding(&self) -> Result<()> {
         #[cfg(unix)]
@@ -662,6 +678,75 @@ impl UnpublishedPrefix {
         }
         #[cfg(not(unix))]
         bail!("unpublished environment writes require a supported Unix platform")
+    }
+
+    /// Shared layouts are not attached to an environment ownership journal.
+    /// Their links are registered in the allocation and checked as a complete
+    /// tree before publication.
+    pub(crate) fn create_layout_symlink(&mut self, relative: &Path, target: &Path) -> Result<()> {
+        #[cfg(unix)]
+        {
+            self.check_write_ready()?;
+            ensure!(
+                matches!(self.ownership, observer::OwnershipRegistration::Unbound),
+                "layout symlinks require an unbound shared allocation"
+            );
+            self.validate_relative(relative, false)?;
+            ensure!(
+                !target.as_os_str().is_empty() && !target.is_absolute(),
+                "layout symlink target must be relative"
+            );
+            let mut depth = relative
+                .parent()
+                .map_or(0, |parent| parent.components().count());
+            for part in target.components() {
+                match part {
+                    std::path::Component::Normal(_) => depth += 1,
+                    std::path::Component::CurDir => {}
+                    std::path::Component::ParentDir if depth > 0 => depth -= 1,
+                    _ => bail!("layout symlink escapes its prefix"),
+                }
+            }
+            ensure!(
+                !self.entries.contains_key(relative),
+                "environment output was already created by this allocation"
+            );
+            self.check_entry_budget()?;
+            let parent = self.open_owned_parent(relative)?;
+            let name = relative
+                .file_name()
+                .ok_or_else(|| eyre::eyre!("missing environment link name"))?;
+            nix::unistd::symlinkat(target, &parent, name)?;
+            let stat = match fstatat(&parent, name, AtFlags::AT_SYMLINK_NOFOLLOW) {
+                Ok(stat) => stat,
+                Err(error) => {
+                    self.tainted = true;
+                    return Err(error.into());
+                }
+            };
+            self.entries.insert(
+                relative.into(),
+                TrackedEntry {
+                    identity: FileIdentity {
+                        device: stat.st_dev,
+                        inode: stat.st_ino,
+                    },
+                    kind: EntryKind::Symlink,
+                },
+            );
+            let result: Result<()> = (|| {
+                parent.sync_all()?;
+                self.check_namespace()?;
+                Ok(())
+            })();
+            if let Err(error) = result {
+                self.tainted = true;
+                return Err(error.into());
+            }
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        bail!("layout symlinks require a supported Unix platform")
     }
 
     #[cfg(unix)]
@@ -1088,7 +1173,9 @@ impl UnpublishedPrefix {
 
 impl Drop for UnpublishedPrefix {
     fn drop(&mut self) {
-        if !self.workspace_cleanup { let _ = self.discard(); }
+        if !self.workspace_cleanup && !self.journal_retained {
+            let _ = self.discard();
+        }
     }
 }
 
@@ -1129,6 +1216,7 @@ fn ensure_tracked_identity<P: nix::NixPath + ?Sized>(
     let expected_kind = match tracked.kind {
         EntryKind::File => nix::sys::stat::SFlag::S_IFREG,
         EntryKind::Directory => nix::sys::stat::SFlag::S_IFDIR,
+        EntryKind::Symlink => nix::sys::stat::SFlag::S_IFLNK,
     };
     ensure!(
         observed.st_dev == tracked.identity.device

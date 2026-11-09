@@ -34,6 +34,8 @@ pub(crate) enum LockedReplayError {
     RegistryMismatch,
     #[error("the exact locked file is absent from its registry project")]
     FileMissing,
+    #[error("mixed lock is missing its portable registry artifact URL")]
+    MissingLocator,
     #[error("registry file identity differs from the actual locked file")]
     FileIdentity,
     #[error("registry page digest conflicts with the locked expected digest")]
@@ -72,7 +74,12 @@ pub(crate) enum LockedReplayOrigin {
 }
 enum ReplayProvenance {
     Cache,
+    SelectedCache {
+        project: Arc<BoundProjectData>,
+        file_index: usize,
+    },
     Registry(RegistryFileIdentity),
+    LockedUrl,
 }
 
 /// Immutable expected bytes and their still-live lock proof. No parts,
@@ -97,13 +104,19 @@ impl LockedRegistryArtifact<'_> {
     }
     pub(crate) fn origin(&self) -> LockedReplayOrigin {
         match self.provenance {
-            ReplayProvenance::Cache => LockedReplayOrigin::Cache,
-            ReplayProvenance::Registry(_) => LockedReplayOrigin::Registry,
+            ReplayProvenance::Cache | ReplayProvenance::SelectedCache { .. } => {
+                LockedReplayOrigin::Cache
+            }
+            ReplayProvenance::Registry(_) | ReplayProvenance::LockedUrl => {
+                LockedReplayOrigin::Registry
+            }
         }
     }
     pub(crate) fn source_key(&self) -> Option<SourceObservationKey> {
         match &self.provenance {
-            ReplayProvenance::Cache => None,
+            ReplayProvenance::Cache
+            | ReplayProvenance::SelectedCache { .. }
+            | ReplayProvenance::LockedUrl => None,
             ReplayProvenance::Registry(identity) => Some(identity.source_key),
         }
     }
@@ -142,6 +155,139 @@ pub(crate) async fn acquire_locked_registry_file<'lock>(
     context: LockedReplayContext<'_>,
 ) -> LockedReplayResult<LockedRegistryArtifact<'lock>> {
     acquire_with_finish(slot, context, || {}).await
+}
+
+/// Fetch only the URL recorded in the actual mixed lock; never query Simple.
+pub(crate) async fn acquire_locked_url<'lock>(
+    root: &'lock BoundPythonLock,
+    slot: ExistingFileSlot<'lock>,
+    context: LockedReplayContext<'_>,
+) -> LockedReplayResult<LockedRegistryArtifact<'lock>> {
+    within_deadline(context.deadline, async {
+        slot.recheck_for(root)
+            .map_err(|_| LockedReplayError::Revoked)?;
+        let id = hex::encode(slot.pin().id().as_bytes());
+        let model = root.model().ok_or(LockedReplayError::MissingLocator)?;
+        let url = if model.has_locators() {
+            model
+                .locator(slot.pin().id())
+                .ok_or(LockedReplayError::MissingLocator)?
+        } else {
+            let mut locations = model
+                .mixed()
+                .iter()
+                .flat_map(|graph| &graph.nodes)
+                .filter_map(|node| match &node.source {
+                    crate::packages::python_resolution::lock_model::MixedLockSource::Registry {
+                        pin,
+                        url,
+                    } if pin == &id => Some(url.as_deref()),
+                    _ => None,
+                });
+            let url = locations
+                .next()
+                .flatten()
+                .ok_or(LockedReplayError::MissingLocator)?;
+            if locations.any(|other| other != Some(url)) {
+                return Err(LockedReplayError::FileIdentity);
+            }
+            url
+        };
+        let limits = checked_limits(slot.pin(), &context)?;
+        slot.recheck().map_err(|_| LockedReplayError::Revoked)?;
+        let pin = slot.pin();
+        if !registry_matches(pin.file(), context.project_session.registry) {
+            return Err(LockedReplayError::RegistryMismatch);
+        }
+        if !crate::packages::python_resolution::lock_model::valid_registry_url(
+            url,
+            pin.file().filename(),
+        ) {
+            return Err(LockedReplayError::FileIdentity);
+        }
+        if let Some(artifact) = cached_replay_bytes(&slot, &context, limits)? {
+            return Ok(LockedRegistryArtifact {
+                slot,
+                artifact,
+                provenance: ReplayProvenance::Cache,
+            });
+        }
+        if context.policy.network == NetworkPolicy::Offline {
+            return Err(LockedReplayError::MissingInputs);
+        }
+        let canonical = Url::parse(url).map_err(|_| LockedReplayError::FileIdentity)?;
+        let physical = context
+            .file_session
+            .transport
+            .request_url(&canonical)
+            .map_err(|error| LockedReplayError::Source(SourceResolutionError::Transport(error)))?;
+        let fingerprint = context.file_session.transport.fingerprint();
+        std::fs::create_dir_all(context.scratch_root).map_err(|_| LockedReplayError::Cache)?;
+        let mut staging =
+            tempfile::tempfile_in(context.scratch_root).map_err(|_| LockedReplayError::Cache)?;
+        let transfer = context
+            .client
+            .copy_source_file_at_deadline(
+                SourceFileSession {
+                    credential_ref: context.file_session.credential_ref,
+                    auth_scope: context.file_session.auth_scope,
+                    credentials: context.file_session.credentials,
+                    auth_origins: context.file_session.auth_origins,
+                    transport: context.file_session.transport,
+                },
+                &canonical,
+                context.policy.network,
+                limits.transfer,
+                &mut staging,
+                context.deadline,
+            )
+            .await
+            .map_err(|error| LockedReplayError::Source(SourceResolutionError::Transport(error)))?;
+        if transfer.initial_canonical_url() != &canonical
+            || transfer.initial_request_url() != &physical
+            || transfer.auth_scope() != context.file_session.auth_scope
+            || transfer.transport_fingerprint() != fingerprint
+        {
+            return Err(LockedReplayError::FileIdentity);
+        }
+        if transfer.size() != pin.size() {
+            return Err(LockedReplayError::SizeMismatch);
+        }
+        slot.recheck().map_err(|_| LockedReplayError::Revoked)?;
+        staging
+            .rewind()
+            .map_err(|_| LockedReplayError::ByteIdentity)?;
+        let mut artifact = spool_verified_reader(
+            caller_deadline::Reader::new(&mut staging, Some(context.deadline)),
+            pin.file().filename(),
+            pin.digest(),
+            limits.transfer.max_wire_bytes,
+            context.scratch_root,
+        )
+        .map_err(|_| LockedReplayError::ByteIdentity)?;
+        if artifact.size() != pin.size() {
+            return Err(LockedReplayError::SizeMismatch);
+        }
+        deadline(context.deadline)?;
+        slot.recheck().map_err(|_| LockedReplayError::Revoked)?;
+        publish_verified_artifact(
+            &mut artifact,
+            context.cache_root,
+            limits.transfer.max_wire_bytes,
+        )
+        .map_err(|_| LockedReplayError::CachePublication)?;
+        deadline(context.deadline)?;
+        slot.recheck().map_err(|_| LockedReplayError::Revoked)?;
+        artifact
+            .rewind()
+            .map_err(|_| LockedReplayError::ByteIdentity)?;
+        Ok(LockedRegistryArtifact {
+            slot,
+            artifact,
+            provenance: ReplayProvenance::LockedUrl,
+        })
+    })
+    .await
 }
 
 async fn acquire_with_finish<'lock>(

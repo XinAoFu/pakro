@@ -1,6 +1,6 @@
 //! Graph fields use the same pre-allocation collection/text budgets as the
 //! original catalog codec. No unbounded intermediate wire model is created.
-use super::read::{Element, List, ParseState, Text};
+use super::read::{Element, List, OptionalText, ParseState, Text};
 use super::*;
 use serde::de::{DeserializeSeed, Deserializer, MapAccess, Visitor};
 use std::fmt;
@@ -218,6 +218,7 @@ impl<'de> Visitor<'de> for Pin<'_> {
         let (mut registry, mut base, mut filename, mut size, mut advertised, mut seen) =
             (None, None, None, None, None, 0);
         let mut source_build = None;
+        let mut conda = None;
         while let Some(key) = map.next_key_seed(Text {
             state: self.0,
             maximum: 32,
@@ -253,6 +254,10 @@ impl<'de> Visitor<'de> for Pin<'_> {
                     self.0.once(&mut seen, 32)?;
                     source_build = map.next_value_seed(build::OptionalBuild(self.0))?;
                 }
+                "conda" => {
+                    self.0.once(&mut seen, 64)?;
+                    conda = map.next_value_seed(OptionalText(Text { state: self.0, maximum: 1024 * 1024 }))?;
+                }
                 _ => return self.0.fail("unknown package source pin field"),
             }
         }
@@ -263,6 +268,7 @@ impl<'de> Visitor<'de> for Pin<'_> {
             size: self.0.required(size)?,
             advertised: self.0.required(advertised)?,
             build: source_build,
+            conda,
         })
     }
 }

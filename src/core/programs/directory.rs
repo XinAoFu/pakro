@@ -22,8 +22,12 @@ pub struct DirectoryPython {
     pub bin_dirs: Vec<PathBuf>,
     pub executable: PathBuf,
     pub version: String,
+    pub(crate) activation: Option<(crate::packages::conda_scripts::activation::ActivationPlan, PathBuf)>,
 }
 impl DirectoryPython {
+    pub fn activation_changes(&self, original: &std::collections::BTreeMap<String, String>) -> Result<std::collections::BTreeMap<String, Option<String>>> {
+        self.activation.as_ref().map(|(plan, prefix)| plan.bind(prefix, original)).transpose().map(Option::unwrap_or_default)
+    }
     /// Entry points come only from the verified language or package layout.
     /// This is a path description, not a future process lease.
     pub fn command(&self, command: &str) -> Result<Option<PathBuf>> {

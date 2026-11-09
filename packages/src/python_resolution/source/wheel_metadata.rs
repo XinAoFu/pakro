@@ -21,7 +21,7 @@ pub(crate) enum WheelMetadataError {
     #[error("wheel metadata byte identity is inconsistent")]
     IdentityMismatch,
     #[error("wheel archive inspection failed")]
-    Archive,
+    Archive(String),
     #[error("wheel dependency metadata failed: {0}")]
     Metadata(PythonMetadataError),
 }
@@ -81,8 +81,11 @@ pub(super) fn inspect_projected_wheel(
         version: pin.file().version(),
         supported,
     };
-    let archive = inspect_owned_wheel(artifact, pin.digest(), &expected, wheel_limits)
-        .map_err(|_| WheelMetadataError::Archive)?;
+    let archive = inspect_owned_wheel(artifact, pin.digest(), &expected, wheel_limits).map_err(
+        |error| {
+            WheelMetadataError::Archive(format!("{}: {error:#}", pin.file().filename()))
+        },
+    )?;
     let facts = project_manifest_metadata(
         archive.manifest(),
         pin.file().project(),
@@ -116,16 +119,16 @@ pub(crate) fn project_core_metadata(
 ) -> Result<PythonDependencyMetadataFacts> {
     let name = match metadata.values("Name") {
         [value] => value.as_str(),
-        _ => return Err(WheelMetadataError::Archive),
+        _ => return Err(WheelMetadataError::Archive("wheel METADATA must carry exactly one Name".into())),
     };
     let version = match metadata.values("Version") {
         [value] => value.as_str(),
-        _ => return Err(WheelMetadataError::Archive),
+        _ => return Err(WheelMetadataError::Archive("wheel METADATA must carry exactly one Version".into())),
     };
     let requires_python = match metadata.values("Requires-Python") {
         [] => None,
         [value] => Some(value.as_str()),
-        _ => return Err(WheelMetadataError::Archive),
+        _ => return Err(WheelMetadataError::Archive("wheel METADATA must carry at most one Requires-Python".into())),
     };
     // The expected normalized name also obeys the current projection budget
     // before constructing its owned wrapper from an older, wider lock input.

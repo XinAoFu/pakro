@@ -6,7 +6,7 @@ use crate::packages::python_resolution::lock_model::{
 };
 use crate::packages::python_resolution::source::registry_depot::RegistryDepotContext;
 use crate::packages::python_resolution::source::replay::{
-    LockedReplayContext, acquire_locked_registry_file,
+    LockedReplayContext, acquire_locked_registry_file, acquire_locked_url,
 };
 use crate::packages::python_source_build::CompletedSourceBuild;
 use crate::packages::python_wheel::WheelExpectation;
@@ -216,34 +216,35 @@ pub(crate) async fn acquire_build_input<'lock, 'config>(
                     == *pin.file().canonical_base_fingerprint()
         })
         .ok_or(LockedGraphError::RegistryMismatch)?;
-    let source = acquire_locked_registry_file(
-        slot,
-        LockedReplayContext {
-            client: context.client,
-            project_session: PythonSourceSession {
-                registry: endpoint.project.registry,
-                auth_scope: endpoint.project.auth_scope,
-                credentials: endpoint.project.credentials,
-                auth_origins: endpoint.project.auth_origins,
-                transport: endpoint.project.transport,
-            },
-            file_session: SourceFileSession {
-                credential_ref: endpoint.file.credential_ref,
-                auth_scope: endpoint.file.auth_scope,
-                credentials: endpoint.file.credentials,
-                auth_origins: endpoint.file.auth_origins,
-                transport: endpoint.file.transport,
-            },
-            policy: context.fetch,
-            project_limits: context.limits.project,
-            source_limits: context.limits.source,
-            lock_limits: context.limits.lock,
-            cache_root: context.cache_root,
-            scratch_root: context.scratch_root,
-            deadline: context.deadline,
+    let replay_context = LockedReplayContext {
+        client: context.client,
+        project_session: PythonSourceSession {
+            registry: endpoint.project.registry,
+            auth_scope: endpoint.project.auth_scope,
+            credentials: endpoint.project.credentials,
+            auth_origins: endpoint.project.auth_origins,
+            transport: endpoint.project.transport,
         },
-    )
-    .await
+        file_session: SourceFileSession {
+            credential_ref: endpoint.file.credential_ref,
+            auth_scope: endpoint.file.auth_scope,
+            credentials: endpoint.file.credentials,
+            auth_origins: endpoint.file.auth_origins,
+            transport: endpoint.file.transport,
+        },
+        policy: context.fetch,
+        project_limits: context.limits.project,
+        source_limits: context.limits.source,
+        lock_limits: context.limits.lock,
+        cache_root: context.cache_root,
+        scratch_root: context.scratch_root,
+        deadline: context.deadline,
+    };
+    let source = if root.model().is_some_and(|model| model.has_locators()) {
+        acquire_locked_url(root, slot, replay_context).await
+    } else {
+        acquire_locked_registry_file(slot, replay_context).await
+    }
     .map_err(LockedGraphError::Replay)?;
     clock(context.deadline)?;
     if pin.file().kind() == RegistryArtifactKind::Sdist {

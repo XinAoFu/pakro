@@ -24,6 +24,7 @@ use std::path::{Component, Path};
 pub(crate) struct VerifiedLanguage {
     owner: LanguageBuildOwner,
     manifest: LanguageManifest,
+    dependencies: Vec<crate::libraries::package::lease::PackageLease>,
 }
 
 pub(crate) async fn verify_language(
@@ -78,6 +79,8 @@ pub(crate) async fn verify_language(
         patch_sysconfig: owner.spec.patch_sysconfig(),
         source_build: None,
         source_layout: None,
+        conda: None,
+        runtime_dependencies: Vec::new(),
         lock: DiskIdentity::from_file_identity(owner.lock.identity()),
         allocation: DiskIdentity::from_file_identity(FileIdentity::of(&owner.allocation)?),
         payload: DiskIdentity::from_file_identity(FileIdentity::of(&owner.root)?),
@@ -88,7 +91,7 @@ pub(crate) async fn verify_language(
     validate_manifest(&owner.spec, &manifest)?;
     validate_manifest_location(&manifest, owner.final_path())?;
     owner.checkpoint()?;
-    Ok(VerifiedLanguage { owner, manifest })
+    Ok(VerifiedLanguage { owner, manifest, dependencies: Vec::new() })
 }
 
 pub(crate) fn verify_source_python(owner: LanguageBuildOwner,
@@ -103,13 +106,60 @@ pub(crate) fn verify_source_python(owner: LanguageBuildOwner,
         .context("source CPython entrypoint is outside its owned payload")?.to_owned();
     let manifest = LanguageManifest { schema: 2, key: owner.spec.key().fingerprint(), target: owner.spec.key().target(),
         artifact: owner.spec.plan().source().digest().to_string(), filename: owner.spec.plan().source().filename().into(),
-        source: owner.spec.plan().source().url().to_string(), patch_sysconfig: false, source_build: Some(record), source_layout: Some(layout),
+        source: owner.spec.plan().source().url().to_string(), patch_sysconfig: false, source_build: Some(record), source_layout: Some(layout), conda: None, runtime_dependencies: Vec::new(),
         lock: DiskIdentity::from_file_identity(owner.lock.identity()),
         allocation: DiskIdentity::from_file_identity(FileIdentity::of(&owner.allocation)?),
         payload: DiskIdentity::from_file_identity(FileIdentity::of(&owner.root)?), entrypoint: relative, inventory, descriptor };
     validate_manifest(&owner.spec, &manifest)?;
     validate_manifest_location(&manifest, owner.final_path())?;
-    Ok(VerifiedLanguage { owner, manifest })
+    Ok(VerifiedLanguage { owner, manifest, dependencies: Vec::new() })
+}
+
+pub(crate) async fn verify_conda_language(
+    owner: LanguageBuildOwner,
+    artifact: &crate::artifact_snapshot::VerifiedArtifact,
+    dependencies: Vec<crate::libraries::package::lease::PackageLease>,
+) -> Result<VerifiedLanguage> {
+    owner.check_artifact(artifact)?;
+    let record = owner.spec.plan().conda_record().context("Conda language package record is missing")?.clone();
+    let mut keys = Vec::with_capacity(dependencies.len());
+    for dependency in &dependencies {
+        dependency.ensure_library_context(&owner.context)?;
+        dependency.check_binding()?;
+        keys.push(dependency.manifest().key());
+    }
+    keys.sort_unstable();
+    keys.dedup();
+    let inventory = owner.capture_inventory()?;
+    let version = record.package_record.version.to_string();
+    let mut parts = version.split('.');
+    let major: u32 = parts.next().context("Conda Python major version is missing")?.parse()?;
+    let minor: u32 = parts.next().context("Conda Python minor version is missing")?.parse()?;
+    let relative = std::path::PathBuf::from(format!("bin/python{major}.{minor}"));
+    ensure!(inventory.contains_file(&relative), "Conda Python entrypoint is not a regular owned file");
+    let executable = owner.final_path().join(&relative);
+    let handle = PythonRuntimeHandle::from_existing_executable(&executable)?;
+    ensure!(handle.executable() == executable, "Conda Python entrypoint changed during binding");
+    let descriptor = tokio::select! {
+        _ = owner.cancellation_token().cancelled_owned() => return Err(eyre::eyre!("language verification cancelled")),
+        result = probe_at_deadline(&handle, owner.deadline().into(), 1024 * 1024, 64 * 1024) => result?,
+    };
+    owner.spec.plan().validate_observed(&descriptor)?;
+    ensure!(owner.capture_inventory()? == inventory, "Conda runtime changed during verification");
+    for dependency in &dependencies { dependency.check_binding()?; }
+    let manifest = LanguageManifest {
+        schema: 3, key: owner.spec.key().fingerprint(), target: owner.spec.key().target(),
+        artifact: owner.spec.plan().source().digest().to_string(), filename: owner.spec.plan().source().filename().into(),
+        source: owner.spec.plan().source().url().to_string(), patch_sysconfig: false,
+        source_build: None, source_layout: None, conda: Some(record), runtime_dependencies: keys,
+        lock: DiskIdentity::from_file_identity(owner.lock.identity()),
+        allocation: DiskIdentity::from_file_identity(FileIdentity::of(&owner.allocation)?),
+        payload: DiskIdentity::from_file_identity(FileIdentity::of(&owner.root)?),
+        entrypoint: relative, inventory, descriptor,
+    };
+    validate_manifest(&owner.spec, &manifest)?;
+    validate_manifest_location(&manifest, owner.final_path())?;
+    Ok(VerifiedLanguage { owner, manifest, dependencies })
 }
 
 pub(in crate::libraries) fn validate_manifest(
@@ -124,9 +174,13 @@ pub(in crate::libraries) fn validate_manifest(
             && manifest.target == spec.key().target(),
         "language manifest identity does not match its requested key"
     );
+    ensure!(manifest.runtime_dependencies.windows(2).all(|pair| pair[0] < pair[1]), "language runtime dependencies are not canonical");
     match (spec.plan().source_build(), manifest.source_build.as_ref()) {
-        (None, None) => ensure!(manifest.schema == 1 && manifest.source_layout.is_none(), "unsupported prebuilt language manifest schema"),
+        (None, None) if spec.plan().conda_record().is_some() => ensure!(manifest.schema == 3 && manifest.source_layout.is_none()
+            && manifest.conda.as_ref() == spec.plan().conda_record(), "Conda language manifest differs from its fixed package record"),
+        (None, None) => ensure!(manifest.schema == 1 && manifest.source_layout.is_none() && manifest.conda.is_none() && manifest.runtime_dependencies.is_empty(), "unsupported prebuilt language manifest schema"),
         (Some(input), Some(record)) => ensure!(manifest.schema == 2 && manifest.source_layout.as_ref().is_some_and(|layout| layout.schema == 1)
+            && manifest.conda.is_none() && manifest.runtime_dependencies.is_empty()
             && &input.record(record.output_sha256, record.runtime_target)? == record,
             "source language manifest differs from its complete build result"),
         _ => eyre::bail!("language manifest source kind differs from its specification"),
@@ -249,13 +303,14 @@ fn publish_language_inner(
     verified: VerifiedLanguage,
     after_cas: impl FnOnce() -> Result<()>,
 ) -> Result<LanguageLease> {
-    let VerifiedLanguage { owner, manifest } = verified;
+    let VerifiedLanguage { owner, manifest, dependencies } = verified;
     owner.checkpoint()?;
     ensure!(
         owner.capture_inventory()? == manifest.inventory,
         "verified runtime inventory changed before publication"
     );
     sync_payload(&owner, &manifest.inventory)?;
+    for dependency in &dependencies { dependency.check_binding()?; }
     let mut control = owner.writer.control(ControlLimits::default())?;
     ensure!(
         control

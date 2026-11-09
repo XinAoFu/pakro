@@ -248,6 +248,14 @@ impl NativeBuildSession {
         Ok(())
     }
 
+    /// Close the owner pipe and confirm that the existing watcher completed cleanup.
+    pub async fn stop(&mut self) -> Result<()> {
+        self.input.take();
+        let status = tokio::time::timeout(Duration::from_secs(2), self._watcher.wait()).await??;
+        ensure!(status.success(), "native watcher did not confirm cleanup");
+        Ok(())
+    }
+
     pub async fn run(
         &mut self,
         program: &Path,
@@ -304,11 +312,13 @@ impl NativeBuildSession {
                 .ok_or_else(|| eyre::eyre!("native build session has ended"))?;
             input.write_all(&request).await?;
             input.flush().await?;
-            let mut line = String::new();
+            let mut line = Vec::new();
+            // The watcher enforces deadline; allow its existing cleanup interval for the reply.
+            let response_deadline = deadline + Duration::from_secs(2);
             let result = tokio::select! {
-                result = self.output.read_line(&mut line) => Some(result),
+                result = self.output.read_until(b'\n', &mut line) => Some(result),
                 _ = cancellation.cancelled() => None,
-                _ = tokio::time::sleep_until(deadline.into()) => None,
+                _ = tokio::time::sleep_until(response_deadline.into()) => None,
             };
             if result.is_none() {
                 // Closing the owner pipe also works if the caller future is dropped.
@@ -316,15 +326,12 @@ impl NativeBuildSession {
                 let _ = tokio::time::timeout(Duration::from_secs(2), self._watcher.wait()).await;
                 eyre::bail!("native build cancelled or timed out");
             }
-            ensure!(
-                result.unwrap()? > 0,
-                "native build watcher exited without a result"
-            );
+            ensure!(result.unwrap()? > 0, "native build watcher exited without a result");
             let reply: Reply =
-                serde_json::from_str(&line).context("invalid native build watcher reply")?;
+                serde_json::from_slice(&line).context("invalid native build watcher reply")?;
             if let Some(error) = reply.error {
                 owner.input.take();
-                eyre::bail!("{error}");
+                eyre::bail!("{error}\nstdout:\n{}\nstderr:\n{}", String::from_utf8_lossy(&reply.stdout), String::from_utf8_lossy(&reply.stderr));
             }
             owner.complete = true;
             use std::os::unix::process::ExitStatusExt;

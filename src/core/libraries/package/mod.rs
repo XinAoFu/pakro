@@ -1,6 +1,7 @@
 //! Shared package identities, immutable content and guarded layout publication.
 
 pub(crate) mod identity;
+pub(crate) mod conda;
 pub(crate) mod layouts;
 pub(crate) mod lease;
 pub(crate) mod manifest;

@@ -35,6 +35,12 @@ pub(crate) struct PrefixExpectedDirectory {
     pub mode: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PrefixExpectedSymlink {
+    pub relative: PathBuf,
+    pub target: PathBuf,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PrefixInventoryLimits {
     pub max_files: usize,
@@ -440,10 +446,6 @@ impl<R: InventoryRoot> TreeObserver<'_, R> {
                 );
                 TreeInventoryKind::File { size, sha256 }
             } else if stamp.kind() == SFlag::S_IFLNK {
-                ensure!(
-                    self.expected.is_none(),
-                    "prefix inventory entry is an unexpected symlink"
-                );
                 self.files = self
                     .files
                     .checked_add(1)
@@ -462,6 +464,15 @@ impl<R: InventoryRoot> TreeObserver<'_, R> {
                     !target.as_os_str().is_empty() && !target.is_absolute(),
                     "prefix inventory entry symlink target is not relative"
                 );
+                if let Some(expected) = self.expected {
+                    let Some(ExpectedEntry::Symlink(link)) = expected.get(path.as_path()) else {
+                        eyre::bail!("prefix inventory entry is an unexpected symlink");
+                    };
+                    ensure!(
+                        target == link.target,
+                        "prefix inventory symlink target differs"
+                    );
+                }
                 self.charge_path(&target)?;
                 TreeInventoryKind::Symlink { target }
             } else {
@@ -639,7 +650,7 @@ fn observe_tree_with_link_policy<'a>(
     before_read: &'a mut dyn FnMut(&Path) -> Result<()>,
     check_link_targets: bool,
 ) -> Result<TreeInventory> {
-    preflight(&[], &[], limits)?;
+    preflight(&[], &[], &[], limits)?;
     root.check_binding()
         .wrap_err("prefix inventory allocation is unavailable")?;
     ensure!(
@@ -733,7 +744,22 @@ pub(crate) fn verify_prefix_inventory(
 ) -> Result<PrefixInventoryReceipt> {
     #[cfg(unix)]
     {
-        verify_unix(prefix, files, directories, limits)
+        verify_unix(prefix, files, directories, &[], limits)
+    }
+    #[cfg(not(unix))]
+    eyre::bail!("prefix inventory requires a supported Unix platform")
+}
+
+pub(crate) fn verify_layout_inventory(
+    prefix: &UnpublishedPrefix,
+    files: &[PrefixExpectedFile],
+    directories: &[PrefixExpectedDirectory],
+    links: &[PrefixExpectedSymlink],
+    limits: PrefixInventoryLimits,
+) -> Result<PrefixInventoryReceipt> {
+    #[cfg(unix)]
+    {
+        verify_unix(prefix, files, directories, links, limits)
     }
     #[cfg(not(unix))]
     eyre::bail!("prefix inventory requires a supported Unix platform")
@@ -744,12 +770,14 @@ pub(crate) fn verify_prefix_inventory(
 enum ExpectedEntry<'a> {
     File(&'a PrefixExpectedFile),
     Directory(&'a PrefixExpectedDirectory),
+    Symlink(&'a PrefixExpectedSymlink),
 }
 
 #[cfg(unix)]
 fn preflight<'a>(
     files: &'a [PrefixExpectedFile],
     directories: &'a [PrefixExpectedDirectory],
+    links: &'a [PrefixExpectedSymlink],
     limits: PrefixInventoryLimits,
 ) -> Result<(BTreeMap<&'a Path, ExpectedEntry<'a>>, u64)> {
     ensure!(
@@ -763,7 +791,11 @@ fn preflight<'a>(
         "prefix inventory limit values must be nonzero"
     );
     ensure!(
-        files.len() <= limits.max_files && directories.len() <= limits.max_directories,
+        files
+            .len()
+            .checked_add(links.len())
+            .is_some_and(|count| count <= limits.max_files)
+            && directories.len() <= limits.max_directories,
         "prefix inventory limit: expected entry count exceeded"
     );
     let mut total_path_bytes = 0usize;
@@ -777,6 +809,7 @@ fn preflight<'a>(
                 .iter()
                 .map(|dir| (dir.relative.as_path(), dir.mode)),
         )
+        .chain(links.iter().map(|link| (link.relative.as_path(), 0o777)))
     {
         let bytes = path.as_os_str().as_encoded_bytes();
         ensure!(
@@ -832,6 +865,14 @@ fn preflight<'a>(
             "prefix inventory input has a duplicate or conflicting entry"
         );
     }
+    for link in links {
+        ensure!(
+            expected
+                .insert(link.relative.as_path(), ExpectedEntry::Symlink(link))
+                .is_none(),
+            "prefix inventory input has a duplicate or conflicting entry"
+        );
+    }
     for path in expected.keys() {
         let mut parent = path.parent();
         while let Some(path) = parent.filter(|path| !path.as_os_str().is_empty()) {
@@ -850,9 +891,10 @@ fn verify_unix(
     prefix: &UnpublishedPrefix,
     files: &[PrefixExpectedFile],
     directories: &[PrefixExpectedDirectory],
+    links: &[PrefixExpectedSymlink],
     limits: PrefixInventoryLimits,
 ) -> Result<PrefixInventoryReceipt> {
-    let (expected, total_bytes) = preflight(files, directories, limits)?;
+    let (expected, total_bytes) = preflight(files, directories, links, limits)?;
     ensure!(
         expected.len() == prefix.entries.len()
             && prefix.entries.len() <= prefix.limits.max_cleanup_entries,
@@ -918,6 +960,17 @@ fn verify_unix(
                 inventory.update(tracked.identity.device.to_le_bytes());
                 inventory.update(tracked.identity.inode.to_le_bytes());
             }
+            ExpectedEntry::Symlink(link) => {
+                ensure!(
+                    tracked.kind == super::EntryKind::Symlink
+                        && matches!(&actual.kind, TreeInventoryKind::Symlink { target } if target == &link.target),
+                    "prefix inventory entry has a conflicting type or target"
+                );
+                inventory.update(b"l");
+                hash_field(&mut inventory, link.target.as_os_str().as_encoded_bytes());
+                inventory.update(tracked.identity.device.to_le_bytes());
+                inventory.update(tracked.identity.inode.to_le_bytes());
+            }
         }
     }
     prefix
@@ -932,7 +985,7 @@ fn verify_unix(
         allocation: prefix.allocation_id().into(),
         final_prefix: prefix.final_path().into(),
         inventory_sha256: inventory.finalize().into(),
-        file_count: files.len(),
+        file_count: files.len() + links.len(),
         directory_count: directories.len(),
         total_bytes,
         tree_inventory: observed,

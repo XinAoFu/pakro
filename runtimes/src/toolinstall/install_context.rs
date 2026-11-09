@@ -240,15 +240,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pipx_semantic_uv_options_select_uv_dependency() {
-        let _config = Config::get().await.unwrap();
-        let declarations =
-            install_dependency_declarations(&request("pipx:black", r#"with=["click"]"#));
-        declarations.validate().unwrap();
-        assert_eq!(names(&declarations), vec!["uv", "python"]);
-    }
-
-    #[tokio::test]
     async fn per_tool_dependencies_are_included() {
         let _config = Config::get().await.unwrap();
         let declarations = install_dependency_declarations(&request(

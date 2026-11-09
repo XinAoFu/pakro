@@ -99,7 +99,7 @@ fn report(mut view: view::View, dry_run: bool, complete: bool) -> ReclaimReport 
 }
 
 /// The one explicit target plus adapters that would become invalid. Other
-/// packages are always retained, including unrooted parents and cycles.
+/// packages and languages are retained, including unrooted parents.
 pub(crate) fn plan_exact_target(
     context: &OperationContext,
     target: ReclaimId,
@@ -134,7 +134,9 @@ pub(crate) fn plan_exact_target(
         .objects
         .keys()
         .copied()
-        .filter(|id| *id != target && matches!(id, ReclaimId::Package(_)))
+        .filter(|id| {
+            *id != target && matches!(id, ReclaimId::Package(_) | ReclaimId::Language(_))
+        })
         .collect();
     let retained = graph.closure(parents.iter().copied())?;
     if retained.contains(&target) {
@@ -146,7 +148,7 @@ pub(crate) fn plan_exact_target(
             .map(|id| view.entries[id].label.as_str())
             .collect::<Vec<_>>()
             .join(" -> ");
-        eyre::bail!("object is still referenced: retained package {chain}");
+        eyre::bail!("object is still referenced: retained object {chain}");
     }
     let mut group = vec![target];
     for (&id, edges) in &view.objects {

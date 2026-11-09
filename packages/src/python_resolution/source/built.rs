@@ -44,7 +44,7 @@ impl PublishedRegistryWheel<'_> {
         self.package
             .check_binding()
             .map_err(|_| RegistryDepotError::Revoked)?;
-        if self.package.manifest().language != self.language.key().fingerprint()
+        if self.package.manifest().language != Some(self.language.key().fingerprint())
             || self.package.manifest().facts.source != hex::encode(self.pin().id().as_bytes())
             || self.package.manifest().facts.artifact != self.record.output_digest
             || self.package.manifest().filename != self.record.output_filename
@@ -104,7 +104,7 @@ impl<'root> PublishedRegistryWheel<'root> {
             || pin.file().kind()
                 != crate::packages::python_resolution::lock_model::RegistryArtifactKind::Sdist
             || expected.source_digest != pin.digest().to_string()
-            || package.manifest().language != language.key().fingerprint()
+            || package.manifest().language != Some(language.key().fingerprint())
             || package.manifest().facts.source != hex::encode(pin.id().as_bytes())
             || package.manifest().name() != pin.file().project()
             || !matches!((Pep440::parse_version(package.manifest().version()), Pep440::parse_version(pin.file().version())), (Some(left), Some(right)) if left == right)

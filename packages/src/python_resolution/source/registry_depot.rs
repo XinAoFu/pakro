@@ -14,6 +14,9 @@ use built::{BuiltRegistryWheel, PublishedRegistryWheel, RetainedBuiltRegistryWhe
 
 use super::*;
 pub(crate) mod closed;
+pub(crate) mod conda_metadata;
+pub(crate) mod mixed_replay;
+mod held_wheel;
 use futures_util::{FutureExt, future::BoxFuture};
 use std::collections::BTreeMap;
 use std::time::Instant;
@@ -109,6 +112,8 @@ pub(crate) enum RegistryDepotError {
     Build,
     #[error("native Python constraints have no solution")]
     NoSolution,
+    #[error("native Python constraints have no solution: {0}")]
+    MixedNoSolution(String),
     #[error("registry candidate identity is inconsistent")]
     IdentityMismatch,
 }
@@ -318,12 +323,17 @@ struct MetadataEntry<'root> {
     owner: RegistryMetadataOwner<'root>,
     input: CandidateMetadata,
 }
+struct CondaEntry<'root> {
+    owner: conda_metadata::CondaDistribution<'root>,
+    input: CandidateMetadata,
+}
 
 pub(crate) enum RegistryMetadataOwner<'root> {
     Fresh(CheckedFreshWheel<'root>),
     Locked(LockedWheelCandidate<'root>),
     Built(BuiltRegistryWheel<'root>),
     Published(PublishedRegistryWheel<'root>),
+    Held(held_wheel::HeldRegistryWheel<'root>),
 }
 impl RegistryMetadataOwner<'_> {
     pub(crate) fn pin(&self) -> &ContentPin {
@@ -332,6 +342,7 @@ impl RegistryMetadataOwner<'_> {
             Self::Locked(value) => value.pin(),
             Self::Built(value) => value.pin(),
             Self::Published(value) => value.pin(),
+            Self::Held(value) => value.pin(),
         }
     }
     pub(crate) fn manifest(&self) -> Option<&WheelManifest> {
@@ -339,7 +350,7 @@ impl RegistryMetadataOwner<'_> {
             Self::Fresh(value) => Some(value.wheel().manifest()),
             Self::Locked(value) => Some(value.manifest()),
             Self::Built(value) => Some(value.manifest()),
-            Self::Published(_) => None,
+            Self::Published(_) | Self::Held(_) => None,
         }
     }
     pub(crate) fn core_metadata(&self) -> &crate::packages::python_wheel::WheelCoreMetadata {
@@ -348,6 +359,7 @@ impl RegistryMetadataOwner<'_> {
             Self::Locked(value) => value.manifest().core_metadata(),
             Self::Built(value) => value.manifest().core_metadata(),
             Self::Published(value) => value.metadata(),
+            Self::Held(value) => value.metadata(),
         }
     }
     pub(crate) fn facts(&self) -> &PythonDependencyMetadataFacts {
@@ -356,6 +368,7 @@ impl RegistryMetadataOwner<'_> {
             Self::Locked(value) => value.facts(),
             Self::Built(value) => value.facts(),
             Self::Published(value) => value.facts(),
+            Self::Held(value) => value.facts(),
         }
     }
     pub(crate) fn recheck_for(&self, root: &BoundPythonLock) -> RegistryDepotResult<()> {
@@ -368,6 +381,7 @@ impl RegistryMetadataOwner<'_> {
                 .map_err(|_| RegistryDepotError::Revoked),
             Self::Built(value) => value.recheck_for(root),
             Self::Published(value) => value.recheck_for(root),
+            Self::Held(value) => value.recheck_for(root),
         }
     }
     pub(crate) fn output_filename(&self) -> &str {
@@ -416,6 +430,7 @@ pub(crate) struct ResolveRegistryDepot<'root, 'config> {
     projects: BTreeMap<String, ProjectEntry>,
     files: BTreeMap<CandidateKey, FileEntry>,
     metadata: BTreeMap<CandidateKey, MetadataEntry<'root>>,
+    conda: BTreeMap<CandidateKey, CondaEntry<'root>>,
     source_order: Vec<usize>,
     steps: usize,
     retained_bytes: u64,
@@ -613,6 +628,7 @@ impl<'root, 'config> ResolveRegistryDepot<'root, 'config> {
             projects: BTreeMap::new(),
             files: BTreeMap::new(),
             metadata: BTreeMap::new(),
+            conda: BTreeMap::new(),
             source_order,
             steps: preference_steps,
             retained_bytes: 0,
@@ -620,6 +636,63 @@ impl<'root, 'config> ResolveRegistryDepot<'root, 'config> {
             policy_usage: Default::default(),
             preferred_projects,
         })
+    }
+
+    /// Register verified Conda-provided distributions as the only candidate
+    /// for their names. The owners remain held throughout resolution.
+    pub(crate) fn with_conda(
+        mut self,
+        distributions: Vec<conda_metadata::CondaDistribution<'root>>,
+    ) -> RegistryDepotResult<Self> {
+        for owner in distributions {
+            self.check_live()?;
+            owner.recheck().map_err(|_| RegistryDepotError::Revoked)?;
+            let facts = owner.facts();
+            let name = facts.name().as_str().to_owned();
+            let version = facts.version().to_owned();
+            if self.projects.contains_key(&name) || self.conda.len() >= self.context.limits.max_candidates {
+                return Err(RegistryDepotError::InvalidConfiguration);
+            }
+            let input = compile_metadata_input(
+                facts, self.environment.view(), self.context.semantics,
+                self.context.limits.markers, self.context.limits.truth, self.context.limits.input,
+            ).map_err(RegistryDepotError::MetadataInput)?;
+            let dependencies = input.dependencies.into_iter().map(|dependency| Dependency {
+                requirement: Requirement {
+                    name: dependency.name,
+                    constraint: match dependency.constraint {
+                        DependencyConstraint::Version(value) => RequirementConstraint::Version(value),
+                        DependencyConstraint::SourceReference(_) => RequirementConstraint::SourceReference,
+                    },
+                    requested_extras: dependency.requested_extras,
+                },
+                extra_truth: dependency.condition.map(|truth| ExtraTruth {
+                    extra_names: truth.extra_names().to_vec(),
+                    enabled_masks: truth.enabled_masks().to_vec(),
+                }),
+            }).collect();
+            let mut hash = Sha256::new();
+            hash_field(&mut hash, b"pakro.conda-python-distribution/v1");
+            hash_field(&mut hash, &owner.package().manifest().key());
+            hash_field(&mut hash, name.as_bytes());
+            hash_field(&mut hash, version.as_bytes());
+            let key = CandidateKey(hash.finalize().into());
+            self.charge(name.len() + version.len() + owner.metadata().raw().len())?;
+            if self.conda.insert(key, CondaEntry {
+                owner,
+                input: CandidateMetadata {
+                    dependencies,
+                    rejection: (input.python_compatibility == PythonCompatibility::RequiresPythonMismatch)
+                        .then_some(CandidateRejection::RequiresPython),
+                },
+            }).is_some() {
+                return Err(RegistryDepotError::IdentityMismatch);
+            }
+            self.projects.insert(name, ProjectEntry {
+                owner: None, endpoint: 0, candidates: vec![CandidateVersion { key, version }], universe: None,
+            });
+        }
+        Ok(self)
     }
 
     // Keep recursive source-build callers from embedding the complete
@@ -707,7 +780,44 @@ impl<'root, 'config> ResolveRegistryDepot<'root, 'config> {
                 self.check_live()?;
                 let step = result.map_err(|error| match error {
                     pakro_resolver::python_native::NativeSolveError::NoSolution => {
-                        RegistryDepotError::NoSolution
+                        if self.conda.is_empty() {
+                            RegistryDepotError::NoSolution
+                        } else {
+                            let mut details = Vec::new();
+                            for requirement in &self.requirements {
+                                if let RequirementConstraint::Version(spec) = &requirement.constraint {
+                                    details.push(format!("project requires {}{}", requirement.name, spec));
+                                }
+                            }
+                            for entry in self.conda.values() {
+                                let owner = &entry.owner;
+                                let record = &owner.tree().record().package_record;
+                                details.push(format!(
+                                    "Conda package {} {} build {} provides fixed {}=={}",
+                                    record.name.as_normalized(), record.version, record.build,
+                                    owner.facts().name().as_str(), owner.facts().version(),
+                                ));
+                            }
+                            for (name, project) in &self.projects {
+                                for candidate in &project.candidates {
+                                    let Some(metadata) = self.metadata(candidate.key) else { continue };
+                                    for dependency in &metadata.dependencies {
+                                        let requirement = &dependency.requirement;
+                                        if let RequirementConstraint::Version(spec) = &requirement.constraint {
+                                            let conditional = if dependency.extra_truth.is_some() {
+                                                " (conditional on requested extras)"
+                                            } else { "" };
+                                            details.push(format!(
+                                                "considered {}=={} requires {}{}{}",
+                                                name, candidate.version, requirement.name, spec, conditional,
+                                            ));
+                                        }
+                                    }
+                                }
+                            }
+                            details.push("Conda-provided versions are fixed and cannot be replaced by PyPI packages".into());
+                            RegistryDepotError::MixedNoSolution(details.join("; "))
+                        }
                     }
                     pakro_resolver::python_native::NativeSolveError::Limit => {
                         RegistryDepotError::Limit
@@ -735,6 +845,9 @@ impl<'root, 'config> ResolveRegistryDepot<'root, 'config> {
                         parent,
                         declaration,
                     } => {
+                        if self.conda.contains_key(&parent) {
+                            return Err(RegistryDepotError::NotImplemented);
+                        }
                         let owner = &self
                             .metadata
                             .get(&parent)
@@ -1390,12 +1503,21 @@ impl<'root, 'config> ResolveRegistryDepot<'root, 'config> {
             retained_utf8: self.retained_utf8,
             steps: self.steps,
             projects: self.projects.len(),
-            metadata: self.metadata.len(),
+            metadata: self.metadata.len() + self.conda.len(),
             policy_work: self.policy_usage.usage().0,
             policy_utf8: self.policy_usage.usage().1,
         };
         let mut owners = BTreeMap::new();
+        let mut conda = BTreeMap::new();
         for selected in &plan.selected {
+            if let Some(entry) = self.conda.remove(&selected.key) {
+                entry.owner.recheck().map_err(|_| RegistryDepotError::Revoked)?;
+                if entry.owner.facts().name().as_str() != selected.name {
+                    return Err(RegistryDepotError::IdentityMismatch);
+                }
+                conda.insert(selected.key, entry.owner);
+                continue;
+            }
             let entry = self
                 .metadata
                 .remove(&selected.key)
@@ -1409,7 +1531,7 @@ impl<'root, 'config> ResolveRegistryDepot<'root, 'config> {
             }
         }
         self.check_live()?;
-        Ok(RegistryPreparation::Ready(RegistryPreparedPlan {
+        let prepared = RegistryPreparedPlan {
             root: self.root,
             roots: self.roots,
             root_scopes: self.root_scopes,
@@ -1423,7 +1545,12 @@ impl<'root, 'config> ResolveRegistryDepot<'root, 'config> {
             owners,
             policy_notices,
             usage,
-        }))
+        };
+        if conda.is_empty() {
+            Ok(RegistryPreparation::Ready(prepared))
+        } else {
+            Ok(RegistryPreparation::Mixed(MixedRegistryPreparedPlan { prepared, conda }))
+        }
     }
 }
 
@@ -1472,7 +1599,8 @@ impl MetadataDepot for ResolveRegistryDepot<'_, '_> {
             .map(|entry| entry.candidates.as_slice())
     }
     fn metadata(&self, key: CandidateKey) -> Option<&CandidateMetadata> {
-        self.metadata.get(&key).map(|entry| &entry.input)
+        self.conda.get(&key).map(|entry| &entry.input)
+            .or_else(|| self.metadata.get(&key).map(|entry| &entry.input))
     }
 }
 
@@ -1490,6 +1618,12 @@ pub(crate) struct RegistryPreparedPlan<'root> {
     owners: BTreeMap<CandidateKey, RegistryMetadataOwner<'root>>,
     policy_notices: BTreeMap<CandidateKey, Vec<PolicyNotice>>,
     usage: RegistryDepotUsage,
+}
+
+/// Mixed preparation keeps fixed Conda evidence separate from registry pins.
+pub(crate) struct MixedRegistryPreparedPlan<'root> {
+    prepared: RegistryPreparedPlan<'root>,
+    conda: BTreeMap<CandidateKey, conda_metadata::CondaDistribution<'root>>,
 }
 impl<'root> RegistryPreparedPlan<'root> {
     pub(in crate::packages::python_resolution::source) fn from_replayed(
@@ -1576,7 +1710,10 @@ impl<'root> RegistryPreparedPlan<'root> {
         })
     }
 }
-impl RegistryPreparedPlan<'_> {
+impl<'root> RegistryPreparedPlan<'root> {
+    pub(crate) fn into_mixed(self) -> MixedRegistryPreparedPlan<'root> {
+        MixedRegistryPreparedPlan { prepared: self, conda: BTreeMap::new() }
+    }
     pub(crate) fn policy_notices(&self, key: CandidateKey) -> &[PolicyNotice] {
         self.policy_notices
             .get(&key)
@@ -1682,6 +1819,16 @@ impl<'root, 'config> RegistryBuildContinuation<'root, 'config> {
     pub(crate) fn candidate(&self) -> CandidateKey {
         self.candidate
     }
+    /// Locator from this continuation's actual selected project observation.
+    pub(crate) fn observed_url(&self) -> RegistryDepotResult<&str> {
+        self.depot.check_live()?;
+        let file = self.depot.files.get(&self.candidate).ok_or(RegistryDepotError::IdentityMismatch)?;
+        let project = self.depot.projects.get(&file.project).and_then(|entry| entry.owner.as_ref())
+            .ok_or(RegistryDepotError::IdentityMismatch)?;
+        Ok(project.data.project.files().get(file.file_index)
+            .ok_or(RegistryDepotError::IdentityMismatch)?.locator().url().as_str())
+    }
+
     pub(crate) fn registry_context(&self) -> RegistryDepotContext<'config> {
         self.depot.context.clone()
     }
@@ -1760,6 +1907,7 @@ pub(crate) struct RegistryPolicyContinuation<'root, 'config> {
 }
 pub(crate) enum RegistryPreparation<'root, 'config> {
     Ready(RegistryPreparedPlan<'root>),
+    Mixed(MixedRegistryPreparedPlan<'root>),
     NeedsBuild(RegistryBuildContinuation<'root, 'config>),
     NeedsSourceAdapter(RegistrySourceContinuation<'root, 'config>),
     NeedsConstraintPolicy(RegistryPolicyContinuation<'root, 'config>),
@@ -1768,6 +1916,7 @@ impl fmt::Debug for RegistryPreparation<'_, '_> {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
         out.write_str(match self {
             Self::Ready(_) => "RegistryPreparation::Ready",
+            Self::Mixed(_) => "RegistryPreparation::Mixed",
             Self::NeedsBuild(_) => "RegistryPreparation::NeedsBuild",
             Self::NeedsSourceAdapter(_) => "RegistryPreparation::NeedsSourceAdapter",
             Self::NeedsConstraintPolicy(_) => "RegistryPreparation::NeedsConstraintPolicy",

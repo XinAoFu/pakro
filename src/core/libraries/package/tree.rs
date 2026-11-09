@@ -261,7 +261,7 @@ fn prepare_package_inputs_checked(
         file.finish()?;
     }
     let facts_bytes =
-        manifest::package_facts_bytes(&facts, &language.key().fingerprint(), &filename)?;
+        manifest::package_facts_bytes(&facts, &Some(language.key().fingerprint()), &filename)?;
     let expected_reserved = [
         PrefixExpectedFile {
             relative: "bin/.pakro python".into(),
@@ -329,7 +329,9 @@ fn prepare_package_inputs_checked(
     )?;
     let value = PackageManifest {
         facts,
-        language: language.key().fingerprint(),
+        language: Some(language.key().fingerprint()),
+        target: None,
+        conda: None,
         filename,
         storage,
     };
@@ -372,7 +374,7 @@ pub(crate) fn prepare_package_tree(
     if let Some(existing) = acquire_package(context, facts.key)? {
         ensure!(
             existing.manifest().facts == facts
-                && existing.manifest().language == language.key().fingerprint(),
+                && existing.manifest().language == Some(language.key().fingerprint()),
             "conflicting package identity or bound language"
         );
         return Ok(existing);
@@ -400,7 +402,7 @@ pub(crate) fn prepare_package_tree(
                 .context("package publication failed without a winner")?;
             ensure!(
                 winner.manifest().facts == value
-                    && winner.manifest().language == language.key().fingerprint(),
+                    && winner.manifest().language == Some(language.key().fingerprint()),
                 "conflicting package publication: {error:#}"
             );
             return Ok(winner);

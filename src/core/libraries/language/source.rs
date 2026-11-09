@@ -74,9 +74,19 @@ impl SourcePythonBuildReceipt {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum PythonRuntimeSource { #[default] Prebuilt, Source }
+pub(crate) enum PythonRuntimeSource { #[default] Prebuilt, Source, Conda }
 impl PythonRuntimeSource {
     pub(crate) fn from_options(options: &toml::Table) -> Result<Self> {
+        if options.get("source").and_then(toml::Value::as_str) == Some("conda") {
+            ensure!(options.keys().all(|key| matches!(key.as_str(), "source" | "channel" | "build")), "unsupported Conda Python runtime option");
+            for key in ["channel", "build"] {
+                if let Some(value) = options.get(key) {
+                    let value = value.as_str().ok_or_else(|| eyre::eyre!("Conda Python {key} must be a string"))?;
+                    ensure!(!value.is_empty() && value.trim() == value && !value.chars().any(|c| c.is_whitespace() || matches!(c, '*' | ',' | '|')), "Conda Python {key} must be an exact value");
+                }
+            }
+            return Ok(Self::Conda);
+        }
         ensure!(options.keys().all(|key| key == "source"), "unsupported Python runtime options; only source is supported");
         match options.get("source") {
             None => Ok(Self::Prebuilt),
@@ -88,7 +98,7 @@ impl PythonRuntimeSource {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PythonRuntimeRequest { pub(crate) version: String, pub(crate) source: PythonRuntimeSource }
+pub(crate) struct PythonRuntimeRequest { pub(crate) version: String, pub(crate) source: PythonRuntimeSource, pub(crate) channel: Option<String>, pub(crate) build: Option<String> }
 
 #[derive(Debug, Clone)]
 pub(crate) struct SourcePythonBuildInput {

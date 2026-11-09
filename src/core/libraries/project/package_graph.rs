@@ -87,6 +87,7 @@ pub(crate) struct CommittedGraph {
     layout: [u8; 32],
     language: [u8; 32],
     allocation: String,
+    source_locators: Option<std::collections::BTreeMap<String, String>>,
 }
 impl CommittedGraph {
     /// The catalog model verified this digest against every graph fact.
@@ -111,6 +112,9 @@ impl CommittedGraph {
     pub(crate) fn allocation(&self) -> &str {
         &self.allocation
     }
+    pub(crate) fn source_locators(&self) -> Option<&std::collections::BTreeMap<String, String>> {
+        self.source_locators.as_ref()
+    }
     /// Checks current local project pins and source scope without fetching.
     /// The actual lock owner must remain alive until selection commit.
     pub(crate) fn validate_pins(
@@ -121,6 +125,13 @@ impl CommittedGraph {
         use crate::packages::python_resolution::lock_session::{FilePinLookup, ResolutionIntent};
         root.recheck()?;
         for node in self.nodes() {
+            if let Some(record) = node.conda_record()? {
+                if let Some(model) = root.model() {
+                    ensure!(model.conda().iter().any(|graph| graph.records.contains(&record)),
+                        "Conda package source differs from the project lock");
+                }
+                continue;
+            }
             let pin = node.content_pin()?;
             check_scope(node, &pin, allowed)?;
             match root.lookup(pin.file(), ResolutionIntent::Resolve)? {
@@ -158,6 +169,13 @@ impl CommittedGraph {
             }
         }
         for node in self.nodes() {
+            if let Some(record) = node.conda_record()? {
+                for model in &models {
+                    ensure!(model.conda().iter().any(|graph| graph.records.contains(&record)),
+                        "Conda package source differs from the observed project lock");
+                }
+                continue;
+            }
             let pin = node.content_pin()?;
             check_scope(node, &pin, allowed)?;
             for model in &models {
@@ -197,6 +215,7 @@ impl CommittedGraph {
             layout,
             language,
             allocation: record.allocation().into(),
+            source_locators: record.source_locators().cloned(),
         }))
     }
 }

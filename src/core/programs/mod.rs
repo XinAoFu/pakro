@@ -9,6 +9,8 @@ pub mod library;
 #[cfg(unix)]
 pub mod python;
 #[cfg(unix)]
+pub mod remote_packages;
+#[cfg(unix)]
 pub(crate) mod query;
 pub(crate) mod shared;
 #[cfg(unix)]

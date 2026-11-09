@@ -34,17 +34,31 @@ struct VersionOutputAll {
 pakro ls-remote node@20
 pakro ls-remote node 20
 pakro ls-remote node --minimum-release-age 30d
-pakro ls-remote github:cli/cli --json"###), aliases = ["list-all", "list-remote"]
+pakro ls-remote github:cli/cli --json
+pakro ls-remote --package requests --source pypi
+pakro ls-remote --package numpy --source conda --channel conda-forge"###), aliases = ["list-all", "list-remote"]
 )]
 pub(crate) struct LsRemote {
     /// Tool to get versions for
-    #[usage(value_name = "TOOL@VERSION", required_unless = "all")]
+    #[usage(value_name = "TOOL@VERSION", required_unless = ["all", "package"])]
     pub plugin: Option<ToolArg>,
 
     /// Filter the available versions by this prefix
     /// Equivalent to the version selector after `@` in the first argument
     #[usage(verbatim_doc_comment)]
     pub prefix: Option<String>,
+
+    /// List versions of a package from its public source metadata
+    #[usage(long, value_name = "PACKAGE")]
+    pub package: Option<String>,
+
+    /// Package source: pypi or conda
+    #[usage(long, value_name = "SOURCE")]
+    pub source: Option<String>,
+
+    /// Restrict a Conda package query to one configured channel
+    #[usage(long, value_name = "CHANNEL")]
+    pub channel: Option<String>,
 
     /// List available versions for every backend/tool currently known to pakro
     #[usage(long, verbatim_doc_comment, conflicts = ["plugin", "prefix"])]
@@ -88,6 +102,53 @@ pub(crate) struct LsRemote {
 
 impl LsRemote {
     pub(crate) async fn run(self) -> Result<()> {
+        if let Some(package) = &self.package {
+            eyre::ensure!(
+                self.plugin.is_none() && self.prefix.is_none() && !self.all,
+                "--package cannot be combined with tool arguments or --all"
+            );
+            eyre::ensure!(
+                self.minimum_release_age.is_none()
+                    && !self.no_versions_host
+                    && !self.prerelease
+                    && !self.strict_metadata,
+                "tool-specific version filters are not supported for --package"
+            );
+            let source = self
+                .source
+                .as_deref()
+                .ok_or_else(|| eyre::eyre!("--package requires --source pypi or conda"))?;
+            #[cfg(unix)]
+            {
+                let versions = crate::programs::remote_packages::list_versions(
+                    package,
+                    source,
+                    self.channel.as_deref(),
+                )
+                .await?;
+                if self.json {
+                    let rows: Vec<_> = versions
+                        .into_iter()
+                        .map(|version| serde_json::json!({"version": version}))
+                        .collect();
+                    pakroprintln!("{}", serde_json::to_string(&rows)?);
+                } else {
+                    for version in versions {
+                        pakroprintln!("{}", version);
+                    }
+                }
+                return Ok(());
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = source;
+                eyre::bail!("package metadata queries require a supported Unix platform");
+            }
+        }
+        eyre::ensure!(
+            self.source.is_none() && self.channel.is_none(),
+            "--source and --channel require --package"
+        );
         if self.prerelease || self.no_versions_host {
             // One override, one rebuild: each `override_with` loads settings again.
             Settings::override_with(|s| {

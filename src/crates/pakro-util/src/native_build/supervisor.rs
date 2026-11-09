@@ -736,12 +736,12 @@ fn run_child(
         cohort.stop()?;
         *safe_to_remove = true;
     }
-    let status = result?;
+    let error = result.as_ref().err().map(|error| format!("{error:#}"));
     Ok(Reply {
-        status,
+        status: result.unwrap_or(0),
         stdout: out,
         stderr: err,
-        error: None,
+        error,
     })
 }
 

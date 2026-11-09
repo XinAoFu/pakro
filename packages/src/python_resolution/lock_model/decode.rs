@@ -82,6 +82,9 @@ enum Key {
     SourceSize,
     IsSdist,
     Advertised,
+    Conda,
+    Mixed,
+    Locators,
     Unknown,
 }
 struct KeySeed;
@@ -147,6 +150,9 @@ impl<'de> DeserializeSeed<'de> for KeySeed {
                     "source_size" => Key::SourceSize,
                     "source_is_sdist" => Key::IsSdist,
                     "advertised" => Key::Advertised,
+                    "conda" => Key::Conda,
+                    "mixed" => Key::Mixed,
+                    "locators" => Key::Locators,
                     _ => Key::Unknown,
                 })
             }
@@ -229,6 +235,7 @@ enum TextMode {
     Version,
     Declaration,
     Native,
+    Conda,
 }
 struct TextSeed<'a> {
     ctx: &'a mut Context,
@@ -236,6 +243,12 @@ struct TextSeed<'a> {
 }
 impl TextSeed<'_> {
     fn make<E: de::Error>(&mut self, raw: &str) -> Result<String, E> {
+        if matches!(self.mode, TextMode::Conda) {
+            self.ctx.checked(count(raw.len(), self.ctx.limits.max_document_bytes, LockLimit::DocumentBytes))?;
+            let checked = charge(&mut self.ctx.usage.utf8, raw.len(), self.ctx.limits.max_total_utf8_bytes, LockLimit::TotalUtf8Bytes);
+            self.ctx.checked(checked)?;
+            return Ok(raw.to_owned());
+        }
         if matches!(self.mode, TextMode::Native) {
             // This is a bounded aggregate JSON record, not a PEP 508 declaration.
             let maximum = crate::packages::python_environment::model::MAX_NATIVE_JSON_BYTES
@@ -251,6 +264,7 @@ impl TextSeed<'_> {
             TextMode::Version => LockField::Version,
             TextMode::Declaration => LockField::Declaration,
             TextMode::Native => LockField::Native,
+            TextMode::Conda => LockField::Native,
         };
         let declaration = matches!(self.mode, TextMode::Declaration);
         let checked = text(
@@ -708,11 +722,14 @@ record!(LockedGraph, f, {
 record!(PythonLockModel, f, {
     let (mut schema, mut pins, mut groups, mut builds) = (None, None, None, None);
     let mut declaration_fingerprint = None;
+    let mut conda = None;
+    let mut mixed = None;
+    let mut locators = None;
     while let Some(key) = f.next()? {
         match key {
             Key::Schema => {
                 let value = f.value::<u64>()?;
-                if !matches!(value, 2 | 3 | 4) {
+                if !matches!(value, 2 | 3 | 4 | 5 | 6 | 7) {
                     return Err(f.ctx.fail(LockModelError::UnsupportedSchema));
                 }
                 schema = Some(value);
@@ -721,6 +738,23 @@ record!(PythonLockModel, f, {
             Key::Groups => groups = Some(f.array::<LockedGraph>(ArrayKind::Groups)?),
             Key::Builds => builds = Some(f.array::<BuildWire>(ArrayKind::Builds)?),
             Key::DeclarationFingerprint => declaration_fingerprint = Some(f.value::<[u8; 32]>()?),
+            Key::Conda => {
+                let raw = f.text(TextMode::Conda)?;
+                conda = Some(serde_json::from_str::<Vec<CondaLockGraph>>(&raw).map_err(|_| f.bad())?);
+            }
+            Key::Mixed => {
+                let raw = f.text(TextMode::Conda)?;
+                mixed = Some(serde_json::from_str::<Vec<MixedLockGraph>>(&raw).map_err(|_| f.bad())?);
+            }
+            Key::Locators => {
+                let raw = f.text(TextMode::Conda)?;
+                let entries = serde_json::from_str::<Vec<(String, String)>>(&raw).map_err(|_| f.bad())?;
+                let mut map = BTreeMap::new();
+                for (id, url) in entries {
+                    if map.insert(id, url).is_some() { return Err(f.bad()); }
+                }
+                locators = Some(map);
+            }
             _ => return Err(f.bad()),
         }
     }
@@ -728,12 +762,22 @@ record!(PythonLockModel, f, {
     let native = builds.as_ref().is_some_and(|builds| builds.iter().any(|build| build.1.native.is_some()));
     if (schema == 2 && (builds.is_some() || declaration_fingerprint.is_some()))
         || (schema >= 3 && builds.is_none())
-        || ((schema == 4) != native)
+        || (schema < 5 && ((schema == 4) != native))
+        || (matches!(schema, 5 | 6) && conda.is_none())
+        || (schema < 5 && conda.is_some())
+        || conda.as_ref().is_some_and(Vec::is_empty)
+        || ((schema == 6) && mixed.is_none())
+        || (schema < 6 && mixed.is_some())
+        || mixed.as_ref().is_some_and(Vec::is_empty)
+        || ((schema == 7) != locators.is_some())
     {
         return Err(f.ctx.fail(LockModelError::UnsupportedSchema));
     }
     let model = PythonLockModel {
         declaration_fingerprint,
+        conda: conda.unwrap_or_default(),
+        mixed: mixed.unwrap_or_default(),
+        locators,
         pins: f.required(pins)?,
         graphs: f.required(groups)?,
         builds: builds
@@ -743,7 +787,16 @@ record!(PythonLockModel, f, {
             .collect(),
     };
     let checked = close_owned(model, f.ctx.limits);
-    f.ctx.checked(checked)
+    let model = f.ctx.checked(checked)?;
+    for graph in &model.conda {
+        let checked = graph.validate_semantics();
+        f.ctx.checked(checked)?;
+    }
+    for graph in &model.mixed {
+        let checked = graph.validate(&model, f.ctx.limits);
+        f.ctx.checked(checked)?;
+    }
+    Ok(model)
 });
 
 #[path = "decode/builds.rs"]

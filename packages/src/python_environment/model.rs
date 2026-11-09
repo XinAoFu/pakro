@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use eyre::{Result, ensure};
+use eyre::{ContextCompat, Result, ensure};
 use pakro_store::Digest;
 use uuid::Uuid;
 
@@ -157,6 +157,9 @@ pub(crate) struct PackageSourcePin {
     pub advertised: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub build: Option<SourceBuildRecord>,
+    /// Serialized portable Conda record; absent for the existing PyPI format.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conda: Option<String>,
 }
 
 /// Portable descriptions of actual fixed build inputs, never fetch/IO authority.
@@ -219,6 +222,35 @@ pub(crate) struct PackageGraphNode {
     pub pin: PackageSourcePin,
 }
 impl PackageGraphNode {
+    pub(crate) fn from_conda_record(
+        record: &rattler_conda_types::RepoDataRecord,
+        instance: [u8; 32],
+    ) -> Result<Self> {
+        let digest = record.package_record.sha256.context("Conda package SHA256 is missing")?;
+        let size = record.package_record.size.context("Conda package size is missing")?;
+        Ok(Self {
+            name: record.package_record.name.as_normalized().to_owned(),
+            version: record.package_record.version.to_string(),
+            instance,
+            source_pin: crate::libraries::package::conda::record_source(record)?,
+            artifact: Digest::Sha256(digest.into()).to_string(),
+            pin: PackageSourcePin {
+                registry: record.channel.clone().context("Conda package channel is missing")?,
+                base: [0; 32],
+                filename: record.identifier.to_string(),
+                size,
+                advertised: true,
+                build: None,
+                conda: Some(serde_json::to_string(record)?),
+            },
+        })
+    }
+
+    pub(crate) fn conda_record(&self) -> Result<Option<rattler_conda_types::RepoDataRecord>> {
+        ensure!(self.pin.conda.as_ref().is_none_or(|value| value.len() <= 1024 * 1024), "Conda package record exceeds the catalog limit");
+        self.pin.conda.as_deref().map(serde_json::from_str).transpose().map_err(Into::into)
+    }
+
     pub(crate) fn content_pin(
         &self,
     ) -> Result<crate::packages::python_resolution::lock_model::ContentPin> {
@@ -330,6 +362,20 @@ impl PackageGraphRecord {
         let mut names = BTreeSet::new();
         let mut instances = BTreeSet::new();
         for node in &self.nodes {
+            if let Some(record) = node.conda_record()? {
+                ensure!(node.name == record.package_record.name.as_normalized()
+                    && node.version == record.package_record.version.to_string()
+                    && node.source_pin == crate::libraries::package::conda::record_source(&record)?
+                    && record.package_record.sha256.is_some_and(|sha| node.artifact == Digest::Sha256(sha.into()).to_string())
+                    && node.pin.filename == record.identifier.to_string()
+                    && record.package_record.size == Some(node.pin.size)
+                    && record.channel.as_deref() == Some(node.pin.registry.as_str())
+                    && node.pin.base == [0; 32] && node.pin.advertised
+                    && node.pin.build.is_none()
+                    && names.insert((true, &node.name)) && instances.insert(node.instance),
+                    "invalid Conda package graph node");
+                continue;
+            }
             ensure!(
                 !node.name.is_empty()
                     && node.name.len() <= 1024
@@ -337,7 +383,7 @@ impl PackageGraphRecord {
                     && !node.version.is_empty()
                     && pakro_index::python_source::NormalizedPythonName::new(&node.name).is_ok_and(|name|name.as_str()==node.name)
                     && <pakro_resolver::solve::Pep440 as pakro_resolver::solve::VersionAdapter>::parse_version(&node.version).is_some()
-                    && names.insert(&node.name)
+                    && names.insert((false, &node.name))
                     && instances.insert(node.instance),
                 "invalid package graph node"
             );
@@ -392,6 +438,7 @@ pub(crate) struct GenerationRecord {
     receipt: [u8; 32],
     inputs: Vec<InputReference>,
     package_graph: Option<PackageGraphRecord>,
+    source_locators: Option<BTreeMap<String, String>>,
 }
 impl GenerationRecord {
     pub(crate) fn new(
@@ -419,6 +466,7 @@ impl GenerationRecord {
             receipt,
             inputs,
             package_graph: None,
+            source_locators: None,
         };
         value.validate(limits)?;
         Ok(value)
@@ -458,6 +506,18 @@ impl GenerationRecord {
                 actual == expected.iter().map(String::as_str).collect(),
                 "package graph nodes and typed package references differ"
             );
+        }
+        if let Some(locators) = &self.source_locators {
+            let graph = self.package_graph.as_ref().context("source locators need a package graph")?;
+            let pins = graph.nodes.iter().filter(|node| node.pin.conda.is_none())
+                .map(|node| (node.source_pin.as_str(), node)).collect::<BTreeMap<_, _>>();
+            ensure!(locators.len() == pins.len() && locators.len() <= limits.max_refs_per_generation,
+                "source locators differ from the selected package graph");
+            for (id, url) in locators {
+                let node = pins.get(id.as_str()).context("source locator references an unknown package")?;
+                ensure!(crate::packages::python_resolution::lock_model::valid_registry_url(url, &node.pin.filename),
+                    "invalid catalog source locator");
+            }
         }
         if self.shared_layout.is_some() {
             ensure!(
@@ -521,6 +581,14 @@ impl GenerationRecord {
         record.package_graph = Some(graph);
         record.validate(limits)?;
         Ok(record)
+    }
+    pub(crate) fn with_source_locators(mut self, locators: BTreeMap<String, String>, limits: ModelLimits) -> Result<Self> {
+        self.source_locators = Some(locators);
+        self.validate(limits)?;
+        Ok(self)
+    }
+    pub(crate) fn source_locators(&self) -> Option<&BTreeMap<String, String>> {
+        self.source_locators.as_ref()
     }
     pub(crate) fn package_graph(&self) -> Option<&PackageGraphRecord> {
         self.package_graph.as_ref()
@@ -724,22 +792,22 @@ impl CatalogModel {
         let layout = record.shared_layout().ok_or_else(|| {
             eyre::eyre!("shared registration requires an explicit shared layout identity")
         })?;
-        if let Some(existing) = self.generations.get(record.allocation()) {
-            ensure!(
-                existing == &record,
-                "environment allocation conflicts with registered facts"
-            );
-        }
         if let Some(existing) = self.generation_for_shared_layout(layout) {
-            ensure!(
-                existing.target == record.target
-                    && existing.graph == record.graph
-                    && existing.receipt == record.receipt
-                    && existing.inputs == record.inputs
-                    && existing.package_graph == record.package_graph,
-                "shared layout identity conflicts with registered content facts"
-            );
-            return Ok(existing.allocation.clone());
+            ensure!(existing.target == record.target
+                && existing.graph == record.graph
+                && existing.receipt == record.receipt
+                && existing.inputs == record.inputs
+                && existing.package_graph == record.package_graph,
+                "shared layout identity conflicts with registered content facts");
+            let allocation = existing.allocation.clone();
+            if existing.source_locators.is_none() && record.source_locators.is_some() {
+                self.generations.get_mut(&allocation).expect("existing shared generation")
+                    .source_locators = record.source_locators;
+            }
+            return Ok(allocation);
+        }
+        if let Some(existing) = self.generations.get(record.allocation()) {
+            ensure!(existing == &record, "environment allocation conflicts with registered facts");
         }
         let allocation = record.allocation.clone();
         self.register_generation(record)?;

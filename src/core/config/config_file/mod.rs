@@ -184,6 +184,7 @@ mod r03_static_tests {
 python = '3.13.16'
 [packages.'python@3.13.16']
 Demo_Pkg = {version='1.0',source='pypi',extras=['feature'],marker="python_version >= '3.13'"}
+conda_pkg = {version='1.0',source='conda',channel='conda-forge',build='py_0'}
 "#;
         let path = Path::new("/project/pakro.toml");
         let ordinary = PakroToml::from_str(raw, path).unwrap();
@@ -191,13 +192,15 @@ Demo_Pkg = {version='1.0',source='pypi',extras=['feature'],marker="python_versio
         let declarations = parse_static_config(raw.as_bytes(), path).unwrap();
         assert_eq!(actual, declarations.packages);
         assert_eq!(actual[0].extras, ["feature"]);
+        assert_eq!(actual[1].channel.as_deref(), Some("conda-forge"));
+        assert_eq!(actual[1].build.as_deref(), Some("py_0"));
         assert_eq!(
             actual[0].marker.as_deref(),
             Some("python_version >= '3.13'")
         );
         for value in [
             "{version='1.0',unknown=true}",
-            "{version='1.0',source='conda'}",
+            "{version='>=1.0',source='conda'}",
             "{version='1.0',extras=['feature','Feature']}",
             "{version='>=1.0'}",
         ] {

@@ -56,7 +56,9 @@ impl LanguageInstallSpec {
         self.key
     }
     pub(crate) fn source_kind(&self) -> super::source::PythonRuntimeSource {
-        if self.plan.source_build().is_some() { super::source::PythonRuntimeSource::Source } else { super::source::PythonRuntimeSource::Prebuilt }
+        if self.plan.conda_record().is_some() { super::source::PythonRuntimeSource::Conda }
+        else if self.plan.source_build().is_some() { super::source::PythonRuntimeSource::Source }
+        else { super::source::PythonRuntimeSource::Prebuilt }
     }
 }
 
@@ -118,6 +120,7 @@ impl PublishedLanguage {
     /// The distribution build date parsed from the stored archive filename,
     /// e.g. `20261013` for `cpython-3.13.16+20261013-...`.
     pub(crate) fn build(&self) -> Option<&str> {
+        if let Some(record) = &self.manifest.conda { return Some(&record.package_record.build); }
         if self.manifest.source_build.is_some() { return None; }
         self.manifest
             .filename
@@ -204,6 +207,12 @@ impl LanguageRepository {
     pub(crate) fn spec_from_manifest(
         manifest: &super::manifest::LanguageManifest,
     ) -> Result<LanguageInstallSpec> {
+        if manifest.schema == 3 {
+            let record = manifest.conda.as_ref().context("Conda language manifest is missing its package record")?;
+            let spec = LanguageInstallSpec::from_plan(&RuntimeInstallPlan::from_conda_record(record)?, false)?;
+            ensure!(spec.key().fingerprint() == manifest.key, "Conda language manifest disagrees with its package identity");
+            return Ok(spec);
+        }
         if manifest.schema == 2 {
             let input = manifest.source_build.as_ref().context("source language manifest is missing its build result")?.input()?;
             let spec = LanguageInstallSpec::from_plan(&RuntimeInstallPlan::from_source(&input)?, false)?;

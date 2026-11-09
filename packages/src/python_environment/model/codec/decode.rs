@@ -176,8 +176,9 @@ impl<'de> Visitor<'de> for Generation<'_> {
             mut receipt,
             mut inputs,
             mut package_graph,
+            mut source_locators,
             mut seen,
-        ) = (None, None, None, None, None, None, None, 0);
+        ) = (None, None, None, None, None, None, None, None, 0);
         while let Some(key) = map.next_key_seed(Text {
             state: self.0,
             maximum: 32,
@@ -226,6 +227,17 @@ impl<'de> Visitor<'de> for Generation<'_> {
                     self.0.once(&mut seen, 64)?;
                     package_graph = Some(map.next_value_seed(super::graph::Graph(self.0))?);
                 }
+                "source_locators" => {
+                    self.0.once(&mut seen, 128)?;
+                    let raw = map.next_value_seed(Text { state: self.0, maximum: 16 * 1024 * 1024 })?;
+                    let entries: Vec<(String, String)> = serde_json::from_str(&raw).map_err(|_| de::Error::custom("invalid source locators"))?;
+                    if entries.len() > self.0.limits.max_refs_per_generation { return self.0.fail("too many source locators"); }
+                    let mut values = BTreeMap::new();
+                    for (id, url) in entries {
+                        if values.insert(id, url).is_some() { return self.0.fail("duplicate source locator"); }
+                    }
+                    source_locators = Some(values);
+                }
                 _ => return self.0.fail("unknown catalog generation field"),
             }
         }
@@ -246,6 +258,7 @@ impl<'de> Visitor<'de> for Generation<'_> {
             )?;
             record.shared_layout = shared_layout.as_deref().map(hex32).transpose()?;
             record.package_graph = package_graph;
+            record.source_locators = source_locators;
             record.validate(self.0.limits)?;
             Ok(record)
         })()
@@ -523,7 +536,7 @@ impl<'de> Visitor<'de> for Catalog<'_> {
                     // Schema 3 adds language-only selections and project
                     // registrations; schema 2 documents decode as their
                     // pre-extension equivalents. Schema 4 carries native recipes.
-                    if !matches!(schema, Some(2 | 3 | 4)) {
+                    if !matches!(schema, Some(2 | 3 | 4 | 5)) {
                         return self.0.fail("unsupported catalog schema");
                     }
                 }
@@ -565,7 +578,8 @@ impl<'de> Visitor<'de> for Catalog<'_> {
                 node.pin.build.as_ref().is_some_and(|build| build.native.is_some())
             }))
         });
-        if (schema == 4) != native {
+        let has_locators = generations.iter().any(|record| record.source_locators.is_some());
+        if (schema == 5) != has_locators || (schema < 5 && ((schema == 4) != native)) {
             return self.0.fail("catalog schema disagrees with native recipes");
         }
         let selections = self.0.required(selections)?;

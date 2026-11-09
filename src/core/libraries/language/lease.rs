@@ -465,6 +465,9 @@ impl LanguageLease {
     pub(crate) fn descriptor(&self) -> &PythonRuntimeDescriptor {
         &self.inner.manifest.descriptor
     }
+    pub(crate) fn runtime_dependencies(&self) -> &[[u8; 32]] {
+        &self.inner.manifest.runtime_dependencies
+    }
     /// Descriptive bytes already checked by the held language inventory.
     pub(crate) fn entrypoint_sha256(&self) -> Result<[u8; 32]> {
         self.inner.manifest.inventory.entries().iter().find_map(|entry| {
@@ -489,7 +492,8 @@ impl LanguageLease {
                 .manifest
                 .source_build
                 .as_ref()
-                .map(|_| "source".into()),
+                .map(|_| "source".into())
+                .or_else(|| self.inner.manifest.conda.as_ref().map(|_| "conda".into())),
             source_python: self.inner.manifest.source_build.clone(),
             url: Some(source.url().to_string()),
             checksum: Some(source.digest().to_string().replacen('-', ":", 1)),
@@ -517,6 +521,11 @@ impl LanguageLease {
     /// surrounding acquisition/query/commit boundary.
     pub(crate) fn lock_version(&self) -> Result<String> {
         let descriptor = self.descriptor();
+        if let Some(record) = &self.inner.manifest.conda {
+            ensure!(record.package_record.version.to_string() == descriptor.language_version.full_version(),
+                "Conda Python version differs from its fixed package");
+            return Ok(record.package_record.version.to_string());
+        }
         if let Some(record) = &self.inner.manifest.source_build {
             ensure!(
                 record.version == descriptor.language_version.full_version(),

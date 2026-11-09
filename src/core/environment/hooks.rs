@@ -986,7 +986,7 @@ mod tests {
     fn hook_arrays_reject_nested_arrays() {
         assert!(
             toml::from_str::<TestHook>(
-                r#"hook = ["echo first", { task = "build" }, { run = "echo last" }]"#
+                r#"hook = ["echo first", { script = "echo script" }, { run = "echo last" }]"#
             )
             .is_ok(),
             "flat mixed array should be accepted"
@@ -994,7 +994,7 @@ mod tests {
 
         for input in [
             r#"hook = [["echo nested"]]"#,
-            r#"hook = ["echo first", [{ task = "build" }]]"#,
+            r#"hook = ["echo first", [{ run = "echo run" }]]"#,
         ] {
             assert!(
                 toml::from_str::<TestHook>(input).is_err(),

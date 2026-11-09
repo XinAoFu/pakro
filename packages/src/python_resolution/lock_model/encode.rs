@@ -77,7 +77,13 @@ pub(super) fn projection(
         maximum: limits.max_document_bytes,
     };
     output.raw(
-        if model.builds.iter().any(|(_, build)| build.native.is_some()) {
+        if model.locators.is_some() {
+            "[python]\nschema = 7\n"
+        } else if !model.mixed.is_empty() {
+            "[python]\nschema = 6\n"
+        } else if !model.conda.is_empty() {
+            "[python]\nschema = 5\n"
+        } else if model.builds.iter().any(|(_, build)| build.native.is_some()) {
             "[python]\nschema = 4\n"
         } else if model.builds.is_empty() && model.declaration_fingerprint.is_none() {
             "[python]\nschema = 2\n"
@@ -85,10 +91,22 @@ pub(super) fn projection(
             "[python]\nschema = 3\n"
         },
     )?;
+    if let Some(locators) = &model.locators {
+        let json = serde_json::to_string(&locators.iter().collect::<Vec<_>>()).map_err(|_| LockModelError::InvalidToml)?;
+        output.field("locators", &json)?;
+    }
+    if !model.conda.is_empty() {
+        let json = serde_json::to_string(&model.conda).map_err(|_| LockModelError::InvalidToml)?;
+        output.field("conda", &json)?;
+    }
+    if !model.mixed.is_empty() {
+        let json = serde_json::to_string(&model.mixed).map_err(|_| LockModelError::InvalidToml)?;
+        output.field("mixed", &json)?;
+    }
     if let Some(fingerprint) = &model.declaration_fingerprint {
         output.bytes("declaration_fingerprint", fingerprint)?;
     }
-    if model.builds.is_empty() && model.declaration_fingerprint.is_some() {
+    if model.builds.is_empty() && (model.declaration_fingerprint.is_some() || !model.conda.is_empty() || model.locators.is_some()) {
         output.raw("builds = []\n")?;
     }
     if model.pins.is_empty() {

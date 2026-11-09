@@ -47,6 +47,10 @@ pub(in crate::libraries) struct LanguageManifest {
     pub source_build: Option<super::source::SourcePythonBuildRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_layout: Option<super::source::SourcePythonLayout>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conda: Option<rattler_conda_types::RepoDataRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runtime_dependencies: Vec<[u8; 32]>,
     pub lock: DiskIdentity,
     pub allocation: DiskIdentity,
     pub payload: DiskIdentity,
@@ -62,7 +66,7 @@ pub(crate) fn validate_published_metadata(
     bytes: &[u8],
     catalog_name: &str,
     library_root: &std::path::Path,
-) -> eyre::Result<[u8; 32]> {
+) -> eyre::Result<([u8; 32], Vec<[u8; 32]>)> {
     let manifest: LanguageManifest = serde_json::from_slice(bytes)?;
     let spec = super::repository::LanguageRepository::spec_from_manifest(&manifest)?;
     super::publication::validate_manifest(&spec, &manifest)?;
@@ -74,7 +78,7 @@ pub(crate) fn validate_published_metadata(
         &manifest,
         &library_root.join(spec.key().filename()).join("payload"),
     )?;
-    Ok(manifest.key)
+    Ok((manifest.key, manifest.runtime_dependencies))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -73,7 +73,7 @@ pub(in crate::libraries::package) fn validate_metadata(
     projection: Option<&NativeProjection>,
 ) -> Result<()> {
     match (recipe, projection) {
-        (1, None) | (2, None) => Ok(()),
+        (1, None) | (2, None) | (5, None) | (6, None) => Ok(()),
         (2..=4, Some(projection)) => {
             ensure!(
                 recipe == projection.method.recipe()
@@ -362,7 +362,7 @@ pub(super) fn materialize(
     Ok(true)
 }
 
-pub(super) fn verify_output(
+pub(in crate::libraries::package) fn verify_output(
     prefix: &UnpublishedPrefix,
     generated: &[PrefixExpectedFile],
     projection: Option<&NativeProjection>,
@@ -402,10 +402,13 @@ pub(in crate::libraries::package) fn validate(
     packages: &[PackageLease],
 ) -> Result<()> {
     validate_metadata(manifest.recipe, manifest.projection.as_ref())?;
+    if matches!(manifest.recipe, 5 | 6) {
+        return Ok(());
+    }
     ensure!(
         packages
             .iter()
-            .all(|package| package.manifest().language == manifest.language),
+            .all(|package| package.manifest().language == Some(manifest.language)),
         "layout package target differs from its selected language"
     );
     if manifest.recipe == 1 {
@@ -539,7 +542,7 @@ mod method_tests {
         assert_eq!(decoded, old);
         assert_eq!(serde_json::to_value(decoded).unwrap(), json);
         let mut keys = BTreeSet::new();
-        for recipe in 1..=4 {
+        for recipe in 1..=6 {
             assert!(keys.insert(layout_key_for(recipe, [3; 32], [4; 32]).unwrap()));
         }
         for method in [
@@ -549,7 +552,7 @@ mod method_tests {
         ] {
             let value = mapping(method);
             validate_metadata(method.recipe(), Some(&value)).unwrap();
-            for recipe in 1..=4 {
+            for recipe in 1..=6 {
                 if recipe != method.recipe() {
                     assert!(validate_metadata(recipe, Some(&value)).is_err());
                 }
@@ -557,7 +560,8 @@ mod method_tests {
         }
         assert!(validate_metadata(3, None).is_err());
         assert!(validate_metadata(4, None).is_err());
-        assert!(validate_metadata(5, None).is_err());
+        assert!(validate_metadata(5, None).is_ok());
+        assert!(validate_metadata(6, None).is_ok());
     }
 
     async fn fixture() -> (tempfile::TempDir, OperationContext, LanguageLease) {

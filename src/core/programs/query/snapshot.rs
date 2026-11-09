@@ -196,7 +196,7 @@ pub(crate) fn project_lock_for_selected_query(
     Ok(model)
 }
 
-fn read_project_lock_model(
+pub(crate) fn read_project_lock_model(
     observed: &ObservedProjectInputs,
 ) -> eyre::Result<Option<crate::packages::python_resolution::lock_model::PythonLockModel>> {
     observed.recheck()?;
@@ -270,7 +270,8 @@ fn select_target_inner(
     }
     // The current project's runtime pin applies only when querying its own
     // exact declaration. An override never inherits a different runtime pin.
-    let runtime_pin = if target.is_none() || declared.as_deref() == Some(raw.as_str()) {
+    let runtime_pin = if source_kind != crate::libraries::language::source::PythonRuntimeSource::Conda
+        && (target.is_none() || declared.as_deref() == Some(raw.as_str())) {
         match &exact {
             Some(requested) => crate::libraries::project::runtime_pin::observed_runtime_pin(
                 query.observed,
@@ -327,6 +328,55 @@ fn select_target_inner(
                 }
         })
         .collect();
+    if source_kind == crate::libraries::language::source::PythonRuntimeSource::Conda {
+        let request = query.observed.python_request()
+            .map_err(|error| QueryError::Unreadable(error.to_owned()))?
+            .ok_or_else(|| QueryError::Unreadable("Conda Python declaration is missing".into()))?;
+        let model = read_project_lock_model(query.observed)
+            .map_err(|error| QueryError::Unreadable(format!("{error:#}")))?;
+        let host = crate::programs::install::conda::native_target()
+            .map_err(|error| QueryError::Unreadable(format!("{error:#}")))?;
+        if let Some(model) = &model {
+            crate::programs::install::lock_document::validate_declarations(query.observed, model)
+                .map_err(|error| QueryError::Unreadable(format!("{error:#}")))?;
+            if !model.graphs().is_empty() || model.conda().len() != 1 {
+                return Err(QueryError::Unreadable("unsupported mixed or ambiguous Conda lock".into()));
+            }
+            crate::programs::install::conda::validate_host(&model.conda()[0], &host)
+                .map_err(|error| QueryError::Unreadable(format!("{error:#}")))?;
+        }
+        let locked_python = model.as_ref().and_then(|model| {
+            model.conda().iter().flat_map(|graph| graph.records.iter())
+                .find(|record| record.package_record.name.as_normalized() == "python")
+        });
+        if model.is_some() && locked_python.is_none() {
+            return Err(QueryError::Unreadable("Conda lock omits Python".into()));
+        }
+        let locked_plan = locked_python.map(
+            crate::plugins::core::python::native::pipeline::RuntimeInstallPlan::from_conda_record,
+        ).transpose().map_err(|error| QueryError::Unreadable(format!("{error:#}")))?;
+        let channel_config = rattler_conda_types::ChannelConfig::default_with_root_dir(PathBuf::from("/"));
+        let expected_channel = request.channel.as_ref().map(|name| {
+            rattler_conda_types::Channel::from_str(name, &channel_config)
+        }).transpose().map_err(|error| QueryError::Unreadable(format!("{error:#}")))?;
+        let mut selected = Vec::new();
+        for language in matching {
+            let Some(record) = language.spec().plan().conda_record() else { continue };
+            if request.build.as_ref().is_some_and(|build| build != &record.package_record.build)
+                || locked_plan.as_ref().is_some_and(|expected| expected.conda_record() != Some(record)) {
+                continue;
+            }
+            if let Some(expected) = &expected_channel {
+                let source = record.channel.as_deref()
+                    .ok_or_else(|| QueryError::Unreadable("Conda Python channel is missing".into()))?;
+                let source = rattler_conda_types::Channel::from_str(source, &channel_config)
+                    .map_err(|error| QueryError::Unreadable(format!("{error:#}")))?;
+                if source.base_url != expected.base_url { continue; }
+            }
+            selected.push(language);
+        }
+        matching = selected;
+    }
     if let Some(pin) = runtime_pin {
         let mut pinned = Vec::new();
         for language in matching {
@@ -346,10 +396,14 @@ fn select_target_inner(
             language.entrypoint().to_path_buf(),
             language.version(),
         );
-        candidate.exact_version = language.build().map_or_else(
-            || language.version(),
-            |build| format!("{}+{build}", language.version()),
-        );
+        candidate.exact_version = if language.source_kind() == crate::libraries::language::source::PythonRuntimeSource::Conda {
+            language.version()
+        } else {
+            language.build().map_or_else(
+                || language.version(),
+                |build| format!("{}+{build}", language.version()),
+            )
+        };
         candidate
     };
     if matching.is_empty() {

@@ -28,6 +28,7 @@ pub(crate) struct ClosedGraph<'root> {
         crate::packages::python_resolution::lock_model::PinId,
         crate::packages::python_environment::model::SourceBuildRecord,
     )>,
+    build_locators: BTreeMap<String, String>,
 }
 pub(crate) struct PackageRoot {
     name: String,
@@ -49,6 +50,42 @@ impl<'root> ClosedGraph<'root> {
         crate::packages::python_environment::model::SourceBuildRecord,
     )] {
         &self.builds
+    }
+    /// Gather only actual held source observations and prior locked facts.
+    pub(crate) fn locators_for_lock(
+        &self,
+        root: &BoundPythonLock,
+        model: &crate::packages::python_resolution::lock_model::PythonLockModel,
+    ) -> Result<BTreeMap<String, String>> {
+        root.recheck()?;
+        self.graph.recheck_for(root)?;
+        let mut urls = self.build_locators.clone();
+        for node in &self.graph.plan().selected {
+            let owner = self.graph.owner(node.key).ok_or_else(|| eyre::eyre!("closed source owner missing"))?;
+            let id = hex::encode(owner.pin().id().as_bytes());
+            if let Some(url) = self.graph.registry_url(node.key) {
+                if let Some(previous) = urls.get(&id) {
+                    ensure!(previous == url, "selected source has conflicting registry URLs");
+                } else {
+                    urls.insert(id, url.to_owned());
+                }
+            } else if !urls.contains_key(&id) {
+                return Err(eyre::eyre!("selected registry source has no retained portable URL"));
+            }
+        }
+        for pin in model.pins() {
+            let id = hex::encode(pin.id().as_bytes());
+            if !urls.contains_key(&id) {
+                let url = root.model().and_then(|old| old.locator(pin.id()))
+                    .ok_or_else(|| eyre::eyre!("retained lock source has no portable URL"))?;
+                urls.insert(id, url.to_owned());
+            }
+        }
+        let used = model.pins().iter().map(|pin| hex::encode(pin.id().as_bytes()))
+            .collect::<std::collections::BTreeSet<_>>();
+        urls.retain(|id, _| used.contains(id));
+        self.graph.recheck_for(root)?;
+        Ok(urls)
     }
     pub(crate) fn roots(&self) -> &[PackageRoot] {
         &self.roots
@@ -93,6 +130,7 @@ impl<'root> ClosedGraph<'root> {
                         crate::packages::python_resolution::lock_model::PinEvidence::Advertised
                     ),
                     build: owner.build_record().cloned(),
+                    conda: None,
                 },
             });
         }
@@ -375,6 +413,7 @@ async fn resolve_registry_declarations<'root>(
         roots: exact,
         graph,
         builds: budget.records(),
+        build_locators: budget.locators(),
     })
 }
 

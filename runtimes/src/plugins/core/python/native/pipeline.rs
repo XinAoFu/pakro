@@ -37,6 +37,8 @@ pub(crate) struct RuntimeInstallPlan {
     implementation: PythonImplementation,
     implementation_version: String,
     source_build: Option<crate::libraries::language::source::SourcePythonBuildInput>,
+    conda: Option<rattler_conda_types::RepoDataRecord>,
+    conda_channel: Option<[u8; 32]>,
 }
 
 impl RuntimeInstallPlan {
@@ -66,7 +68,13 @@ impl RuntimeInstallPlan {
                 distribution: &distribution,
                 exact_version: language,
                 target: &target,
-                input: LanguageInput::Artifact(ArtifactId::new(self.source.digest())),
+                input: match self.conda_channel {
+                    Some(channel) => LanguageInput::CondaArtifact {
+                        artifact: ArtifactId::new(self.source.digest()),
+                        channel,
+                    },
+                    None => LanguageInput::Artifact(ArtifactId::new(self.source.digest())),
+                },
                 recipe,
             },
             limits,
@@ -111,6 +119,7 @@ impl RuntimeInstallPlan {
             }
             RuntimeDistribution::PyPy => format!("pypy-{}", self.implementation_version),
             RuntimeDistribution::CpythonSource => bail!("source CPython plan is missing its build inputs"),
+            RuntimeDistribution::Conda => format!("conda-{}", self.conda.as_ref().context("Conda Python package record is missing")?.package_record.build),
         };
         let (os, libc) = match self.target.platform() {
             RuntimePlatform::Macos => ("macos", "none"),
@@ -179,9 +188,12 @@ impl RuntimeInstallPlan {
                 RuntimeDistribution::Pbs => PythonImplementation::CPython,
                 RuntimeDistribution::PyPy => PythonImplementation::PyPy,
                 RuntimeDistribution::CpythonSource => PythonImplementation::CPython,
+                RuntimeDistribution::Conda => PythonImplementation::CPython,
             },
             implementation_version: key.implementation_version.clone(),
             source_build: None,
+            conda: None,
+            conda_channel: None,
         }
     }
 
@@ -341,6 +353,8 @@ impl RuntimeInstallPlan {
             implementation,
             implementation_version,
             source_build: None,
+            conda: None,
+            conda_channel: None,
         })
     }
 
@@ -350,8 +364,66 @@ impl RuntimeInstallPlan {
             target: input.target.clone(), flavor: RuntimeFlavor::InstallOnly,
             expected_python_version: Some(input.version.clone()), language_major: major, language_minor: minor,
             implementation: PythonImplementation::CPython, implementation_version: input.version.clone(),
-            source_build: Some(input.clone()) })
+            source_build: Some(input.clone()), conda: None, conda_channel: None })
     }
+
+    /// A Conda Python package is an independent language input; its package
+    /// digest fixes the actual Python payload across projects.
+    pub(crate) fn from_conda_record(record: &rattler_conda_types::RepoDataRecord) -> Result<Self> {
+        use sha2::{Digest as _, Sha256};
+
+        ensure!(
+            record.package_record.name.as_normalized() == "python",
+            "Conda language record is not Python"
+        );
+        let config = rattler_conda_types::ChannelConfig::default_with_root_dir(
+            std::path::PathBuf::from("/"),
+        );
+        let channel = rattler_conda_types::Channel::from_str(
+            record.channel.as_deref().context("Conda Python channel is missing")?,
+            &config,
+        )?;
+        ensure!(
+            channel.base_url.url().scheme() == "https" && channel.platforms.is_none(),
+            "unsupported Conda Python channel"
+        );
+        let conda_channel = Sha256::digest(channel.base_url.url().as_str().as_bytes()).into();
+        let mut record = record.clone();
+        record.channel = Some(channel.base_url.url().to_string());
+        let package = &record.package_record;
+        let version = package.version.to_string();
+        let (major, minor, _) = super::version_parts(&version)?;
+        let (arch, platform) = match package.subdir.as_str() {
+            "osx-arm64" => ("aarch64", RuntimePlatform::Macos),
+            "osx-64" => ("x86_64", RuntimePlatform::Macos),
+            "linux-64" => ("x86_64", RuntimePlatform::LinuxGnu),
+            "linux-aarch64" => ("aarch64", RuntimePlatform::LinuxGnu),
+            _ => bail!("unsupported Conda Python platform"),
+        };
+        let hash = package
+            .sha256
+            .as_ref()
+            .context("Conda Python SHA256 is missing")?;
+        let digest = format!("sha256-{}", hex::encode(hash)).parse::<Digest>()?;
+        let source =
+            SourceArtifact::new(record.identifier.to_string(), record.url.as_str(), digest)?;
+        Ok(Self {
+            source,
+            distribution: RuntimeDistribution::Conda,
+            target: RuntimeArchiveTarget::new(arch, platform)?,
+            flavor: RuntimeFlavor::InstallOnly,
+            expected_python_version: Some(version.clone()),
+            language_major: major,
+            language_minor: minor,
+            implementation: PythonImplementation::CPython,
+            implementation_version: version,
+            source_build: None,
+            conda: Some(record),
+            conda_channel: Some(conda_channel),
+        })
+    }
+
+    pub(crate) fn conda_record(&self) -> Option<&rattler_conda_types::RepoDataRecord> { self.conda.as_ref() }
 
     pub(crate) fn source_build(&self) -> Option<&crate::libraries::language::source::SourcePythonBuildInput> { self.source_build.as_ref() }
 
@@ -370,6 +442,10 @@ impl RuntimeInstallPlan {
             }
             RuntimeDistribution::PyPy => String::new(),
             RuntimeDistribution::CpythonSource => self.expected_python_version.clone().context("source CPython version is missing")?,
+            RuntimeDistribution::Conda => {
+                ensure!(url::Url::parse(locator)? == *self.source.url(), "Conda Python source differs from its fixed package record");
+                return Ok(());
+            }
         };
         super::validate_locator(self.source.filename(), locator, self.distribution, &build)
     }

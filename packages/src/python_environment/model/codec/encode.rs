@@ -91,6 +91,10 @@ impl Serialize for Generation<'_> {
         if let Some(graph) = &self.0.package_graph {
             map.serialize_entry("package_graph", graph)?;
         }
+        if let Some(locators) = &self.0.source_locators {
+            let raw = serde_json::to_string(&locators.iter().collect::<Vec<_>>()).map_err(serde::ser::Error::custom)?;
+            map.serialize_entry("source_locators", &raw)?;
+        }
         map.end()
     }
 }
@@ -174,7 +178,8 @@ impl Serialize for Catalog<'_> {
                 node.pin.build.as_ref().is_some_and(|build| build.native.is_some())
             }))
         });
-        map.serialize_entry("schema", &if native { 4_u32 } else { 3_u32 })?;
+        let has_locators = self.0.generations.values().any(|record| record.source_locators.is_some());
+        map.serialize_entry("schema", &if has_locators { 5_u32 } else if native { 4_u32 } else { 3_u32 })?;
         map.serialize_entry("generations", &Generations(&self.0.generations))?;
         map.serialize_entry("selections", &Selections(&self.0.selections))?;
         map.serialize_entry("transactions", &Transactions(&self.0.transactions))?;

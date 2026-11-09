@@ -185,6 +185,7 @@ impl UnpublishedPrefix {
             kind: match kind {
                 EntryKind::Directory => OwnershipEntryKind::Directory,
                 EntryKind::File => OwnershipEntryKind::File,
+                EntryKind::Symlink => unreachable!("shared layout links have no ownership journal"),
             },
             relative: relative.as_os_str().as_encoded_bytes(),
             parent: [parent.dev(), parent.ino()],

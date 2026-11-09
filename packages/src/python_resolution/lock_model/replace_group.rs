@@ -29,6 +29,9 @@ impl PythonLockModel {
         graph: &LockGraphInput<'_>,
         limits: LockModelLimits,
     ) -> LockModelResult<Self> {
+        if !self.conda().is_empty() {
+            return Err(LockModelError::UnsupportedSourceKind);
+        }
         // Bound both supplied inputs through the existing kernels before any
         // temporary projection, then validate the entire combined output once.
         self.check_limits(limits)?;
@@ -94,7 +97,16 @@ impl PythonLockModel {
         }
         // Borrowed pin references avoid cloning the old table before the
         // combined count/UTF-8 budget has passed the same constructor preflight.
-        Self::from_borrowed_parts(pins.values().copied(), &inputs, limits)
+        let mut model = Self::from_borrowed_parts(pins.values().copied(), &inputs, limits)?;
+        if let Some(old) = &self.locators {
+            let locators = model.pins().iter().map(|pin| {
+                let id = hex::encode(pin.id().as_bytes());
+                old.get(&id).cloned().map(|url| (id, url))
+                    .ok_or(LockModelError::Reference(LockReference::NodePin))
+            }).collect::<LockModelResult<BTreeMap<_, _>>>()?;
+            model = model.with_locators(locators, limits)?;
+        }
+        Ok(model)
     }
 }
 
