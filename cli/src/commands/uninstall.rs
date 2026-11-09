@@ -57,9 +57,7 @@ mod tests {
             dry_run_code: false,
         };
         let report = ReclaimReport {
-            operation_id: None,
             dry_run: false,
-            resumed: false,
             complete: true,
             entries: vec![ReclaimEntry {
                 object: Some(ReclaimId::Layout([1; 32])),

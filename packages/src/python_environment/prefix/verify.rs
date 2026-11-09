@@ -462,7 +462,7 @@ impl<R: InventoryRoot> TreeObserver<'_, R> {
                 let target = PathBuf::from(readlinkat(directory, name)?);
                 ensure!(
                     !target.as_os_str().is_empty() && !target.is_absolute(),
-                    "prefix inventory entry symlink target is not relative"
+                    "prefix inventory entry symlink target is not relative: {}", self.root.root_path().join(&path).display()
                 );
                 if let Some(expected) = self.expected {
                     let Some(ExpectedEntry::Symlink(link)) = expected.get(path.as_path()) else {
@@ -476,7 +476,7 @@ impl<R: InventoryRoot> TreeObserver<'_, R> {
                 self.charge_path(&target)?;
                 TreeInventoryKind::Symlink { target }
             } else {
-                eyre::bail!("prefix inventory entry has an unsupported type");
+                eyre::bail!("prefix inventory entry has an unsupported type: {}", self.root.root_path().join(&path).display());
             };
             ensure!(
                 EntryStamp::of(fstatat(directory, name, AtFlags::AT_SYMLINK_NOFOLLOW)?) == stamp,
@@ -604,7 +604,7 @@ impl<R: InventoryRoot> TreeObserver<'_, R> {
                     "prefix inventory entry symlink target changed"
                 );
                 if self.check_link_targets {
-                    self.check_link(path)?;
+                    self.check_link(path).wrap_err_with(|| format!("invalid symlink: {}", self.root.root_path().join(path).display()))?;
                 }
             }
         }

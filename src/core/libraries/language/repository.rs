@@ -525,7 +525,7 @@ impl LanguageRepository {
                         &format!("deleting-{}.json", key)
                     )?
                     .is_none(),
-                "PendingRecovery: language has an unfinished deletion"
+                "PendingRecovery: language has an unfinished deletion; run pakro prune before installing again"
             );
             let registration =
                 control.read(ControlNamespace::Ownership, &registration_name(spec))?;
@@ -597,7 +597,7 @@ impl LanguageRepository {
                     &format!("deleting-{}.json", key)
                 )?
                 .is_none(),
-            "PendingRecovery: language has an unfinished deletion"
+            "PendingRecovery: language has an unfinished deletion; run pakro prune before installing again"
         );
         drop(control);
         if existing {

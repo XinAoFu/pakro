@@ -87,10 +87,7 @@ pub fn restore_python_bytecode(
 /// stuck query.
 const QUERY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// Controlled deletion fsyncs every parent directory and records progress
-/// before the next entry, so a large Python installation needs minutes. The
-/// deadline still bounds a stuck removal, but a normal explicit uninstall must
-/// finish in one command instead of returning repeated `prune --resume` work.
+/// Bound an explicit removal, including complete pre-deletion content checks.
 const RECLAIM_DEADLINE: std::time::Duration = std::time::Duration::from_secs(300);
 
 fn context(write: bool) -> Result<crate::programs::OperationContext> {
@@ -382,8 +379,8 @@ pub fn uninstall_instance_report(instance: &str, dry_run: bool) -> Result<Reclai
     )
 }
 
-pub fn prune(dry_run: bool, resume: Option<uuid::Uuid>) -> Result<ReclaimReport> {
-    crate::programs::uninstall::prune::run(&reclaim_context(dry_run)?, dry_run, resume)
+pub fn prune(dry_run: bool) -> Result<ReclaimReport> {
+    crate::programs::uninstall::prune::run(&reclaim_context(dry_run)?, dry_run)
 }
 
 /// Pure CLI classification without exposing the registry or backend owners.

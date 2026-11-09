@@ -319,7 +319,7 @@ fn publish_language_inner(
                 &format!("deleting-{}.json", owner.spec.key().filename())
             )?
             .is_none(),
-        "PendingRecovery: language has an unfinished deletion"
+        "PendingRecovery: language has an unfinished deletion; run pakro prune before installing again"
     );
     let registration = control
         .read(ControlNamespace::Ownership, &registration_name(&owner.spec))?

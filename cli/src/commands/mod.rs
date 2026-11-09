@@ -709,6 +709,7 @@ mod tests {
             vec!["pakro", "deps", "add", "python:idna"],
             vec!["pakro", "project", "init"],
             vec!["pakro", "installs", "migrate"],
+            vec!["pakro", "prune", "--resume", "00000000-0000-0000-0000-000000000001"],
         ] {
             assert!(!parses(&arguments), "{arguments:?}");
         }
@@ -728,19 +729,6 @@ mod tests {
             vec!["pakro", "project", "status"],
             vec!["pakro", "prune"],
             vec!["pakro", "prune", "--dry-run"],
-            vec![
-                "pakro",
-                "prune",
-                "--resume",
-                "00000000-0000-0000-0000-000000000001",
-            ],
-            vec![
-                "pakro",
-                "-n",
-                "prune",
-                "--resume",
-                "00000000-0000-0000-0000-000000000001",
-            ],
             vec![
                 "pakro",
                 "project",
@@ -805,16 +793,9 @@ mod tests {
     }
 
     #[test]
-    fn p4_catalog_commands_inherit_root_preview_for_fresh_and_resumed_reclamation() {
+    fn p4_catalog_commands_inherit_root_preview() {
         for arguments in [
             vec!["pakro", "-n", "prune"],
-            vec![
-                "pakro",
-                "-n",
-                "prune",
-                "--resume",
-                "00000000-0000-0000-0000-000000000001",
-            ],
             vec!["pakro", "-n", "uninstall", "python@3.13.16"],
         ] {
             let argv = arguments

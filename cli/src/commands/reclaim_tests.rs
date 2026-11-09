@@ -39,8 +39,7 @@ fn p4_prune_catalog_only_preview_works_after_the_current_directory_is_removed() 
 }
 
 #[test]
-fn p4_resume_preview_and_exact_uninstall_do_not_load_broken_project_configuration() {
-    child("bad-resume");
+fn p4_exact_uninstall_does_not_load_broken_project_configuration() {
     child("bad-uninstall");
 }
 
@@ -102,13 +101,6 @@ async fn catalog_reclaim_cli_child_helper() {
     assert!(!data.exists());
     let values = match case.as_str() {
         "bad-preview" | "missing-preview" => vec!["pakro", "prune", "--dry-run"],
-        "bad-resume" => vec![
-            "pakro",
-            "-n",
-            "prune",
-            "--resume",
-            "00000000-0000-0000-0000-000000000001",
-        ],
         "bad-uninstall" => vec!["pakro", "-n", "uninstall", "python@3.15.0"],
         _ => panic!("unknown isolated catalog case"),
     };
@@ -116,17 +108,6 @@ async fn catalog_reclaim_cli_child_helper() {
     let result = Cli::run_inner(&arguments).await;
     match case.as_str() {
         "bad-preview" | "missing-preview" => result.unwrap(),
-        "bad-resume" => {
-            let error = result.expect_err("an unknown operation cannot be resumed");
-            let text = format!("{error:#}").to_lowercase();
-            assert!(
-                crate::exit::requested_exit_code(&error) == Some(1)
-                    || text.contains("operation")
-                    || text.contains("reclamation")
-                    || text.contains("journal"),
-                "did not reach the recorded-operation lookup: {error:#}"
-            );
-        }
         "bad-uninstall" => {
             let error = result.expect_err("there is no installed target in this isolated library");
             assert!(

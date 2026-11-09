@@ -4,7 +4,7 @@ use crate::libraries::package::manifest::{LayoutManifest, PackageManifest};
 use crate::packages::python_environment::prefix::verify::{
     InventoryRoot, PrefixInventoryLimits, TreeInventory, observe_tree_inventory,
 };
-use eyre::{ContextCompat, ensure};
+use eyre::{ContextCompat, WrapErr, ensure};
 use pakro_store::control::lease::{LeaseMode, ObjectLease, StableLock};
 use pakro_store::control::{
     ControlLimits, ControlNamespace, FileIdentity, ReadStore, StoreWriter, ensure_entry_identity,
@@ -198,19 +198,20 @@ impl Store {
 }
 pub(super) type Stores = BTreeMap<&'static str, Arc<Store>>;
 
-fn check_ready(store: &Store, record: &Record, cursor: &super::journal::Cursor) -> Result<()> {
-    let snapshot = store.snapshot(ControlNamespace::Catalog, &manifest_name(record.object))?;
-    match snapshot {
-        Some(snapshot) => {
-            ensure!(!cursor.revoked, "revoked reclaim object was republished");
-            ensure!(
-                snapshot.bytes() == record.manifest && pair_snapshot(&snapshot) == record.manifest_identity,
-                "reclaim original manifest changed"
-            );
-        }
-        None => ensure!(cursor.revoke_pending || cursor.revoked,
-            "reclaim Ready manifest disappeared without an intent"),
-    }
+fn check_ready(store: &Store, record: &Record) -> Result<()> {
+    let (namespace, name) = if record.pending {
+        (ControlNamespace::Journals, claim_name(record.object))
+    } else {
+        (ControlNamespace::Catalog, manifest_name(record.object))
+    };
+    let snapshot = store
+        .snapshot(namespace, &name)?
+        .context("reclaim manifest disappeared")?;
+    ensure!(
+        snapshot.bytes() == record.manifest && pair_snapshot(&snapshot) == record.manifest_identity,
+        "reclaim original manifest changed: {}",
+        store.path.join(name).display()
+    );
     Ok(())
 }
 
@@ -252,8 +253,7 @@ pub(super) fn store(
     Ok(value)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone)]
 pub(super) struct Record {
     pub object: ReclaimId,
     pub store: [u64; 2],
@@ -264,7 +264,7 @@ pub(super) struct Record {
     pub payload: Option<[u64; 2]>,
     pub lock: [u64; 2],
     pub inventory: TreeInventory,
-    pub captured: String,
+    pub pending: bool,
     pub dependencies: Vec<ReclaimId>,
 }
 impl Record {
@@ -296,7 +296,10 @@ impl Record {
                     Some([m.payload.device, m.payload.inode]),
                     [m.lock.device, m.lock.inode],
                     m.inventory,
-                    m.runtime_dependencies.into_iter().map(ReclaimId::Package).collect(),
+                    m.runtime_dependencies
+                        .into_iter()
+                        .map(ReclaimId::Package)
+                        .collect(),
                 )
             }
             ReclaimId::Package(key) => {
@@ -358,7 +361,7 @@ impl Record {
             payload,
             lock,
             inventory,
-            captured: format!("removing-{}", Uuid::now_v7()),
+            pending: false,
             dependencies,
         };
         record.validate()?;
@@ -368,10 +371,6 @@ impl Record {
         ensure!(
             self.manifest.len() <= 64 * 1024 * 1024,
             "reclaim manifest capacity exceeded"
-        );
-        ensure!(
-            self.captured.starts_with("removing-") && Uuid::parse_str(&self.captured[9..]).is_ok(),
-            "invalid reclaim capture identity"
         );
         ensure!(
             self.allocation
@@ -420,26 +419,12 @@ impl OwnedObject {
         context: &OperationContext,
         store: Arc<Store>,
         record: Record,
-        cursor: &super::journal::Cursor,
     ) -> Result<Option<Self>> {
         context.checkpoint()?;
         store.check()?;
-        record.validate()?;
         if pair(&store.root)? != record.store {
             return Err(LibraryUnavailable("reclaim belongs to another physical store").into());
         }
-        cursor.validate(record.inventory.entries().len(), record.payload.is_some())?;
-        let mut decoded = Record::decode(
-            &store,
-            record.object,
-            record.manifest.clone(),
-            record.manifest_identity,
-        )?;
-        decoded.captured = record.captured.clone();
-        ensure!(
-            decoded == record,
-            "reclaim immutable projections differ from the original manifest"
-        );
         if let ReclaimId::Language(key) = record.object {
             let registration = store
                 .snapshot(
@@ -465,55 +450,32 @@ impl OwnedObject {
         let Some(held) = lock.try_acquire(LeaseMode::Exclusive, context.policy().deadline)? else {
             return Ok(None);
         };
-        check_ready(&store, &record, cursor)?;
+        check_ready(&store, &record)?;
         let original = stat_identity(&store.root, &record.allocation)?;
-        let captured = stat_identity(&store.root, &record.captured)?;
         ensure!(
-            !(original.is_some() && captured.is_some()),
-            "reclaim original and captured directories both exist"
+            original == Some(record.allocation_identity) || (record.pending && original.is_none()),
+            "reclaim directory was replaced or disappeared: {}",
+            store.path.join(&record.allocation).display()
         );
-        let name = if let Some(id) = captured {
-            ensure!(
-                cursor.capture_pending || cursor.captured,
-                "reclaim capture has no durable intent"
-            );
-            ensure!(
-                id == record.allocation_identity,
-                "reclaim captured directory was replaced"
-            );
-            Some(record.captured.as_str())
-        } else if let Some(id) = original {
-            ensure!(!cursor.captured, "reclaim captured directory moved back");
-            ensure!(
-                id == record.allocation_identity,
-                "reclaim original directory was replaced"
-            );
-            Some(record.allocation.as_str())
-        } else {
-            ensure!(
-                cursor.allocation_pending || cursor.allocation_removed,
-                "reclaim allocation disappeared without an intent"
-            );
-            None
-        };
-        let allocation = name
-            .map(|name| open_directory(&store.root, name))
+        let allocation = original
+            .map(|_| open_directory(&store.root, record.allocation.as_str()))
             .transpose()?;
-        ensure!(
-            !cursor.allocation_removed || allocation.is_none(),
-            "removed reclaim allocation reappeared"
-        );
         let root = if let Some(allocation) = &allocation {
             if let Some(expected) = record.payload {
                 match stat_identity(allocation, "payload")? {
                     Some(id) => {
-                        ensure!(id == expected, "reclaim payload was replaced");
+                        ensure!(
+                            id == expected,
+                            "reclaim payload was replaced: {}",
+                            record.root_path(&store).display()
+                        );
                         Some(open_directory(allocation, "payload")?)
                     }
                     None => {
                         ensure!(
-                            cursor.payload_pending || cursor.payload_removed,
-                            "reclaim payload disappeared without an intent"
+                            record.pending,
+                            "reclaim payload disappeared: {}",
+                            record.root_path(&store).display()
                         );
                         None
                     }
@@ -524,10 +486,6 @@ impl OwnedObject {
         } else {
             None
         };
-        ensure!(
-            !cursor.payload_removed || root.is_none(),
-            "removed reclaim payload reappeared"
-        );
         let value = Self {
             store,
             record,
@@ -569,10 +527,10 @@ impl OwnedObject {
                 "reclaim allocation identity changed"
             );
             let original = stat_identity(&self.store.root, &self.record.allocation)?;
-            let captured = stat_identity(&self.store.root, &self.record.captured)?;
             ensure!(
-                matches!((original,captured),(Some(id),None)|(None,Some(id)) if id==self.record.allocation_identity),
-                "reclaim allocation namespace changed"
+                original == Some(self.record.allocation_identity),
+                "reclaim allocation namespace changed: {}",
+                self.store.path.join(&self.record.allocation).display()
             );
         }
         if let Some(file) = &self.root {
@@ -596,22 +554,17 @@ impl OwnedObject {
         }
         Ok(())
     }
-    pub(super) fn verify(
-        &self,
-        context: &OperationContext,
-        cursor: &super::journal::Cursor,
-    ) -> Result<()> {
-        self.verify_with_after_walk(context, cursor, || Ok(()))
+    pub(super) fn verify(&self, context: &OperationContext) -> Result<()> {
+        self.verify_with_after_walk(context, || Ok(()))
     }
     pub(super) fn verify_with_after_walk(
         &self,
         context: &OperationContext,
-        cursor: &super::journal::Cursor,
         after_walk: impl FnOnce() -> Result<()>,
     ) -> Result<()> {
         self.check(context)?;
-        super::tree::verify_remaining(self, context, cursor)?;
-        if cursor.next == 0 && !cursor.pending {
+        super::tree::verify_remaining(self, context)?;
+        if !self.record.pending {
             if let ReclaimId::Package(_) = self.record.object {
                 let manifest: PackageManifest = serde_json::from_slice(&self.record.manifest)?;
                 crate::libraries::package::lease::validate_package_facts(
@@ -621,7 +574,7 @@ impl OwnedObject {
             }
         }
         after_walk()?;
-        check_ready(&self.store, &self.record, cursor)?;
+        check_ready(&self.store, &self.record)?;
         self.check_held(context)
     }
 }
@@ -638,16 +591,69 @@ pub(super) fn stat_identity(parent: &File, name: &str) -> Result<Option<[u64; 2]
 }
 pub(super) fn describe(context: &OperationContext, store: &Store, id: ReclaimId) -> Result<Record> {
     context.checkpoint()?;
-    let snapshot = store
-        .snapshot(ControlNamespace::Catalog, &manifest_name(id))?
-        .context("reclaim Ready manifest is missing")?;
-    Record::decode(
-        store,
-        id,
-        snapshot.bytes().to_vec(),
-        pair_snapshot(&snapshot),
-    )
+    let pending = store.snapshot(ControlNamespace::Journals, &claim_name(id))?;
+    let deleting = pending.is_some();
+    let snapshot = match pending {
+        Some(value) => value,
+        None => store
+            .snapshot(ControlNamespace::Catalog, &manifest_name(id))?
+            .context("reclaim Ready manifest is missing")?,
+    };
+    let mut record = Record::decode(store, id, snapshot.bytes().to_vec(), pair_snapshot(&snapshot))
+        .wrap_err_with(|| format!("invalid deletion manifest in {} for {}; old deletion records require the previous Pakro version to finish", store.path.display(), id.label()))?;
+    record.pending = deleting;
+    if record.pending && stat_identity(&store.root, &record.allocation)?.is_none() {
+        record.dependencies.clear();
+    }
+    Ok(record)
 }
+pub(super) fn pending(context: &OperationContext) -> Result<Vec<PendingReclaim>> {
+    let mut values = Vec::new();
+    for namespace in ["languages", "packages"] {
+        let Some(store) = Store::open(context, namespace, false)? else {
+            continue;
+        };
+        let Backing::Read(read) = &store.backing else {
+            unreachable!()
+        };
+        let names = read.control(Default::default())?.list_names(
+            ControlNamespace::Journals,
+            65536,
+            8 * 1024 * 1024,
+        )?;
+        for name in names
+            .into_iter()
+            .filter(|name| name.starts_with("deleting-"))
+        {
+            let label = name
+                .strip_prefix("deleting-")
+                .unwrap()
+                .strip_suffix(".json")
+                .context("invalid deletion manifest name")?;
+            let (kind, key) = label
+                .split_once('-')
+                .context("invalid deletion object name")?;
+            let key = hex::decode(key)?
+                .try_into()
+                .map_err(|_| eyre::eyre!("invalid deletion object key"))?;
+            let id = match kind {
+                "language" => ReclaimId::Language(key),
+                "package" => ReclaimId::Package(key),
+                "layout" => ReclaimId::Layout(key),
+                _ => eyre::bail!("unsupported deletion manifest: {name}"),
+            };
+            let record = describe(context, &store, id)?;
+            values.push(PendingReclaim {
+                objects: vec![id],
+                members: vec![(id, record.dependencies)],
+                directories: vec![(id, record.allocation)],
+                journals: vec![(namespace.into(), name)],
+            });
+        }
+    }
+    Ok(values)
+}
+
 pub(super) fn failure_status(error: &eyre::Report) -> ReclaimStatus {
     if error.chain().any(|cause| {
         cause.downcast_ref::<std::io::Error>().is_some()
@@ -665,31 +671,24 @@ pub(super) fn failure_status(error: &eyre::Report) -> ReclaimStatus {
 }
 pub(super) fn probe(context: &OperationContext, id: ReclaimId) -> Result<ReclaimEntry> {
     if let Some(store) = Store::open(context, store_name(id), false)? {
-        if store
-            .snapshot(ControlNamespace::Journals, &claim_name(id))?
-            .is_some()
-        {
-            return Ok(super::entry(
-                id,
-                ReclaimStatus::PendingRecovery,
-                "object has a pending deletion claim",
-            ));
-        }
         let result: Result<ReclaimEntry> = (|| {
             let record = describe(context, &store, id)?;
-            let Some(owner) = OwnedObject::acquire(context, store, record, &Default::default())?
-            else {
+            let Some(owner) = OwnedObject::acquire(context, store, record)? else {
                 return Ok(super::entry(
                     id,
                     ReclaimStatus::Busy,
                     "object has an active lease",
                 ));
             };
-            owner.verify(context, &Default::default())?;
+            owner.verify(context)?;
             Ok(super::entry(
                 id,
                 ReclaimStatus::Eligible,
-                "complete object is not busy",
+                if owner.record.pending {
+                    "unavailable remainder of an interrupted deletion"
+                } else {
+                    "complete object is not busy"
+                },
             ))
         })();
         return match result {

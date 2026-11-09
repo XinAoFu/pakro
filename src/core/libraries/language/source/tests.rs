@@ -328,54 +328,7 @@ print('P6_SOURCE_FUNCTIONS_OK',sys.version.split()[0])"#;
     assert_eq!(fs::read(a.join("pakro.toml")).unwrap(),declarations.as_bytes()); assert_eq!(fs::read(b.join("pakro.toml")).unwrap(),declarations.as_bytes());
     assert_eq!(fs::read(a.join("pakro.lock")).unwrap(),lock); assert_eq!(fs::read(b.join("pakro.lock")).unwrap(),lock);
     let preview=cli.success(&empty,&["prune","--dry-run"]).await; assert!(preview.contains(&instance)&&preview.contains("would remove")); assert!(payload.is_dir());
-    let mut removed=cli.run(&empty,&["uninstall","python@3.13.16","--instance",&instance]).await;
-    let mut reclaim_resumed=false;
-    if !removed.status.success() {
-        let interrupted = |output: &Output| {
-            let text=std::str::from_utf8(&output.stdout).unwrap();
-            let raw=text.lines().find_map(|line|line.strip_prefix("operation: ")).expect("the CLI must expose its original operation ID");
-            let operation=uuid::Uuid::parse_str(raw).unwrap();
-            assert_eq!(operation.to_string(),raw);
-            assert!(text.contains(&format!("pending recovery: {instance}\n"))
-                && (text.contains("controlled deletion interrupted: store operation deadline exceeded")
-                    || text.contains("controlled deletion interrupted: the operation deadline has elapsed"))
-                && text.contains(&format!("Continue with: pakro prune --resume {operation}")),
-                "only the original deadline/PendingRecovery result may be explicitly resumed: {text}");
-            operation
-        };
-        let operation=interrupted(&removed);
-        let progress=|| {
-            use pakro_store::control::{ControlNamespace,ReadStore};
-            let remaining=deadline.checked_duration_since(Instant::now()).expect("source reclaim exceeded its original parent deadline");
-            let context=crate::libraries::language::repository::tests::operation_context(&root,false,remaining);
-            let operations=crate::libraries::reclaim::pending(&context).unwrap();
-            assert_eq!(operations.len(),1,"recovery must not create another operation");
-            let original=&operations[0]; assert_eq!(original.operation_id,operation);
-            assert_eq!(original.objects.len(),1); assert_eq!(original.objects[0].label(),instance);
-            let names=original.journals.iter().filter(|(store,name)|store=="projects" && name.starts_with(&format!("reclaim-cursor-{operation}-"))).collect::<Vec<_>>();
-            assert_eq!(names.len(),1);
-            let read=ReadStore::open_readonly(&root.join("data/projects"),nix::unistd::geteuid().as_raw(),Default::default(),deadline).unwrap().unwrap();
-            let control=read.control(Default::default()).unwrap();
-            let pin=control.read(ControlNamespace::Journals,&names[0].1).unwrap().unwrap();
-            let cursor:serde_json::Value=serde_json::from_slice(pin.bytes()).unwrap();
-            (original.complete,cursor["next"].as_u64().unwrap(),cursor["payload_removed"].as_bool().unwrap(),cursor["allocation_removed"].as_bool().unwrap())
-        };
-        let mut before=progress();
-        eprintln!("P6_SOURCE_RECLAIM_FIRST_DEADLINE operation={operation} cursor_next={}",before.1);
-        loop {
-            removed=cli.run(&empty,&["prune","--resume",&operation.to_string()]).await;
-            if !removed.status.success() { assert_eq!(interrupted(&removed),operation); }
-            let after=progress();
-            assert!(after>before,"same-operation continuation made no actual cursor or terminal progress");
-            eprintln!("P6_SOURCE_RECLAIM_RESUME operation={operation} before_next={} after_next={} complete={}",before.1,after.1,after.0);
-            before=after;
-            if removed.status.success() {
-                assert!(after.0&&after.2&&after.3,"successful continuation has no complete physical cursor");
-                reclaim_resumed=true;
-                break;
-            }
-        }
-    }
+    let removed=cli.run(&empty,&["uninstall","python@3.13.16","--instance",&instance]).await;
     assert!(removed.status.success());
     let removed=std::str::from_utf8(&removed.stdout).unwrap(); assert!(removed.contains("removed")&&removed.contains(&instance));
     assert!(!payload.exists(),"exact source language removal left its actual payload");
@@ -386,7 +339,7 @@ print('P6_SOURCE_FUNCTIONS_OK',sys.version.split()[0])"#;
     assert_eq!(fs::read(a.join("pakro.lock")).unwrap(),lock); assert_eq!(fs::read(b.join("pakro.lock")).unwrap(),lock);
     for input in real_inputs { assert!(input.exists(),"fixture reclamation touched an actual user-prepared tool/SDK"); }
     cli.complete=true;
-    eprintln!("P6_SOURCE_LIFECYCLE_COMPLETE version=3.13.16 instance={instance} actual_functions=true strict_warm_same_inode=true readonly=true exact_reclaimed=true reclaim_resumed={reclaim_resumed} elapsed={:.3}",started.elapsed().as_secs_f64());
+    eprintln!("P6_SOURCE_LIFECYCLE_COMPLETE version=3.13.16 instance={instance} actual_functions=true strict_warm_same_inode=true readonly=true exact_reclaimed=true elapsed={:.3}",started.elapsed().as_secs_f64());
 }
 
 #[tokio::test]

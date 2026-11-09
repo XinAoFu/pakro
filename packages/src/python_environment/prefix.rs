@@ -555,7 +555,7 @@ impl UnpublishedPrefix {
                     &format!("deleting-{name}")
                 )?
                 .is_none(),
-            "PendingRecovery: shared object has an unfinished deletion"
+            "PendingRecovery: shared object has an unfinished deletion; run pakro prune before installing again"
         );
         // This preflight and the replace share the same catalog EX. A normal
         // competing publisher is distinguishable from an IO error after rename.

@@ -13,7 +13,6 @@ use pakro_store::control::{
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs::File;
-use uuid::Uuid;
 
 pub(in crate::programs::uninstall) const MAX_NODES: usize = 65536;
 pub(in crate::programs::uninstall) const MAX_EDGES: usize = 1_048_576;
@@ -112,7 +111,6 @@ impl View {
 /// manifests. No SH is reacquired for them during a group EX recheck.
 pub(in crate::programs::uninstall) fn read(
     context: &OperationContext,
-    own_op: Option<Uuid>,
     supplemental: &[(ReclaimId, Vec<ReclaimId>)],
     probe: bool,
 ) -> Result<View> {
@@ -136,30 +134,18 @@ pub(in crate::programs::uninstall) fn read(
         }
     };
     for operation in &pending {
-        if operation.complete || Some(operation.operation_id) == own_op {
-            continue;
-        }
         for &(id, ref edges) in &operation.members {
             if let Err(error) = view.insert(id, edges.clone(), id.label()) {
                 view.unknown(id.label(), error);
             }
         }
         for &id in &operation.objects {
-            view.roots.insert(
-                id,
-                (
-                    ReclaimStatus::PendingRecovery,
-                    format!("pending deletion operation {}", operation.operation_id),
-                ),
-            );
+            if let Some(entry) = view.entries.get_mut(&id) {
+                entry.reasons.push("unavailable remainder of an interrupted deletion".into());
+            }
         }
     }
-    // Include our own operation's directories in namespace accounting, while
-    // excluding only its roots. Its checked members arrive as supplemental.
     for operation in &pending {
-        if operation.complete {
-            continue;
-        }
         for (id, name) in &operation.directories {
             known
                 .get_mut(namespace(*id))
@@ -484,7 +470,7 @@ fn check_journals(
 ) -> Result<()> {
     for name in control.list_names(ControlNamespace::Journals, MAX_NODES, 8 * 1024 * 1024)? {
         context.checkpoint()?;
-        if !known.contains(&name) {
+        if !known.contains(&name) && !(namespace == "projects" && name.starts_with("reclaim-")) {
             view.unknown(
                 format!("{namespace}/journals/{name}"),
                 "unrecognized operation record; protection roots are unknown",

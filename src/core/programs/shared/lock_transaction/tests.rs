@@ -758,7 +758,7 @@ fn preparing_conda_group_is_owned_by_the_original_p2_journal_and_not_rolled_back
         "original prepared allocation must outlive its caller"
     );
     drop((guard, lock, repository, writer));
-    let report = crate::programs::uninstall::prune::run(&context, false, None).unwrap();
+    let report = crate::programs::uninstall::prune::run(&context, false).unwrap();
     assert!(
         !report.complete,
         "P4 must not delete an unfinished preparation"
@@ -810,7 +810,7 @@ fn preparing_conda_journal_survives_process_exit_and_resumes_original_owner() {
             .is_none()
     );
     assert!(
-        !crate::programs::uninstall::prune::run(&context, false, None)
+        !crate::programs::uninstall::prune::run(&context, false)
             .unwrap()
             .complete
     );

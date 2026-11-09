@@ -1,22 +1,18 @@
 use crate::exit;
 use crate::programs::library::{ReclaimReport, ReclaimStatus};
-use eyre::{Context, Result, ensure};
+use eyre::{Context, Result};
 
-/// Reclaim unreferenced managed contents, or resume one recorded deletion.
+/// Reclaim unreferenced managed contents. After interruption, run pakro prune again.
 #[derive(Debug, Default, usage_rs::Args)]
 #[usage(
     verbatim_doc_comment,
     example("pakro prune --dry-run"),
-    example("pakro prune"),
-    example("pakro prune --resume <OPERATION_ID>")
+    example("pakro prune")
 )]
 pub(crate) struct Prune {
     /// Preview without changing contents, references or deletion progress.
     #[usage(long, short = 'n')]
     dry_run: bool,
-    /// Continue only the original candidates of this recorded operation.
-    #[usage(long, value_name = "OPERATION_ID")]
-    resume: Option<String>,
 }
 
 impl Prune {
@@ -27,26 +23,8 @@ impl Prune {
         self.dry_run
     }
 
-    fn operation(&self) -> Result<Option<uuid::Uuid>> {
-        self.resume
-            .as_deref()
-            .map(|value| {
-                let id = uuid::Uuid::parse_str(value).map_err(|_| {
-                    eyre::eyre!(
-                        "--resume requires the complete operation ID printed by prune or uninstall"
-                    )
-                })?;
-                ensure!(
-                    !id.is_nil() && id.hyphenated().to_string() == value,
-                    "--resume requires a complete lowercase hyphenated operation ID"
-                );
-                Ok(id)
-            })
-            .transpose()
-    }
-
     pub(crate) async fn run(self) -> Result<()> {
-        let report = crate::programs::library::prune(self.dry_run, self.operation()?)?;
+        let report = crate::programs::library::prune(self.dry_run)?;
         finish_report(&report)
     }
 }
@@ -64,15 +42,11 @@ pub(super) fn print_report(report: &ReclaimReport) -> Result<()> {
     write_report(report).wrap_err_with(|| {
         let removed = report.entries.iter().filter(|entry| entry.status == ReclaimStatus::Removed)
             .map(|entry| entry.label.as_str()).collect::<Vec<_>>().join(", ");
-        let operation = report.operation_id.map(|id| id.to_string()).unwrap_or_else(|| "(none)".into());
-        format!("reclamation result: operation={operation}, dry_run={}, complete={}, observed removed=[{removed}]; writing result output failed", report.dry_run, report.complete)
+        format!("reclamation result: dry_run={}, complete={}, observed removed=[{removed}]; writing result output failed", report.dry_run, report.complete)
     })
 }
 
 fn write_report(report: &ReclaimReport) -> Result<()> {
-    if let Some(operation) = report.operation_id {
-        pakroprintln!("operation: {operation}");
-    }
     if report.entries.is_empty() {
         pakroprintln!("No managed content needs reclamation");
     }
@@ -101,9 +75,7 @@ fn write_report(report: &ReclaimReport) -> Result<()> {
     }
     if !report.complete {
         pakroprintln!("Reclamation did not complete; the rows above show the actual result");
-        if let Some(operation) = report.operation_id {
-            pakroprintln!("Continue with: pakro prune --resume {operation}");
-        }
+        pakroprintln!("After interruption, run pakro prune again to clear unavailable contents");
     }
     Ok(())
 }
@@ -113,33 +85,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn p4_resume_uses_an_exact_operation_id_and_keeps_preview_intent() {
-        let id = uuid::Uuid::from_u128(1);
-        let mut command = Prune {
-            dry_run: false,
-            resume: Some(id.to_string()),
-        };
-        command.inherit_root_dry_run(true);
-        assert!(command.is_dry_run());
-        assert_eq!(command.operation().unwrap(), Some(id));
-        for invalid in [
-            "../operation",
-            "latest",
-            "00000000000000000000000000000001",
-            "00000000-0000-0000-0000-000000000000",
-        ] {
-            command.resume = Some(invalid.into());
-            assert!(command.operation().is_err());
-        }
-    }
-
-    #[test]
     fn p4_partial_reclamation_reports_progress_and_returns_nonzero() {
         use crate::programs::library::{ReclaimEntry, ReclaimId};
         let report = ReclaimReport {
-            operation_id: Some(uuid::Uuid::from_u128(1)),
             dry_run: false,
-            resumed: false,
             complete: false,
             entries: vec![
                 ReclaimEntry {
@@ -161,9 +110,7 @@ mod tests {
         assert_eq!(report.entries[0].status, ReclaimStatus::Removed);
         assert_eq!(report.entries[1].status, ReclaimStatus::Busy);
         let protected = ReclaimReport {
-            operation_id: None,
             dry_run: false,
-            resumed: false,
             complete: true,
             entries: vec![ReclaimEntry {
                 object: Some(ReclaimId::Package([3; 32])),

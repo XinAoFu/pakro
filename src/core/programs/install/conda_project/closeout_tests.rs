@@ -196,7 +196,15 @@ async fn mixed_forget_preserves_other_project_then_reclaims_every_object() {
     assert!(!protected.status.success());
     assert!(String::from_utf8_lossy(&protected.stderr).contains("object is still referenced"));
     success(&binary, &empty, &["project", "forget", &ids[a.to_str().unwrap()]], &env, deadline).await;
+    env.insert("PAKRO_LOG_LEVEL".into(), "debug".into());
+    eprintln!("PAKRO_PRUNE_BEGIN after_forget_a");
+    let prune_a_started = Instant::now();
     success(&binary, &empty, &["prune"], &env, deadline).await;
+    let prune_a_seconds = prune_a_started.elapsed().as_secs_f64();
+    eprintln!("PAKRO_PRUNE_TIMING after_forget_a_seconds={prune_a_seconds:.6}");
+    fs::write(evidence.join("prune-timing.json"), serde_json::to_vec_pretty(&serde_json::json!({
+        "after_forget_a_seconds": prune_a_seconds,
+    })).unwrap()).unwrap();
     for (manifest, allocation, dev, ino) in &allocations {
         assert!(manifest.exists());
         let metadata = fs::metadata(allocation).unwrap();
@@ -206,7 +214,15 @@ async fn mixed_forget_preserves_other_project_then_reclaims_every_object() {
     let remaining = success(&binary, &empty, &["project", "ls"], &env, deadline).await;
     assert!(!remaining.contains(&ids[a.to_str().unwrap()]) && remaining.contains(&ids[b.to_str().unwrap()]));
     success(&binary, &empty, &["project", "forget", &ids[b.to_str().unwrap()]], &env, deadline).await;
+    eprintln!("PAKRO_PRUNE_BEGIN after_forget_b");
+    let prune_b_started = Instant::now();
     success(&binary, &empty, &["prune"], &env, deadline).await;
+    let prune_b_seconds = prune_b_started.elapsed().as_secs_f64();
+    eprintln!("PAKRO_PRUNE_TIMING after_forget_b_seconds={prune_b_seconds:.6}");
+    fs::write(evidence.join("prune-timing.json"), serde_json::to_vec_pretty(&serde_json::json!({
+        "after_forget_a_seconds": prune_a_seconds,
+        "after_forget_b_seconds": prune_b_seconds,
+    })).unwrap()).unwrap();
     for (manifest, allocation, _, _) in &allocations {
         assert!(!manifest.exists(), "retired object manifest remains: {}", manifest.display());
         assert!(!allocation.exists(), "unused object remains: {}", allocation.display());

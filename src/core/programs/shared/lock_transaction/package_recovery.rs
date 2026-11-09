@@ -201,7 +201,7 @@ pub(super) fn resume(context: &OperationContext, journal: &Journal) -> Result<()
                 control
                     .read(ControlNamespace::Journals, &format!("deleting-{name}"))?
                     .is_none(),
-                "PendingRecovery: prepared package has an unfinished deletion"
+                "PendingRecovery: prepared package has an unfinished deletion; run pakro prune before installing again"
             );
             control.replace(ControlNamespace::Catalog, &name, None, &bytes)?;
         }

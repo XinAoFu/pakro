@@ -1,3 +1,4 @@
+use uuid::Uuid;
 use super::*;
 use crate::libraries::language::repository::tests::{
     archive, install_spec, operation_context, prepare,
@@ -99,7 +100,7 @@ fn p4_preview_empty_does_not_initialize_and_damaged_authority_is_not_zero() {
     let owner = tempfile::tempdir().unwrap();
     let root = owner.path().canonicalize().unwrap();
     let context = context(&root);
-    let preview = run(&context, true, None).unwrap();
+    let preview = run(&context, true).unwrap();
     assert!(preview.complete && preview.entries.is_empty());
     assert!(!context.requested_data_root().exists());
     assert!(!context.requested_cache_root().exists());
@@ -116,9 +117,8 @@ fn p4_preview_empty_does_not_initialize_and_damaged_authority_is_not_zero() {
         )
         .unwrap();
     drop((writer, repository));
-    let report = run(&context, false, None).unwrap();
+    let report = run(&context, false).unwrap();
     assert!(!report.complete);
-    assert!(report.operation_id.is_none());
     assert!(report.entries.iter().any(|entry| {
         entry.status == ReclaimStatus::Unknown
             && entry
@@ -224,8 +224,8 @@ fn p4_unknown_operation_journal_is_not_silently_ignored() {
         )
         .unwrap();
     drop((writer, repository));
-    let report = run(&context, false, None).unwrap();
-    assert!(!report.complete && report.operation_id.is_none());
+    let report = run(&context, false).unwrap();
+    assert!(!report.complete);
     assert!(
         report
             .entries
@@ -314,7 +314,7 @@ async fn p4_real_cycle_all_slot_roots_busy_closure_and_retired_cleanup() {
     assert_eq!(active[0].group, "auxiliary");
     assert_eq!(active[0].target, *key.target());
     assert_eq!(active[0].packages.len(), 2);
-    let rooted = view::read(&context, None, &[], false).unwrap();
+    let rooted = view::read(&context, &[], false).unwrap();
     assert!(rooted.complete);
     assert!(
         rooted
@@ -346,7 +346,7 @@ async fn p4_real_cycle_all_slot_roots_busy_closure_and_retired_cleanup() {
     let held = layout.packages()[0].clone();
     drop(layout);
     drop(language);
-    let busy = view::read(&context, None, &[], true).unwrap();
+    let busy = view::read(&context, &[], true).unwrap();
     assert!(busy.complete);
     assert_eq!(
         busy.entries[&ReclaimId::Package([81; 32])].status,
@@ -358,7 +358,7 @@ async fn p4_real_cycle_all_slot_roots_busy_closure_and_retired_cleanup() {
     ));
     assert_eq!(busy.entries[&language_id].status, ReclaimStatus::Protected);
     drop(held);
-    let free = view::read(&context, None, &[], true).unwrap();
+    let free = view::read(&context, &[], true).unwrap();
     assert!(free.complete);
     let groups = free.graph().unwrap().groups(&BTreeSet::new());
     assert_eq!(groups[0], vec![layout_id]);
@@ -366,7 +366,7 @@ async fn p4_real_cycle_all_slot_roots_busy_closure_and_retired_cleanup() {
     assert_eq!(groups.last().unwrap(), &vec![language_id]);
     // Exact package removal cannot widen into the unrooted cycle.
     assert!(plan_exact_target(&context, ReclaimId::Package([81; 32])).is_err());
-    let result = run(&context, false, None).unwrap();
+    let result = run(&context, false).unwrap();
     assert!(result.complete, "{result:?}");
     for id in [
         layout_id,
@@ -468,7 +468,6 @@ async fn p4_fresh_gate_rejects_new_parent_without_reacquiring_target_sh() {
         &context,
         ReclaimMode::Prune,
         &[(id, vec![ReclaimId::Language(manifest.language.unwrap())])],
-        None,
     )
     .unwrap_err();
     assert!(
@@ -507,8 +506,8 @@ async fn p4_old_unmanifested_directory_is_unknown_and_never_deleted() {
         .join("packages/g-00000000000000000000000000000001");
     std::fs::create_dir(&orphan).unwrap();
     std::fs::write(orphan.join("unknown"), b"preserve").unwrap();
-    let report = run(&context, false, None).unwrap();
-    assert!(!report.complete && report.operation_id.is_none());
+    let report = run(&context, false).unwrap();
+    assert!(!report.complete);
     assert!(
         report
             .entries
@@ -581,7 +580,7 @@ async fn selected_language_metadata_damage_blocks_reclaim(key_only: bool) {
         .join("projects/.control/catalog/projects");
     let catalog_before = std::fs::read(&catalog).unwrap();
     let checks = crate::libraries::language::lease::full_inventory_checks();
-    let baseline = run(&context, true, None).unwrap();
+    let baseline = run(&context, true).unwrap();
     assert!(baseline.complete, "{baseline:?}");
     assert!(
         baseline
@@ -612,9 +611,9 @@ async fn selected_language_metadata_damage_blocks_reclaim(key_only: bool) {
     let damaged_bytes = serde_json::to_vec(&damaged).unwrap();
     std::fs::write(&manifest, &damaged_bytes).unwrap();
     for dry_run in [true, false] {
-        let report = run(&context, dry_run, None).unwrap();
+        let report = run(&context, dry_run).unwrap();
         assert!(
-            !report.complete && report.operation_id.is_none(),
+            !report.complete,
             "{report:?}"
         );
         assert!(

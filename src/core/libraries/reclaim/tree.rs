@@ -1,13 +1,9 @@
-use super::{
-    journal::{Cursor, Session, durable, sync_namespace, sync_parent},
-    object::*,
-    *,
-};
+use super::{object::*, *};
 use crate::packages::python_environment::prefix::verify::{
     EntryStamp, InventoryRoot, PrefixInventoryLimits, TreeInventoryEntry, TreeInventoryKind,
     observe_inventory_for_removal, observe_tree_inventory,
 };
-use eyre::{ContextCompat, ensure};
+use eyre::{ContextCompat, WrapErr, ensure};
 use nix::{
     fcntl::{AtFlags, OFlag, openat, readlinkat},
     sys::stat::{Mode, SFlag, fstatat},
@@ -62,7 +58,7 @@ impl InventoryRoot for Root<'_> {
         self.owner.check_held(self.context)
     }
 }
-fn allocation_children(owner: &OwnedObject, cursor: &Cursor) -> Result<()> {
+fn allocation_children(owner: &OwnedObject) -> Result<()> {
     if owner.record.payload.is_none() {
         return Ok(());
     }
@@ -82,48 +78,27 @@ fn allocation_children(owner: &OwnedObject, cursor: &Cursor) -> Result<()> {
             continue;
         }
         ensure!(
-            name == b"payload" && !cursor.payload_removed,
-            "language allocation contains an unknown member"
+            name == b"payload",
+            "language allocation contains an unknown member: {}",
+            owner
+                .store
+                .path
+                .join(&owner.record.allocation)
+                .join(std::ffi::OsStr::from_bytes(name))
+                .display()
         );
     }
     Ok(())
 }
-pub(super) fn verify_remaining(
-    owner: &OwnedObject,
-    context: &OperationContext,
-    cursor: &Cursor,
-) -> Result<()> {
-    cursor.validate(
-        owner.record.inventory.entries().len(),
-        owner.record.payload.is_some(),
-    )?;
-    let order = ordered(&owner.record);
-    ensure!(
-        cursor.next <= order.len() && (!cursor.pending || cursor.next < order.len()),
-        "reclaim deletion cursor is invalid"
-    );
-    ensure!(
-        !cursor.allocation_removed || cursor.allocation_pending,
-        "reclaim allocation progress is invalid"
-    );
-    ensure!(
-        !cursor.payload_removed || cursor.payload_pending,
-        "reclaim payload progress is invalid"
-    );
-    allocation_children(owner, cursor)?;
-    let Some(_) = &owner.root else {
-        ensure!(
-            cursor.next == order.len() && (cursor.payload_pending || cursor.allocation_pending),
-            "reclaim tree disappeared before its recorded deletion"
-        );
-        return Ok(());
-    };
+pub(super) fn verify_remaining(owner: &OwnedObject, context: &OperationContext) -> Result<()> {
+    allocation_children(owner)?;
+    let Some(_) = &owner.root else { return Ok(()) };
     let root = Root {
         owner,
         context,
         path: owner.record.root_path(&owner.store),
     };
-    let actual = if cursor.next == 0 && !cursor.pending {
+    let actual = if !owner.record.pending {
         observe_tree_inventory(&root, PrefixInventoryLimits::default())?
     } else {
         observe_inventory_for_removal(&root, PrefixInventoryLimits::default())?
@@ -132,26 +107,29 @@ pub(super) fn verify_remaining(
         actual.same_root_binding(&owner.record.inventory),
         "reclaim root metadata changed"
     );
-    let mut expected = order
+    let mut expected = owner
+        .record
+        .inventory
+        .entries()
         .iter()
-        .skip(cursor.next)
-        .map(|e| (e.relative.clone(), *e))
+        .map(|entry| (entry.relative.as_path(), entry))
         .collect::<BTreeMap<_, _>>();
-    if cursor.pending
-        && !actual
-            .entries()
-            .iter()
-            .any(|e| e.relative == order[cursor.next].relative)
-    {
-        expected.remove(&order[cursor.next].relative);
+    for entry in actual.entries() {
+        ensure!(
+            expected.remove(entry.relative.as_path()) == Some(entry),
+            "reclaim member changed or is not recorded: {}",
+            root.path.join(&entry.relative).display()
+        );
     }
-    ensure!(
-        actual.entries().len() == expected.len()
-            && actual.entries().iter().all(|entry| expected
-                .get(&entry.relative)
-                .is_some_and(|old| **old == *entry)),
-        "reclaim remaining inventory changed or has unknown members"
-    );
+    if !owner.record.pending {
+        ensure!(
+            expected.is_empty(),
+            "reclaim recorded member disappeared: {}",
+            root.path
+                .join(expected.keys().next().copied().unwrap_or(Path::new("")))
+                .display()
+        );
+    }
     Ok(())
 }
 pub(super) struct ParentCache {
@@ -178,7 +156,7 @@ impl ParentCache {
         &mut self,
         entries: &BTreeMap<&Path, &TreeInventoryEntry>,
         relative: &Path,
-    ) -> Result<&File> {
+    ) -> Result<Option<&File>> {
         let mut partial = PathBuf::new();
         let mut depth = 0;
         for component in relative
@@ -209,14 +187,18 @@ impl ParentCache {
             } else {
                 &self.directories[depth - 1].1
             };
-            if self.directories.len() > depth {
-                let stat = fstatat(parent, name, AtFlags::AT_SYMLINK_NOFOLLOW)?;
-                ensure!(
-                    SFlag::from_bits_truncate(stat.st_mode) & SFlag::S_IFMT == SFlag::S_IFDIR
-                        && [stat.st_dev as u64, stat.st_ino as u64] == entry.identity,
-                    "reclaim parent directory was replaced"
-                );
-            } else {
+            let stat = match fstatat(parent, name, AtFlags::AT_SYMLINK_NOFOLLOW) {
+                Ok(stat) => stat,
+                Err(nix::errno::Errno::ENOENT) => return Ok(None),
+                Err(error) => return Err(error.into()),
+            };
+            ensure!(
+                SFlag::from_bits_truncate(stat.st_mode) & SFlag::S_IFMT == SFlag::S_IFDIR
+                    && [stat.st_dev as u64, stat.st_ino as u64] == entry.identity,
+                "reclaim parent directory was replaced: {}",
+                partial.display()
+            );
+            if self.directories.len() <= depth {
                 let next = pakro_store::control::open_directory(parent, name)?;
                 ensure!(
                     pair(&next)? == entry.identity,
@@ -231,11 +213,11 @@ impl ParentCache {
             depth += 1;
         }
         self.directories.truncate(depth);
-        Ok(if depth == 0 {
+        Ok(Some(if depth == 0 {
             &self.root
         } else {
             &self.directories[depth - 1].1
-        })
+        }))
     }
 }
 
@@ -318,19 +300,8 @@ fn verify_entry(
     context.checkpoint()?;
     Ok(true)
 }
-pub(super) fn remove(
-    session: &Session,
-    index: usize,
-    owner: &OwnedObject,
-    context: &OperationContext,
-    cursor: &mut Cursor,
-    pin: &mut pakro_store::control::ControlSnapshot,
-) -> Result<()> {
-    owner.verify(context, cursor)?;
+pub(super) fn remove(owner: &OwnedObject, context: &OperationContext) -> Result<()> {
     let order = ordered(&owner.record);
-    // Derive this lookup once from the verified immutable record while its
-    // original EX is held. Cached directory descriptors retain their binding
-    // checks against the original root on every use.
     let entries = owner
         .record
         .inventory
@@ -340,170 +311,70 @@ pub(super) fn remove(
         .collect::<BTreeMap<_, _>>();
     #[cfg(test)]
     PARENT_INDEX_BUILDS.with(|count| count.set(count.get() + 1));
-    if !cursor.revoked {
-        cursor.revoke_pending = true;
-        session.save_cursor(index, cursor, pin)?;
-        durable("revoke-intent");
-        let mut control = owner.store.writer()?.control(Default::default())?;
-        if let Some(ready) = control.read(
-            pakro_store::control::ControlNamespace::Catalog,
-            &manifest_name(owner.record.object),
-        )? {
-            ensure!(
-                ready.bytes() == owner.record.manifest
-                    && pair_snapshot(&ready) == owner.record.manifest_identity,
-                "reclaim original manifest changed before revocation"
-            );
-            control.remove_with_before_sync(&ready, || {
-                durable("ready-unlink-unsynced");
-                Ok(())
-            })?;
+    let mut verification = std::time::Duration::ZERO;
+    if owner.root.is_some() {
+        let mut parents = ParentCache::new(owner)?;
+        for entry in order {
+            owner.check_held(context)?;
+            let path = owner.record.root_path(&owner.store).join(&entry.relative);
+            let Some(directory) = parents
+                .parent(&entries, &entry.relative)
+                .wrap_err_with(|| format!("reclaim parent changed: {}", path.display()))?
+            else {
+                continue;
+            };
+            let started = std::time::Instant::now();
+            let existed = verify_entry(directory, entry, context)
+                .wrap_err_with(|| format!("reclaim member changed: {}", path.display()))?;
+            verification += started.elapsed();
+            if existed {
+                unlinkat(
+                    directory,
+                    entry.relative.file_name().expect("validated name"),
+                    if matches!(entry.kind, TreeInventoryKind::Directory) {
+                        UnlinkatFlags::RemoveDir
+                    } else {
+                        UnlinkatFlags::NoRemoveDir
+                    },
+                )?;
+            }
         }
-        sync_namespace(
-            context,
-            &control,
-            pakro_store::control::ControlNamespace::Catalog,
-            "ready-parent",
-            Some(owner.record.object),
-        )?;
-        drop(control);
-        durable("ready-removed");
-        cursor.revoked = true;
-        session.save_cursor(index, cursor, pin)?;
-        durable("revoked");
     }
-    if !cursor.captured {
-        cursor.capture_pending = true;
-        session.save_cursor(index, cursor, pin)?;
-        durable("capture-intent");
-        if stat_identity(&owner.store.root, &owner.record.captured)?.is_none() {
-            pakro_store::control::ensure_entry_identity(
-                &owner.store.root,
-                &owner.record.allocation,
-                identity(owner.record.allocation_identity)?,
-            )?;
-            pakro_store::control::rename_noclobber(
-                &owner.store.root,
-                std::ffi::OsStr::new(&owner.record.allocation),
-                &owner.store.root,
-                std::ffi::OsStr::new(&owner.record.captured),
-            )?;
-            durable("capture-rename-unsynced");
-        }
-        sync_parent(
-            context,
-            &owner.store.root,
-            "capture-parent",
-            Some(owner.record.object),
+    debug!(
+        "reclaim entry verification {}: {:.6}s",
+        owner.record.object.label(),
+        verification.as_secs_f64()
+    );
+    if let Some(expected) = owner.record.payload.filter(|_| owner.root.is_some()) {
+        pakro_store::control::ensure_entry_identity(
+            owner.allocation.as_ref().expect("payload parent"),
+            "payload",
+            identity(expected)?,
+        )
+        .wrap_err_with(|| {
+            format!(
+                "reclaim payload was replaced: {}",
+                owner.record.root_path(&owner.store).display()
+            )
+        })?;
+        unlinkat(
+            owner.allocation.as_ref().expect("payload parent"),
+            "payload",
+            UnlinkatFlags::RemoveDir,
         )?;
-        durable("capture-renamed");
+    }
+    if owner.allocation.is_some() {
         pakro_store::control::ensure_entry_identity(
             &owner.store.root,
-            &owner.record.captured,
+            &owner.record.allocation,
             identity(owner.record.allocation_identity)?,
         )?;
-        cursor.captured = true;
-        session.save_cursor(index, cursor, pin)?;
-        durable("captured");
-    }
-    let mut parents = (cursor.next < order.len())
-        .then(|| ParentCache::new(owner))
-        .transpose()?;
-    while cursor.next < order.len() {
-        owner.check_held(context)?;
-        let entry = order[cursor.next];
-        let directory = parents
-            .as_mut()
-            .expect("members need a parent")
-            .parent(&entries, &entry.relative)?;
-        let existed = verify_entry(directory, entry, context)?;
-        ensure!(
-            existed || cursor.pending,
-            "unstarted reclaim member disappeared"
-        );
-        if !cursor.pending {
-            cursor.pending = true;
-            session.save_cursor(index, cursor, pin)?;
-        }
-        durable("entry-intent");
-        if existed {
-            unlinkat(
-                directory,
-                entry.relative.file_name().expect("validated name"),
-                if matches!(entry.kind, TreeInventoryKind::Directory) {
-                    UnlinkatFlags::RemoveDir
-                } else {
-                    UnlinkatFlags::NoRemoveDir
-                },
-            )?;
-            durable("entry-unlink-unsynced");
-        }
-        sync_parent(
-            context,
-            directory,
-            "entry-parent",
-            Some(owner.record.object),
-        )?;
-        durable("entry-unlinked");
-        cursor.next += 1;
-        cursor.pending = false;
-        session.save_cursor(index, cursor, pin)?;
-        durable("entry-removed");
-    }
-    if owner.record.payload.is_some() && !cursor.payload_removed {
-        cursor.payload_pending = true;
-        session.save_cursor(index, cursor, pin)?;
-        durable("payload-intent");
-        let allocation = owner
-            .allocation
-            .as_ref()
-            .context("pending payload deletion has no original parent")?;
-        if stat_identity(allocation, "payload")?.is_some() {
-            pakro_store::control::ensure_entry_identity(
-                allocation,
-                "payload",
-                identity(owner.record.payload.expect("language payload"))?,
-            )?;
-            unlinkat(allocation, "payload", UnlinkatFlags::RemoveDir)?;
-            durable("payload-rmdir-unsynced");
-        }
-        sync_parent(
-            context,
-            allocation,
-            "payload-parent",
-            Some(owner.record.object),
-        )?;
-        durable("payload-unlinked");
-        cursor.payload_removed = true;
-        session.save_cursor(index, cursor, pin)?;
-    }
-    if !cursor.allocation_removed {
-        cursor.allocation_pending = true;
-        session.save_cursor(index, cursor, pin)?;
-        durable("allocation-intent");
-        if stat_identity(&owner.store.root, &owner.record.captured)?.is_some() {
-            pakro_store::control::ensure_entry_identity(
-                &owner.store.root,
-                &owner.record.captured,
-                identity(owner.record.allocation_identity)?,
-            )?;
-            unlinkat(
-                &owner.store.root,
-                owner.record.captured.as_str(),
-                UnlinkatFlags::RemoveDir,
-            )?;
-            durable("allocation-rmdir-unsynced");
-        }
-        sync_parent(
-            context,
+        unlinkat(
             &owner.store.root,
-            "allocation-parent",
-            Some(owner.record.object),
+            owner.record.allocation.as_str(),
+            UnlinkatFlags::RemoveDir,
         )?;
-        durable("allocation-unlinked");
-        cursor.allocation_removed = true;
-        session.save_cursor(index, cursor, pin)?;
-        durable("allocation-removed");
     }
+    owner.store.root.sync_all()?;
     Ok(())
 }

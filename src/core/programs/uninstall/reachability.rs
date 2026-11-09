@@ -6,7 +6,6 @@ use crate::programs::OperationContext;
 use eyre::{Result, ensure};
 use pakro_store::control::{ControlLimits, ControlNamespace, ReadStore, WriterControl};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use uuid::Uuid;
 
 fn project_references(context: &OperationContext, target: [u8; 32]) -> Result<BTreeSet<String>> {
     let repository = ProjectRepository::open_readonly(context)?;
@@ -267,7 +266,6 @@ pub(crate) fn recheck_group(
     context: &OperationContext,
     _mode: ReclaimMode,
     members: &[(ReclaimId, Vec<ReclaimId>)],
-    own_op: Option<Uuid>,
 ) -> Result<()> {
     ensure!(!members.is_empty(), "empty reclamation group");
     let targets: BTreeSet<_> = members.iter().map(|(id, _)| *id).collect();
@@ -275,7 +273,7 @@ pub(crate) fn recheck_group(
         targets.len() == members.len(),
         "duplicate reclamation group member"
     );
-    let view = super::prune::view::read(context, own_op, members, false)?;
+    let view = super::prune::view::read(context, members, false)?;
     ensure!(
         view.complete,
         "object references are unknown; fresh reclamation view is incomplete: {}",
@@ -331,7 +329,6 @@ pub(crate) fn recheck_group(
 pub(crate) fn cleanup_retired(
     context: &OperationContext,
     removed: &[ReclaimId],
-    own_operation: Option<Uuid>,
 ) -> Result<()> {
     let layouts: BTreeSet<_> = removed
         .iter()
@@ -356,13 +353,14 @@ pub(crate) fn cleanup_retired(
             .map(|pending| pending.language),
     );
     for pending in reclaim::pending(context)? {
-        if !pending.complete && Some(pending.operation_id) != own_operation {
-            protected.extend(pending.objects.into_iter().map(ReclaimId::key));
-            for (_, edges) in pending.members {
+        for (id, edges) in pending.members {
+            if !removed.contains(&id) {
+                protected.insert(id.key());
                 protected.extend(edges.into_iter().map(ReclaimId::key));
             }
         }
     }
+
     let read = ProjectRepository::open_readonly(context)?;
     let mut allocations = Vec::new();
     for allocation in read.model().retired_generations() {

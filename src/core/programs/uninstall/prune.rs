@@ -3,7 +3,6 @@ use crate::libraries::reclaim::{self, ReclaimId, ReclaimMode, ReclaimReport, Rec
 use crate::programs::OperationContext;
 use eyre::{Result, ensure};
 use std::collections::BTreeSet;
-use uuid::Uuid;
 
 mod graph;
 pub(super) mod view;
@@ -11,12 +10,8 @@ pub(super) mod view;
 pub(crate) fn run(
     context: &OperationContext,
     dry_run: bool,
-    resume: Option<Uuid>,
 ) -> Result<ReclaimReport> {
-    if let Some(operation) = resume {
-        return reclaim::resume(context, operation, dry_run);
-    }
-    let mut view = view::read(context, None, &[], true)?;
+    let mut view = view::read(context, &[], dry_run)?;
     if !view.complete {
         return Ok(report(view, dry_run, false));
     }
@@ -57,8 +52,7 @@ pub(crate) fn run(
     if dry_run || groups.is_empty() {
         return Ok(report(view, dry_run, !blocked));
     }
-    // The kernel fixes this exact candidate collection in its own journal,
-    // reacquires the whole group EX, then calls the fresh reference gate.
+    // The kernel acquires the whole group EX before rechecking references.
     let mut executed = reclaim::execute(context, ReclaimMode::Prune, &groups, false)?;
     let candidates: BTreeSet<_> = groups.iter().flatten().copied().collect();
     executed.entries.extend(
@@ -90,9 +84,7 @@ fn report(mut view: view::View, dry_run: bool, complete: bool) -> ReclaimReport 
     let mut entries: Vec<_> = view.entries.into_values().collect();
     entries.extend(view.issues);
     ReclaimReport {
-        operation_id: None,
         dry_run,
-        resumed: false,
         complete: complete && view.complete,
         entries,
     }
@@ -104,7 +96,7 @@ pub(crate) fn plan_exact_target(
     context: &OperationContext,
     target: ReclaimId,
 ) -> Result<Vec<Vec<ReclaimId>>> {
-    let view = view::read(context, None, &[], false)?;
+    let view = view::read(context, &[], false)?;
     ensure!(
         view.complete,
         "object references are unknown; reclamation view is incomplete: {}",

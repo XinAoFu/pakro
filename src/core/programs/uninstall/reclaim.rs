@@ -31,13 +31,9 @@ fn completed_label(report: ReclaimReport, id: ReclaimId) -> Result<String> {
         .map(|entry| entry.label.as_str())
         .collect::<Vec<_>>()
         .join(", ");
-    let resume = report
-        .operation_id
-        .map(|operation| format!("; continue with pakro prune --resume {operation}"))
-        .unwrap_or_default();
     ensure!(
         report.complete && target_complete,
-        "object removal did not complete; observed removed=[{removed}]: {reasons}{resume}"
+        "object removal did not complete; observed removed=[{removed}]: {reasons}; run pakro prune to clear any unavailable remainder"
     );
     Ok(id.label())
 }

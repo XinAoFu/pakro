@@ -1,4 +1,5 @@
 //! One real-main lifecycle over a small, owned, fully published fixture.
+use uuid::Uuid;
 use super::*;
 use crate::libraries::language::repository::tests::{
     archive, install_spec, operation_context, prepare,
@@ -54,7 +55,7 @@ fn tree(root: &Path) -> BTreeMap<PathBuf, Entry> {
     entries
 }
 
-fn cli(binary: &Path, stage: &Path, args: &[&str], code: i32) -> Output {
+fn cli_command(binary: &Path, stage: &Path, args: &[&str]) -> Command {
     let mut command = Command::new(binary);
     command.env_clear().current_dir(stage).args(args);
     for (name, value) in [
@@ -89,7 +90,11 @@ fn cli(binary: &Path, stage: &Path, args: &[&str], code: i32) -> Output {
     ] {
         command.env(name, value);
     }
-    let output = command.output().unwrap();
+    command
+}
+
+fn cli(binary: &Path, stage: &Path, args: &[&str], code: i32) -> Output {
+    let output = cli_command(binary, stage, args).output().unwrap();
     println!(
         "P4_MAIN_COMMAND={args:?} EXIT={:?}\n{}\n{}",
         output.status.code(),
@@ -165,7 +170,7 @@ async fn p8_exact_instance_preview_is_readonly_and_removes_an_unreferenced_packa
 
     let before = tree(context.requested_data_root());
     let preview = crate::programs::uninstall::reclaim::instance_report(&context, &id.label(), true).unwrap();
-    assert!(preview.complete && preview.operation_id.is_none());
+    assert!(preview.complete);
     assert!(preview.entries.iter().any(|entry| entry.object == Some(id) && entry.status == ReclaimStatus::Eligible));
     assert_eq!(tree(context.requested_data_root()), before, "instance preview must not change library data");
 
@@ -227,7 +232,7 @@ fn selections(
 
 #[tokio::test]
 #[ignore = "requires PAKRO_TEST_MAIN_BINARY pointing to the freshly built real pakro executable"]
-async fn p4_real_main_prune_respects_two_projects_and_completed_resume() {
+async fn p4_real_main_prune_respects_two_projects_and_repeated_prune() {
     let binary = PathBuf::from(
         std::env::var_os("PAKRO_TEST_MAIN_BINARY")
             .expect("set PAKRO_TEST_MAIN_BINARY to the freshly built real pakro executable"),
@@ -477,27 +482,12 @@ async fn p4_real_main_prune_respects_two_projects_and_completed_resume() {
             .generation(&allocation)
             .is_none()
     );
-    let stdout = String::from_utf8_lossy(&removed.stdout);
-    let operations = stdout
-        .lines()
-        .filter_map(|line| line.strip_prefix("operation: "))
-        .collect::<Vec<_>>();
-    assert_eq!(operations.len(), 1);
-    let operation = Uuid::parse_str(operations[0]).unwrap();
-    assert_eq!(operation.to_string(), operations[0]);
-    let pending = super::pending(&context).unwrap();
-    assert_eq!(pending.len(), 1);
-    assert_eq!(pending[0].operation_id, operation);
-    assert!(pending[0].complete);
+    assert!(super::pending(&context).unwrap().is_empty());
     let completed = tree(context.requested_data_root());
     let completed_catalog = catalog(&context);
-    for args in [
-        vec!["prune", "--resume", operations[0], "--dry-run"],
-        vec!["prune", "--resume", operations[0]],
-        vec!["prune", "--resume", operations[0]],
-    ] {
+    for args in [vec!["prune", "--dry-run"], vec!["prune"], vec!["prune"]] {
         let output = cli(&binary, &stage, &args, 0);
-        statuses(&output, "removed", &objects);
+        assert!(String::from_utf8_lossy(&output.stdout).contains("No managed content needs reclamation"));
         assert_eq!(tree(context.requested_data_root()), completed);
         assert_eq!(catalog(&context), completed_catalog);
         ready(&context, &objects, false);
@@ -515,5 +505,84 @@ async fn p4_real_main_prune_respects_two_projects_and_completed_resume() {
     assert_eq!(tree(&project_paths[1]), project_files[1]);
     let final_binary_sha: [u8; 32] = Sha256::digest(std::fs::read(&binary).unwrap()).into();
     assert_eq!(final_binary_sha, binary_sha);
-    println!("P4_REAL_MAIN_LIFECYCLE_PASSED operation={operation}");
+    println!("P4_REAL_MAIN_LIFECYCLE_PASSED");
+}
+
+#[tokio::test]
+#[ignore = "requires PAKRO_TEST_MAIN_BINARY and kills the actual prune/uninstall processes"]
+async fn p4_real_main_killed_deletion_is_unavailable_and_next_prune_cleans_it() {
+    use crate::libraries::package::tree::prepare_package_tree;
+    use nix::sys::signal::{Signal, kill};
+    use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
+    use nix::unistd::Pid;
+    use std::os::unix::process::ExitStatusExt;
+    struct ChildGuard(std::process::Child);
+    impl Drop for ChildGuard {
+        fn drop(&mut self) { let _ = self.0.kill(); let _ = self.0.wait(); }
+    }
+    let binary = PathBuf::from(std::env::var_os("PAKRO_TEST_MAIN_BINARY").unwrap()).canonicalize().unwrap();
+    for exact in [false, true] {
+        let owner = tempfile::tempdir().unwrap();
+        let stage = owner.path().canonicalize().unwrap();
+        std::fs::create_dir(stage.join("home")).unwrap();
+        let context = operation_context(&stage, true, Duration::from_secs(240));
+        let bytes = archive("3.15.0");
+        let language = prepare(&install_spec(&bytes), &context, &bytes).await.unwrap();
+        let names = (0..800).map(|index| format!("bulk/member{index:05}.py")).collect::<Vec<_>>();
+        let files = || names.iter().map(|name| (name.as_str(), b"VALUE=1\n".as_slice())).collect();
+        let (facts, artifact) = wheel(&context, &language, "bulk", [221; 32], vec![], files(), None);
+        let package = prepare_package_tree(&context, &language, facts, artifact).unwrap();
+        let id = ReclaimId::Package(package.manifest().key());
+        let instance = id.label();
+        let path = package.root().to_owned();
+        drop(package);
+        drop(language);
+        let stdout = stage.join("delete.stdout");
+        let stderr = stage.join("delete.stderr");
+        let args = if exact { vec!["uninstall", "--instance", &instance] } else { vec!["prune"] };
+        let mut child = ChildGuard(cli_command(&binary, &stage, &args)
+            .stdout(std::fs::File::create(&stdout).unwrap()).stderr(std::fs::File::create(&stderr).unwrap())
+            .spawn().unwrap());
+        let pid = Pid::from_raw(child.0.id() as i32);
+        let first = path.join("site-packages").join(&names[0]);
+        let last = path.join("site-packages").join(names.last().unwrap());
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        while first.exists() {
+            assert!(child.0.try_wait().unwrap().is_none(), "deletion exited before interruption: {}", std::fs::read_to_string(&stderr).unwrap());
+            assert!(std::time::Instant::now() < deadline, "deletion did not start within 60 seconds");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        kill(pid, Signal::SIGSTOP).unwrap();
+        assert!(matches!(waitpid(pid, Some(WaitPidFlag::WUNTRACED)).unwrap(), WaitStatus::Stopped(_, Signal::SIGSTOP)));
+        assert!(last.exists(), "deletion finished before the real interruption");
+        kill(pid, Signal::SIGKILL).unwrap();
+        assert_eq!(child.0.wait().unwrap().signal(), Some(9));
+        assert!(kill(pid, None).is_err(), "killed pakro process still exists");
+        println!("P4_REAL_KILL exact={exact} pid={} first_removed=true remaining=true\n{}\n{}", pid.as_raw(), std::fs::read_to_string(&stdout).unwrap(), std::fs::read_to_string(&stderr).unwrap());
+        ready(&context, &[id], false);
+        assert!(super::pending(&context).unwrap().iter().any(|pending| pending.objects.contains(&id)));
+        let listing = cli(&binary, &stage, &["installs", "ls", "--json"], 0);
+        let rows: serde_json::Value = serde_json::from_slice(&listing.stdout).unwrap();
+        assert!(rows.as_array().unwrap().iter().all(|row| row["instance"].as_str() != Some(instance.as_str())));
+        let preview = cli(&binary, &stage, &["prune", "--dry-run"], 0);
+        statuses(&preview, "would remove", &[id]);
+        assert!(String::from_utf8_lossy(&preview.stdout).contains("unavailable remainder"));
+        assert!(last.exists());
+        let language = prepare(&install_spec(&bytes), &context, &bytes).await.unwrap();
+        let (facts, artifact) = wheel(&context, &language, "bulk", [221; 32], vec![], files(), None);
+        let error = match prepare_package_tree(&context, &language, facts, artifact) {
+            Ok(_) => panic!("an interrupted object must not be selected or republished"),
+            Err(error) => error,
+        };
+        assert!(format!("{error:#}").contains("run pakro prune"), "{error:#}");
+        drop(language);
+        cli(&binary, &stage, &["prune"], 0);
+        assert!(!path.exists());
+        assert!(super::pending(&context).unwrap().is_empty());
+        let language = prepare(&install_spec(&bytes), &context, &bytes).await.unwrap();
+        let (facts, artifact) = wheel(&context, &language, "bulk", [221; 32], vec![], files(), None);
+        let installed = prepare_package_tree(&context, &language, facts, artifact).unwrap();
+        installed.check_binding().unwrap();
+        assert!(installed.root().join("site-packages").join(&names[0]).is_file());
+    }
 }
