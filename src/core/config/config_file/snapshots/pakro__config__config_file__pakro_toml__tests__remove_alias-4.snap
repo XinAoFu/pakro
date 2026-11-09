@@ -1,0 +1,14 @@
+---
+source: src/config/config_file/pakro_toml.rs
+expression: cf
+---
+PakroToml(~/cwd/.test.pakro.toml): ToolRequestSet: <empty> {
+    alias: {
+        "node": Alias {
+            backend: None,
+            versions: {
+                "18": "18.0.0",
+            },
+        },
+    },
+}

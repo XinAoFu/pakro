@@ -124,7 +124,12 @@ async fn p6_reclaim_parent_index_is_local_and_keeps_actual_directory_checks() {
             .map(|entry| (entry.relative.as_path(), entry))
             .collect::<std::collections::BTreeMap<_, _>>();
         let relative = Path::new("site-packages/demo.py");
-        drop(super::tree::parent(&held, &entries, relative).unwrap());
+        let mut parents = super::tree::ParentCache::new(&held).unwrap();
+        parents.parent(&entries, relative).unwrap();
+        let opens = parents.opens;
+        assert!(opens > 0);
+        parents.parent(&entries, relative).unwrap();
+        assert_eq!(parents.opens, opens, "the same parent should reuse its open descriptor");
 
         let directory = package_path.join("site-packages");
         let original = package_path.join("site-packages-original");
@@ -132,7 +137,7 @@ async fn p6_reclaim_parent_index_is_local_and_keeps_actual_directory_checks() {
         std::fs::rename(&directory, &original).unwrap();
         std::fs::create_dir(&directory).unwrap();
         std::fs::set_permissions(&directory, mode).unwrap();
-        let error = super::tree::parent(&held, &entries, relative).unwrap_err();
+        let error = parents.parent(&entries, relative).unwrap_err();
         std::fs::remove_dir(&directory).unwrap();
         std::fs::rename(&original, &directory).unwrap();
         assert!(format!("{error:#}").contains("reclaim parent directory was replaced"),

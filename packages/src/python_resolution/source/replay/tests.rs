@@ -638,3 +638,173 @@ async fn actual_warm_snapshot_cannot_escape_the_original_deadline_during_final_s
     fixture.assert_no_authority_writes();
     assert_eq!(result.unwrap_err(), LockedReplayError::Deadline);
 }
+
+#[tokio::test]
+async fn mixed_locked_url_cold_fetch_never_reads_simple() {
+    use rattler_conda_types::package::{
+        ArchiveIdentifier, CondaArchiveType, DistArchiveIdentifier, DistArchiveType,
+    };
+    use rattler_conda_types::{PackageName, PackageRecord, RepoDataRecord, Version};
+    use std::str::FromStr;
+
+    let peer = Peer::new(|path| {
+        if path.ends_with(FILENAME) {
+            Reply::file(PAYLOAD)
+        } else {
+            Reply::denied()
+        }
+    });
+    let fixture = Fixture::new(&peer);
+    let file = fixture.file(FILENAME);
+    let limits = LockModelLimits::default();
+    let pin = ContentPin::new(
+        &file,
+        Digest::from_sha256_bytes(PAYLOAD),
+        PAYLOAD.len() as u64,
+        PinEvidence::Advertised,
+        limits,
+    )
+    .unwrap();
+    let mut package = PackageRecord::new(
+        PackageName::from_str("python").unwrap(),
+        Version::from_str("3.13.13").unwrap(),
+        "cp313_0".into(),
+    );
+    package.subdir = "osx-arm64".into();
+    package.sha256 = Some([6u8; 32].into());
+    package.size = Some(100);
+    let python = RepoDataRecord {
+        package_record: package,
+        identifier: DistArchiveIdentifier::new(
+            ArchiveIdentifier {
+                name: "python".into(),
+                version: "3.13.13".into(),
+                build_string: "cp313_0".into(),
+            },
+            DistArchiveType::Conda(CondaArchiveType::Conda),
+        ),
+        url: "https://conda.anaconda.org/conda-forge/osx-arm64/python-3.13.13-cp313_0.conda"
+            .parse()
+            .unwrap(),
+        channel: Some("https://conda.anaconda.org/conda-forge/".into()),
+    };
+    let language =
+        crate::plugins::core::python::native::pipeline::RuntimeInstallPlan::from_conda_record(
+            &python,
+        )
+        .unwrap()
+        .language_key(false)
+        .unwrap();
+    let conda = CondaLockGraph {
+        config_scope: String::new(),
+        group: "default".into(),
+        target: "osx-arm64".into(),
+        target_fingerprint: language.target(),
+        channels: vec!["conda-forge".into()],
+        roots: vec!["python ==3.13.13".into()],
+        virtual_packages: vec![],
+        records: vec![python],
+    };
+    let graph = MixedLockGraph {
+        config_scope: String::new(),
+        group: "default".into(),
+        target_fingerprint: language.target(),
+        language: language.fingerprint(),
+        marker_semantics: "current2026".into(),
+        root_declarations: vec!["demo-pkg==1.0.0".into()],
+        roots: vec![MixedLockRoot {
+            declaration_index: 0,
+            node: "demo-pkg".into(),
+        }],
+        nodes: vec![MixedLockNode {
+            name: "demo-pkg".into(),
+            version: "1.0.0".into(),
+            source: MixedLockSource::Registry {
+                pin: hex::encode(pin.id().as_bytes()),
+                url: Some(format!("{}/files/{FILENAME}", peer.url)),
+            },
+        }],
+        edges: vec![],
+    };
+    let model = PythonLockModel::from_parts(&[], &[], limits)
+        .unwrap()
+        .with_conda(conda, limits)
+        .unwrap()
+        .with_mixed(graph, &[pin], &[], limits)
+        .unwrap();
+    fs::write(
+        &fixture.lock_path,
+        format!(
+            "lockfile_version = 4\n{}",
+            model.encode_projection(limits).unwrap()
+        ),
+    )
+    .unwrap();
+    let lock = BoundPythonLock::acquire_conda(
+        &fixture.lock_path,
+        limits,
+        Instant::now() + Duration::from_secs(15),
+    )
+    .unwrap();
+    let mut artifact = acquire_locked_url(
+        &lock,
+        slot(&lock, &file),
+        fixture.context(NetworkPolicy::Allowed, &ROUTE),
+    )
+    .await
+    .unwrap();
+    assert_eq!(artifact.origin(), LockedReplayOrigin::Registry);
+    assert_eq!(read(&mut artifact), PAYLOAD);
+    assert_eq!(peer.requests(), vec![format!("/files/{FILENAME}")]);
+}
+
+#[tokio::test]
+async fn schema7_pypi_lock_cold_fetch_uses_locked_file_url_without_simple() {
+    let peer = Peer::new(|path| {
+        if path.ends_with(FILENAME) {
+            Reply::file(PAYLOAD)
+        } else {
+            Reply::denied()
+        }
+    });
+    let fixture = Fixture::new(&peer);
+    let file = fixture.file(FILENAME);
+    let lock = fixture.lock(
+        &file,
+        Digest::from_sha256_bytes(PAYLOAD),
+        PAYLOAD.len() as u64,
+    );
+    let pin = lock.model().unwrap().pins()[0].id();
+    let model = lock.model().unwrap().clone();
+    drop(lock);
+    let locators = [(
+        hex::encode(pin.as_bytes()),
+        format!("{}/files/{FILENAME}", peer.url),
+    )]
+    .into_iter()
+    .collect();
+    let model = model.with_locators(locators, Default::default()).unwrap();
+    fs::write(
+        &fixture.lock_path,
+        format!(
+            "lockfile_version = 4\n{}",
+            model.encode_projection(Default::default()).unwrap()
+        ),
+    )
+    .unwrap();
+    let lock = BoundPythonLock::acquire(
+        &fixture.lock_path,
+        Default::default(),
+        Instant::now() + Duration::from_secs(15),
+    )
+    .unwrap();
+    let mut artifact = acquire_locked_url(
+        &lock,
+        slot(&lock, &file),
+        fixture.context(NetworkPolicy::Allowed, &ROUTE),
+    )
+    .await
+    .unwrap();
+    assert_eq!(read(&mut artifact), PAYLOAD);
+    assert_eq!(peer.requests(), vec![format!("/files/{FILENAME}")]);
+}

@@ -1,0 +1,5 @@
+---
+source: src/config/config_file/pakro_toml.rs
+expression: cf
+---
+/tmp/.pakro.toml: node@16.0.1 node@18.0.1

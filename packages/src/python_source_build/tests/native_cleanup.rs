@@ -72,6 +72,7 @@ async fn removed_and_stopped(workspace: &Path, ticks: &File) {
     assert_eq!(ticks.metadata().unwrap().len(), bytes, "descendant survived workspace removal");
 }
 
+#[ignore = "requires PAKRO_TEST_BINARY (newly built pakro main binary) and a real toolchain"]
 #[tokio::test(flavor = "current_thread")]
 async fn p6_native_source_production_destructors_wait_for_watcher() {
     use crate::libraries::language::repository::LanguageRepository;
@@ -154,6 +155,7 @@ async fn p6_native_source_production_destructors_wait_for_watcher() {
     }
 }
 
+#[ignore = "requires PAKRO_TEST_BINARY (newly built pakro main binary) and a real toolchain"]
 #[tokio::test(flavor = "current_thread")]
 async fn p6_native_language_owner_destructor_waits_for_watcher() {
     use crate::libraries::language::repository::{LanguageRepository, LanguageReservation};

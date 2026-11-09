@@ -399,3 +399,89 @@ fn an_existing_file_slot_does_not_rebind_to_identical_lock_bytes_in_another_proj
     assert!(slot.recheck_for(&b).is_err());
     slot.recheck_for(&a).unwrap();
 }
+
+#[test]
+fn fixed_lock_install_bind_fixed_decodes_initial_bytes_not_disk_content() {
+    let owner = tempfile::tempdir().unwrap();
+    let path = owner.path().join("pakro.lock");
+    let (initial, _) = pinned();
+    // A different, valid document on disk must not replace the initial bytes:
+    // the fixed model keeps the initial pin set.
+    fs::write(&path, empty()).unwrap();
+    let lock = BoundPythonLock::bind_fixed(
+        &path,
+        Some(initial.as_bytes()),
+        LockModelLimits::default(),
+        deadline(),
+    )
+    .unwrap();
+    let model = lock.model().expect("initial bytes carry a model");
+    assert_eq!(model.pins().len(), 1);
+    lock.recheck().unwrap();
+    // Garbage on disk, deletion and recreation never become install input or
+    // a recheck failure for a fixed origin.
+    fs::write(&path, "user rewrote the lock").unwrap();
+    lock.recheck().unwrap();
+    fs::remove_file(&path).unwrap();
+    lock.recheck().unwrap();
+    fs::write(&path, empty()).unwrap();
+    lock.recheck().unwrap();
+    drop(lock);
+    let absent =
+        BoundPythonLock::bind_fixed(&path, None, LockModelLimits::default(), deadline()).unwrap();
+    assert!(absent.model().is_none());
+    absent.recheck().unwrap();
+}
+
+#[test]
+fn fixed_lock_install_fixed_input_holds_the_real_guard_and_real_checks() {
+    let owner = tempfile::tempdir().unwrap();
+    let path = owner.path().join("pakro.lock");
+    fs::write(&path, empty()).unwrap();
+    // An expired deadline refuses construction: the fixed origin still runs
+    // the session's real deadline and binding checks.
+    assert!(
+        BoundPythonLock::bind_fixed(
+            &path,
+            Some(empty().as_bytes()),
+            LockModelLimits::default(),
+            Instant::now(),
+        )
+        .is_err()
+    );
+    let lock = BoundPythonLock::bind_fixed(
+        &path,
+        Some(empty().as_bytes()),
+        LockModelLimits::default(),
+        deadline(),
+    )
+    .unwrap();
+    // The exclusive parent guard is really held for the whole installation
+    // window: a second session on the same parent cannot take it.
+    let short = Instant::now() + Duration::from_millis(150);
+    assert!(
+        ProjectLockSession::acquire(&path, LockModelLimits::default().max_document_bytes, short)
+            .is_err()
+    );
+    drop(lock);
+    ProjectLockSession::acquire(
+        &path,
+        LockModelLimits::default().max_document_bytes,
+        deadline(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn fixed_lock_install_acquired_origin_still_rejects_stale_disk_image() {
+    let owner = tempfile::tempdir().unwrap();
+    let path = owner.path().join("pakro.lock");
+    fs::write(&path, empty()).unwrap();
+    let lock = open(&path);
+    fs::write(
+        &path,
+        "lockfile_version = 4\n[python]\nschema = 2\npins = []\ngroups = []\n# changed\n",
+    )
+    .unwrap();
+    assert!(lock.recheck().is_err());
+}

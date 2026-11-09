@@ -399,6 +399,7 @@ def prepare_metadata_for_build_wheel(metadata_directory, config_settings=None):
     body
 }
 
+#[ignore = "requires PAKRO_TEST_PYTHON_ARCHIVE (verified original Python 3.13.16 stripped archive)"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn s1_source_build_real_hooks_optional_fallback_and_metadata_agreement() {
     let temp = tempfile::tempdir().unwrap();
@@ -632,6 +633,7 @@ fn counter_dependency(
     )
 }
 
+#[ignore = "requires PAKRO_TEST_PYTHON_ARCHIVE (verified original Python 3.13.16 stripped archive)"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn s1_source_build_reuses_exact_initial_environment_without_resolving_again() {
     let temp = tempfile::tempdir().unwrap();

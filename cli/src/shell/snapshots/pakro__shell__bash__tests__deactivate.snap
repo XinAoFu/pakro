@@ -1,0 +1,62 @@
+---
+source: src/shell/bash.rs
+expression: replace_path(&deactivate)
+---
+# shellcheck shell=bash
+if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
+	_pakro_prompt_command=()
+	for _pakro_pc in ${PROMPT_COMMAND[@]+"${PROMPT_COMMAND[@]}"}; do
+		if [[ $_pakro_pc != "_pakro_hook_prompt_command" && $_pakro_pc != "_pakro_hook" ]]; then
+			_pakro_prompt_command+=("$_pakro_pc")
+		fi
+	done
+	PROMPT_COMMAND=(${_pakro_prompt_command[@]+"${_pakro_prompt_command[@]}"})
+	unset _pakro_prompt_command _pakro_pc
+elif [[ ${PROMPT_COMMAND-} == *_pakro_hook_prompt_command* ]]; then
+	_pakro_prompt_command_value="${PROMPT_COMMAND-}"
+	_pakro_prompt_command_value="${_pakro_prompt_command_value//_pakro_hook_prompt_command;/}"
+	_pakro_prompt_command_value="${_pakro_prompt_command_value//;_pakro_hook_prompt_command/}"
+	_pakro_prompt_command_value="${_pakro_prompt_command_value//_pakro_hook_prompt_command/}"
+	printf -v PROMPT_COMMAND '%s' "$_pakro_prompt_command_value"
+	unset _pakro_prompt_command_value
+elif [[ ${PROMPT_COMMAND-} == *_pakro_hook* ]]; then
+	_pakro_prompt_command_value="${PROMPT_COMMAND-}"
+	_pakro_prompt_command_value="${_pakro_prompt_command_value//_pakro_hook;/}"
+	_pakro_prompt_command_value="${_pakro_prompt_command_value//;_pakro_hook/}"
+	_pakro_prompt_command_value="${_pakro_prompt_command_value//_pakro_hook/}"
+	printf -v PROMPT_COMMAND '%s' "$_pakro_prompt_command_value"
+	unset _pakro_prompt_command_value
+fi
+
+if declare -p chpwd_functions >/dev/null 2>&1; then
+	_pakro_chpwd_functions=()
+	for _pakro_f in ${chpwd_functions[@]+"${chpwd_functions[@]}"}; do
+		if [[ $_pakro_f != "_pakro_hook_chpwd" && $_pakro_f != "_pakro_hook" ]]; then
+			_pakro_chpwd_functions+=("$_pakro_f")
+		fi
+	done
+	chpwd_functions=(${_pakro_chpwd_functions[@]+"${_pakro_chpwd_functions[@]}"})
+	unset _pakro_chpwd_functions _pakro_f
+fi
+
+declare -F _pakro_hook_prompt_command >/dev/null && unset -f _pakro_hook_prompt_command
+declare -F _pakro_add_prompt_command >/dev/null && unset -f _pakro_add_prompt_command
+declare -F _pakro_hook_chpwd >/dev/null && unset -f _pakro_hook_chpwd
+declare -F _pakro_hook >/dev/null && unset -f _pakro_hook
+if [ -n "${_pakro_cmd_not_found_handle:-}" ]; then
+	eval "$_pakro_cmd_not_found_handle"
+	unset _pakro_cmd_not_found_handle
+	declare -F _command_not_found_handle >/dev/null && unset -f _command_not_found_handle
+elif [[ "$(declare -f command_not_found_handle 2>/dev/null)" == *"hook-not-found"* ]]; then
+	declare -F command_not_found_handle >/dev/null && unset -f command_not_found_handle
+fi
+declare -F pakro >/dev/null && unset -f pakro
+unset PAKRO_SHELL
+unset __PAKRO_DIFF
+unset __PAKRO_SESSION
+unset __PAKRO_EXE
+unset __PAKRO_FLAGS
+unset __PAKRO_HOOK_ENABLED
+unset __PAKRO_BASH_CHPWD_RAN
+unset __PAKRO_BASH_SKIP_FIRST_PROMPT
+unset _pakro_cmd_not_found

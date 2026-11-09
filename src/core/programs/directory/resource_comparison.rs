@@ -143,6 +143,7 @@ async fn p1_resource_same_configuration_entrypoints() {
                 size: archive.size(),
                 advertised: true,
                 build: None,
+                conda: None,
             },
         });
         declaration.push_str(&format!("{name}='1.0'\n"));

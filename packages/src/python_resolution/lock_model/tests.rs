@@ -828,3 +828,198 @@ fn codec_python_table_seed_embeds_without_claiming_the_whole_root_lock() {
     let deserializer = toml::de::Deserializer::parse(&raw).unwrap();
     assert_model(&RootSeed.deserialize(deserializer).unwrap());
 }
+
+#[test]
+fn conda_projection_preserves_multiple_groups_and_original_records() {
+    use rattler_conda_types::{PackageName, PackageRecord, RepoDataRecord, Version};
+    use rattler_conda_types::package::{ArchiveIdentifier, CondaArchiveType, DistArchiveIdentifier, DistArchiveType};
+    use std::str::FromStr;
+
+    let mut record = PackageRecord::new(
+        PackageName::from_str("idna").unwrap(), Version::from_str("3.10").unwrap(),
+        "pyhd8ed1ab_1".into(),
+    );
+    record.subdir = "noarch".into();
+    record.sha256 = Some([42u8; 32].into());
+    record.size = Some(49765);
+    record.depends = vec!["python >=3.9".into()];
+    record.constrains = vec!["openssl >=3".into()];
+    let file = RepoDataRecord {
+        package_record: record,
+        identifier: DistArchiveIdentifier::new(
+            ArchiveIdentifier { name: "idna".into(), version: "3.10".into(), build_string: "pyhd8ed1ab_1".into() },
+            DistArchiveType::Conda(CondaArchiveType::Conda),
+        ),
+        url: "https://conda.anaconda.org/conda-forge/noarch/idna-3.10-pyhd8ed1ab_1.conda".parse().unwrap(),
+        channel: Some("https://conda.anaconda.org/conda-forge/".into()),
+    };
+    let mut python = PackageRecord::new(
+        PackageName::from_str("python").unwrap(), Version::from_str("3.13.13").unwrap(),
+        "h20e6be0_100_cp313".into(),
+    );
+    python.subdir = "osx-arm64".into();
+    python.sha256 = Some([43u8; 32].into());
+    python.size = Some(12345);
+    python.depends = vec!["__osx >=11".into()];
+    let python = RepoDataRecord {
+        package_record: python,
+        identifier: DistArchiveIdentifier::new(
+            ArchiveIdentifier { name: "python".into(), version: "3.13.13".into(), build_string: "h20e6be0_100_cp313".into() },
+            DistArchiveType::Conda(CondaArchiveType::Conda),
+        ),
+        url: "https://conda.anaconda.org/conda-forge/osx-arm64/python-3.13.13-h20e6be0_100_cp313.conda".parse().unwrap(),
+        channel: Some("https://conda.anaconda.org/conda-forge/".into()),
+    };
+    let graph = CondaLockGraph {
+        config_scope: "".into(), group: "main".into(), target: "osx-arm64".into(),
+        target_fingerprint: [9; 32], channels: vec!["conda-forge".into()],
+        roots: vec!["conda-forge::idna ==3.10".into()],
+        virtual_packages: vec![rattler_conda_types::GenericVirtualPackage {
+            name: "__osx".parse().unwrap(), version: "13.0".parse().unwrap(), build_string: "0".into(),
+        }],
+        records: vec![file, python],
+    };
+    let limits = LockModelLimits::default();
+    let mut second = graph.clone();
+    second.group = "other".into();
+    let model = Fixture::new().model(limits).unwrap()
+        .with_conda(graph.clone(), limits).unwrap()
+        .with_conda(second.clone(), limits).unwrap();
+    let encoded = model.encode_projection(limits).unwrap();
+    assert!(encoded.contains("schema = 5"));
+    let decoded = PythonLockModel::decode_projection(&encoded, limits).unwrap();
+    assert_eq!(decoded.conda(), &[graph.clone(), second]);
+    assert!(decoded.with_conda(graph.clone(), limits).is_err(), "duplicate group must be rejected");
+    assert!(encoded.contains("python >=3.9"));
+    assert!(encoded.contains("openssl >=3"));
+
+    let mut missing_dependency = graph.clone();
+    missing_dependency.records.pop();
+    let mut wrong_root_channel = graph.clone();
+    wrong_root_channel.roots[0] = "other::idna ==3.10".into();
+    let mut wrong_subdir = graph.clone();
+    wrong_subdir.roots[0] = "conda-forge/osx-arm64::idna ==3.10".into();
+    let mut missing_virtual = graph.clone();
+    missing_virtual.virtual_packages.clear();
+    let mut incompatible_constraint = graph;
+    incompatible_constraint.records[0].package_record.constrains = vec!["python <3".into()];
+    for invalid in [missing_dependency, wrong_root_channel, wrong_subdir, missing_virtual, incompatible_constraint] {
+        assert!(Fixture::new().model(limits).unwrap().with_conda(invalid.clone(), limits).is_err());
+        // Simulate an externally supplied lock: the data can be serialized but
+        // the decoding entry must reject its invalid graph.
+        let mut external = Fixture::new().model(limits).unwrap();
+        external.conda.push(invalid);
+        let bytes = external.encode_projection(limits).unwrap();
+        assert!(PythonLockModel::decode_projection(&bytes, limits).is_err());
+    }
+}
+
+#[test]
+fn mixed_projection_keeps_real_conda_and_registry_sources_with_cross_edges() {
+    use rattler_conda_types::package::{ArchiveIdentifier, CondaArchiveType, DistArchiveIdentifier, DistArchiveType};
+    use rattler_conda_types::{PackageName, PackageRecord, RepoDataRecord, Version};
+    use std::str::FromStr;
+
+    let mut package = PackageRecord::new(PackageName::from_str("numpy").unwrap(),
+        Version::from_str("2.3.3").unwrap(), "py313_0".into());
+    package.subdir = "osx-arm64".into();
+    package.sha256 = Some([7u8; 32].into());
+    package.size = Some(123);
+    let conda_record = RepoDataRecord {
+        package_record: package,
+        identifier: DistArchiveIdentifier::new(
+            ArchiveIdentifier { name: "numpy".into(), version: "2.3.3".into(), build_string: "py313_0".into() },
+            DistArchiveType::Conda(CondaArchiveType::Conda),
+        ),
+        url: "https://conda.anaconda.org/conda-forge/osx-arm64/numpy-2.3.3-py313_0.conda".parse().unwrap(),
+        channel: Some("https://conda.anaconda.org/conda-forge/".into()),
+    };
+    let source_pin = crate::libraries::package::conda::record_source(&conda_record).unwrap();
+    let mut python = PackageRecord::new(PackageName::from_str("python").unwrap(),
+        Version::from_str("3.13.13").unwrap(), "cp313_0".into());
+    python.subdir = "osx-arm64".into();
+    python.sha256 = Some([6u8; 32].into());
+    python.size = Some(100);
+    let python = RepoDataRecord {
+        package_record: python,
+        identifier: DistArchiveIdentifier::new(
+            ArchiveIdentifier { name: "python".into(), version: "3.13.13".into(), build_string: "cp313_0".into() },
+            DistArchiveType::Conda(CondaArchiveType::Conda),
+        ),
+        url: "https://conda.anaconda.org/conda-forge/osx-arm64/python-3.13.13-cp313_0.conda".parse().unwrap(),
+        channel: Some("https://conda.anaconda.org/conda-forge/".into()),
+    };
+    let language = crate::plugins::core::python::native::pipeline::RuntimeInstallPlan::from_conda_record(&python)
+        .unwrap().language_key(false).unwrap();
+    let limits = LockModelLimits::default();
+    let conda = CondaLockGraph {
+        config_scope: String::new(), group: "default".into(), target: "osx-arm64".into(),
+        target_fingerprint: language.target(), channels: vec!["conda-forge".into()],
+        roots: vec!["python ==3.13.13".into(), "numpy ==2.3.3".into()], virtual_packages: vec![], records: vec![python, conda_record],
+    };
+    let graph = MixedLockGraph {
+        config_scope: String::new(), group: "default".into(), target_fingerprint: language.target(),
+        language: language.fingerprint(), marker_semantics: "current2026".into(),
+        root_declarations: vec!["demo-pkg==1.0.0".into()],
+        roots: vec![MixedLockRoot { declaration_index: 0, node: "demo-pkg".into() }],
+        nodes: vec![
+            MixedLockNode { name: "demo-pkg".into(), version: "1.0.0".into(),
+                source: MixedLockSource::Registry { pin: WHEEL_ID.into(), url: None } },
+            MixedLockNode { name: "numpy".into(), version: "2.3.3".into(),
+                source: MixedLockSource::Conda { source_pin: source_pin.clone(),
+                    metadata_path: "site-packages/numpy-2.3.3.dist-info/METADATA".into(), metadata_sha256: [8; 32] } },
+        ],
+        edges: vec![MixedLockEdge { from: "demo-pkg".into(), to: "numpy".into(), declaration: "numpy>=1.15".into() }],
+    };
+    let wheel = Fixture::new().pins[0].clone();
+    let model = PythonLockModel::from_parts(&[], &[], limits).unwrap()
+        .with_conda(conda, limits).unwrap().with_mixed(graph.clone(), &[wheel], &[], limits).unwrap();
+    let encoded = model.encode_projection(limits).unwrap();
+    assert!(encoded.contains("schema = 6"));
+    assert_eq!(PythonLockModel::decode_projection(&encoded, limits).unwrap(), model);
+
+    // One real archive may own more than one Python distribution; the lock
+    // retains both paths without inventing another Conda package or wheel.
+    let mut multi = model.clone();
+    multi.mixed[0].nodes.push(MixedLockNode { name: "numpy-extra".into(), version: "1.0".into(),
+        source: MixedLockSource::Conda { source_pin: source_pin.clone(),
+            metadata_path: "site-packages/numpy_extra-1.0.dist-info/METADATA".into(), metadata_sha256: [9; 32] } });
+    multi.mixed[0].edges.push(MixedLockEdge { from: "numpy".into(), to: "numpy-extra".into(), declaration: "numpy-extra>=1".into() });
+    let encoded = multi.encode_projection(limits).unwrap();
+    let restored = PythonLockModel::decode_projection(&encoded, limits).unwrap();
+    assert_eq!(restored.conda()[0].records.len(), 2);
+    assert_eq!(restored.mixed()[0].nodes.len(), 3);
+
+    let mut invalid = model.clone();
+    invalid.mixed[0].edges.clear();
+    let encoded = invalid.encode_projection(limits).unwrap();
+    assert!(PythonLockModel::decode_projection(&encoded, limits).is_err(), "missing cross-source edge must be rejected");
+    let mut invalid = model.clone();
+    if let MixedLockSource::Conda { source_pin, .. } = &mut invalid.mixed[0].nodes[1].source {
+        *source_pin = "00".repeat(32);
+    } else { panic!("expected Conda distribution"); }
+    let encoded = invalid.encode_projection(limits).unwrap();
+    assert!(PythonLockModel::decode_projection(&encoded, limits).is_err(), "unknown Conda owner must be rejected");
+}
+
+#[test]
+fn schema7_registry_locators_round_trip_and_require_complete_real_pin_mapping() {
+    let limits = LockModelLimits::default();
+    let original = Fixture::new().model(limits).unwrap();
+    let urls = original.pins().iter().map(|pin| (
+        hex::encode(pin.id().as_bytes()),
+        format!("https://files.example/packages/{}", pin.file().filename()),
+    )).collect::<BTreeMap<_, _>>();
+    let updated = original.clone().with_locators(urls.clone(), limits).unwrap();
+    let encoded = updated.encode_projection(limits).unwrap();
+    assert!(encoded.contains("schema = 7"));
+    let decoded = PythonLockModel::decode_projection(&encoded, limits).unwrap();
+    assert_eq!(decoded, updated);
+    for pin in decoded.pins() { assert_eq!(decoded.locator(pin.id()), urls.get(&hex::encode(pin.id().as_bytes())).map(String::as_str)); }
+    let mut incomplete = urls.clone();
+    incomplete.pop_first();
+    assert!(original.clone().with_locators(incomplete, limits).is_err());
+    let mut sensitive = urls;
+    *sensitive.values_mut().next().unwrap() += "?token=secret";
+    assert!(original.with_locators(sensitive, limits).is_err());
+}

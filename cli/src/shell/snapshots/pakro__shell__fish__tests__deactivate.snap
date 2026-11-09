@@ -1,0 +1,13 @@
+---
+source: src/shell/fish.rs
+expression: replace_path(&deactivate)
+---
+functions --erase __pakro_env_eval
+functions --erase __pakro_env_eval_on_prompt
+functions --erase __pakro_env_eval_2
+functions --erase __pakro_cd_hook
+functions --erase pakro
+set -e __pakro_skip_first_prompt_pwd
+set -e PAKRO_SHELL
+set -e __PAKRO_DIFF
+set -e __PAKRO_SESSION

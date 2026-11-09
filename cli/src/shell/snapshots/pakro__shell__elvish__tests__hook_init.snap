@@ -1,0 +1,45 @@
+---
+source: src/../cli/src/shell/elvish.rs
+assertion_line: 160
+expression: elvish.activate(opts)
+---
+var hook-enabled = $false
+
+fn hook-env {
+  if $hook-enabled {
+    eval ((external /some/dir/pakro) hook-env --status -s elvish | slurp)
+  }
+}
+
+set after-chdir = (conj $after-chdir {|_| hook-env })
+set edit:before-readline = (conj $edit:before-readline $hook-env~)
+
+fn activate {
+  set-env PAKRO_SHELL elvish
+  set hook-enabled = $true
+  hook-env
+}
+
+fn deactivate {
+  set hook-enabled = $false
+  eval ((external /some/dir/pakro) deactivate | slurp)
+}
+
+fn pakro {|@a|
+  if (== (count $a) 0) {
+    (external /some/dir/pakro)
+    return
+  }
+
+  if (not (or (has-value $a -h) (has-value $a --help))) {
+    var command = $a[0]
+    if (==s $command deactivate) {
+      deactivate
+      return
+    } elif (==s $command activate) {
+      activate
+      return
+    }
+  }
+  (external /some/dir/pakro) $@a
+}

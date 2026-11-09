@@ -516,30 +516,76 @@ async fn malformed_archive_returns_an_extraction_error_without_a_process() {
     assert!(!fixture.denied.exists());
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn the_fixed_probe_timeout_is_propagated() {
+    use crate::libraries::language::repository::{
+        LanguageInstallSpec, LanguageRepository, LanguageReservation,
+    };
     let fixture = Fixture::new();
+    let pid_file = fixture.root.join("probe.pid");
     fixture.make_archive(vec![executable(
         "bundle/bin/python",
         format!(
-            "#!/bin/sh\nprintf started > {}\nexec /bin/sleep 10\n",
+            "#!/bin/sh\nprintf '%s' \"$$\" > {}\nprintf started > {}\nexec /bin/sleep 10\n",
+            quote(&pid_file),
             quote(&fixture.calls)
         )
         .into_bytes(),
     )]);
-    let error = install_with_timeout(
-        &fixture,
-        &fixture.plan(false),
-        false,
-        Duration::from_millis(500),
+    // Preparation uses the normal fixture budget; the owner deadline is never reset.
+    let preparation_started = std::time::Instant::now();
+    let context = owned_context(&fixture, Duration::from_secs(5));
+    let plan = fixture.plan(false);
+    let spec = LanguageInstallSpec::from_plan(&plan, false).unwrap();
+    let LanguageReservation::Build(mut owner) = LanguageRepository::open_writer(&context)
+        .unwrap()
+        .reserve_install(&spec)
+        .unwrap()
+    else {
+        panic!("fixture unexpectedly reused content")
+    };
+    fixture.install.replace(owner.final_path().to_path_buf());
+    let deadline = tokio::time::Instant::from_std(owner.deadline());
+    let mut archive = crate::artifact_snapshot::spool_verified_reader(
+        fs::File::open(&fixture.archive).unwrap(),
+        plan.source().filename(),
+        plan.source().digest(),
+        1024 * 1024,
+        context.requested_cache_root(),
     )
-    .await
-    .unwrap_err();
+    .unwrap();
+    // Real child I/O must not let Tokio auto-advance the paused clock.
+    let (hold_clock, release_clock) = std::sync::mpsc::channel::<()>();
+    let clock_guard = tokio::task::spawn_blocking(move || {
+        let _ = release_clock.recv();
+    });
+    let mut installing = Box::pin(install_into_owner(&plan, &mut archive, &mut owner, false));
+    while fs::read(&fixture.calls).ok().as_deref() != Some(&b"started"[..]) {
+        assert!(preparation_started.elapsed() < Duration::from_secs(5), "script did not start within the preparation budget");
+        tokio::select! {
+            result = &mut installing => panic!("installation ended before the script started: {result:?}"),
+            _ = tokio::task::yield_now() => {}
+        }
+    }
+    let pid = nix::unistd::Pid::from_raw(fs::read_to_string(&pid_file).unwrap().parse().unwrap());
+    assert_eq!(nix::sys::signal::kill(pid, None), Ok(()));
+    let remaining = deadline.duration_since(tokio::time::Instant::now());
+    tokio::time::advance(remaining.checked_sub(Duration::from_millis(500)).unwrap()).await;
+    assert!(futures_util::poll!(&mut installing).is_pending(), "installation ended before the original deadline");
+    assert_eq!(nix::sys::signal::kill(pid, None), Ok(()));
+    // Tokio timers have millisecond granularity; cross the fixed deadline by one tick.
+    tokio::time::advance(Duration::from_millis(501)).await;
+    drop(hold_clock);
+    clock_guard.await.unwrap();
+    let error = installing.await.unwrap_err();
+    assert!(tokio::time::Instant::now() <= deadline + Duration::from_millis(1), "the original deadline was extended");
     assert!(format!("{error:#}").contains("timed out"), "{error:#}");
+    assert!(format!("{error:#}").contains("probing extracted Python runtime"), "{error:#}");
     assert_eq!(
         fs::read(&fixture.calls).unwrap(),
         b"started",
         "the original deadline must expire during the real probe, after allocation"
     );
+    assert_eq!(nix::sys::signal::kill(pid, None), Err(nix::errno::Errno::ESRCH));
     assert!(!fixture.denied.exists());
 }

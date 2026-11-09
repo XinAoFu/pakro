@@ -4,6 +4,28 @@ use std::time::Duration;
 
 const BASE: &str = "[tools]\npython = \"3.11.9\"\n";
 
+#[test]
+fn conda_python_declaration_retains_exact_source_options() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pakro.toml");
+    fs::write(&path, "[tools]\npython={version='3.13.13',source='conda',channel='conda-forge',build='h20e6be0_100_cp313'}\n").unwrap();
+    let observed = observe_project(dir.path(), policy(dir.path())).unwrap();
+    let request = observed.python_request().unwrap().unwrap();
+    assert_eq!(request.source, PythonRuntimeSource::Conda);
+    assert_eq!(request.version, "3.13.13");
+    assert_eq!(request.channel.as_deref(), Some("conda-forge"));
+    assert_eq!(request.build.as_deref(), Some("h20e6be0_100_cp313"));
+    for declaration in [
+        "python={version='3.13',source='conda'}",
+        "python={version='3.13.13',source='conda',build='py*'}",
+        "python={version='3.13.13',source='conda',channel=42}",
+    ] {
+        fs::write(&path, format!("[tools]\n{declaration}\n")).unwrap();
+        let observed = observe_project(dir.path(), policy(dir.path())).unwrap();
+        assert!(observed.python_request().is_err());
+    }
+}
+
 fn policy(root: &Path) -> ReadPolicy {
     let mut discovery =
         FrozenConfigDiscovery::new(vec!["pakro.toml".into(), "pakro.local.toml".into()]);

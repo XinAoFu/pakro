@@ -53,6 +53,39 @@ impl Drop for SettingsGuard {
     }
 }
 
+/// Held by every test that writes or removes `CWD/.test.pakro.toml` — the fixture cwd's
+/// project config file, which config discovery picks up — and by every test whose result
+/// depends on that file's absence, such as `config::tests::test_load`'s discovery snapshot
+/// and the toolset tests that resolve the discovered config. All such tests share one
+/// process and one fixture tree, so without a single lock one writer's file is read or
+/// removed by another mid-test.
+pub(crate) static CWD_CONFIG_LOCK: Mutex<()> = Mutex::new(());
+
+/// Holds [`CWD_CONFIG_LOCK`] and removes `CWD/.test.pakro.toml` when dropped, including
+/// when a test panics, so a writer can neither race a peer nor leak the file into a later
+/// test's config discovery.
+pub(crate) struct CwdConfigGuard {
+    _lock: MutexGuard<'static, ()>,
+}
+
+impl CwdConfigGuard {
+    pub(crate) fn lock() -> Self {
+        Self {
+            _lock: lock_ignoring_poison(&CWD_CONFIG_LOCK),
+        }
+    }
+}
+
+impl Drop for CwdConfigGuard {
+    fn drop(&mut self) {
+        // Still under the lock, so no other guard touches the file here.
+        let path = crate::dirs::CWD.as_ref().unwrap().join(".test.pakro.toml");
+        if path.is_file() {
+            std::fs::remove_file(&path).unwrap();
+        }
+    }
+}
+
 pub(crate) fn replace_path(input: &str) -> String {
     let path = join_paths(&*env::PATH)
         .unwrap()

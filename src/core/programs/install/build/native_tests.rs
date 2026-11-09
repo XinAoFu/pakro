@@ -335,6 +335,7 @@ async fn native_backend(case_name: &str) {
     eprintln!("P6_NATIVE_BACKEND_COMPLETE case={case_name} recipe=2 shared=true warm_http=0 actual_import=true");
 }
 
+#[ignore = "requires the fixed native input preparation (PAKRO_TEST_NATIVE_ASSETS, PAKRO_TEST_PYTHON_ARCHIVE/SHA256/URL, real toolchain)"]
 #[tokio::test]
 async fn p6_pure_setuptools_sdist_installs_without_a_compiler_and_keeps_recipe1() {
     async {
@@ -385,8 +386,10 @@ async fn p6_pure_setuptools_sdist_installs_without_a_compiler_and_keeps_recipe1(
     }.boxed_local().await;
 }
 
+#[ignore = "requires the fixed native input preparation (PAKRO_TEST_NATIVE_ASSETS, PAKRO_TEST_PYTHON_ARCHIVE/SHA256/URL, real toolchain)"]
 #[tokio::test]
 async fn p6_native_setuptools_c_shared_warm_and_changed_cold_output_rejected() { native_backend("setuptools").boxed_local().await; }
+#[ignore = "requires the fixed native input preparation (PAKRO_TEST_NATIVE_ASSETS, PAKRO_TEST_PYTHON_ARCHIVE/SHA256/URL, real toolchain)"]
 #[tokio::test]
 async fn p6_native_scikit_cpp_cmake_try_run_shared_warm() {
     const TEST: &str = "programs::install::build::tests::native::p6_native_scikit_cpp_cmake_try_run_shared_warm";
@@ -401,11 +404,15 @@ async fn p6_native_scikit_cpp_cmake_try_run_shared_warm() {
     }
     native_backend("scikit").boxed_local().await;
 }
+#[ignore = "requires the fixed native input preparation (PAKRO_TEST_NATIVE_ASSETS, PAKRO_TEST_PYTHON_ARCHIVE/SHA256/URL, real toolchain)"]
 #[tokio::test]
 async fn p6_native_meson_c_try_run_shared_warm() { native_backend("meson").boxed_local().await; }
+#[ignore = "requires the fixed native input preparation (PAKRO_TEST_NATIVE_ASSETS, PAKRO_TEST_PYTHON_ARCHIVE/SHA256/URL, real toolchain)"]
 #[tokio::test]
 async fn p6_native_maturin_rust_registry_inputs_shared_warm() { native_backend("maturin").boxed_local().await; }
+#[ignore = "requires the fixed native input preparation (PAKRO_TEST_NATIVE_ASSETS, PAKRO_TEST_PYTHON_ARCHIVE/SHA256/URL, real toolchain)"]
 #[tokio::test]
 async fn p6_native_setuptools_rust_registry_inputs_shared_warm() { native_backend("setuptools-rust").boxed_local().await; }
+#[ignore = "requires the fixed native input preparation (PAKRO_TEST_NATIVE_ASSETS, PAKRO_TEST_PYTHON_ARCHIVE/SHA256/URL, real toolchain)"]
 #[tokio::test]
 async fn p6_native_public_markupsafe_sdist_imports_actual_speedups_shared_warm() { native_backend("markupsafe").boxed_local().await; }

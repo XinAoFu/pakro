@@ -44,6 +44,7 @@ fn import_from(interpreter: &Path, reference: Option<&Path>) -> std::process::Ou
     without_dyld_overrides(&mut command).output().unwrap()
 }
 
+#[ignore = "requires PAKRO_TEST_PYTHON_ARCHIVE (verified original Python 3.13.16 stripped archive)"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn f3_native_dependency_keeps_cross_wheel_loader_adjacency() {
     let owner = tempfile::tempdir().unwrap();

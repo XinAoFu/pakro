@@ -96,6 +96,7 @@ fn f3_existing_graph_checks_source_and_observed_known_pins() {
                     size: 100,
                     advertised: true,
                     build: None,
+                    conda: None,
                 },
             }],
             edges: vec![],
@@ -103,6 +104,7 @@ fn f3_existing_graph_checks_source_and_observed_known_pins() {
         layout: [5; 32],
         language: [6; 32],
         allocation: format!("g-{:032x}", 1),
+        source_locators: None,
     };
     let expected = document(&source);
     let path = project.join("pakro.lock");

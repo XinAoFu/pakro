@@ -93,7 +93,7 @@ async fn f3_project_facade_reuses_real_closure_and_preserves_failure() {
     let root = owner.path().canonicalize().unwrap();
     let stage = root.join("stage");
     std::fs::create_dir(&stage).unwrap();
-    let projects: [std::path::PathBuf; 3] = ["a", "b", "c"].map(|name| {
+    let projects: [std::path::PathBuf; 4] = ["a", "b", "c", "legacy"].map(|name| {
         let p = root.join(name);
         std::fs::create_dir(&p).unwrap();
         p
@@ -169,7 +169,35 @@ async fn f3_project_facade_reuses_real_closure_and_preserves_failure() {
         .unwrap();
         assert_eq!(model.graphs().len(), 1);
         assert!(model.declaration_fingerprint().is_some());
+        assert!(model.has_locators(), "new catalog warm reuse must retain schema7 locators");
     }
+
+    // Reopen the same real shared layout through an older catalog that did not
+    // record URLs. A new project's lock stays compatible and needs no network.
+    let catalog = stage.join("data/projects/.control/catalog/projects");
+    let mut wire: serde_json::Value = serde_json::from_slice(&std::fs::read(&catalog).unwrap()).unwrap();
+    wire["schema"] = serde_json::json!(3);
+    for generation in wire["generations"].as_array_mut().unwrap() {
+        generation.as_object_mut().unwrap().remove("source_locators");
+    }
+    std::fs::write(&catalog, serde_json::to_vec(&wire).unwrap()).unwrap();
+    std::fs::write(projects[3].join("pakro.toml"), declaration).unwrap();
+    let observed_legacy = observe(&projects[3]);
+    let roots = project_roots(&observed_legacy, "3.15.0", &[]).unwrap();
+    install_project_packages(&context, &observed_legacy, &roots).await.unwrap();
+    drop(observed_legacy);
+    assert_eq!(fixture.requests(), requests, "legacy catalog warm reuse must make no network requests");
+    let lock = std::fs::read(projects[3].join("pakro.lock")).unwrap();
+    let model = crate::packages::python_resolution::lock_session::decode_root(&lock, Default::default())
+        .unwrap().unwrap();
+    assert!(!model.has_locators(), "legacy catalog cannot invent source URLs");
+    let observed_legacy = observe(&projects[3]);
+    let identity_legacy = ProjectIdentity::from_observation(&observed_legacy).unwrap();
+    let repository = ProjectRepository::open_readonly(&context).unwrap();
+    let legacy_graph = repository.read_views().package_graph(&identity_legacy).unwrap().unwrap();
+    assert_eq!(legacy_graph.layout(), graph_a.layout());
+    drop(repository);
+    drop(observed_legacy);
 
     let initial = "[tools]\npython='3.15.0'\n";
     std::fs::write(projects[2].join("pakro.toml"), initial).unwrap();

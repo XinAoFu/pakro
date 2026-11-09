@@ -127,6 +127,7 @@ async fn f3_new_project_reuses_ready_layout_and_missing_never_commits() {
                 size: archive.size(),
                 advertised: true,
                 build: None,
+                conda: None,
             },
         }],
         edges: vec![],
@@ -444,3 +445,45 @@ async fn p1_already_applied_selection_rechecks_inputs_and_cancellation() {
 
 #[path = "resource_comparison.rs"]
 mod resource_comparison;
+
+#[tokio::test]
+async fn fixed_lock_install_directory_selection_still_rejects_lock_change() {
+    use crate::libraries::language::repository::tests::{archive, install_spec, prepare};
+    use crate::programs::query::environment::query_observed;
+    let owner = tempfile::tempdir().unwrap();
+    let root = owner.path().canonicalize().unwrap();
+    let stage = root.join("stage");
+    let project = root.join("project");
+    std::fs::create_dir(&stage).unwrap();
+    std::fs::create_dir(&project).unwrap();
+    let context = context(&stage);
+    let bytes = archive("3.15.0");
+    drop(
+        prepare(&install_spec(&bytes), &context, &bytes)
+            .await
+            .unwrap(),
+    );
+    std::fs::write(project.join("pakro.toml"), "[tools]\npython='3.15.0'\n").unwrap();
+    std::fs::write(project.join("pakro.lock"), "lockfile_version=4\n").unwrap();
+    let observed = observe(&project);
+    assert!(matches!(
+        apply_observed(&context, &observed).unwrap(),
+        PythonQueryReport::Ready(_)
+    ));
+    let request = PythonQueryRequest {
+        target: None,
+        scope: PythonQueryScope::Environment,
+    };
+    let state = ExpectedProjectState::capture(
+        &context,
+        &ProjectIdentity::from_observation(&observed).unwrap(),
+    )
+    .unwrap();
+    let selected = query_observed(&context, &observed, &request).unwrap();
+    assert!(selected.already_applied);
+    std::fs::write(project.join("pakro.lock"), "lockfile_version=5\n").unwrap();
+    assert!(
+        apply_selection(&context, &observed, selected, &state).is_err(),
+        "directory selection keeps its original lock-change semantics"
+    );
+}

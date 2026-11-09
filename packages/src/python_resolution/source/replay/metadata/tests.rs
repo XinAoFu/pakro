@@ -422,7 +422,7 @@ async fn inner_identity_and_explicit_tags_are_checked_against_the_old_pin_and_ta
         } else {
             tags()
         };
-        assert_eq!(
+        assert!(matches!(
             route_locked_metadata(
                 replay(&fixture, &lock, &file, NetworkPolicy::Offline).await,
                 &supported,
@@ -430,8 +430,8 @@ async fn inner_identity_and_explicit_tags_are_checked_against_the_old_pin_and_ta
                 Default::default()
             )
             .unwrap_err(),
-            LockedMetadataError::Archive
-        );
+            LockedMetadataError::Archive(_)
+        ));
         assert!(peer.requests().is_empty());
         fixture.assert_no_authority_writes();
     }
@@ -466,7 +466,7 @@ async fn valid_outer_pin_cannot_skip_the_existing_full_record_inspection() {
         let digest = Digest::from_sha256_bytes(&bytes);
         let lock = fixture.lock(&file, digest, bytes.len() as u64);
         fixture.seed_cache(FILENAME, digest, &bytes);
-        assert_eq!(
+        assert!(matches!(
             route_locked_metadata(
                 replay(&fixture, &lock, &file, NetworkPolicy::Offline).await,
                 &tags(),
@@ -474,8 +474,8 @@ async fn valid_outer_pin_cannot_skip_the_existing_full_record_inspection() {
                 Default::default()
             )
             .unwrap_err(),
-            LockedMetadataError::Archive
-        );
+            LockedMetadataError::Archive(_)
+        ));
         fixture.assert_no_authority_writes();
     }
 }
@@ -514,14 +514,6 @@ async fn metadata_resource_and_error_boundaries_remain_typed_and_secret_safe() {
             LockedMetadataError::InvalidLimits,
         ),
         (
-            WheelLimits {
-                max_archive_bytes: bytes.len() as u64 - 1,
-                ..Default::default()
-            },
-            PythonMetadataLimits::default(),
-            LockedMetadataError::Archive,
-        ),
-        (
             WheelLimits::default(),
             PythonMetadataLimits {
                 max_requirements: 1,
@@ -543,6 +535,19 @@ async fn metadata_resource_and_error_boundaries_remain_typed_and_secret_safe() {
             expected
         );
     }
+    assert!(matches!(
+        route_locked_metadata(
+            replay(&fixture, &lock, &file, NetworkPolicy::Offline).await,
+            &tags(),
+            WheelLimits {
+                max_archive_bytes: bytes.len() as u64 - 1,
+                ..Default::default()
+            },
+            PythonMetadataLimits::default()
+        )
+        .unwrap_err(),
+        LockedMetadataError::Archive(_)
+    ));
     drop(lock);
     let bad = wheel(
         FILENAME,

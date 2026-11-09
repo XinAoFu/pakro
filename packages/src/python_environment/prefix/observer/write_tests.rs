@@ -385,6 +385,7 @@ fn intent_then_real_exclusive_create_failure(kind: EntryKind) {
     match kind {
         EntryKind::File => fs::write(&foreign, b"foreign bytes").unwrap(),
         EntryKind::Directory => fs::create_dir(&foreign).unwrap(),
+        EntryKind::Symlink => unreachable!("journaled prefixes do not create layout links"),
     }
     let original = identity(&foreign);
     let error = match kind {
@@ -397,6 +398,7 @@ fn intent_then_real_exclusive_create_failure(kind: EntryKind) {
             .prefix
             .create_dir_all(Path::new("occupied"))
             .unwrap_err(),
+        EntryKind::Symlink => unreachable!("journaled prefixes do not create layout links"),
     };
     assert!(format!("{error:?}").contains("EEXIST"), "{error:?}");
     assert_eq!(identity(&foreign), original);
@@ -408,6 +410,7 @@ fn intent_then_real_exclusive_create_failure(kind: EntryKind) {
     match kind {
         EntryKind::File => fs::remove_file(&foreign).unwrap(),
         EntryKind::Directory => fs::remove_dir(&foreign).unwrap(),
+        EntryKind::Symlink => unreachable!("journaled prefixes do not create layout links"),
     }
     assert!(
         fixture.prefix.check_binding().is_err(),

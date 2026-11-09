@@ -93,6 +93,7 @@ fn graph(digest: u8) -> (ContentPin, PackageGraphRecord) {
                 size: 123,
                 advertised: true,
                 build: None,
+                conda: None,
             },
         }],
         edges: vec![],

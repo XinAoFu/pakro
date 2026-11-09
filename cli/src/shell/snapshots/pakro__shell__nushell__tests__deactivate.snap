@@ -1,0 +1,8 @@
+---
+source: src/shell/nushell.rs
+expression: replace_path(&deactivate)
+snapshot_kind: text
+---
+hide,PAKRO_SHELL,
+hide,__PAKRO_DIFF,
+hide,__PAKRO_SESSION,

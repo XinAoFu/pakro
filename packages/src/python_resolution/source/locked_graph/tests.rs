@@ -1163,3 +1163,81 @@ async fn the_last_real_owner_gate_rejects_expired_deadlines_and_external_lock_ed
         fixture.assert_no_authority_writes();
     }
 }
+
+#[tokio::test]
+async fn schema7_strict_cold_graph_fetches_only_locked_wheels_without_simple() {
+    let specs = specs();
+    let bodies = specs
+        .iter()
+        .map(|spec| (format!("/files/{}", spec.filename), spec.bytes.clone()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let peer = Peer::new(move |path| {
+        bodies
+            .get(path)
+            .map_or_else(Reply::denied, |bytes| Reply::file(bytes))
+    });
+    let fixture = Fixture::new(&peer);
+    let target = target();
+    let (root, key) = write_graph(
+        &fixture,
+        &target,
+        ORIGINALS,
+        &specs,
+        &[(0, "demo-pkg"), (2, "demo-pkg")],
+        &[("demo-pkg", "dep", DEPENDENCY)],
+    );
+    let model = root.model().unwrap().clone();
+    drop(root);
+    let locators = specs
+        .iter()
+        .map(|spec| {
+            (
+                hex::encode(spec.pin(&fixture).id().as_bytes()),
+                format!("{}/files/{}", peer.url, spec.filename),
+            )
+        })
+        .collect();
+    let model = model.with_locators(locators, Default::default()).unwrap();
+    fs::write(
+        &fixture.lock_path,
+        format!(
+            "lockfile_version=4\n{}",
+            model.encode_projection(Default::default()).unwrap()
+        ),
+    )
+    .unwrap();
+    let root = BoundPythonLock::acquire(
+        &fixture.lock_path,
+        Default::default(),
+        Instant::now() + Duration::from_secs(15),
+    )
+    .unwrap();
+    let endpoints = endpoints(&fixture, &ROUTE);
+    let policy = PythonSourcePolicy::Explicit(fixture.registry.id().clone());
+    let prepared = ready(
+        LockedRegistryReplay::new(
+            &root,
+            &key,
+            ORIGINALS,
+            &target,
+            context(&fixture, &endpoints, &policy, NetworkPolicy::Allowed),
+        )
+        .unwrap()
+        .prepare()
+        .await,
+    );
+    let graph =
+        crate::packages::python_resolution::source::registry_depot::closed::close_registry_plan(
+            prepared.into_registry_plan().unwrap(),
+            Default::default(),
+        )
+        .unwrap();
+    assert_eq!(graph.plan().selected.len(), 2);
+    assert_eq!(graph.checked().edges.len(), 1);
+    let calls = peer.requests();
+    assert_eq!(calls.len(), 2);
+    for spec in &specs {
+        assert!(calls.contains(&format!("/files/{}", spec.filename)));
+    }
+    assert!(calls.iter().all(|path| !path.contains("simple")));
+}

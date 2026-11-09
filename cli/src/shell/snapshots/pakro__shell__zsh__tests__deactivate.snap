@@ -1,0 +1,19 @@
+---
+source: src/shell/zsh.rs
+expression: replace_path(&deactivate)
+---
+autoload -Uz add-zsh-hook
+add-zsh-hook -d precmd _pakro_hook_precmd 2>/dev/null
+add-zsh-hook -d chpwd _pakro_hook_chpwd 2>/dev/null
+(( $+functions[_pakro_hook_precmd] )) && unset -f _pakro_hook_precmd
+(( $+functions[_pakro_hook_chpwd] )) && unset -f _pakro_hook_chpwd
+(( $+functions[_pakro_hook] )) && unset -f _pakro_hook
+(( $+functions[_pakro_hook_env_state] )) && unset -f _pakro_hook_env_state
+(( $+functions[pakro] )) && unset -f pakro
+unset PAKRO_SHELL
+unset __PAKRO_DIFF
+unset __PAKRO_SESSION
+unset __PAKRO_ZSH_PRECMD_RUN
+unset __PAKRO_ZSH_CHPWD_RAN
+unset __PAKRO_ZSH_ACTIVATE_PATH
+unset __PAKRO_ZSH_ACTIVATE_ENV

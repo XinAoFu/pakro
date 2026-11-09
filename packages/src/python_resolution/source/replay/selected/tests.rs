@@ -101,6 +101,18 @@ async fn an_observed_existing_selection_can_reuse_expected_bytes_without_another
     .unwrap();
     assert_eq!(read(&mut actual), PAYLOAD);
     assert_eq!(actual.origin(), LockedReplayOrigin::Cache);
+    let ReplayProvenance::SelectedCache {
+        project: held,
+        file_index,
+    } = &actual.provenance
+    else {
+        panic!("selected cache must retain its real project observation");
+    };
+    assert!(Arc::ptr_eq(held, &project.data));
+    assert_eq!(
+        held.project.files()[*file_index].locator().url().path(),
+        "/never-file"
+    );
     assert_eq!(index.requests().len(), 1);
     assert!(!fixture.scratch.exists());
     fixture.assert_no_authority_writes();

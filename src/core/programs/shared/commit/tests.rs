@@ -18,7 +18,8 @@ fn p6_commit_runtime_admission_keeps_the_complete_source_result() {
     let (_, record, source) = crate::libraries::language::lease::pin_tests::source_facts();
     let target = crate::backend::platform_target::PlatformTarget::from_current().to_key();
     let entry = crate::lockfile::LockfileTool {
-        version: record.version.clone(), backend: Some("core:python".into()),
+        version: record.version.clone(),
+        backend: Some("core:python".into()),
         specifiers: std::collections::BTreeSet::from([record.version.clone()]),
         options: std::collections::BTreeMap::from([("source".into(), "source".into())]),
         platforms: std::collections::BTreeMap::from([(target.clone(), source.clone())]),
@@ -26,17 +27,153 @@ fn p6_commit_runtime_admission_keeps_the_complete_source_result() {
     validate_runtime_lock_entry(&entry, &source, &target).unwrap();
     for output in [true, false] {
         let mut changed = entry.clone();
-        let record = changed.platforms.get_mut(&target).unwrap().source_python.as_mut().unwrap();
-        if output { record.output_sha256[0] ^= 1; } else { record.runtime_target[0] ^= 1; }
+        let record = changed
+            .platforms
+            .get_mut(&target)
+            .unwrap()
+            .source_python
+            .as_mut()
+            .unwrap();
+        if output {
+            record.output_sha256[0] ^= 1;
+        } else {
+            record.runtime_target[0] ^= 1;
+        }
         let error = validate_runtime_lock_entry(&changed, &source, &target).unwrap_err();
         assert!(format!("{error:#}").contains("complete build result"));
     }
-    let mut changed = entry.clone(); changed.options.clear();
-    assert!(validate_runtime_lock_entry(&changed, &source, &target).is_err(), "a source result cannot use the default prebuilt intent");
-    let mut changed = entry.clone(); changed.platforms.get_mut(&target).unwrap().install = None;
-    assert!(validate_runtime_lock_entry(&changed, &source, &target).is_err(), "the source install marker must travel with its actual result");
-    let mut changed = entry; changed.options.insert("unrecognized".into(), "value".into());
+    let mut changed = entry.clone();
+    changed.options.clear();
+    assert!(
+        validate_runtime_lock_entry(&changed, &source, &target).is_err(),
+        "a source result cannot use the default prebuilt intent"
+    );
+    let mut changed = entry.clone();
+    changed.platforms.get_mut(&target).unwrap().install = None;
+    assert!(
+        validate_runtime_lock_entry(&changed, &source, &target).is_err(),
+        "the source install marker must travel with its actual result"
+    );
+    let mut changed = entry;
+    changed
+        .options
+        .insert("unrecognized".into(), "value".into());
     assert!(validate_runtime_lock_entry(&changed, &source, &target).is_err());
+}
+
+#[test]
+fn conda_runtime_lock_must_retain_source_and_exact_artifact() {
+    let target = crate::backend::platform_target::PlatformTarget::from_current().to_key();
+    let source = crate::lockfile::PlatformInfo {
+        install: Some("conda".into()),
+        url: Some("https://conda.anaconda.org/conda-forge/osx-arm64/python.conda".into()),
+        checksum: Some(format!("sha256:{}", "12".repeat(32))),
+        ..Default::default()
+    };
+    let mut entry = crate::lockfile::LockfileTool {
+        version: "3.13.13".into(),
+        backend: Some("core:python".into()),
+        specifiers: std::collections::BTreeSet::from(["3.13.13".into()]),
+        options: std::collections::BTreeMap::from([("source".into(), "conda".into())]),
+        platforms: std::collections::BTreeMap::from([(target.clone(), source.clone())]),
+    };
+    validate_runtime_lock_entry(&entry, &source, &target).unwrap();
+    entry.platforms.get_mut(&target).unwrap().checksum =
+        Some(format!("sha256:{}", "34".repeat(32)));
+    assert!(validate_runtime_lock_entry(&entry, &source, &target).is_err());
+    entry.platforms.insert(target.clone(), source.clone());
+    entry.options.clear();
+    assert!(validate_runtime_lock_entry(&entry, &source, &target).is_err());
+}
+
+#[test]
+fn conda_graph_roots_keep_transitive_packages_as_dependencies() {
+    use crate::packages::python_environment::model::{
+        PackageGraphEdge, PackageGraphNode, PackageGraphRecord, PackageSourcePin,
+    };
+    use rattler_conda_types::package::{
+        ArchiveIdentifier, CondaArchiveType, DistArchiveIdentifier, DistArchiveType,
+    };
+    use rattler_conda_types::{
+        GenericVirtualPackage, PackageName, PackageRecord, RepoDataRecord, Version,
+    };
+
+    let mut package = PackageRecord::new(
+        "python".parse::<PackageName>().unwrap(),
+        "3.13.13".parse::<Version>().unwrap(),
+        "build".into(),
+    );
+    package.depends = vec!["openssl >=3".into(), "__osx >=11".into()];
+    let python = RepoDataRecord {
+        package_record: package,
+        identifier: DistArchiveIdentifier::new(
+            ArchiveIdentifier {
+                name: "python".into(),
+                version: "3.13.13".into(),
+                build_string: "build".into(),
+            },
+            DistArchiveType::Conda(CondaArchiveType::Conda),
+        ),
+        url: "https://example.invalid/python-3.13.13-build.conda"
+            .parse()
+            .unwrap(),
+        channel: Some("https://example.invalid/".into()),
+    };
+    let virtual_packages = vec![GenericVirtualPackage {
+        name: "__osx".parse().unwrap(),
+        version: "14".parse().unwrap(),
+        build_string: "0".into(),
+    }];
+    let nodes = ["pip", "urllib3", "openssl", "libz"]
+        .into_iter()
+        .map(|name| PackageGraphNode {
+            name: name.into(),
+            version: "1.0".into(),
+            instance: [0; 32],
+            source_pin: String::new(),
+            artifact: String::new(),
+            pin: PackageSourcePin {
+                registry: String::new(),
+                base: [0; 32],
+                filename: String::new(),
+                size: 0,
+                advertised: false,
+                build: None,
+                conda: None,
+            },
+        })
+        .collect();
+    let graph = PackageGraphRecord {
+        roots: vec![0, 2],
+        nodes,
+        edges: vec![
+            PackageGraphEdge {
+                from: 0,
+                to: 1,
+                declaration: "urllib3 >=1".into(),
+            },
+            PackageGraphEdge {
+                from: 2,
+                to: 3,
+                declaration: "libz >=1".into(),
+            },
+        ],
+    };
+    let declared = ["python".to_owned(), "pip".to_owned()]
+        .into_iter()
+        .collect();
+    validate_conda_graph_roots(&python, &declared, &virtual_packages, &graph).unwrap();
+    let mut wrong = graph.clone();
+    wrong.roots.reverse();
+    validate_conda_graph_roots(&python, &declared, &virtual_packages, &wrong).unwrap();
+    wrong = graph.clone();
+    wrong.roots.push(1);
+    assert!(validate_conda_graph_roots(&python, &declared, &virtual_packages, &wrong).is_err());
+    wrong.roots = vec![0];
+    assert!(validate_conda_graph_roots(&python, &declared, &virtual_packages, &wrong).is_err());
+    wrong.roots = vec![0, 2, 2];
+    assert!(validate_conda_graph_roots(&python, &declared, &virtual_packages, &wrong).is_err());
+    assert!(validate_conda_graph_roots(&python, &declared, &[], &graph).is_err());
 }
 
 fn context(root: &std::path::Path) -> OperationContext {

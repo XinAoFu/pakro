@@ -264,6 +264,7 @@ async fn p2_package_lock_commit_reaches_catalog_with_canonical_wheel_source_pins
     );
 }
 
+#[ignore = "requires PAKRO_TEST_PYTHON_ARCHIVE (verified original Python 3.13.16 stripped archive)"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn p2_package_lock_commit_reaches_catalog_with_recursive_source_build_inputs() {
     let owner = tempfile::tempdir().unwrap();

@@ -192,6 +192,7 @@ pub(crate) async fn real_language(context: &OperationContext) -> LanguageLease {
     .unwrap()
 }
 
+#[ignore = "requires PAKRO_TEST_PYTHON_ARCHIVE (verified original Python 3.13.16 stripped archive)"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn f3_layout_imports_scripts_pth_and_shares_package_trees() {
     let owner = tempfile::tempdir().unwrap();
@@ -294,6 +295,7 @@ async fn f3_layout_imports_scripts_pth_and_shares_package_trees() {
     assert_eq!(reused.prefix(), prefix);
 }
 
+#[ignore = "requires PAKRO_TEST_PYTHON_ARCHIVE (verified original Python 3.13.16 stripped archive)"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn f3_cyclic_packages_publish_under_their_original_object_protection() {
     let owner = tempfile::tempdir().unwrap();
@@ -353,6 +355,7 @@ async fn f3_cyclic_packages_publish_under_their_original_object_protection() {
     reopened.check_binding().unwrap();
 }
 
+#[ignore = "requires PAKRO_TEST_PYTHON_ARCHIVE (verified original Python 3.13.16 stripped archive)"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn f3_concurrent_graph_publication_uses_one_package_tree_and_layout() {
     let owner = tempfile::tempdir().unwrap();
@@ -398,6 +401,7 @@ async fn f3_concurrent_graph_publication_uses_one_package_tree_and_layout() {
     second.check_binding().unwrap();
 }
 
+#[ignore = "requires PAKRO_TEST_PYTHON_ARCHIVE (verified original Python 3.13.16 stripped archive)"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn f3_native_extension_loads_from_shared_package_tree() {
     let owner = tempfile::tempdir().unwrap();

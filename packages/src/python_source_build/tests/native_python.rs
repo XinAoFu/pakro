@@ -8,6 +8,7 @@ fn input(archive: InspectedWheelArchive) -> (SourceBuildInput,InspectedWheelArch
     (SourceBuildInput {name,version,source_pin:hex::encode(pin.id().as_bytes()),registry:"public".into(),base:[9;32],source_filename:archive.filename().into(),source_digest:archive.digest().to_string(),source_size:archive.size(),source_is_sdist:false,advertised:false,output_filename:archive.filename().into(),output_digest:archive.digest().to_string(),output_size:archive.size()},archive)
 }
 
+#[ignore = "requires PAKRO_TEST_PYTHON_ARCHIVE (Python 3.13.16 stripped) and PAKRO_TEST_NATIVE_ASSETS (fixed original backend wheels)"]
 #[tokio::test(flavor="current_thread")]
 async fn p6_native_python_children_keep_fixed_build_sites_for_code_module_and_script() {
     use crate::packages::python_wheel::{WheelExpectation,WheelLimits};

@@ -1,0 +1,62 @@
+---
+source: src/../cli/src/shell/nushell.rs
+assertion_line: 187
+expression: nushell.activate(opts)
+---
+def "parse vars" [] {
+  $in | from csv --noheaders --no-infer | rename 'op' 'name' 'value'
+}
+
+def --env "update-env" [] {
+  for $var in $in {
+    if $var.op == "set" {
+      if ($var.name =~ '(?i)^path$') {
+        $env.PATH = ($var.value | split row (char esep))
+      } else {
+        load-env {($var.name): $var.value}
+      }
+    } else if $var.op == "hide" {
+      try { hide-env $var.name }
+    }
+  }
+}
+export-env {
+  
+  '' | parse vars | update-env
+  $env.PAKRO_SHELL = "nu"
+  let pakro_hook = {
+    condition: { "PAKRO_SHELL" in $env }
+    code: { pakro_hook }
+  }
+  add-hook hooks.pre_prompt $pakro_hook
+  add-hook hooks.env_change.PWD $pakro_hook
+}
+
+def --env add-hook [field: cell-path new_hook: any] {
+  let field = $field | split cell-path | update optional true | into cell-path
+  let old_config = $env.config? | default {}
+  let old_hooks = $old_config | get $field | default []
+  $env.config = ($old_config | upsert $field ($old_hooks ++ [$new_hook]))
+}
+
+export def --env --wrapped main [command?: string, --help, ...rest: string] {
+  let commands = ["deactivate"]
+
+  if ($command == null) {
+    ^"/some/dir/pakro"
+  } else if ($command == "activate") {
+    $env.PAKRO_SHELL = "nu"
+  } else if ($command in $commands) {
+    ^"/some/dir/pakro" $command ...$rest
+    | parse vars
+    | update-env
+  } else {
+    ^"/some/dir/pakro" $command ...$rest
+  }
+}
+
+def --env pakro_hook [] {
+  ^"/some/dir/pakro" hook-env --status -s nu
+    | parse vars
+    | update-env
+}

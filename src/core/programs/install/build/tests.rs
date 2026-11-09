@@ -653,6 +653,7 @@ fn changed_runtime_model(
     .unwrap()
 }
 
+#[ignore = "requires PAKRO_TEST_PYTHON_ARCHIVE (verified original Python 3.13.16 stripped archive)"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn p3_update_reuses_original_source_inputs_only_for_the_same_runtime_and_target() {
     use crate::packages::python_environment::model::{
@@ -711,6 +712,7 @@ async fn p3_update_reuses_original_source_inputs_only_for_the_same_runtime_and_t
                 size: pin.size(),
                 advertised: matches!(pin.evidence(), PinEvidence::Advertised),
                 build: Some(expected.clone()),
+                conda: None,
             },
         }],
         edges: vec![],
@@ -723,6 +725,17 @@ async fn p3_update_reuses_original_source_inputs_only_for_the_same_runtime_and_t
         &first_budget.records(),
     )
     .unwrap();
+    let mut urls = first_budget.locators();
+    let used = model.pins().iter().map(|pin| hex::encode(pin.id().as_bytes())).collect::<BTreeSet<_>>();
+    urls.retain(|id, _| used.contains(id));
+    for pin in model.pins() {
+        assert!(urls.get(&hex::encode(pin.id().as_bytes())).is_some(),
+            "every parent, initial, final and nested build pin must retain its observed URL");
+    }
+    let with_urls = model.clone().with_locators(urls, Default::default()).unwrap();
+    let wire = with_urls.encode_projection(Default::default()).unwrap();
+    assert!(wire.contains("schema = 7"));
+    assert_eq!(crate::packages::python_resolution::lock_model::PythonLockModel::decode_projection(&wire, Default::default()).unwrap(), with_urls);
     drop(closed);
     drop(root);
     drop(first_budget);
@@ -828,6 +841,7 @@ async fn p3_update_reuses_original_source_inputs_only_for_the_same_runtime_and_t
     }
 }
 
+#[ignore = "requires PAKRO_TEST_PYTHON_ARCHIVE (verified original Python 3.13.16 stripped archive)"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn s3_coordinator_reuses_nonce_source_dependency_across_dynamic_solve() {
     let owner = tempfile::tempdir().unwrap();
@@ -1271,12 +1285,14 @@ async fn cached_source_record_fixture() {
 }
 
 #[cfg(target_os = "macos")]
+#[ignore = "requires PAKRO_TEST_PYTHON_ARCHIVE (verified original Python 3.13.16 stripped archive)"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn p2_source_cold_and_warm_replay_keeps_recursive_inputs_and_rejects_changed_output() {
     source_cold_and_warm_replay(false).boxed_local().await;
 }
 
 #[cfg(target_os = "macos")]
+#[ignore = "requires PAKRO_TEST_PYTHON_ARCHIVE (verified original Python 3.13.16 stripped archive)"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn p6_zip_source_cold_and_warm_replay_keeps_recursive_inputs_and_rejects_changed_output() {
     source_cold_and_warm_replay(true).boxed_local().await;

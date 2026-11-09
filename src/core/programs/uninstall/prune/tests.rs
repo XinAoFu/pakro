@@ -467,7 +467,7 @@ async fn p4_fresh_gate_rejects_new_parent_without_reacquiring_target_sh() {
     let error = recheck_group(
         &context,
         ReclaimMode::Prune,
-        &[(id, vec![ReclaimId::Language(manifest.language)])],
+        &[(id, vec![ReclaimId::Language(manifest.language.unwrap())])],
         None,
     )
     .unwrap_err();

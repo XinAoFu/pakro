@@ -1,0 +1,8 @@
+---
+source: src/shell/elvish.rs
+expression: replace_path(&deactivate)
+snapshot_kind: text
+---
+unset-env PAKRO_SHELL
+unset-env __PAKRO_DIFF
+unset-env __PAKRO_SESSION

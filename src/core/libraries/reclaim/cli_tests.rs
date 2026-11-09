@@ -145,6 +145,37 @@ fn ready(context: &OperationContext, objects: &[ReclaimId], expected: bool) {
     }
 }
 
+#[tokio::test]
+async fn p8_exact_instance_preview_is_readonly_and_removes_an_unreferenced_package() {
+    let owner = tempfile::tempdir().unwrap();
+    let stage = owner.path().canonicalize().unwrap();
+    let context = operation_context(&stage, true, Duration::from_secs(120));
+    let bytes = archive("3.15.0");
+    let language = prepare(&install_spec(&bytes), &context, &bytes).await.unwrap();
+    let (facts, archive) = wheel(
+        &context, &language, "unused", [211; 32], vec![],
+        vec![("unused.py", b"VALUE=1\n")], None,
+    );
+    let package = crate::libraries::package::tree::prepare_package_tree(
+        &context, &language, facts, archive,
+    ).unwrap();
+    let id = ReclaimId::Package(package.manifest().key());
+    let root = package.root().to_owned();
+    drop((package, language));
+
+    let before = tree(context.requested_data_root());
+    let preview = crate::programs::uninstall::reclaim::instance_report(&context, &id.label(), true).unwrap();
+    assert!(preview.complete && preview.operation_id.is_none());
+    assert!(preview.entries.iter().any(|entry| entry.object == Some(id) && entry.status == ReclaimStatus::Eligible));
+    assert_eq!(tree(context.requested_data_root()), before, "instance preview must not change library data");
+
+    let removed = crate::programs::uninstall::reclaim::instance_report(&context, &id.label(), false).unwrap();
+    assert!(removed.complete);
+    assert!(removed.entries.iter().any(|entry| entry.object == Some(id) && entry.status == ReclaimStatus::Removed));
+    assert!(!root.exists());
+    assert!(crate::programs::uninstall::reclaim::instance_report(&context, &id.label(), true).is_err());
+}
+
 fn manifests(
     context: &OperationContext,
     objects: &[ReclaimId],
@@ -195,6 +226,7 @@ fn selections(
 }
 
 #[tokio::test]
+#[ignore = "requires PAKRO_TEST_MAIN_BINARY pointing to the freshly built real pakro executable"]
 async fn p4_real_main_prune_respects_two_projects_and_completed_resume() {
     let binary = PathBuf::from(
         std::env::var_os("PAKRO_TEST_MAIN_BINARY")

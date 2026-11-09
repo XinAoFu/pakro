@@ -20,7 +20,7 @@ cargo-flamegraph.trace
 **/*.rs.bk
 
 # Snapcraft
-*.snap
+/*.snap
 
 # alpine
 .ash_history

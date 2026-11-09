@@ -1,0 +1,29 @@
+---
+source: src/../cli/src/shell/xonsh.rs
+assertion_line: 168
+expression: xonsh.activate(opts)
+---
+from xonsh.built_ins import XSH
+
+def _pakro(args):
+  if args and args[0] == 'deactivate':
+    execx($(pakro @(args)))
+  else:
+    pakro @(args)
+
+XSH.env['PAKRO_SHELL'] = 'xonsh'
+XSH.aliases['pakro'] = _pakro
+import shlex
+import subprocess
+
+extra_args = shlex.split(' --status')
+def pakro_hook(**kwargs): # Hook Events
+    script = subprocess.run(
+        ['/some/dir/pakro', 'hook-env', *extra_args, '-s', 'xonsh'],
+        env=XSH.env.detype(),
+        stdout=subprocess.PIPE,
+    ).stdout.decode()
+    execx(script)
+
+XSH.builtins.events.on_pre_prompt(pakro_hook) # Activate hook: before showing the prompt
+XSH.builtins.events.on_chdir(pakro_hook) # Activate hook: when the working directory changes

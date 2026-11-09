@@ -1,0 +1,20 @@
+{
+  "build": "pyhd8ed1ab_0",
+  "build_number": 0,
+  "depends": [
+    "annotated-types",
+    "owa-core",
+    "pydantic >=2.0.0",
+    "python >=3.11"
+  ],
+  "license": "MIT",
+  "license_family": "MIT",
+  "md5": "e8f8b20e8132d355c03ad88bfefd8997",
+  "name": "owa-msgs",
+  "noarch": "python",
+  "sha256": "38336c8410fc9a6d8c1ee9d481d58e62016b9c9ec0040df81da83df08d509923",
+  "size": 14094,
+  "subdir": "noarch",
+  "timestamp": 1749980175646,
+  "version": "0.4.1"
+}

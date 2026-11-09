@@ -318,6 +318,7 @@ insta = { version = "1", features = ["filters", "json"] }
 mockito = "1"
 pretty_assertions = "1"
 test-log = "0.2"
+tokio = { version = "1", features = ["test-util"] }
 
 [features]
 self_update = ["dep:self-replace", "dep:tar", "dep:zipsign-api"]

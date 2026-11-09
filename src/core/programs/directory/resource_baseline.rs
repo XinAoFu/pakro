@@ -138,6 +138,7 @@ async fn p1_resource_sixty_four_package_query_and_apply_baseline() {
                 size: archive.size(),
                 advertised: true,
                 build: None,
+                conda: None,
             },
         });
         declaration.push_str(&format!("{name}='1.0'\n"));

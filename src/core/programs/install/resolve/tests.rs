@@ -131,3 +131,87 @@ async fn f3_catalog_rejects_changed_graph_roots_and_edge_declarations() {
     }
     fixture.no_publish();
 }
+
+#[tokio::test]
+async fn fresh_wheel_closure_provides_real_urls_for_schema7_lock() {
+    use crate::packages::python_resolution::lock_model::{
+        EdgeInput, GroupKey, LockGraphInput, LockMarkerSemantics, NodeInput, PythonLockModel,
+        RootInput, RuntimePin,
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let stage = directory.path().canonicalize().unwrap();
+    let context = crate::libraries::language::repository::tests::operation_context(
+        &stage,
+        true,
+        std::time::Duration::from_secs(30),
+    );
+    let fixture = ProjectRegistryFixture::wheels();
+    let root = fixture.lock();
+    let endpoints = [fixture.endpoint()];
+    let policy = PythonSourcePolicy::Explicit(PythonRegistryId::new("corp").unwrap());
+    let closed = resolve_registry_roots(
+        &context,
+        &root,
+        &[("demo-pkg", "1.0")],
+        fixture.context(&endpoints, &policy),
+        None,
+    )
+    .await
+    .unwrap();
+    let projection = closed.projection(&[[11; 32], [12; 32]]).unwrap();
+    let pins = projection
+        .nodes
+        .iter()
+        .map(|node| node.content_pin().unwrap())
+        .collect::<Vec<_>>();
+    let nodes = projection
+        .nodes
+        .iter()
+        .zip(&pins)
+        .map(|(node, pin)| NodeInput {
+            name: &node.name,
+            version: &node.version,
+            source_pin: pin.id(),
+        })
+        .collect::<Vec<_>>();
+    let edges = projection
+        .edges
+        .iter()
+        .map(|edge| EdgeInput {
+            from: &projection.nodes[edge.from].name,
+            to: &projection.nodes[edge.to].name,
+            declaration: &edge.declaration,
+        })
+        .collect::<Vec<_>>();
+    let key = GroupKey::new("", "main", [4; 32], Default::default()).unwrap();
+    let roots = [RootInput {
+        declaration_index: 0,
+        node: "demo-pkg",
+    }];
+    let input = LockGraphInput {
+        key: &key,
+        semantics: LockMarkerSemantics::Current2026,
+        runtime: RuntimePin::new([5; 32], 1, [4; 32]).unwrap(),
+        root_declarations: &["demo-pkg==1.0"],
+        roots: &roots,
+        nodes: &nodes,
+        edges: &edges,
+    };
+    let model = PythonLockModel::from_parts(&pins, &[input], Default::default()).unwrap();
+    let urls = closed.locators_for_lock(&root, &model).unwrap();
+    let model = model.with_locators(urls, Default::default()).unwrap();
+    let wire = model.encode_projection(Default::default()).unwrap();
+    assert!(wire.contains("schema = 7"));
+    for pin in model.pins() {
+        assert!(
+            model
+                .locator(pin.id())
+                .unwrap()
+                .ends_with(pin.file().filename())
+        );
+    }
+    assert_eq!(
+        PythonLockModel::decode_projection(&wire, Default::default()).unwrap(),
+        model
+    );
+}

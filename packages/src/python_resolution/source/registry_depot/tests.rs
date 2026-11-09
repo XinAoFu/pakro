@@ -10,6 +10,8 @@ mod caller_deadline;
 mod closed;
 #[path = "tests/diagnostics.rs"]
 mod diagnostics;
+#[path = "tests/conda_conflict.rs"]
+mod conda_conflict;
 #[path = "tests/preferences.rs"]
 mod preferences;
 #[path = "tests/preflight.rs"]

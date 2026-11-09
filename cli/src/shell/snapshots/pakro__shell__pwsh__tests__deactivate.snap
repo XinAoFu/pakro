@@ -1,0 +1,10 @@
+---
+source: src/shell/pwsh.rs
+expression: replace_path(&deactivate)
+---
+Remove-Item -ErrorAction Ignore function:pakro
+Remove-Item -ErrorAction Ignore function:__pakro_restore_double_dash
+Remove-Item -ErrorAction Ignore -Path Env:/PAKRO_SHELL
+Remove-Item -ErrorAction Ignore -Path Env:/__PAKRO_DIFF
+Remove-Item -ErrorAction Ignore -Path Env:/__PAKRO_SESSION
+Remove-Variable -Name __pakro_pwsh_chpwd_handled -Scope Global -ErrorAction Ignore

@@ -715,11 +715,11 @@ async fn inner_wheel_distribution_identity_must_match_the_actual_source_pin() {
         let project = fixture.fetch().await;
         let lock = lock(&fixture);
         let source = acquire(&lock, &fixture, &project, FILENAME).await;
-        assert_eq!(
+        assert!(matches!(
             route_fresh_metadata(source, &tags(), Default::default(), Default::default())
                 .unwrap_err(),
-            FreshWheelError::Archive
-        );
+            FreshWheelError::Archive(_)
+        ));
         assert_eq!(files.requests().len(), 1);
         unchanged(&fixture);
     }
@@ -748,7 +748,7 @@ async fn explicit_supported_tags_are_checked_without_selecting_another_source_fi
     let lock = lock(&fixture);
     let supported =
         SupportedWheelTags::new(vec![WheelTag::new("py2", "none", "any").unwrap()]).unwrap();
-    assert_eq!(
+    assert!(matches!(
         route_fresh_metadata(
             acquire(&lock, &fixture, &project, FILENAME).await,
             &supported,
@@ -756,8 +756,8 @@ async fn explicit_supported_tags_are_checked_without_selecting_another_source_fi
             Default::default()
         )
         .unwrap_err(),
-        FreshWheelError::Archive
-    );
+        FreshWheelError::Archive(_)
+    ));
     assert_eq!(index.requests().len(), 1);
     assert_eq!(files.requests().len(), 1);
     unchanged(&fixture);
@@ -795,7 +795,7 @@ async fn the_existing_full_archive_and_record_validation_remain_mandatory() {
     let fixture = Fixture::new(&index);
     let project = fixture.fetch().await;
     let lock = lock(&fixture);
-    assert_eq!(
+    assert!(matches!(
         route_fresh_metadata(
             acquire(&lock, &fixture, &project, FILENAME).await,
             &tags(),
@@ -803,8 +803,8 @@ async fn the_existing_full_archive_and_record_validation_remain_mandatory() {
             Default::default()
         )
         .unwrap_err(),
-        FreshWheelError::Archive
-    );
+        FreshWheelError::Archive(_)
+    ));
     unchanged(&fixture);
 }
 
@@ -856,7 +856,7 @@ async fn archive_and_dependency_budgets_are_explicit_at_the_metadata_boundary() 
             FreshWheelError::InvalidLimits
         );
     }
-    assert_eq!(
+    assert!(matches!(
         route_fresh_metadata(
             acquire(&lock, &fixture, &project, FILENAME).await,
             &tags(),
@@ -867,8 +867,8 @@ async fn archive_and_dependency_budgets_are_explicit_at_the_metadata_boundary() 
             Default::default()
         )
         .unwrap_err(),
-        FreshWheelError::Archive
-    );
+        FreshWheelError::Archive(_)
+    ));
     assert_eq!(
         route_fresh_metadata(
             acquire(&lock, &fixture, &project, FILENAME).await,

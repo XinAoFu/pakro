@@ -1,0 +1,143 @@
+---
+source: src/../cli/src/shell/bash.rs
+assertion_line: 159
+expression: bash.activate(opts)
+---
+# shellcheck shell=bash
+export __PAKRO_EXE=/some/dir/pakro
+__PAKRO_FLAGS=(--status)
+__PAKRO_HOOK_ENABLED=1
+
+export PAKRO_SHELL=bash
+
+# On first activation, save the original PATH
+# On re-activation, we keep the saved original
+if [ -z "${__PAKRO_ORIG_PATH:-}" ]; then
+	export __PAKRO_ORIG_PATH="$PATH"
+fi
+__PAKRO_BASH_CHPWD_RAN=0
+
+pakro() {
+	local command
+	command="${1:-}"
+	if [ "$#" = 0 ]; then
+		command /some/dir/pakro
+		return
+	fi
+	shift
+
+	case "$command" in
+	deactivate)
+		# if argv doesn't contains -h,--help
+		if [[ ! " $* " =~ " --help " ]] && [[ ! " $* " =~ " -h " ]]; then
+			eval "$(command /some/dir/pakro "$command" "$@")"
+			return $?
+		fi
+		;;
+	esac
+	command /some/dir/pakro "$command" "$@"
+}
+
+_pakro_hook() {
+	local previous_exit_status=$?
+	eval "$(pakro hook-env ${__PAKRO_FLAGS[@]+"${__PAKRO_FLAGS[@]}"} --shell-pid $$ -s bash "$@")"
+	return $previous_exit_status
+}
+
+if [ "$__PAKRO_HOOK_ENABLED" = "1" ]; then
+	_pakro_hook_prompt_command() {
+		local previous_exit_status=$?
+		if [[ ${__PAKRO_BASH_CHPWD_RAN:-0} == "1" ]]; then
+			__PAKRO_BASH_CHPWD_RAN=0
+			unset __PAKRO_BASH_SKIP_FIRST_PROMPT
+			return $previous_exit_status
+		fi
+		if [[ ${__PAKRO_BASH_SKIP_FIRST_PROMPT:-0} == "1" ]]; then
+			unset __PAKRO_BASH_SKIP_FIRST_PROMPT
+			return $previous_exit_status
+		fi
+		eval "$(pakro hook-env ${__PAKRO_FLAGS[@]+"${__PAKRO_FLAGS[@]}"} --shell-pid $$ -s bash --reason precmd)"
+		return $previous_exit_status
+	}
+
+	_pakro_hook_chpwd() {
+		local previous_exit_status=$?
+		__PAKRO_BASH_CHPWD_RAN=1
+		eval "$(pakro hook-env ${__PAKRO_FLAGS[@]+"${__PAKRO_FLAGS[@]}"} --shell-pid $$ -s bash --reason chpwd)"
+		return $previous_exit_status
+	}
+
+	_pakro_add_prompt_command() {
+		if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
+			if [[ " ${PROMPT_COMMAND[*]} " != *" _pakro_hook_prompt_command "* ]]; then
+				PROMPT_COMMAND=("_pakro_hook_prompt_command" "${PROMPT_COMMAND[@]}")
+			fi
+		elif [[ ";${PROMPT_COMMAND:-};" != *";_pakro_hook_prompt_command;"* ]]; then
+			local _pakro_prompt_command_value="${PROMPT_COMMAND-}"
+			printf -v PROMPT_COMMAND '%s' "_pakro_hook_prompt_command${_pakro_prompt_command_value:+;$_pakro_prompt_command_value}"
+		fi
+	}
+
+	_pakro_add_prompt_command
+	# shellcheck shell=bash
+export -a chpwd_functions
+function __zsh_like_cd()
+{
+  \typeset __zsh_like_cd_hook
+  if
+    builtin "$@"
+  then
+    for __zsh_like_cd_hook in chpwd ${chpwd_functions[@]+"${chpwd_functions[@]}"}
+    do
+      if \typeset -f "$__zsh_like_cd_hook" >/dev/null 2>&1
+      then "$__zsh_like_cd_hook" || break # finish on first failed hook
+      fi
+    done
+    true
+  else
+    return $?
+  fi
+}
+
+	# shellcheck shell=bash
+[[ -n "${ZSH_VERSION:-}" ]] ||
+{
+  function cd()    { __zsh_like_cd cd    "$@" ; }
+  function popd()  { __zsh_like_cd popd  "$@" ; }
+  function pushd() { __zsh_like_cd pushd "$@" ; }
+}
+
+	chpwd_functions+=(_pakro_hook_chpwd)
+fi
+
+# `--no-hook-env` means pakro does not apply the environment at activation -- zsh, fish and pwsh
+# all keep their equivalent call inside this guard, and bash did too until the script moved out
+# of bash.rs into this file (#8920), which left the call outside it. The skip flag exists because
+# the hook runs here, so the two belong under one condition; it is set first so the `$?` that
+# `_pakro_hook` saves is not read straight off the guard's condition, where it is the test's
+# status rather than a command's (SC2319).
+if [ "$__PAKRO_HOOK_ENABLED" = "1" ]; then
+	__PAKRO_BASH_SKIP_FIRST_PROMPT=1
+	_pakro_hook --force
+fi
+
+# shellcheck shell=bash
+if [ -z "${_pakro_cmd_not_found:-}" ]; then
+	_pakro_cmd_not_found=1
+	if [ -n "$(declare -f command_not_found_handle)" ]; then
+		_pakro_cmd_not_found_handle=$(declare -f command_not_found_handle)
+		eval "${_pakro_cmd_not_found_handle/command_not_found_handle/_command_not_found_handle}"
+	fi
+
+	command_not_found_handle() {
+		if [[ $1 != "pakro" && $1 != "pakro-"* ]] && /some/dir/pakro hook-not-found -s bash -- "$1"; then
+			_pakro_hook
+			"$@"
+		elif [ -n "$(declare -f _command_not_found_handle)" ]; then
+			_command_not_found_handle "$@"
+		else
+			echo "bash: command not found: $1" >&2
+			return 127
+		fi
+	}
+fi

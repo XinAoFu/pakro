@@ -152,6 +152,12 @@ int main(int argc,char **argv) {
     for(;;){write(ticks,"x",1);usleep(10000);}
   }
   close(ready[1]);char byte;if(read(ready[0],&byte,1)!=1)return 25;close(ready[0]);close(ticks);
+  if(!strcmp(argv[1],"large-output")) {
+    char out[8192];memset(out,'x',sizeof(out));
+    for(int i=0;i<64;i++){if(write(1,out,sizeof(out))!=sizeof(out)||write(2,out,sizeof(out))!=sizeof(out))return 26;}
+    char marker[4096];snprintf(marker,sizeof(marker),"%s.printed",argv[2]);
+    int done=open(marker,O_CREAT|O_EXCL|O_WRONLY,0600);if(done<0)return 27;close(done);
+  }
   if(!strcmp(argv[1],"normal")){puts("done");return 0;}
   if(!strcmp(argv[1],"limit")){char out[8192];memset(out,'x',sizeof(out));for(;;)write(1,out,sizeof(out));}
   for(;;)pause();
@@ -796,6 +802,29 @@ async fn p6_native_session_keeps_hooks_and_cleans_normal_job_groups() {
         fixture.config.workspace.exists(),
         "normal close must preserve source/output ownership"
     );
+}
+
+#[tokio::test]
+async fn p6_native_drop_after_large_output_cleans_workspace_with_session_alive() {
+    let fixture = Fixture::new();
+    let mut session = NativeBuildSession::start(fixture.config.clone()).await.unwrap();
+    let cancellation = CancellationToken::new();
+    let args = vec!["large-output".into(), fixture.tick_path.to_string_lossy().into_owned()];
+    let env = BTreeMap::new();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut running = Box::pin(session.run(&fixture.worker, &args, &fixture.config.generated_roots[0],
+        &env, deadline, 2 * 1024 * 1024, &cancellation));
+    let marker = fixture.tick_path.with_extension("printed");
+    while !marker.exists() {
+        tokio::select! {
+            result = &mut running => panic!("large-output worker ended before abandonment: {result:?}"),
+            _ = tokio::time::sleep(Duration::from_millis(10)) => {}
+        }
+        assert!(Instant::now() < deadline, "large output was never produced");
+    }
+    drop(running);
+    fixture.stopped(true).await;
+    assert!(tokio::time::timeout(Duration::from_secs(2), session._watcher.wait()).await.unwrap().unwrap().success());
 }
 
 #[tokio::test]

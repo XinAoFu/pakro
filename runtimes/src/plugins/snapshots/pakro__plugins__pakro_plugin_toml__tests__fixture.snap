@@ -1,0 +1,12 @@
+---
+source: src/plugins/pakro_plugin_toml.rs
+expression: cf.exec_env
+---
+PakroPluginTomlScriptConfig {
+    cache_key: Some(
+        [
+            "{{'1234'}}",
+        ],
+    ),
+    data: None,
+}

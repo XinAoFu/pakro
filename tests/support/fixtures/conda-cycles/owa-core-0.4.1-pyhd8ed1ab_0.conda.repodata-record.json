@@ -1,0 +1,23 @@
+{
+  "build": "pyhd8ed1ab_0",
+  "build_number": 0,
+  "depends": [
+    "av >=14.4.0",
+    "griffe >=1.7.3",
+    "loguru >=0.7.3",
+    "owa-msgs",
+    "pydantic >=2.10.6",
+    "python >=3.11",
+    "pyyaml >=6.0.2"
+  ],
+  "license": "MIT",
+  "license_family": "MIT",
+  "md5": "bcd644c932242d939c1930ac127f08da",
+  "name": "owa-core",
+  "noarch": "python",
+  "sha256": "470fbb19eb98371468d59411e9db96ea6b0d4ad48f684ab1bd68e0a7efd28245",
+  "size": 33677,
+  "subdir": "noarch",
+  "timestamp": 1750005662754,
+  "version": "0.4.1"
+}

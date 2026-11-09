@@ -827,6 +827,36 @@ fn f3_catalog_preserves_real_roots_edges_and_pins_after_restart() {
 }
 
 #[test]
+fn conda_catalog_preserves_source_record_and_rejects_changed_facts() {
+    use rattler_conda_types::{PackageName, PackageRecord, RepoDataRecord, Version};
+    use rattler_conda_types::package::{ArchiveIdentifier, CondaArchiveType, DistArchiveIdentifier, DistArchiveType};
+    let mut facts = PackageRecord::new("idna".parse::<PackageName>().unwrap(), "3.10".parse::<Version>().unwrap(), "py_0".into());
+    facts.subdir = "noarch".into();
+    facts.sha256 = Some([5; 32].into());
+    facts.size = Some(123);
+    let source = RepoDataRecord {
+        package_record: facts,
+        identifier: DistArchiveIdentifier::new(ArchiveIdentifier { name: "idna".into(), version: "3.10".into(), build_string: "py_0".into() }, DistArchiveType::Conda(CondaArchiveType::Conda)),
+        url: "https://conda.anaconda.org/conda-forge/noarch/idna-3.10-py_0.conda".parse().unwrap(),
+        channel: Some("https://conda.anaconda.org/conda-forge/".into()),
+    };
+    let node = PackageGraphNode::from_conda_record(&source, [21; 32]).unwrap();
+    let graph = PackageGraphRecord { roots: vec![0], nodes: vec![node], edges: vec![] };
+    let generation = GenerationRecord::new_shared(
+        &allocation(501), [3; 32], graph.fingerprint().unwrap(), [5; 32], [6; 32],
+        vec![reference(InputKind::Language, 20), reference(InputKind::Package, 21)], ModelLimits::default(),
+    ).unwrap().with_package_graph(graph.clone(), ModelLimits::default()).unwrap();
+    let mut state = model();
+    state.register_shared_generation(generation).unwrap();
+    let bytes = state.encode_catalog(CatalogCodecLimits::default()).unwrap();
+    let restored = CatalogModel::decode_catalog(&bytes, CatalogCodecLimits::default()).unwrap();
+    assert_eq!(restored.generation(&allocation(501)).unwrap().package_graph(), Some(&graph));
+    let mut changed = graph;
+    changed.nodes[0].artifact = Digest::Sha256([9; 32]).to_string();
+    assert!(changed.validate(ModelLimits::default()).is_err());
+}
+
+#[test]
 fn f3_graph_rejects_broken_closure_and_reference_mismatch() {
     let limits = ModelLimits::default();
     let node = package_node("demo", "1.0", 21, 31);
@@ -914,9 +944,41 @@ fn package_node(name: &str, version: &str, instance: u8, artifact: u8) -> Packag
             size: 100,
             advertised: true,
             build: None,
+            conda: None,
         },
     }
 }
 
 #[path = "source_build_tests.rs"]
 mod source_build_tests;
+
+#[test]
+fn catalog_retains_wheel_locators_for_a_shared_graph_without_changing_its_identity() {
+    let limits = ModelLimits::default();
+    let node = package_node("demo", "1.0", 21, 22);
+    let graph = PackageGraphRecord { roots: vec![0], nodes: vec![node.clone()], edges: vec![] };
+    let fingerprint = graph.fingerprint().unwrap();
+    let original = GenerationRecord::new_shared(
+        &format!("g-{:032x}", 1), [1; 32], fingerprint, [2; 32], [3; 32],
+        vec![reference(InputKind::Language, 20), reference(InputKind::Package, 21)], limits,
+    ).unwrap().with_package_graph(graph, limits).unwrap();
+    let url = format!("https://files.example/packages/{}", node.pin.filename);
+    let urls = [(node.source_pin.clone(), url.clone())].into_iter().collect();
+    let enriched = original.clone().with_source_locators(urls, limits).unwrap();
+    let mut catalog = model();
+    let allocation = catalog.register_shared_generation(original).unwrap();
+    assert_eq!(catalog.register_shared_generation(enriched).unwrap(), allocation);
+    let bytes = catalog.encode_catalog(CatalogCodecLimits::default()).unwrap();
+    let wire: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(wire["schema"], 5);
+    let decoded = CatalogModel::decode_catalog(&bytes, CatalogCodecLimits::default()).unwrap();
+    let record = decoded.generation_for_shared_layout(&[3; 32]).unwrap();
+    assert_eq!(record.source_locators().unwrap().get(&node.source_pin), Some(&url));
+    assert_eq!(record.package_graph().unwrap().fingerprint().unwrap(), fingerprint);
+    let mut bad = wire;
+    let raw = bad["generations"][0]["source_locators"].as_str().unwrap();
+    let mut values: Vec<(String, String)> = serde_json::from_str(raw).unwrap();
+    values[0].1.push_str("?token=secret");
+    bad["generations"][0]["source_locators"] = serde_json::to_value(serde_json::to_string(&values).unwrap()).unwrap();
+    assert!(CatalogModel::decode_catalog(&serde_json::to_vec(&bad).unwrap(), CatalogCodecLimits::default()).is_err());
+}

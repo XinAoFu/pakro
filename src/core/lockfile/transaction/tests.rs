@@ -687,3 +687,78 @@ fn eight_real_clients_can_each_complete_twenty_serialized_guarded_replacements()
         assert!(result.is_ok(), "{}", result.unwrap_err());
     }
 }
+
+#[test]
+fn fixed_lock_install_foreign_session_backup_is_refused_without_side_effects() {
+    let first = Fixture::new(Some(b"first\n"));
+    let second = Fixture::new(Some(b"second\n"));
+    let session = first.acquire();
+    let foreign = session.snapshot().unwrap();
+    drop(session);
+    let mut writer = second.acquire();
+    let error = writer
+        .replace_journaled_install(&foreign, b"new\n", |_, _| Ok(()))
+        .unwrap_err();
+    assert!(error.to_string().contains("another session"), "{error:#}");
+    assert_eq!(fs::read(&second.target).unwrap(), b"second\n");
+    assert!(
+        !second
+            .names()
+            .iter()
+            .any(|name| name.to_string_lossy().starts_with(".pakro.lock.txn-")),
+        "no write side effect may remain"
+    );
+}
+
+#[test]
+fn fixed_lock_install_failed_session_cannot_write_again() {
+    let fixture = Fixture::new(Some(b"original\n"));
+    let mut session = fixture.acquire();
+    let backup = session.snapshot().unwrap();
+    let error = session
+        .replace_journaled_install(&backup, b"new\n", |_, _| {
+            Err(eyre::eyre!("journal staging failed"))
+        })
+        .unwrap_err();
+    assert!(error.to_string().contains("staging failed"), "{error:#}");
+    assert_eq!(fs::read(&fixture.target).unwrap(), b"original\n");
+    let retry = session
+        .replace_journaled_install(&backup, b"new\n", |_, _| Ok(()))
+        .unwrap_err();
+    assert!(
+        retry.to_string().contains("failed after a write"),
+        "{retry:#}"
+    );
+}
+
+#[test]
+fn fixed_lock_install_write_returns_own_result_when_target_is_replaced_after_rename() {
+    let fixture = Fixture::new(Some(b"original\n"));
+    let mut session = fixture.acquire();
+    let backup = session.snapshot().unwrap();
+    let replaced = b"externally replaced after rename\n".to_vec();
+    let hook_bytes = replaced.clone();
+    let hook_target = fixture.target.clone();
+    let written = with_install_write_renamed_hook(
+        move || {
+            // Remove and recreate: a plain write would only truncate the
+            // same inode instead of replacing the entry.
+            fs::remove_file(&hook_target).unwrap();
+            fs::write(&hook_target, &hook_bytes).unwrap();
+        },
+        || {
+            session
+                .replace_journaled_install(&backup, b"prepared\n", |_, _| Ok(()))
+                .unwrap()
+        },
+    );
+    assert_eq!(written.bytes().as_deref(), Some(b"prepared\n".as_slice()));
+    assert_eq!(fs::read(&fixture.target).unwrap(), replaced);
+    use std::os::unix::fs::MetadataExt;
+    let disk = fs::metadata(&fixture.target).unwrap();
+    assert_ne!(
+        written.file_identity(),
+        Some((disk.dev(), disk.ino())),
+        "the write result must not claim the later replacement"
+    );
+}
