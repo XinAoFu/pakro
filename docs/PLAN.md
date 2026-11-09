@@ -1,30 +1,173 @@
 # Pakro Python 完成计划：P2 之后
 
-更新：2026-11-01（Asia/Shanghai）。架构入口：[主架构与Agent规则](Pakro主架构文件与Agent规则.md)。
+更新：2026-11-09（America/New_York）。架构入口：[主架构与Agent规则](Pakro主架构文件与Agent规则.md)。
+
+## 当前状态与本轮授权
+
+- 已完成：P1/P2、P3/P4（既定 macOS arm64 验收）、P6 及四项收尾、P8 前两批。P8 第三批实施中，P8/P9 均未整体完成。历史失败过程不再逐条保留，只保留结论与证据入口。
+- 本轮授权以用户第二轮六步指令、后续范围决定及 2026-11-09“继续”为准：实施主会话亲自编写代码及执行测试，check 只读审核、不运行测试；旧 PLAN 分工与授权不适用。只在本机 macOS arm64 验证，不使用服务器或 Docker。第 6 步在全部前置条件及提交分组审核通过后允许本地分批 commit；禁止 push、分支操作、amend、rebase、reset 和修改 git config。本轮放弃多包环境脚本和 GDAL 四种新语法；第 1、2 步已获 check 通过，第 3 步最后一次回收按用户新决定延后到删除简化后验证，第 4 步已审核通过，现执行第 5、6 步；本轮不修改删除实现。
+- 每组编译加测试限 600 秒。全部测试按用户指定四组串行执行，保持 `RUST_TEST_THREADS=1`；某组超时允许按下一级模块继续拆分，每组额度不变，覆盖清单按目标和测试名去重。其他专项验证超时仍须停止，不以拆分或重试绕过上限。
+- 本轮原始输出和输入保存在 `target/p8-closeout-20261108/`，沿用 `target/`、`--all-features` 和 CI unit 构建参数；本轮临时目录按 owner 清理，不碰用户真实库与项目。罕见并发防护新增 0 行。
+- 生产源码前遵守 AGENTS 四条简化规则：不为推测的罕见场景扩建防御；外部输入在入口校验一次；一次性逻辑就地书写；不随意拆函数、不滥用 try/catch。
+
+### 最新接续决定：本轮提交，下一轮简化删除（2026-11-08）
+
+- 第 3 步不拆分、不再重跑完整用例。除最后一次回收外，原断言均已走过；最后一次回收延后到删除简化完成后验证。2026-11-04 closeout 第二段已有同样最终回收的通过记录，见 `target/p8-closeout-20261104-item3-round1/`；该历史结果不改写本次 600 秒中止为父用例通过。用户明确允许据此继续第 4–6 步。
+- 本轮按已定分组执行全部测试，然后整理 PLAN、审核提交分组并本地分批提交。本轮不修改删除代码；第 7–12 项不开始。
+- 下一轮取消每删一步保存进度并强制写盘、按操作号 `pakro prune --resume` 续删，以及续删时的逐项核对。
+- 下一轮保留删除前确认无项目引用并取得锁；每个对象先标为不可用并写入磁盘一次。只删除 Pakro 清单内的文件；发现清单外文件、被替换的目录或符号链接时停止，不继续删除。
+- 中断留下的对象保持不可用；下次 `pakro prune` 直接清理残留，清单中已不存在的文件视为已删除。下一轮按新设计重做 P4 阶段的删除验证，并实测回收用时。
+- 这项决定替代架构文件与本 PLAN 旧的按操作号续删设计，但实施推迟到下一轮。本轮现有实现和测试仍按当前代码验证，不提前删除 `--resume` 或改变删除行为。
+
+### 第 4 步分组验证与超时测试修复（2026-11-08，已通过）
+
+| 对照 | 测试数 | 通过 | 失败 | ignored | 原始输出 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 修改前完整分组 | 5070 | 4983 | 3 | 84 | `target/p8-closeout-20261108/grouped-before/` |
+| 第一次修改后完整分组 | 5074 | 4986 | 1 | 87 | `target/p8-closeout-20261108/grouped-after/` |
+| 超时测试修复后完整分组 | 5074 | 4987 | 0 | 87 | `target/p8-closeout-20261108/timeout-test-fix/full-suite/`；第四组为上一级 `group4/` |
+
+- 统计按目标及测试名去重，覆盖 5074/5074，无遗漏或计数冲突，详见最终 `coverage.json` 与 `comparison.json`。新增 5 项，按用户取消 GDAL 成功验证的决定移除 1 项。没有开启自动接受快照或强制通过的环境设置。
+- 最终四组用时分别为 62.50、57.04、491.85、93.47 秒，每组编译加测试均在 600 秒内。第四组库 2142 通过/7 ignored、主程序 96 通过/2 ignored、文档 1 通过/2 ignored。主程序已重新编译；P4 真实主程序用例另行 1 通过、7.32 秒，不重复计入四组。check 已通过本次修复及完整覆盖核对。
+- 修改前的代理与排序失败按用户授权处理后通过；P4 缺少主程序输入的问题已补 ignore 原因并单独验证，属于测试标注问题。前序失败与准备修正记录保留在下节和原输出中。
+- 第一次修改后唯一失败是 `the_fixed_probe_timeout_is_propagated`：500 毫秒包括分配、解包、启动全过程，超时报错却不能保证脚本已写出 started；随后读取文件出现 ENOENT。修改前同名测试通过，单独复核也通过，未用复核覆盖首次失败。check 的调查确认原有测试缺少时序前提；首次具体超时阶段无法还原，未发现本轮产品逻辑回归证据，不能归因于已确认的机器负载。
+- 用户授权调查后，临时诊断得到 2142 通过/7 ignored，行为 37.92 秒、含编译 107.17 秒；该次进入观察时剩约 403.522ms，spawn 0.626ms，started 存在并在等待阶段正常超时。原始数据在 `probe-diagnosis-1/`，只证明该次路径。诊断代码经 check 核对后已全部撤回，修改前副本和差异保留。
+- 用户随后授权先修复测试。本次只修改 `runtimes/src/plugins/core/python/native/extract/tests.rs` 和 `Cargo.toml` 的测试依赖：为已有 Tokio 开启 dev-only test-util；准备沿用普通测试的 5 秒真实时间预算，保留原 owner 绝对截止时间。测试阻止虚拟时钟自动推进，等待真实 started/PID，在原截止时间前 500ms 确认仍 Pending 且进程存活；跨过原截止时间一个毫秒刻度后等待原 future 返回并确认 PID 已退出。没有修改生产截止时间、生产实现或删除代码。
+- 修复相关模块 57 通过/6 ignored，随后最终四组通过。单组准备、编译与测试均保留实际时间；旧失败、诊断和修复后结果分开保存，不把历史失败抹去。
+- 本轮所有新建测试临时目录均已按各 owner 的 uid/device/inode 核对并经 lsof 检查后清理；清理结果在相应 `cleanup-result.json`。target 内的原始输入、输出与完整清单保留，旧轮资源未动。
+- shell e2e 本轮未运行。`tests/e2e/run_test` 和 CI 仍提供按单个路径运行的入口，但 `direnv/test_direnv:26`、`lockfile/test_lockfile_upgrade_prune:47`、`fixtures/native_python_transaction.py:182` 等仍引用已删除的 use、upgrade、install-into；`run_all_tests` 注释还使用已删除的 `pakro run`。整目录不能视为可通过的当前测试集，整理留第 11 件。
+
+### 第 5、6 步：文件核对与提交分组（2026-11-09）
+
+- 当前待提交共 224 个文件：126 个已跟踪修改、98 个新文件。第 4 步通过后，除本 PLAN 外没有修改源代码、配置、测试或快照；非文档文件的修改时间均不晚于最后验证。
+- 71 个新 `.snap` 全部对应当前 52 个已通过的测试，拟全部提交。消费者分布：shell 模块 36 个文件；插件配置解析 1 个；Pakro TOML 配置解析 23 个；配置加载 1 个；direnv/env_diff 9 个；SHA256 输出 1 个。配置中的多个断言按 Insta 自动编号核对，包含 test_env 的首个内联断言，因此其文件从 env-2 开始。头部的旧源码路径只作历史元数据保留，当前消费者已按实际源码定位。
+- 快照正文已与现有断言和最终测试结果核对；direnv parse 中的 `/private/var/folders/...` 是源码固定编码输入解出的常量，不是本轮临时目录。未发现未能确认消费者的快照，未改写已测试内容。
+- `.config/settings.toml` 由 pakro-settings 构建器读取，新增 Conda 渠道默认值并修正原有 Python 构建项排序；排序测试及全部分组通过，纳入功能提交。`.gitignore` 将 Snapcraft 的 `*.snap` 限于根目录 `/*.snap`，保留对 `.snap.new` 和 target 的忽略，使上述测试快照可跟踪，随快照提交。
+- 新 `tests/e2e/cli/test_ls_remote_package` 静态核对为现有 ls-remote 包版本查询的本地 HTTP 用例；代码与断言对应当前接口，纳入测试提交，但按本轮要求没有运行，运行验证留第 11 件。所有待提交文件均为已确认的源代码、配置、测试输入或文档；没有归属不明而排除的文件。target、临时目录和密钥不提交。
+- 提交方案按整文件分为四笔工作提交，再追加一笔 PLAN 提交记录：① 固定锁输入及共享提交/恢复基础（11 文件）；② Conda/PyPI、脚本、查询及现有引用回收适配（90 文件）；③ 测试修复、验证输入、71 个快照及忽略规则（120 文件）；④ README、架构文件既有改动及本 PLAN（3 文件）；⑤ 仅 PLAN，记录前四笔工作提交的哈希。最后一笔自身哈希在最终回复和 git log 中给出，避免文档自引用。
+- `closed.rs` 的清理和 Conda 混合图新增处于同一文件，随第二笔提交，不把它伪称为独立纯清理提交。第一笔还引用第二笔的 Conda 类型与入口，不能单独编译；前两笔尚未包含第三笔的测试文件，不能单独编译完整测试目标。第三笔齐备后代码、配置、测试、快照集合才与已验证集合一致；没有对中间提交宣称单独验证通过。依赖顺序为 ①→②→③→④→⑤。
+- 第 5 步已获 check 第 2 轮通过（仅文档更正，提交分组不变）。第 6 步按批准清单逐路径 git add 并本地分批 commit；提交过程中不修改已测试代码，不运行 push、分支操作、amend、rebase、reset 或 git config 修改。
+
+已存在的提交已核实，不计作本次新提交：
+
+| 哈希 | 标题 | 已包含内容 |
+| --- | --- | --- |
+| `38a1456c7` | `refactor: remove unused Python runtime modules` | 删除无消费者的运行时模块，保留发布和源码构建所用的 target 投影；当时明确保留 Conda-mixed closed.rs 的改动待后续提交。 |
+| `2540b4028` | `test: correct Python install and build fixture setup` | 安装测试补初始锁发布及 Python 来源输入，校验锁保持；构建测试规范化项目路径。 |
+
+### 收尾第二轮六步（2026-11-08，前序实施记录）
+
+- 开工前执行一次 `cargo test --workspace --all-features`，使用 CI 的 `CARGO_INCREMENTAL=0`、`CARGO_PROFILE_DEV_DEBUG=0`、`CARGO_PROFILE_TEST_DEBUG=0`，提供已保留的固定 Python 归档。600.04 秒达到上限，已停止本组进程，未重试。已完整结束的 aqua-registry 为 138 通过；原始输出共记录 2981 条通过条目（含 2 条重复子用例输出）、1 条失败、59 条 ignored，不作为 workspace 最终统计。超时位置为 `programs::install::lock_document::tests::p3_update_overlay_replaces_old_python_results_and_retains_foreign_native_data`。证据：`baseline-workspace/command.json`、`output.txt`、`result.json`、`observed-counts.json`。
+- 按用户接续决定补跑修改前全部测试：`--list` 得到 5070 条；四个指定组及 Cargo 遇失败后尚未执行的目标全部完成，按可执行目标及名称去重为 4983 通过、84 ignored、3 失败，覆盖 5070/5070，无遗漏或计数冲突。`grouped-before/coverage.json` 保存每项观察及去重结果，`grouped-before/list/inventory.json` 为原始清单。第三组 472.22 秒，所有实际执行组均未超过 600 秒。第二组与第三组共同包含 `programs::remote_packages::tests::metadata_versions_are_unique_and_sorted_by_source_version_rules`，总数只计一次。
+- 修改前失败原始记录保留：① `pakro_cache_core :: tests::retries_reqwest_errors_wrapped_by_blob_stream_io` 收到 HTTP 502；依用户最新授权，仅对子进程设置 `NO_PROXY=127.0.0.1,localhost` 单独运行一次后 1 通过，记为本机代理影响，未改代码或系统代理，证据 `small-items/cache-no-proxy/`。② 设置文件排序失败已按授权处理：仅重排 `python.build.*`、`python.compile`、`python.conda.channels` 的原有块，字段及值不变；排序测试 1 通过，证据 `small-items/settings-order/`。③ P4 缺少主程序输入的标注问题见下条。修改前输出仍在 `grouped-before/group1/`、`group1-remaining/`、`group3/`，不改写历史统计。
+- 测试准备修正单独保留记录：6 个原生执行用例初次缺少 `PAKRO_TEST_BINARY`，另有短临时目录与属组准备问题导致 3 个用例没有形成预定测试条件（Unix socket 路径过长；wheel 属组使请求的 02700 实际被系统清成 0700）。提供已编译主程序、改用自有短目录并设为当前有效属组后，只重验受影响用例，分别 7 通过和 2 通过，仍在各自原连续 600 秒窗口内；未修改源码或断言。原失败与修正后输出均在 `grouped-before/`，没有用后次通过覆盖原输出。
+- 全部测试的标准准备：先在同一 `target/`、`--all-features` 及 CI unit 构建参数下执行 `cargo build --bin pakro --all-features`，为测试设置 `PAKRO_TEST_BINARY` 为本次生成的 `target/debug/pakro` 绝对路径；使用 owner 记录的短临时目录与当前有效属组，保留固定 `PAKRO_TEST_PYTHON_ARCHIVE` 输入，并对子进程设置 `NO_PROXY=127.0.0.1,localhost`。不改系统代理、不改变 `.cargo/config.toml` 的串行设置、不再改其他测试标注。先执行 `cargo test --workspace --all-features -- --list` 保存完整清单，再依次执行下列四组，每组编译与测试合计不超过 600 秒，超时按用户授权向下一级模块拆分。按测试目标及完整名称核对覆盖，一个不漏、重复只计一次。P4 另设 `PAKRO_TEST_MAIN_BINARY` 指向同一主程序，用 `--ignored` 单独执行 `p4_real_main_prune_respects_two_projects_and_completed_resume`。
+  1. `cargo test --workspace --all-features --exclude pakro`
+  2. `cargo test -p pakro --all-features -- packages::`
+  3. `cargo test -p pakro --all-features -- programs:: libraries::`
+  4. `cargo test -p pakro --all-features -- --skip packages:: --skip programs:: --skip libraries::`
+- 用户指定的 P4 标注问题已修正：只补 `#[ignore]` 及必需输入说明，另行编译主程序并设置 `PAKRO_TEST_MAIN_BINARY` 执行原用例，1 通过、0 失败、0 ignored，行为 8.89 秒。构建和测试命令执行时间合计 109.66 秒，共用同一 600 秒窗口；原始输出在 `p4-annotation/`。按用户决定记录为测试标注问题，不作为产品失败。
+- 开工前现有 Conda 脚本测试已执行，包括原始 PROJ 脚本和所有 ignored 用例：主程序构建成功，7 通过、0 失败、0 ignored，含编译整组 128.54 秒，行为测试 21.34 秒。证据：`baseline-conda-scripts/`。
+- 第 1 步做法已获 check 开工前回复“可以”。顺序依据为 Conda `conda/activate.py` 的 `_get_activate_scripts`（907–919 行）和 `_get_deactivate_scripts`（921–933 行）：激活路径正序、撤销路径倒序；本次读取的文件 blob 为 `63b0b7bddc74e2605a4851b91e23e8379450d12f`，链接 `https://github.com/conda/conda/blob/main/conda/activate.py#L907-L933`。
+- 已取得并核验原始 `gdal-3.13.3-np2py313hc201c6a_5.conda`（2448210 字节，SHA256 `e4cd9e2a92f588d8e6a8ab482d89001d515306260145b55167faf07df6b22ed3`）和 `libgdal-core-3.13.3-h8348644_5.conda`（11953856 字节，SHA256 `264d67c3de0f080022cc78440718cc5ba6465b612ef356b4201ef027d0854fee`），URL 均为 `https://conda.anaconda.org/conda-forge/osx-arm64/` 加对应文件名。原始 API、制品及逐项 URL/摘要/大小在 `inputs/`；GDAL 的脚本由 `libgdal-core` 提供。
+- 此前 GDAL 单对原始脚本失败已复现：0 通过、1 失败、0 ignored，含编译 62.20 秒，错误为 `unsupported Conda conditional environment copy`。用户最新已取消 GDAL 成功验收及四种语法扩展，因此移除对应成功断言用例，替换为原始 libxml2-16 的明确拒绝验证；原失败输出保留在 `gdal-single-pair-before/`。本轮不改写原始制品，也不实现通用 shell 解析。
+- 完整 GDAL 输入已取得：测试模块复用已有 `prepare_real_records`，新增 ignored 的固定 GDAL/PROJ 准备入口，未改生产求解器；准备测试 1 通过、0 失败、0 ignored，14.47 秒。图中共 73 个制品，无循环；73/73 的原始 URL、SHA256、大小均已核验，压缩体积共 85,476,096 字节，22 个复用、51 个下载，下载组 127.84 秒。完整记录、制品和原始输出在 `inputs/gdal-closure/` 与 `gdal-records-run/`。
+- 已检查全部 73 个制品的原始 `info/paths.json`，仅下表三个包带安装/环境脚本。完整原文及清单在 `inputs/gdal-closure/script-audit/`。第一次用 tar 枚举 `libxml2` 包的 payload 返回错误；后来从 `info/paths.json` 得到 2 个文件条目、0 个脚本，检查方式调整后完成全部清单。原错误及后续事实均保留，不把这个检查工具错误定性为制品损坏。
+
+| 带脚本的包 | 原始脚本 | 当前不支持的内容 |
+| --- | --- | --- |
+| `proj 9.9.0 h51dee2d_0` | 一对 `.sh`，另有配对 fish/csh 版本 | 原始制品安装及 `.sh` 执行已通过，安装输出已确认提示 fish/csh 不执行。 |
+| `libgdal-core 3.13.3 h8348644_5` | `gdal-activate.sh`、`gdal-deactivate.sh` | 四种语法扩展现已取消，仍不支持。 |
+| `libxml2-16 2.15.4 heb56d2d_1` | 只有 `etc/conda/activate.d/libxml2-split_activate.sh`，没有撤销脚本 | `if test`、不带 export 的赋值、`IFS` 修改、for/while 循环、参数前缀删除、字符串拼接及多变量 unset；含本轮不支持的语法，也不满足每包须有一对 `.sh` 的约定。 |
+
+- 用户已决定：libxml2 是许多 Conda 项目的底层依赖，逐包补脚本写法不能形成合适的通用处理方式，环境脚本处理以后单独设计。本轮不开放多包环境脚本、不补 GDAL 四种语法。带上 libxml2-16 的 Conda 项目目前都会被拒；本轮实际核验制品为 `2.15.4 heb56d2d_1`，因仅有激活脚本且语法不受支持。没有跳过或补造脚本。第 1 步仅补明确拒绝、原始 PROJ 的 fish/csh 提示、固定 60 秒及三种失败路径验证，正式代码仍以约 200 行为限。第 1、2 步已完成审核；第 3 步最后回收按用户决定延后，其余检查结果见下文。
+- 缩减后的做法已获 check 回复“可以”。当前脚本及共享监督器生产改动累计 134 行新增/删除，支持边界未放宽；测试中复用原归档校验、锁模型编码、安装入口及 HTTP 镜像。原始 PROJ 安装提示和 libxml2-16 拒绝验证已通过（1 通过、0 失败、0 ignored，行为 194.55 秒；与主程序构建共用窗口总用时约 482 秒），输出见 `small-items/step1-originals/`；自造完好 Conda 包用于非零退出、真实 60 秒超时及向 pakro 发送 SIGINT 的验证，不以缩短执行时间的开关代替实际超时。
+- 第 1 步三种失败路径专项通过：1 通过、0 失败、0 ignored，含 Cargo 启动 238.28 秒。使用自造且完整可安装的 Conda 包，脚本分别退出 7、持续运行触发实际 60 秒限制、由测试向 pakro 主进程发送 SIGINT。逐项核对锁、catalog、用户声明字节不变，捕获的主进程、监督进程及脚本子进程全部退出，原已安装 Python 仍可运行；同时覆盖 pre-link、pre-unlink、post-unlink、不成对、无 `.sh`、组合冲突、依赖不允许及未知语法的具名拒绝。测试主动提供变更后的精确锁和声明作为安装输入，失败后比较该次输入，未把它写成自动更新锁测试。原始输出和进程号在 `small-items/step1-failures/`。
+- 第 1 步现有脚本与制品提取测试复验：9 通过、0 失败、0 ignored，包含 7 个需要 `--include-ignored` 的实际执行测试，未缩短脚本固定超时；原有更早整体截止时间用例保持。输出在 `small-items/step1-regression/`。
+- 第 1 步审核第 1 轮打回：超时前已捕获的 stdout/stderr 被丢弃，报错中的查看输出建议无法执行。已调整现有监督器的最后响应保留有界输出，并在脚本错误中展示；不增加日志协议、配置项或执行器。补充先输出 stdout/stderr 再实际超时的 CLI 断言，已通过后述复验；第 2 轮另有打回，最终修正见第 3 轮记录。
+- 第 1 轮打回后的复验保留原结果：三种脚本失败路径断言 1 通过（行为 241.67 秒），实际超时错误已包含先打印的 stdout/stderr；现有脚本/提取 9 通过。但 SIGINT 原始输出出现 watcher 写已关闭管道的 Broken pipe panic，后续共享监督器测试为 5 通过、1 失败、1 ignored：`p6_native_owner_sigkill_stops_grandchild_and_cleans_workspace` 因 panic 跳过目录清理而失败。原连续组约 528 秒结束，未超时，输出在 `small-items/step1-review2/`。此回归不能计为通过；已改为检查写入结果，仅在已收到 owner EOF 且写端为 BrokenPipe 时正常结束以继续原清理，其他错误照常传播，并补 SIGINT 不出现 panic 的断言，修复后主程序构建成功，共享监督器 6 通过、0 失败、1 ignored，包含前述 SIGKILL 清理用例；脚本失败/真实 60 秒超时/SIGINT 专项 1 通过（行为 240.80 秒），SIGINT stderr 为空，超时错误包含先打印的 stdout/stderr，提交状态和进程停止断言保持；现有脚本/制品 9 通过。构建和三组验证依次在同一 600 秒窗口内完成，命令执行共 442.66 秒，输出位于 `small-items/step1-output-fix/`。
+- 第 1 步审核第 2 轮打回：大输出后丢弃 `run` future 但保留 session 时，EOF 后的最后响应可能阻塞清理。按 reviewer 要求新增永久回归用例，修改前实际 0 通过、1 失败，错误为私有目录未清理（`small-items/step1-review3/before-drop/`，15.57 秒）。check 已同意缩减处理：恢复原有 EOF 直接清理，不再发送最后响应或特判 BrokenPipe；正常超时仍由 watcher 按原 deadline 停止任务，父侧用既有 2 秒清理时间等待带输出的响应。主动取消/丢弃 future 保持原行为，不承诺取消时输出。修复及后续验证共用本次 600 秒窗口：主程序构建成功；共享监督器 7 通过、0 失败、1 ignored，含新增大输出用例；脚本失败/实际 60 秒超时/SIGINT 专项 1 通过（行为 238.56 秒），超时两路输出可见、SIGINT stderr 为空；现有脚本/制品 9 通过。包含修改前失败命令共 428.13 秒，原始输出在 `small-items/step1-review3/`。第 3 轮已获 check“通过”；第 1 步完成。
+- 第 2 步只修改三处循环拒绝报错：Conda 遍历列出重复访问的包及当前访问集合；Python 运行时循环列出 `python` 和已有集合交集；混装 wheel 循环列出被阻塞的待安装包。访问集合、待安装集合可能含非环成员，文案不把全部集合称作确切环成员。未改依赖分析或实现循环安装。`tests/support/fixtures/conda-cycles/` 两份 owa-core/owa-msgs 原记录与用户指定 target 数据逐字节相同；新增测试直接调用现有遍历，从两个原包及外层 consumer 分别进入循环，其他依赖按已处理状态提供，不宣称完整解析或安装成功。相关测试 10 通过、0 失败、3 ignored，含编译 56.29 秒，输出在 `step2-cycle-diagnostics/`；三项 ignored 是公开输入准备入口，本组没有执行。第 2 步已获 check 第 1 轮“通过”；随后在同一 600 秒窗口编译主程序成功，46.93 秒，输出见 `step2-main/`。
+- 用户接续决定：旧混装完整测试首次安装改为使用已保存的原始锁，设置 `PAKRO_LOCKED=1`，继续使用保存的 26 个 Conda 原始制品。首次从实时元数据求解并生成锁已于 10 月 29 日实测通过，不再放入这个可重复运行的生命周期测试；此前失败确因实时元数据选择 llvm-openmp 23.1.5，固定输入只有 23.1.4。暖共享、严格冷恢复、加 SciPy 更新失败、用户撤回配置、拒删、forget 和回收均保留；更新步骤仍实时求解，若因元数据变化而非 SciPy 冲突失败则停止，不改断言。仅修改测试及 PLAN，不改生产实现或元数据下载方式。新输出保留在 `resume-locked/`。
+- 原始锁接续实跑：只修改 `src/core/programs/install/conda_project/cli_tests.rs` 中首次安装的输入和环境，读取 `PAKRO_TEST_MIXED_ORIGINAL_LOCK`，写入保存原锁后以 `PAKRO_LOCKED=1` 安装，新增原锁字节不变断言；后续更新仍使用原来的非 locked 环境，其他断言及步骤保留。原独立拒绝代理可见性检查保持，它不会生成成功的安装结果。未改任何生产代码。
+- 同一 600 秒窗口内主程序构建 1.60 秒成功；测试含编译执行 598.44 秒，整组 600.04 秒被停止，退出码 124，无最终 `test result`，父用例不能计为通过。首次严格安装、原锁不变、暖 A/B 共享、严格冷恢复及原生计算均已完成；SciPy 更新确实因 `scipy==1.14.1 requires numpy<2.3,>=1.23.5` 与 Conda `fixed numpy==2.3.3` 冲突失败，原锁及 catalog 字节保持。用户撤回配置后原运行时正常，被引用 Python 拒删，forget A 后 prune 完成且 B 仍可计算，forget B 成功。停止时最后一次 prune 尚未返回，最终回收断言和完成标记未到；本次不是元数据变化导致的失败。三个停止的 PID 均已核对不存在。命令与原输出：`resume-locked/step3/build/`、`resume-locked/step3/test/`。
+- 当时按原停止规则不拆分、不重试、不延长上限，暂未进入第 4–6 步。check 当时通过测试调整与超时停止报告，但未将父用例计为通过；后续用户决定延后最后回收并继续第 4–6 步。本次 `/private/tmp/pk8r-2otjoaee` 及测试子目录已按 owner 核对身份，lsof 确认没有打开文件后清理（11,974 个文件、760 个目录），结果见 `resume-locked/cleanup-result.json`；原始锁、制品与 target 输出全部保留。
+- 第 3 步已改旧混装完整测试的 SciPy 本地索引：只保留原始 `scipy-1.14.1-cp313-cp313-macosx_14_0_arm64.whl`，原 URL、SHA256、大小及 METADATA 不变；原始 Simple 响应与仅保留一个候选的本地响应分别保存，其他断言和失败后用户自行撤回声明的步骤保留。输入 23,084,508 字节，SHA256 `e0cf28db0f24a38b2a0ca33a85a54852586e43cf6fd876365c86e0657cfe7d73`，所有 ZIP 成员 CRC 通过，METADATA 与原 sidecar 字节及摘要相同，证据 `step3-inputs/verified.json`。
+- 旧完整测试实际运行失败：0 通过、1 失败、0 ignored，含编译 177.81 秒，行为 120.59 秒，未超时。首次安装重新查询公开 Conda 元数据后，选择 `llvm-openmp-23.1.5-hdb3d66b_0.conda`；原完整输入是 `llvm-openmp-23.1.4-hdb3d66b_0.conda`。原测试将未登记的制品请求送至本地 `/input-drift` 并返回 503，所以在首次安装阶段失败，尚未请求 SciPy，也未走到本次冲突、冷暖恢复和回收验证。这是固定测试输入与当前公开求解结果不同，不把它记为 SciPy 冲突验证通过。命令、原输出及保留输入在 `step3-mixed-lifecycle/`。
+- 已执行用户第 3 步“因为别的原因失败，停下报告”的停止要求：没有重试、刷新依赖输入、放宽断言或更改生产安装逻辑。check 核对并确认当时停止原因成立。后来按用户决定改为原始锁严格安装；最新验证与提交状态见前述第 4–6 步。
+- 本轮涉及文件：第 1 步生产文件为 `packages/src/conda_artifact.rs`、`packages/src/conda_scripts.rs`、`packages/src/conda_scripts/activation.rs`、`src/core/libraries/package/conda.rs`、`src/crates/pakro-util/src/native_build.rs`、`src/crates/pakro-util/src/native_build/supervisor.rs`；测试与输入准备为 `packages/src/conda_scripts/tests.rs`、`src/crates/pakro-util/src/native_build/tests.rs`、`src/core/programs/install/conda_project/script_cli_tests.rs`、同目录 `cli_tests.rs` 和 `dependency_groups.rs`。第 2 步为 `src/core/programs/install/conda_project.rs`、`src/core/programs/install/mixed.rs`、`tests/support/fixtures/conda-cycles/` 两份原记录。第 3 步只改 `src/core/programs/install/conda_project/cli_tests.rs` 的旧混装用例。前置修正涉及 `.config/settings.toml` 和 `src/core/libraries/reclaim/cli_tests.rs`；实施状态只写本 PLAN。
+- 停止后的清理已完成：按 `small-items/owner.json` 及六个子目录 owner 核对 uid/device/inode，检查没有进程打开这些目录内的文件后，删除本轮 `/private/tmp/pk8s-wuv9urqv`；共观察 40,780 个文件、2,131 个目录，结果见 `small-items/cleanup-result.json`。target 原始输出、原始制品、输入核验及失败记录保留；用户真实库、项目和旧轮资源未动。
+- 首次停止时的临时目录已按 `owner.json` 核对清理，`cleanup-result.json` 保留结果；接续的两个临时目录也已按 `grouped-before/owner.json`、`short-owner.json` 核对身份并清理，清理前没有引用它们的进程，实际结果见 `grouped-before/cleanup-result.json`。原始测试输出、完整制品及脚本原文保留在本轮 target 目录，旧轮资源未动。check 已核对 73 个制品及脚本清单；后续缩减范围及停止状态见本节。
+
+### 收尾第一轮第 1–5 项（2026-11-04，结果保留）
+
+- 修改前测试由实施主会话执行：混合分发映射与 registry 诊断现有测试共 9 通过、0 失败、0 ignored，含 Cargo 启动共 1.64 秒。命令和原始结果：`target/p8-closeout-20261104-baseline/result.json`、`output.txt`。命令中的 mixed_replay 过滤条件未命中用例，不计为该模块通过。
+- 第 1 项已获 check 第 1 轮通过：补充混合求解失败时的项目要求、Conda 固定分发版本、候选包依赖说明。新增测试通过普通 Python 包与 Conda 包两组兼容安装及实际导入，随后验证 `consumer==1.0` 要求 `dep>=1,<2` 与 Conda 固定 `dep==2.0` 的冲突；完整包校验保持不变。定向 12 通过、0 失败、0 ignored，含编译共 76.15 秒；原始结果在 `target/p8-closeout-20261104-item1-round1/`。不计为整套 CLI 生命周期通过。
+- 第 2 项已获 check 第 1 轮通过：真实 CLI 安装 Conda NumPy 2.3.3 与 PyPI numpy-financial 1.0.0 后，用户添加 SciPy 1.14.1，使用完好的 macOS 14 wheel 触发版本冲突。失败前后锁文件与 catalog 字节相同，`project ls` 登记相同，原先选中的 Python 再次执行导入、财务计算和矩阵计算成功；用户新增声明全过程保持。相关生产更新路径未发现回写依赖声明；保留了会自行还原配置的旧混合测试，本次独立新增验证。主程序构建成功，1 通过、0 失败、0 ignored，整组 239.66 秒；原始输出和本轮专用目录身份在 `target/p8-closeout-20261104-item2-round1/`。此结果证明已安装内容可继续运行；未改变当前配置与旧锁不一致时的目录选择规则；用户接受此时进入目录报错，文案调整留第 10 件。
+- 第 3 项已获 check 第 1 轮通过：复用第 2 项本轮专用目录，B 项目严格安装后与 A 使用同一路径；普通 Python 包在被引用时拒绝指定删除。forget A 后 prune 保留全部 28 个对象及原目录身份，B 的导入与计算仍成功；forget B 后 prune 删除 25 个 Conda 包、1 个普通 Python 包、1 个 Python 和 1 个运行目录，逐一核对实际目录及对象记录已移除。项目配置、锁文件保留；无网络请求及管理器调用。1 通过、0 失败、0 ignored，含编译共 304.87 秒；命令、原始输出、删除对象清单位于 `target/p8-closeout-20261104-item3-round1/`。未改生产回收实现。
+- 第一轮第 4 项未按原扩展范围完成。第一轮未能证明程序执行扩展能新增支持至少三个真实包，扩展停止；第二轮用户已决定本轮放弃 post-link 调用受管 Python/包内程序，也不支持激活与 post-link 组合，现行范围见 P8.4。互相依赖的包联合安装推迟，第二轮第 2 步只改循环拒绝报错。
+- 第 4 项已有执行层测试：初次 5 个用例中 3 通过、2 失败，失败发生在测试以符号链接临时路径创建受控目录时；仅修正两个测试目录路径并补充非零退出拒绝返回可导入结果的用例后，6 通过、0 失败、0 ignored。后次执行 35.58 秒，仍在原连续 600 秒窗口内（结束时共 398.71 秒）；两次原始输出均保留于 `target/p8-closeout-20261104-item4-existing/`。
+- 监督进程 ENOENT 已定位并按用户授权实施最小修复，check 当时已审核通过此修复（仅对应第一轮的监督进程清理问题）：普通脚本非零退出时，先等待现有 `session.close()` 成功交还清理责任，再报告脚本失败；关闭错误继续向上传递，不改监督器结构。此前异步清理与测试 TempDir 删除父目录发生先后顺序冲突，已单独复现；正常安装的持久缓存父目录不随脚本失败返回销毁，未发现普通用户操作复现同一错误的证据。修复前对照输出保留在 `target/p8-closeout-20261104-supervisor-diagnosis/`。临时对照测试已删除，清理完成断言合入永久非零退出回归测试；临时配置/进程快照及空目录已清除，只保留项目要求的原始命令、输出和结果。修复后主程序构建成功，6 通过、0 失败、0 ignored，整组 56.00 秒，输出未出现该监督进程错误，证据 `target/p8-closeout-20261104-supervisor-fix/`。该次修复不包含取消、超时或通信错误；后续限定范围的验证见第二轮第 1 步。
+- 第一轮程序执行扩展的 300–500 行生产代码估算已随该范围放弃而作废；第二轮正式代码明显超过约 200 行须先停下说明。罕见并发防护新增 0 行。固定超时 60 秒已获同意，不开放配置；超时报错须说明包和脚本、未提交状态、进程是否已确认停止，以及查看脚本输出、修正包版本或依赖后重新执行原命令的操作。固定超时和对应报错已在第二轮第 1 步实施并通过实际 60 秒验证。
+- 实际包适用性检查：基于当前上游源码，临时目录下生成的 GTK 输入法缓存会记录程序/模块绝对路径；gdk-pixbuf 的可迁移构建虽允许相对模块条目，`LoaderDir` 注释仍记录目录路径。当前对临时路径的字节检查也拒绝注释，所以仅开放执行不足以完成这些包的正常脚本安装。Jupyter 扩展还会向配置写入模板所在目录；PyOpenGL 的已查看脚本使用 Bash 专有语法；保留的 gsettings-desktop-schemas 43.0 包已带编译结果且没有 post-link，不能计作新增收益。没有把源码推断当成真实安装通过。这些扩展未实施；第二轮第 1 步缩减后的脚本范围及第 2 步循环报错已审核通过。
+
+### 四个历史失败的定向处理（2026-11-01，已完成）
+
+四个历史失败测试分轮分别定向通过，不是一次全量通过。两处代码修改均在测试文件内，未修改生产实现、未放宽检查：
+
+1. 重复安装测试（`f2_exact_install_reuses_and_records_only_real_projects`）：仅在该测试内允许首次写锁并补齐 PythonSources 输入，新增有效锁及再次安装后锁内容不变的断言；保留原有的项目登记检查；定向通过。
+2. 新项目复用测试（`f3_new_project_reuses_ready_layout_and_missing_never_commits`）：提供正确 Python 归档（本机已核验 SHA256 的 3.13.16 stripped 归档）后通过，该测试未修改。
+3. 构建产物复用测试（`p3_nonce_installed_output_survives_unrelated_update_without_zip_cache_or_hooks`）：原始报错为符号链接锁目标拒绝；改用真实项目路径（现有 canonicalize）后通过，未修改生产检查。
+4. 拒绝错误复用测试（`p3_strict_cached_source_outputs_reject_changed_backend_and_request_without_publication`）：提供正确 Python 归档后通过，该测试未修改。
+
+后两个测试各 1 通过、0 失败、0 ignored（同一连续窗口 221 秒）。证据：`target/remaining-four-tests-20261101/`、`target/remaining-two-tests-20261101/`。前轮失败后未经审查自行重开窗口的纪律违反事实及各项更正保留在原证据（`13-corrections.md` 等）中，不改写历史。
+
+限制：当时只完成定向验证；当前完整分组结果见第 4 步。不代表所有符号链接项目路径均已验证；原另外五个失败随无消费者实现删除，不是修复后通过；P8/P9 未整体完成。
+
+### 安装固定锁输入（2026-11-01，已完成）
+
+实施用户决定：实际安装使用本次初始锁数据——完成历史中断事务恢复后，把项目锁输入固定为该次观察（含观察到缺失的情况），此后磁盘上的改写、替换、删除重建或缺失后出现不再使安装拒绝，也不被采纳为新依赖依据。`BoundPythonLock` 增加固定来源构造（`bind_fixed`/`bind_fixed_conda`，仍持有真实会话与父目录 guard，`recheck` 按来源分派：Acquired 保持磁盘映像比较，Fixed 只做绑定/截止检查）；`ObservedProjectInputs::with_fixed_project_lock` 只在安装执行入口固定一次；锁写入新增 `replace_journaled_install`（写前备份字节/身份/mode 同一次观察取得，取消内容一致前置、写中比较与写后再读，结果取自本会话自写对象）；观察侧新增只读 `resolved_target`，固定输入记录初始真实目标，符号链接改指不改变输入、同步保护与跨项目归属检查。写前恢复备份与依赖选择输入分离；普通/locked 安装不新增写回。实测（`target/fixed-lock-install-20261101/` 日志 18–20）：修正后的恢复用例 1 过；定向组 116 过 / 0 败 / 1 ignored，其中 `fixed_lock_install_` 24 个全过；主程序构建 EXIT=0。指导会话已核对最终源码与证据（14 文件摘要与两份未跟踪快照一致）。产品边界规则已并入主架构文件。当时未运行完整分组，四个历史失败后来分别定向处理；当前结果见第 4 步。真实项目、跨平台及初始缺失锁的全部别名组合仍未覆盖；`acquire_conda` 的测试消费者告警未处理。
 
 ### resolved_build 完整入口删除（2026-11-01，已完成）
 
-删除没有生产消费者的 resolved_build 完整准备与锁生成入口、专属连接方法（`build_with`、`complete_resolved_build`）、专属投影（`closed/projection.rs`、`check_group_shape`）、准备工具 `RegistryBuildFixture` 及 15 个专属测试（12 个未标 ignore，3 个删除前标 ignore）。生产仍使用的 `ResolvedBuildError` 迁移至 `closed.rs`，仅保留 Deadline/Revoked/SourceReceipt 三变体，原有报错文字与触发条件不变。当前生产锁生成（由 LanguageLease 推导）、数据上限数值及读取一致性检查未改变。编译通过；定向测试 98 通过 / 0 失败 / 0 ignored；指导会话已核对当前源码及证据。原三个相关失败测试随无用实现删除，不是修复后通过。证据：`target/resolved-build-removal-20261101/`。未运行全量，原失败清单中另外四项尚未处理，当前全量结果未知；Build/Inventory 历史失败底层原因未确定。第二层模块（build、seal、runtime_bootstrap、runtime_source、runtime_startup、runtime_snapshot、runtime_layout 及 runtime_target 保留部分）与删除后新增的无用警告仍待逐项审查，本轮未扩大删除。用户已决定取消"安装期间检查锁文件外部修改"的行为，尚未在现行生产流程实施，不计为本批完成。
+删除没有生产消费者的 resolved_build 完整准备与锁生成入口、专属连接方法（`build_with`、`complete_resolved_build`）、专属投影（`closed/projection.rs`、`check_group_shape`）、准备工具 `RegistryBuildFixture` 及 15 个专属测试（12 个未标 ignore，3 个删除前标 ignore）。生产仍使用的 `ResolvedBuildError` 迁移至 `closed.rs`，仅保留 Deadline/Revoked/SourceReceipt 三变体，原有报错文字与触发条件不变。当前生产锁生成（由 LanguageLease 推导）、数据上限数值及读取一致性检查未改变。编译通过；定向测试 98 通过 / 0 失败 / 0 ignored；指导会话已核对当前源码及证据。原三个相关失败测试随无用实现删除，不是修复后通过。证据：`target/resolved-build-removal-20261101/`。当时未运行完整分组，另外四项失败后来分别处理；当前结果见第 4 步。Build/Inventory 历史失败底层原因未确定。第二层模块与新增无用告警当时未审查，该范围已于同日下一批清理完成（见下节）。用户已决定取消"安装期间检查锁文件外部修改"的行为——该决定当时未随本批实施，已于同日"安装固定锁输入"批次实施完成（见该节）。
+
+### 下层构建簇清理（2026-11-01，已完成）
+
+删除七个无生产消费者的模块（build、seal、runtime_bootstrap、runtime_source、runtime_startup、runtime_snapshot、runtime_layout）及专属文件，共 21 个文件、9890 行；`runtime_target.rs` 缩编为纯 `freeze_observed_target` 投影。删除 140 个旧测试声明（其中 23 个原标 ignore），新增两个纯数据测试保留当前转换函数的 markers/平台标签/extras 规范化与 compatibility 拒绝检查。保留 `freeze_observed_target`（生产消费者：语言库发布与源码 Python 构建）、证据中的真实来源对象持有、现行 `recheck`、混合安装与锁模型功能；`closed.rs` 证据瘦身（10 个纯数据字段与 10 个无用方法），`recheck` 与移交行为不变。编译通过，定向测试 102 通过 / 0 失败 / 0 ignored；指导会话已核对源码及证据。证据：`target/cluster-cleanup-20261101/`。当时未运行完整分组，另外四项失败后来分别处理，当前结果见第 4 步；安装期间锁文件外部修改检查的取消当时尚未实施，后由同日"安装固定锁输入"批次完成（见该节）。不把本次删除写成 Build/Inventory 历史故障已修复，也不宣称全仓库所有无用代码均已清理。
 
 ### InstallRollback 删除（2026-10-31，已完成）
 
-删除没有生产消费者的 InstallRollback 恢复实现及其专属撤销记录代码（含 `install_layout/publication.rs`、`finish_tracked`、`write_backend_meta_tracked`）和 35 个专属测试。原两个失败测试（`relative_install_paths_preserve_the_raw_entry_during_recovery`、`raw_install_symlinks_including_dangling_links_are_restored_without_following`）随无用实现删除，不是修复后通过。现行安装、发布（`finish`/`link`/`write_backend_meta` 等）与共享库 mutation 检查保留。编译通过；定向验证 85 通过 / 0 失败 / 1 ignored；属性修正后单测 1 通过。指导会话已核对最终源码摘要与差异。证据：`target/install-rollback-removal-20261031/`（`final-evidence-20261031.md` 及 01–07 日志）。未跑全量，其余七个已知失败仍待处理；P8/P9 未推进。
+删除没有生产消费者的 InstallRollback 恢复实现及其专属撤销记录代码（含 `install_layout/publication.rs`、`finish_tracked`、`write_backend_meta_tracked`）和 35 个专属测试。原两个失败测试（`relative_install_paths_preserve_the_raw_entry_during_recovery`、`raw_install_symlinks_including_dangling_links_are_restored_without_following`）随无用实现删除，不是修复后通过。现行安装、发布（`finish`/`link`/`write_backend_meta` 等）与共享库 mutation 检查保留。编译通过；定向验证 85 通过 / 0 失败 / 1 ignored；属性修正后单测 1 通过。指导会话已核对最终源码摘要与差异。证据：`target/install-rollback-removal-20261031/`（`final-evidence-20261031.md` 及 01–07 日志）。当时未跑完整分组；其余失败的后续处理见上述记录，当前完整结果见第 4 步。
 
-本文件承接用户本轮确认的范围与实现计划；与此前“待确认”或旧范围表述冲突时，以用户本轮决定和本计划为准。接续检查已完成，P3、P4已由指定会话最终通过，当前按顺序进入P6；P6及后续新功能尚未通过。此前一次本地Git提交授权不延伸为后续自动提交或推送。
+### 当前继续点（2026-11-09）
 
-用户最新明确授权“后面测试你进行，我要睡觉了”：本轮后续编译及测试由Agent执行，覆盖此前长验证需用户终端的工作分配；每组仍限600秒，不提升资源额度、不启用通用自动多进程运行器，不恢复Git提交/推送授权。
+第 1、2 步及第 4 步均已审核通过；第 3 步除最后回收外的原断言已走过，最后回收依用户决定留到删除简化后验证。当前代码完整分组为 4987 通过、0 失败、87 ignored，覆盖 5074/5074，P4 另行通过。第 5 步文件归属及提交方案已获 check 通过，第 6 步按批准方案执行本地提交。
 
-用户已指定：按本计划顺序实施，每个P阶段完成后自动发送给“架构设计与代码审查”会话（`01a171b4-531e-7dd2-8ef0-4df8d6e97dd5`），由该会话核对实际源码和验证证据并明确通过后，才计为阶段通过；审查不通过则先修复，不跳到下一阶段。本轮不自动提交或推送Git。
+本次只整理 PLAN 和既有改动的提交分组，未修改已测试代码；删除简化与第 7–12 项均未开始。中间提交的依赖和限制见第 5、6 步说明。
 
-2026-10-26最新范围：继续完成到P6后截止，不进入P8/P9。用户授权清理target无用编译产物，并使用本机SSH目录中的腾讯云密钥登录Linux服务器测试；仅使用本轮专用目录和进程，测试后清除本轮内容，保持服务器原有状态。新的复杂度、入口校验和函数组织规则已写入AGENTS.md；不把上一轮对推测安全场景的扩展自动当作本轮获准新增实现。
+| 项 | 状态 |
+| --- | --- |
+| P8 纯 Conda 完整生命周期 | 通过。`target/p8-real-conda-run7-20261029-result.json`，485.12 秒，0 失败，manager 调用 0。 |
+| P8 混合 PyPI（mixed） | 第一轮独立冲突、失败保持和混装回收已通过；旧完整测试已使用完好 SciPy 和原始锁，已走到实际冲突与失败保持；最后回收在 600 秒截止时未结束，完整测试仍未通过，见本轮第 3 步。 |
+| P8 脚本/依赖环/SCC | 第二轮约定的单包单对 `.sh`、fish/csh 提示、固定 60 秒和失败清理已通过；循环拒绝已显示包名。多包环境脚本和 GDAL 新语法不做，联合安装与恢复推迟。 |
+| P9 | 基本未开始。`target/p9-macos-arm64-311-run2-20261029-result.json` 仅跑 5.63 秒即失败，导出/共享/冷暖恢复/拒删/forget/回收全部未验。 |
 
-用户随后明确同意：先完成正常安装与取消、超时、Pakro意外退出的进程清理；保留文件/网络隔离，暂不为恶意主动躲避清理、攻击监督程序增加大型防御体系。此最新边界覆盖前轮将任意敌对后代绝对清理当作P6前提的解释，不撤销正常Ninja子组、生成程序登记、实际工具身份和失败不提交的要求。
+**SciPy 坏包已定性**：`scipy-1.14.1-cp313-cp313-macosx_12_0_arm64.whl` 内部 WHEEL Tag 写的是 `macosx_12_3_arm64`，且自身 RECORD 中 WHEEL 一行的摘要与大小都对不上，是**上游损坏的制品**；`macosx_14_0_arm64.whl` 逐条 RECORD 校验完好。产品拒绝坏包是正确的。用户已决定：**遇到坏包如实报错即可，不承担修复上游损坏的责任**，不为坏候选自动切换。
 
-本轮已清理当前有效四个根依赖图之外的2748个编译文件，约2.95GiB，target从9.0GiB降至6.1GiB；原日志/输入/当前1370单元均保留。清单及结果在target/p6-current-cache-cleanup-candidates-20261026.json与p6-cache-cleanup-result-20261026.json。腾讯云已通过现有SSH别名Home_server连接（不存密钥内容）；仅本轮目录为`/tmp/pakro-p6-20261026.lmAq9I`，.owner标记绑定本会话，结束必须删除。主机Ubuntu6.8、x86_64、2CPU/约4GiB、ext4；无全局安装或配置修改。实际无uidmap的`unshare --user --pid --fork --kill-child=KILL`可用，内部PID1；禁止把map-root-user失败当成全部命名空间不可用。
+**P9 run2 失败为夹具缺口**：显式 stripped 与 schema7 冷启动无 Simple 两项均已通过；失败点是测试代理未提供 `https://api.github.com/.../attestations/...` 路由，代理按设计拒绝了未知请求。
 
-2026-10-27进一步完成逐文件缓存清理：保留当前main、普通Rootlib、CLI-test、util bootstrap/test及index六根和1685单元依赖闭包，删除47个明确被替代/旧仪表产物及3990个无当前引用的非诊断fingerprint文件，逻辑2272683913B、allocated2288205824B；根二进制/指纹SHA和候选dev/ino/uid/mode/mtime/ctime/nlink全部重核，未整删目录。SDK/输入/全部日志/diagnostic/debug-build/unknown均保留。证据target/p6-mac-current-cache-audit-20261027.json与p6-mac-current-cache-cleanup-result-20261027.json。另按receipt绑定清理6个失败SourceCli私有TMP夹具139376314逻辑字节，原目标输入/日志保留，见target/p6-source-cli-cleanup-result-20261027.json。腾讯云总job仍未最终清理（测试进行中）。
+### 待完成
 
-随后核对8个旧失败SourceCli私有TMP夹具的receipt、UID/0700/root inode/时间及无活跃进程，物理清理1129322868逻辑字节（allocated1198751744B），未续行旧删除op、未重写旧失败结论，保留所有target输入/原日志/receipt。候选与结果为target/p6-source-cli-final-cleanup-{candidates,result}-20261027.json。新测试仍新建隔离数据，不使用旧失败数据冒充通过。
+1. 完成本轮第 5、6 步的提交审核和本地提交。第 3 步最后回收已按用户决定延后，不再拆分或重跑完整用例。
+2. 下一轮单独简化删除并重做 P4 删除验证，实测回收用时；多包环境脚本、GDAL 新语法和依赖环联合安装另行决定。
+3. P9 全部平台与真实项目验收（macOS arm64/x86_64、Linux glibc x86_64/arm64、musl x86_64/arm64）。
+4. P9.1 查询与报错、P9.4 文档与工程收尾。
+5. 清理：服务器 `/tmp/pakro-p8p9-20261029.9s8q6qb_`、`/tmp/pakro-inputs-20261028.tn43o9ph`；本机 Docker 容器与镜像（清单见 `target/p9-docker-environments-20261029.json`，Docker 已恢复停止）；本机 5 个 `pakro-p8-mixed-*`/`pakro-p9-pbs-*` 夹具待按 owner 清理。
+
+### P6 收尾（已完成，仅留证据入口）
+
+定向删除验证 9 父例通过（`target/reclaim-validation-results-20261028.json`）；Mac/Linux 最终日志已补齐（`target/p6-closeout-mac-source-20261028-results.json`）；腾讯云旧 P6 目录已删并核验（`target/p6-closeout-20261028/old-root-cleanup-result.json`）。
 
 ## 一、目标、已完成基础与最终范围
 
@@ -38,7 +181,7 @@ P1、P2 保持“已完成”的状态，不重新开展原阶段。后续工作
 - 统一 `pakro.lock`、严格恢复。
 - 锁文件与项目记录的受控提交、中断恢复。
 
-此前旧代码删剪只做过静态检查。实施新功能前，应完成删剪后的编译及必要定向回归；这属于接续检查，不改写 P1/P2 的历史完成结论。
+修改前和修复后完整分组结果见第 4 步；当前源码已完成本机 macOS arm64 分组复验。历史 P1/P2 完成结论不扩大为其他平台或完整真实项目通过。
 
 ### 本轮已确定的产品范围
 
@@ -118,78 +261,13 @@ Conda和PyPI分别使用自己的名称、版本和依赖规则，不能把Conda
 
 ### 接续检查：确认删剪后的工程可以继续开发
 
-**实施状态（2026-10-25）：接续检查完成，退出条件已达到；不重开原P1/P2阶段，不表示P3通过。**
-
-- 用户终端本次构建日志：`target/p2-manual-build-20261025-174510.log`，退出101；CLI模块未导入`SettingsExt`，四处trait方法无法调用。已补导入，第二次主程序构建已越过该错误。
-- 第二次构建：`target/p2-manual-build-20261025-175050.log`，主程序构建成功，库测试编译退出101；发现测试仍调用已删除的history解析入口和兼容目录发布函数。已保留旧缓存/克隆与真实文件观察隔离的测试，移除退役兼容目录的三个用例，保留同文件内归档、来源和冻结设置的用例；第三次构建已通过。第二次串行命令在构建失败时停止，后面的exact/regression当时没有执行。
-- 更新现有精确解释器安装用例：首次项目安装应生成P2精确锁并保留原生未知内容，重复安装才要求锁不变。
-- 在现有共享wheel验收中补充项目查询与真实catalog/使用者一致、引用中精确删除拒绝、离开项目撤回终端选择但保留登记，以及这些操作不下载、不改变内容和关联的断言。本次regression已实际通过。
-- 删除仅适配已退役任务展开/非Python安装路径的两份旧CLI验收；P1手动入口改为当前精确Python安装与共享项目检查，不恢复旧产品功能。
-- 本次静态检查：修改的CLI模块rustfmt检查、三个修改Shell文件的`bash -n`及`git diff --check`退出0。不复用旧构建日志作为本次通过证据。
-- 两个库测试文件的rustfmt检查及两个Shell用例内4段Python的AST解析退出0；原生文件观察测试不再调用history入口，归档/冻结设置检查继续保留。
-- 根据用户本轮清理要求，移除已确认依赖退役history/task/opentelemetry代码的旧Pakro主程序、库、测试产物及对应fingerprint，实测释放2.287GiB，target从9.096GiB降至6.810GiB。当前主程序/库及依赖构建缓存、原始P1/P2证据、ISAT有效输入与本轮日志均保留。清理明细：`target/continuation-target-cleanup-20261025.json`。
-- 第三次用户终端构建：`target/p2-manual-build-20261025-175650.log`退出0；主程序、lib测试和CLI测试全部构建成功。精确解释器冷安装与重复复用用例：`target/p1-recheck-manual-exact-20261025-175818.log`退出0，1个实际e2e用例通过，核对原始制品、运行版本/前缀、首次精确锁及重复复用。
-- Agent使用本次生成的CLI测试二进制执行保留入口解析/退役入口拒绝/恢复入口识别3例，以及命令效果标注1例，均退出0、无ignored。日志：`target/continuation-cli-parse-20261025.log`、`target/continuation-cli-effects-20261025.log`。这4例只证明解析和命令表契约，不代替产品行为验收。
-- 用户终端`target/p2-manual-unit-20261025-175910.log`退出0：P2父用例31通过/1个辅助ignored；随后locked_graph组21通过、真实项目门面1通过、文件事务组20通过、悬空链接事务组7通过。各组有重叠与helper，不相加宣称独立行为总数。
-- 用户终端`target/p2-manual-regression-20261025-180710.log`退出0：待恢复只读保护、真实共享wheel/项目查询/引用拒删/离开撤回、deps安装不改声明，共3个e2e用例通过。`target/p2-manual-wheel-20261025-181003.log`退出0：1个严格锁CLI用例验证冷暖恢复、不重新选传递版本、暖恢复HTTP为0、声明不匹配拒绝且保留原锁与选择。
-- 接续检查源码证据：`target/continuation-source-manifest-20261025.json`（源摘要`a10b489209923fc1fdff386d9f3e04bbec4c64b4d0ff8ca3fb20c8c4d33e6bbf`，排除进度文档），对应差异`target/continuation-source-20261025.patch`；检查结束时已复核源码未变化，之后的P3改动不在该证据内。实际命令、日志SHA与结果汇总：`target/continuation-result-summary-20261025.json`。上述证据限固定macOS arm64与当前夹具，不扩大为平台矩阵或完整ISAT验收。
-
-**交付内容**
-
-1. 编译当前主程序、库测试和CLI测试。
-2. 修复旧代码删剪造成的悬空引用、配置字段、命令注册和生成资源问题。
-3. 定向验证当前Python安装、查询、目录切换、指定删除和P2锁恢复入口。
-4. 核对现存验收脚本与真实命令一致，删除或更新只测试已取消行为的旧断言。
-5. 不恢复旧功能来让旧测试通过，不扩大为重新实现P1/P2。
-
-**退出条件**
-
-当前源码能够构建；保留入口可实际到达；清理引起的回归已修复。原有证据与本次新结果分别记录。
+**实施状态：已完成。** 删剪后必要编译和定向回归已完成；P1/P2历史基础保留，不重开原阶段。原始证据由`target/p2-manual-*20261025*`等对应记录承载，后续变更按受影响路径单独验证。
 
 ### P3：配置读取、显式更新锁和项目使用记录
 
-**实施状态（2026-10-26）：指定“架构设计与代码审查”会话最终明确P3通过，范围为本机macOS arm64既定P3功能。首轮四项及新增缓存校验问题均已关闭；不扩称其他平台、完整ISAT或后续阶段通过。**
+**实施状态：已完成。** 既定macOS arm64范围已通过，包含手工声明、显式更新锁、兼容旧结果复用、空依赖提交、精确ID forget与目录移动。原extras闭包、首次观察保留、源码产物复用、等价解释器写法及暖缓存锁核验问题均已修复。
 
-- 已落地待验证：统一Pakro字符串/表声明及完整extras/marker意图；退出用户pyproject/requirements观察而保留第三方归档解析；显式Update与普通严格恢复分离；旧版本/制品软偏好、原源码构建输入复用；空依赖语言-only提交；精确ID forget及全项目初始状态比较、防旧进程复活和稳定锁保护。
-- 安装协调器、锁文档保留、实际目标marker与CLI已完成首轮集成，待编译及实际行为验证。旧偏好来自原已提交图，解释器变化时仍由新目标筛选兼容旧包；旧事实只读核验可用于预览，不创建锁guard。未将子Agent源码总结、测试存在或格式器通过当作功能验收。
-- 新增P3用户终端入口`tests/scripts/p3-manual-check.sh`，实际命令与用例待源码集成检查后执行；继续复用同一target/features/debug0/incremental0，不启用自动多进程运行器。
-- 为实际验证解释器切换，取得官方PBS **CPython3.14.9+20261021**、`aarch64-apple-darwin`、`install_only_stripped`，26,705,294字节，SHA256 `9f8c3480b8f0db553c270db548e8a21ae8e39df412e5661d66e8050c5c6ed2a8`。官方release API digest、同release SHA256SUMS与本地流式hash一致，获取/核验组71.41秒、退出0；尚未执行该解释器。原始证据和归档位于`target/p3-runtime-inputs/`，保留为有效输入，不纳入编译垃圾清理。
-- 首轮静态检查：修改Rust文件rustfmt解析/格式化退出0；P3手动入口、E2E入口及修改的deps脚本`bash -n`退出0，P3 fixture和3段内嵌Python的AST、Schema JSON解析通过；修正CLI文件末尾空行后`git diff --check`退出0。详细结果`target/p3-static-checks-20261025.json`；编译前源码清单及差异`target/p3-prebuild-source-20261025.json`、`target/p3-prebuild-20261025.patch`。尚无P3行为通过结论。
-- 首次P3用户终端构建：`target/p3-manual-build-20261025-185538.log`，21秒、退出101、前后源码一致；一处输出宏传播I/O错误而函数返回unit。已改为Result传播，并在输出失败时明确说明锁/选择已提交，待重新构建。
-- 集成预查还修正Update待恢复记录的准入：只读识别属于本项目的真实journal，实际执行先进入既有受控恢复，随后无条件重新完整校验；预览仍只读报告待恢复。新增真实结束进程后重新执行Update的三个提交位置测试代码及journal身份/占锁测试，尚未运行。schema1 journal与project_state v1算法保持原样；原journal没有跨进程原配置指纹，恢复handoff核对的是本次调用持有的非锁输入及原文档/选择事实，不将其描述成额外持久证据。
-- 上述修正后6个变更Rust文件格式解析、手动脚本Shell语法及diff检查退出0（`target/p3-format-recovery-20261025.json`）。P3构建入口改为先编译lib测试、CLI测试再构建主程序，以尽早暴露测试调用面的类型问题；仍是同一target和构建配置。
-- 第二次P3用户终端构建：`target/p3-manual-build-20261025-190908.log`，129秒、退出0；lib测试、CLI测试和主程序全部生成。`P3_SOURCE_UNCHANGED=true`，前后源码清单`target/p3-manual-build-20261025-190908-source.json`及`-source-after.json`相同。本结果只证明构建，不计为P3功能通过。
-- 首轮P3用户单元：`target/p3-manual-unit-20261025-191334.log`，153秒、退出101、源码一致；41通过、2失败、1个子进程helper ignored。恢复测试未传原中断开关要求的`PAKRO_TEST_P2_LOCK_CHILD`，未触发要求的真实退出；已修测试接线。同锁/别名测试不必要地重叠持有深目录观察；原编译测试单跑可过，在独立诊断进程将soft FD限额降至256后可复现观察失败，已缩短各观察生命周期，不提高系统额度、不弱化生产保护。原始诊断日志在`target/p3-admission-*-20261025.log`与`target/p3-two-failure-order-20261025.log`。
-- 此次只改两份失败测试及手动入口的定向选择，生产源码与首轮单元一致；差异核对`target/p3-recovery-fix-scope-20261025.json`。原41例中的未受影响源码构建等结果保留，不无故重跑。新增手动`recovery`组只复验真实中断及同锁准入路径，并首次执行CLI的P3单测；其后仍须执行真实`lifecycle`组。两个Rust测试的格式解析、Shell语法和diff检查退出0。
-- 用户定向`target/p3-manual-recovery-20261025-193256.log`中5个lib父用例实际通过、1个helper ignored，三个真实退出/恢复位置均有结果，用户soft FD限额为256；但脚本随后空数组展开触发nounset而错误报告exit0，**该脚本整体不计完整通过**。缺失的CLI P3用例已由Agent用本次二进制单独执行，1通过/0ignored/退出0：`target/p3-cli-admission-20261025.log`。手动脚本已改为兼容空数组，并增加完整步骤标记及cleanup失败状态，待核验修正后的完整运行。
-- 用户真实生命周期`target/p3-manual-lifecycle-20261025-193350.log`，269秒、退出1、源码一致。已实际完成增删/改版、兼容pin保留/冲突调整、extras/实际目标marker、忽略用户Python文件、只读预览与准备失败保护、A/B隔离、CPython3.13.16→3.14.9真实切换、最后根释放及forget；重新登记操作也成功，随后测试误把旧3.13槽的最大revision7要求新3.14槽revision4超过，实际该槽由clear3正常增至4。已按完整selection key修正断言，不改生产版本语义。
-- 只补尚未执行的移动尾部：`target/p3-lifecycle-tail-20261025.sh`绑定上述唯一保留的隔离夹具、原日志/目录/配置锁/源码/二进制SHA，先核验每槽递增，再新路径选用成功后忘记旧ID。原269秒与尾部共同600秒预算，尾部最多331秒；不再下载/安装Python，不重跑已通过前半。输入绑定`target/p3-lifecycle-tail-20261025-input.json`，执行结果将留`target/p3-lifecycle-tail-20261025-run/`。当前仅完成Shell/Python语法与diff检查，尾部尚未执行。
-- 修正后的用户`target/p3-manual-recovery-20261025-200056.log`完整执行：7秒、退出0、`P3_GROUP_COMPLETE=true`及源码一致；lib父用例5通过/1helper ignored，CLI1通过/0ignored。此前193256脚本缺失步骤不再计完整通过。
-- 首段尾部实际执行10.463秒：新路径已提交独立ID并在forget前实际导入，HTTP请求0；删除旧测试目录前保护检查因多出合法`.pakro.lock.guard`停止（未删除）。记录`target/p3-lifecycle-tail-20261025-run/receipt.json`，状态明确为不完整/退出1。
-- 随后Agent在同一强绑定隔离根执行仅剩4个短命令及结果核对：精确删除两份原hash绑定测试文件及空、UID501/mode0600且独占锁成功的Pakro guard；缺失目录的forget预览/实际forget、moved路径查询和真实3.13导入均退出0，A/moved选择及两库完整内容/身份不变。4.387秒、退出0；原269+尾10.463+收尾4.387共同283.850秒。原始命令/输出/当前catalog及前后源码在`target/p3-lifecycle-finalize-20261025-run/`；不能将原失败全脚本说成单次exit0。
-- 受影响旧内核短检查：`target/p3-retained-core-regression-20261025.log`在FD限额256下15通过/2失败、4.02秒。并发用例已实际得到一胜一负，仅旧错误文案断言不匹配更完整项目状态提示；手工构造journal的旧测试未建立生产前提的稳定项目锁。只修两处测试，生产保护不放松。增加`retained`手动组定向复验并发、原P2 journal/原生字段和只读锁承诺；之后补严格CLI冷暖恢复。
-- 最后用户保留内核`target/p3-manual-retained-20261025-201949.log`完整17过/0ignored/exit0，56秒含测试编译、实际测试4.19秒；`target/p2-manual-wheel-20261025-202045.log`实际严格冷暖恢复exit0、124秒。Agent另补`target/p3-external-edit-and-package-crash-20261025.log`两父例通过、4.39秒，覆盖Pakro外部改动后的共同提交拒绝与带包joint commit真实进程终止恢复。
-- 已自动向“架构设计与代码审查”会话发送当前P3源码与上述原始证据，明确并发目前是共享提交内核证据，最后双完整CLI竞争补交前不能宣称阶段通过。当前审查入口`target/p3-review-evidence-20261025.json`、`target/p3-review-source-20261025.json`、`target/p3-review-20261025.patch`；后续正式结论和必要修复只回写本PLAN。
-- 实际两个完整`install --update-lock` CLI竞争由用户终端完成：`target/p3-concurrent-update-20261025-run/receipt.json`、`terminal.log`，9.184秒、exit0、complete=true。lsof证明两个自有PID均已打开同一非继承原guard、捕获原项目状态后才释放；两Update码0/1，失败为原输入失效，HTTP0，A只增加一次revision、锁/native/catalog一致、无journal、moved/历史B状态及两库内容不变。日志已自动补交指定会话。
-- 资源证据限定：并发脚本的256是启动时继承soft值，既有未修改的CLI启动代码仍会将自身soft提高到最多4096（实际guard FD3051）；不能说CLI全程在256。P3未修改额度代码，也不将其当新增资源优化验收。库测试的FD256证据单独成立。澄清保存在`target/p3-cli-fd-evidence-note-20261025.json`，已随审查补交。
-- 指定会话首轮源码审查明确不通过，原始结论`target/p3-designated-review-round1-20261025.json`。阻塞：P1完整extras根意图未被候选图复用验证（带extra项目可污染无extra项目并生成不可冷恢复锁）；P1 CLI反复丢弃/重建首次计划可跨forget重新基线化；P1旧源码记录直接rebuild而未先复用已发布完整输出，会使无关依赖更新因nonce输出失败；P2同一实际解释器的裸版本/精确build不同写法跳过锁而误报extras缺失。
-- 按上述4项分工修复并补对应定向证据，保留此前真实通过与失败日志，不把原验证扩称上述窗口已覆盖。修复后自动向同一会话复审，通过前不推进P4。
-- 首轮审查修复集成中：共享图复用按受保护包的实际METADATA重新推导完整extras/marker最小闭包；CLI保留首次Config、观察及全项目状态直到执行；等价解释器写法按实际实例与来源决定锁适用性。源码产物增加原ZIP完整核验复用及Ready包树复用；依赖事实变化时分配独立新树并重新生成脚本和RECORD，不重建或伪造原ZIP。新增对应库、CLI和真实冷暖用例，当前尚未编译或执行，不能引用修复前结果作为通过。
-- 4项修复已完成源码集成，原ZIP和Ready两种来源均有独立受控能力；严格恢复缺布局时也可沿原锁复用完整包树，Ready损坏仍拒绝。查询另补同来源不同合法sysconfig配方与随机坏runtime key/target的区分。修复范围相对首轮审查为43个源码/测试文件，其中41个Rust文件格式解析退出0；Shell语法、fixture和3段内嵌Python AST、Schema及diff检查均退出0（`target/p3-repair-static-checks-20261025.json`）。当前仅静态检查通过，待用户统一构建及新/受影响定向行为验证；`source-retained`手动组只复验受影响的两个旧源码协调用例，不重跑无关长测试。
-- 修复后的首次用户构建`target/p3-manual-build-20261025-214757.log`，25秒、退出101，源码前后一致且与修复集成快照一致；lib测试编译发现派生包树两个复制函数把`OperationError`直接返回给`eyre::Result`。已用`?`传播并显式返回unit，同时移除查询模块一处新产生的未使用导入；格式解析及diff检查退出0。与失败构建相比只改变上述两个文件，证据`target/p3-repair-build-failure-20261025.json`。CLI测试编译、主程序构建和修复行为用例尚未执行，待重新统一构建。
-- 类型修正后用户构建`target/p3-manual-build-20261025-215143.log`，129秒、退出0，complete=true且源码前后一致；lib测试、CLI测试和主程序均编译成功，当前源码与类型修正快照相同。日志、源码和三份实际二进制SHA见`target/p3-repaired-build-evidence-20261025.json`；短只读注册检查发现55个库用例及5个CLI用例（含子进程helper，注册数不等于行为通过数）。修复后的行为测试尚未执行。
-- 用户修复后定向组`target/p3-manual-unit-20261025-215811.log`，196秒、退出101、源码前后一致并与上述构建一致；库52通过/2失败/1helper ignored。真实原目标/输入复用用例及完整闭包、脚本重定位等已通过；新nonce整链子进程栈溢出，解释器不同配方夹具的sysconfig缺严格解析要求的头注释。先定位栈的结构问题并修正夹具；不提高栈、FD或超时额度。失败使CLI组和extras整组都未运行，不能计为通过。原始证据`target/p3-repair-unit-failure-20261025.json`；未受影响且已通过的用例保留，不无故重复长源码验收。
-- 栈故障残留表明CPython已就绪、demo源码已解包、初始构建依赖锁已建立，尚未获取counter-dep；将定位收窄至首次源码构建递归进入初始依赖准备，不称为测试入口故障或已证实无限递归。现已将生产registry准备/求解、元数据等待、严格回放及递归hook等待体设置独立BoxFuture边界；测试改薄分发壳与盒化流程并记录阶段。原owner、输入、300秒测试deadline、预算、校验和重建条件不变；未提高资源额度。sysconfig夹具补原解析器要求的合法头注释。相对失败组只改6份源码/测试文件，格式、Shell/Python语法及diff静态检查退出0，尚未重新编译或复验；范围与快照`target/p3-stack-fix-scope-20261025.json`、静态结果`target/p3-stack-fix-static-20261025.json`。手动repair只补两失败库父例与五CLI父例并刷新主程序，严格检查注册数及零ignored；随后补两个受影响的旧源码用例和尚未执行的extras实际CLI组。
-- 用户`target/p3-manual-repair-20261025-221937.log`，155秒、退出101、源码前后一致且匹配栈补丁；lib测试重新编译成功，外层两父例1过/1失败（日志另含nonce子进程失败摘要，不叠加计数）。查询用例实际通过完整不同拼写/合法配方/损坏key与target拒绝；nonce已完成首次实际源码安装，越过原栈故障位置，测试future大小15056字节，随后无关wheel更新时在完整inventory校验报EMFILE。启动softFD256、RUST_MIN_STACK未设置；未调整额度。正核对测试观察生命周期及生产Ready/layout保护的重复持有，按结构修复。五CLI、主程序刷新、source-retained、extras仍未执行。证据`target/p3-nonce-fd-failure-20261025.json`。
-- FD结构修复已集成、待编译实跑：布局已有结果、发布成功及并发胜者三条路径沿用本操作真实language/package Arc保护，只为缺项及layout新取得保护；核对同库物理store/namespace、完整成员集合、实际manifest/全部内容/投影，跨库同key仍拒绝。old-key源码可提供新派生树，已有派生目标的早期查找不把旧源码误当布局成员；私有prefix接管kernel后及时关闭外层store观察。nonce只把原完整manifest/inventory/物理身份作为预期描述跨操作保存，重取实际lease完整验证，不长期额外持有纯测试runtime/package；原断言保留，损坏保护须命中明确内容错误，EMFILE不计通过。新增两项实际handoff/同库跨operation/缺项/派生暖复用/独立跨库拒绝小测。相对221937只改6份文件，静态格式、Shell/Python AST及diff退出0，范围`target/p3-fd-fix-scope-20261025.json`、快照`target/p3-fd-fix-source-20261025.json`、检查`target/p3-fd-fix-static-20261025.json`。repair当前固定3库父例和5CLI父例、零ignored并刷新主程序；已通过且未改的query用例不重复，随后补两个旧源码及extras组。未提升额度、添加缓存或改写持久schema。
-- 已将上述冻结源码及全部4项修复、资源问题和证据边界自动发送指定“架构设计与代码审查”会话并行只读预复审；明确最新FD补丁尚未编译、行为日志需补齐，当前不是P3通过申请或通过结论。验证完成后补交同会话取得最终结论，仍不进入P4。
-- 用户最新三组已完整通过且全部源码前后一致、匹配`f3a538cf…6c330`冻结清单：`target/p3-manual-repair-20261025-230218.log`302秒/exit0，3库父例及5CLI父例全过、零ignored，并刷新实际主程序；`target/p3-manual-source-retained-20261025-230720.log`259秒/exit0，2个受影响旧源码父例全过，含严格nonce输出拒绝；`target/p3-manual-extras-20261025-231139.log`263秒/exit0，真实同意图0HTTP复用、普通根不继承feature、A/B隔离、等价full-build/prefix查询及配置改动拒绝、普通/extra锁冷暖恢复均通过。各组独立少于600秒。实际日志、源码和三份二进制SHA汇总`target/p3-fd-repair-results-20261025.json`；保持原CLI启动FD额度说明，不把inherit256宣称完整CLI全程256。
-- 指定会话预复审确认原四项修复及FD交接源码成立、无新确定交接阻塞，原始结论`target/p3-designated-review-round2-20261025.json`，但另列P2：低层严格恢复命中sdist输出ZIP缓存时直接`from_locked_output`，没有核实际source backend/重算request_id，可能暖缓存接受、冷重建拒绝同一篡改锁。已确认`locked_graph/prepare.rs`及递归`build_inputs.rs`存在同类入口；正统一交回实际SourceBuildSession与原锁slot校验并补暖/冷一致拒绝、lock/catalog不变的定向回归。已过组保留，不因新缺口重开其它已通过行为；补齐该缺口后仍需指定会话最终通过。
-- 缓存窄修已集成、尚未编译实跑：runtime及递归build-input两处低层sdist缓存直收都改为NeedsBuild；实际SourceBuildSession从原ExistingFileSlot共用核对source/backend/初始声明及实际language/recipe/fixed inputs计算的request_id，暖ZIP和冷重建在hook前同样拒绝不符，输出ZIP/摘要/METADATA完整校验保留。新增实际demo+counter构建回归，有两入口合法暖复用零hook正例，再验证两入口×backend/request_id×暖ZIP/无输出缓存共8种精确拒绝，hook不增加、锁及真实catalog字节不变；旧低层假request记录用例改验必须交回实际续行。相对f3冻结只改7个Rust文件及手动入口，格式、Shell/Python AST及diff退出0；`target/p3-cache-fix-scope-20261025.json`、`target/p3-cache-fix-source-20261025.json`、`target/p3-cache-fix-static-20261025.json`。新增cache组只跑新父例、受影响旧低层父例和旧P2源码冷暖父例，共3父例零ignored，并刷新主程序；不重跑未受影响且已通过的CLI/extras/S3 fresh组。
-- 用户`target/p3-manual-cache-20261025-234205.log`305秒/exit101，源码一致并匹配01a9缓存修复快照；两个受影响旧父例实际通过，新父例在初始化catalog时被library-only测试策略正确拒绝，还未执行新8组合，主程序刷新未运行。只为该fixture显式捕获正确的project_selection=true策略，保留其它权限、原300秒绝对deadline及全部断言；生产门和通用helper不变。相对该组仅`install/build/tests.rs`变化，证据`target/p3-cache-policy-failure-20261025.json`与`target/p3-cache-policy-fix-source-20261025.json`。按用户最新授权，Agent接手后续，仅重跑未过新父例并刷新主程序，已过旧例不重复。
-- 10月26日Agent已完成补验：`target/p3-agent-cache-case-20261025.log`实际新父例1过/0失败/0ignored，测试95.25秒、编译49.14秒；`target/p3-agent-cache-main-20261026.log`主程序构建46.21秒/exit0。该Agent组UTC16:00:49起至16:05:16确认结束，保守共同墙钟267秒，低于600。前后源码一致，摘要85190173…b1af；相对已通过代码预审的01a9版本只修测试setup权限，生产实现未变。旧cache整体exit101仍保留为失败记录，两个旧父例的实际通过与本次新父例通过分开计，不伪称一次全组exit0。日志、资源、源码、lib/main SHA见`target/p3-cache-final-results-20261026.json`；空的自有临时根已rmdir。准备补交指定会话最终判断。
-- 已自动向指定会话提交上述完整证据请求P3最终审查，当前最终审查turn=`01a173d2-0ddc-7e32-9624-ca6ed1429a44`运行中；851冻结源码保持不变。此前01a9缓存源码预核已明确无新阻塞，原始结论`target/p3-designated-review-round3-20261026.json`；尚待实际补验后的最终明确通过，P4仍未启动。
-- 指定会话最终turn=`01a173d2-0ddc-7e32-9624-ca6ed1429a44`已结束，明确“P3通过”，复核851冻结源码及最新main SHA匹配，接受缓存两旧例与修复后一新例分段证据且保留原exit101失败记录。原始最终结论`target/p3-designated-final-approval-20261026.json`。仅据此把P3计为通过，并按既定顺序进入P4；没有提交Git。
+完成证据：`target/p3-designated-final-approval-20261026.json`、`target/p3-cache-final-results-20261026.json`。缓存补验95.25秒/1父例通过，原失败组和另外两旧父例通过分开记录，不改写为一次全量通过。此完成范围不扩大为全部平台或ISAT验收。
 
 **用户得到的结果：** 自己改完配置后，可以明确更新安装结果；不用的项目可以解除登记；其他项目不受影响。
 
@@ -213,7 +291,7 @@ Conda和PyPI分别使用自己的名称、版本和依赖规则，不能把Conda
 3. 旧结果是偏好，不是不可改变的硬约束；确有冲突才调整。
 4. Python声明未变时，优先保留原精确解释器发行和build。
 5. 准备并核验新内容，生成新锁文档。
-6. 提交前重新核对配置、锁、对象及项目版本。
+6. 提交前重新核对配置、项目 revision、实际对象与来源；安装期间项目锁文件的外部内容变化按"安装固定锁输入"的产品边界处理（不重新选择依赖、不据此拒绝；需要写锁时写入本次准备结果，备份取自写前同一次观察）。
 7. 沿P2提交机制共同更新锁与选择，报告实际变化。
 
 准备失败不切换项目；已经准备好的完整共享对象可以留库，由显式回收处理。
@@ -248,25 +326,13 @@ Conda和PyPI分别使用自己的名称、版本和依赖规则，不能把Conda
 
 **必须验收**
 
-增包、删包、版本变化、解释器变化、最后一个包移除；兼容旧依赖保留、不兼容旧依赖调整；A更新不影响B；准备失败、外部改文件、并发更新、中断恢复；目录已删除仍能forget；旧进程不能复活已清空关联。
+增包、删包、版本变化、解释器变化、最后一个包移除；兼容旧依赖保留、不兼容旧依赖调整；A更新不影响B；准备失败、并发更新、中断恢复；安装期间配置/revision/对象变化仍拒绝，项目锁文件的外部内容变化按"安装固定锁输入"边界处理；目录已删除仍能forget；旧进程不能复活已清空关联。
 
 ### P4：指定删除完善、显式回收与中断续行
 
-**实施状态（2026-10-26）：指定“架构设计与代码审查”会话最终明确P4通过，范围为本机macOS arm64既定功能及隔离数据验收。原阻塞和后续分类、原因链问题已关闭；不扩称Linux或后续阶段通过。没有对用户实际库执行回收。**
+**实施状态：已完成。** 既定macOS arm64隔离数据验收通过，包含共用删除内核、真实引用保护、无根组回收、持久进度、实际退出后的续行以及准确原因报告。
 
-- 只读核对已发现现有EX/完整inventory/FD捕获可复用，但没有持久删除进度；包删除仅撤关联layout Ready而保留目录，旧无清单孤儿不能据此补造删除许可；现有reserve/publish需同库pending claim门阻止未完成删除时同key重发。
-- 按现有架构文件的P4约束分工实现统一图视图/有向工作组、共用持久删除及续行内核、catalog-only CLI与准确结果。不可变原manifest和短进度分开存，限定整组实际保护容量，不通过提高句柄/超时或拆环完成。当前尚无P4编译或行为通过结论。
-- 用户此前target维护要求已继续处理：只读审计target约7.9GiB，当前main/test两套依赖图、有效runtime/ISAT输入及原始证据均保留。按逐项SHA、inode/uid/mode/mtime及当前Cargo输入匹配，删除64个确定退役的opentelemetry/已删旧功能产物与旧Pakro检查元数据，实占释放122.00MiB；不删除候选外内容、历史util或原始日志。明细`target/p3-obsolete-build-candidates-20261026.json`与`target/p4-target-cleanup-20261026.json`。这是工程构建缓存维护，不当作P4产品回收验收。
-- P4第一版图层/CLI已接线并补定向测试，删除核心及Preparing/Complete记录正在最后集成。首次诊断`target/p4-first-typecheck-20261026.log`观察墙钟53秒/exit101，仅报对象probe闭包同一错误类型推断的4条诊断；该轮明确为未完全冻结的类型诊断，不计P4构建/行为通过。新增受限`open_reclaim_journal_writer`与`forget_reclaimed_retired`，只用libraries权限做journal/受限退休CAS，维持project_selection=false，不能取得可变项目关联模型。两类manifest复用既有data-only合法性检查，避免图去重掩盖坏边。
-- 全源e426fd53…62312冻结后构建lib/CLI/main均exit0（47.68/41.55/40.50秒），前后源码一致；原第二轮28条unreachable_pub诊断已收窄内部可见性解决，不放宽lint。首次P4行为`target/p4-unit-lib-20261026.log`51.04秒/exit101，22父例通过/3失败/2辅助ignored；`target/p4-unit-cli-20261026.log`0.04秒/exit0，7父例全过。27库注册不混算为27通过，前后源码仍e426。两个图fixture发行名下划线归一化不符已仅改为canonical名称，生产门不变；真实退出续行在payload-intent时错误重查已完成上层组、引出已撤Ready语言的假dangling边，正按实际cursor终态修复。汇总`target/p4-first-behavior-results-20261026.json`，尚无P4通过结论。
-- a97b9255…e659三文件窄修保留完整实际EX/原manifest/cursor与物理缺失检查后跳过整完成组旧live边；不松未完成组/外部未知边，报告去重。`target/p4-repair-three-20261026.log`编译成功后2过/1失败，53.75秒：两个fixture例实际通过，原payload位置已越过；更后cut=complete暴露只读Store缓存未满足后续claim写请求。before/after清单一致（`target/p4-resume-fix-source-20261026.json`及`target/p4-repair-three-after-source-20261026.json`），主程序刷新尚未执行。
-- 指定会话P4预审明确2项P1、1项P2，原始结论`target/p4-designated-prereview-round1-20261026.json`：Complete读→写能力交接；已发生pending动作恢复时漏父fsync；受保护语言只解key不校完整manifest。第一项已按原anchor/物理store+build身份核验后open_existing升级，不初始化或猜路径；后两项正在统一physical/metadata parent sync及完整data-only语言清单核验，并补精确负例。已过P4库/CLI例保留，后续只补未过及受新修影响项，仍需指定会话最终通过。
-- 三项预审窄修已冻结、待编译实跑：Read→Writer cache只经原anchor及新旧root/build同inode核验后open_existing升级；capture/entry/payload/allocation所有存在或缺失分支在done前同步原父，Ready/claim namespace及中央进度读取也补sync。新增6类syscall成功但父sync前真实退出+新进程续行、实际原父inode sync证明（另核中央sync），不是只检查路径消失。语言即使被项目保护仍完整解码既有manifest规则，新增仅key/schema99两种损坏会阻止其它候选删除的父例。另新增真实main A/B共享/forget/prune/completed-resume验收。相对a97只改10文件，格式/diff退出0，冻结`target/p4-prereview-fix-source-20261026.json`（0b7b4b1f…ac423）；根开始编译与定向行为复验，尚无通过结论。
-- 0b7冻结lib与main再次构建exit0（49.92/42.02秒），源码保持一致。`target/p4-targeted-seven-20261026.log`86.30秒/exit101，6过/1失败/0ignored：实际main A/B共享保护、双forget后回收三对象、completed resume预览/重复幂等；原全部durable退出续行；六类sync前退出及实际父同步证明；claim/新实例保护；两种已选语言坏清单拒绝均通过。仅新store升级负例的外来库绑定失败被误分为Damaged而非Unknown，仍拒绝未取得权限。正以typed控制库绑定错误收窄分类，不改内容损坏分类/测试期望；已过6不重跑。原始汇总`target/p4-targeted-seven-results-20261026.json`。
-- cd84纯控制库绑定typed分类修正后，新upgrade父例1过/0ignored（2.13秒，编译47.79秒），main构建exit0；6个受影响旧f4精确卸载例5过/1失败（4.01秒），唯一为保护正确但丢失人可读parent→dep原因链。仅prune/graph两文件补迭代真实路径输出、资格与目标不变后，`target/p4-reference-chain-regression-20261026.log`余下一父例1过（2.08秒/0ignored，编译47.77秒），main再次构建42.15秒/exit0。最终fresh main又运行真实A/B共享→forget→prune→completed resume父例，9.40秒/1过（`target/p4-final-main-lifecycle-20261026.log`），并核main SHA。
-- 当前全部30个P4库父例、7个CLI父例及6个受影响旧精确删除父例已按明确版本分段取得通过；2个ignored仅专属子进程helper。原全组失败日志仍保留，不伪称一次全量exit0；完整scope矩阵及SHA见`target/p4-final-verification-20261026.json`。最终源码5a55de45…9905前后无漂移，`target/p4-final-source-20261026.json`，准备提交指定会话最终审查；尚未计通过，未进入P6。
-- 已自动补交全部P4原始日志、分段scope矩阵、最终源码及main SHA，请求指定会话最终明确结论；当前审查turn=`01a17462-4848-7d93-afd8-39d6006f01b9`运行中。此前三项阻塞的0b7代码复审已明确修复成立、无新确定阻塞，后续只收窄控制库错误分类和恢复人可读引用链；当前仍等待实际证据后的最终通过。
-- 指定会话最终turn=`01a17462-4848-7d93-afd8-39d6006f01b9`已结束，明确“P4通过”，确认5a55源码/main摘要、30库父例/7CLI/6旧精确删除的分段证据和真实主程序生命周期，未混算helper/重复运行，原失败组保留。原始最终结论`target/p4-designated-final-approval-20261026.json`。仅据此计P4通过并进入P6；未提交Git。
+完成证据：`target/p4-final-verification-20261026.json`、`target/p4-final-source-20261026.json`、`target/p4-designated-final-approval-20261026.json`。30个库父例、7个CLI父例及6个受影响旧精确删除父例按对应源码分段通过；2个ignored为专属子进程helper。最新删除优化另在当前收尾中验证，不借用旧结果。
 
 **用户得到的结果：** 能清楚看到什么还在用，并安全清理确定不用的内容；清理中断后可以继续。
 
@@ -322,115 +388,15 @@ A/B共享、最后使用者释放、无根环与有根环、预览后新增引�
 
 ### P6：完成保留范围内的源码构建与Linux布局
 
-**实施状态（2026-10-28）：P6完成。Mac与Linux六原生后端各6/6全过，源码CPython完整生命周期两平台均实际通过；用户已取消指定审查会话签字环节，以实际验证结果为准。完成到P6即截止，P8/P9不进入。仅支持用户确认的正常公开后端及取消、超时、Pakro异常退出，保留文件/网络隔离，不扩建恶意主动逃逸体系。腾讯云专用目录及fixture待清理。**
+**实施状态：已完成。** Mac arm64 与 Linux glibc x86_64 六个原生后端父例各 6/6 通过；源码 CPython 完整生命周期两平台均实际通过。其他平台验收留 P9。
 
-本轮用户批准并实施的三项改动（2026-10-28）：
-
-- 删除操作时限与查询分离。`src/core/programs/library.rs`原将30秒单一期限用于全部CLI操作，删除大型CPython需被切段并反复`prune --resume`。现查询保持30秒，用户显式删除/回收取300秒。删除内核的逐文件父目录fsync与进度记录未改，P4持久化合同不变。
-- 查询不再遍历哈希整棵已发布树。`which`/`env`/`installs ls`原经`check_binding`→`check_full`→`observe_tree_inventory`哈希全部约3000个文件，且`acquire_existing`收尾与查询各做一次。现查询侧新增`check_metadata`：Ready清单字节、物理绑定（inode/属主/权限）、入口解释器单文件哈希。安装、发布、包物化、删除仍走`check_full`，未削弱。Linux实测每次查询约9秒降至约1秒。
-- 原计划拆分Source父用例（C项）未实施：上述两项改动后整组已在580秒内一次通过，拆分失去必要性，证据形状保持原样。
-
-实测结果（两平台均`reclaim_resumed=false`，即删除一次完成、未走续行）：
-
-- Mac `target/p6-round19-mac-source-lifecycle-20261028.log`：1父例通过、0失败、0ignored，309.499秒；冷编译210.032秒，暖复用5.564秒，查询0.171–0.287秒，删除85.260秒。
-- Linux `p6-round19-source-lifecycle-20261028.log`（腾讯云，源SHA见`target/p6-round19-delta-20261028.json`）：1父例通过、0失败、0ignored，526.831秒；冷编译394.291秒，暖复用27.355秒，查询0.848–1.068秒，删除59.876秒。改前同用例为577.192秒被580秒上限杀死（exit 124），查询各约9秒，删除两次30秒超时后仍未完成。
-- Mac六后端父例与Linux六后端父例此前已分别通过，本轮改动只触及查询与删除时限，未改构建路径；上述Source父例覆盖真实编译、七必要功能、全部已安装扩展、pydoc/idle、A/B同实例共享、严格暖复用零HTTP、只读不改状态、受引用拒删、forget、精确删除与物理回收。
-
-指定会话历史审查结论（P3/P4）保留为记录，但用户已于2026-10-28明确取消该签字环节，P6及后续以实际验证结果为准，不再等待指定会话结论。
-
-前三项清理修复已由指定会话turn `01a17a7a-7455-7233-a324-02740cb49283` 只读复核源码接线接受，尚待两平台行为：Linux独立watcher成为subreaper，停止和正常出口都以ECHILD确认收养子进程清空；Mac两次枚举严格大于0；全部生产session使用start_owned，spawn后首await前移交，Finish成功确认才收回。RawSourceTree、嵌套prefix、LanguageBuildOwner均不抢先chmod/删。新增两父例用真实生产对象和run future，手动配对C worker做确定的析构刺激，不冒称完整hook链；ready失败只证明保守保留，不算自动清理成功。静态检查target/p6-native-cleanup-static-20261027.json。
-
-后二项增量复核turn `01a17a7f-de59-70d0-bc8f-0eaebe4b7733` 接受python-config.py分类/适配源码，普通Python转接还需补默认stdin（无代码参数或只有-u/-O）及保留原-I/-P所决定的cwd/脚本搜索语义，正补最窄入口与实际worker用例；不是通用进程虚拟化。Source冷重建测试设计可接受，一次执行只记录实际命中的匹配或拒绝分支，不同时宣称两者均验证。Linux eae40新epoch主程序175.209秒编译成功，库测试组完成前保持生产源不变，随后才同步本轮hook修正，避免跨版本冒称同一批通过。
-
-最终hook `0ff1f10960dd8e6bed6584dd62c9694ef0dd04b0eaee636ec3ea5ea29ed5e6da` 已由指定会话turn `01a17a8d-8d5e-7273-8a4a-60c7a4f8d272` 复核两个入口源码关闭，配置脚本摘要相符，无新确定遗漏，待真实worker/Source冷重建。Linux eae40旧epoch主程序和库测试均编译成功；首次新析构组53.861秒真实1过/1失败：语言owner已通过，Source用例只在准备后期限过期、未进入析构刺激。仅外置测试改为先完成runtime构造/准备，再各case持新30秒Context和真实新LanguageLease，不增产品或整组上限；原失败保留，待新ac1b46 epoch实测。
-
-新ac1b46 Linux main166.831秒/lib256.659秒均编译成功，前后源码一致；utility6父例全部通过（含owner SIGKILL/timeout/cancel/gate/wrapper/文件网络边界，整组60.916秒），生产对象析构2父例全部通过（行为53.13秒/整组57.024秒，含Source四刺激），日志target/p6-tencent-round12-{utility-cleanup,native-cleanup}-20261027.log。Linuxumask077本就创建0700；Mac后补的一行外置fixture显式chmod0700未混入该epoch，生产字节相同，当前C++实际验收进行中。
-
-Mac新main47.44秒/lib55.50秒编译成功，config metadata短例1过；初Source析构夹具0755被生产validator拒绝、初nativePython夹具hyphen名生成非法wheel均未进入目标行为，保留原失败。仅补外置fixture显式0700及合法p6probe包名，随后target/p6-mac-review59-fixture-fix-{lib,source-cleanup,python}-20261027.log整组122.825秒退出0：lib51.27秒，Source生产析构四刺激父例1过7.93秒，真实nativePython父例1过60.58秒；语言owner此前已过不重。Python用例实际固定三wheel、全普通入口及-I/-P搜索选择、user site禁用、越界读写/联网拒绝和登记门均过。Mac utility刷新及Source按锁冷重建仍待，不计P6阶段通过。
-
-Mac当前监督utility6父例已全部通过，含normal/owner SIGKILL/timeout/cancel/gate/文件网络隔离，1专属helper ignored不计父例，刷新编译与验证整组40.254秒，证据target/p6-mac-review59-util-*.log/process。Source完整按锁cold父例target/p6-mac-source-locked-cold-fixed-20261027.log/process实际427.251秒/退出0/1父例0ignored：A真实build212.487秒，B全新data/cache同官方raw/工具SDK/recipe和完整原锁真build208.770秒，自然实际输出从881fbbd9556370f73ba1d36a0419f1bad847ed2582a25074defef36647301479变为5c9799fa3f07a52560ee1373dc0cc79d009cc16b18caefd4df1379b20fdaef91，唯一输出gate准确拒绝，B无Ready/selection，A完整context snapshot及AB锁/声明字节不变。只证明实际cold重建与输出变化保护，不称匹配冷恢复成功。A直接执行config-*/python-config.py --includes退出0，两项均最终payload/include路径；逐命令原始证据target/p6-source-cold-cli-01a17a9a0265721699022e1b1e9f7b28。
-
-Linux C++ round12父例480.92秒/整组484.953秒失败保留：实际try_run/AB导入共享/warm0HTTP及真正同锁冷重建的digest、buildrecord fingerprint、builds1、ZIP存在均通过，随后changedCC两种ZIP状态拒绝检查之一触原operation deadline，不能算完整父例或变化工具链gate通过。只读审计最窄耗时/夹具问题，不增480/580/600或句柄栈额度、不原样重跑。LinuxSource独立真实CLI首例正在运行，服务器总job尚保留，P6仍未最终通过。
-
-指定会话turn `01a17aa4-a820-7592-adf9-c593cd558a6c` 接受C++真实耗时路径仅两行内部去重，已实施：私有reusable_published_package入口及rebuild入口复用公开prepare_registry/replay_registry已经完整验证、持续持有的同一LanguageLease，改用现有check_held_binding。原Context/deadline、实际SH/FD/原manifest仍核；公开入口、成功复用/缓存出口、Source session准入、Completed/publish/into_parts、resolve和最终提交全验不变，无新缓存/开关/额度。仍需原480/580/600完整实际父例通过，未以改Context期限绕过。
-
-LinuxSource首次真实CLI父例在configure前被输入根上限拒绝（test31.68秒/整组36.185秒），不计源码构建通过：已有hostCC与私有CXX分属两个prefix，canonical21根输入形成9覆盖根，超过8，原失败保留。未提高阈值或删必要输入；仅私有解包官方同版本cpp包的cc1组件，Source改用同prefix GNU13真实CC/CXX，42探测项去重18、覆盖根8，实际C/stdarg/stdio与C++/vector/iostream编译运行均42（0.506秒），164项原静态SDK字节不变，无组合大SDK或系统安装。记录target/p6-tencent-round12-source-shared-gcc-complete-inputs-20261027.json。round13将同步两行代码并先Source真实验证，再原预算C++；服务器保留至完成。
-
-Mac review61两行去重后main43.662秒/lib52.710秒及完整C++父例137.635秒全部通过，整组234.007秒、1行为父例0ignored，原480 operation不变。真try_run、AB同锁warm0HTTP共享、包cold产物/记录精确相等、changedCC ZIP有/无两状态预hook拒绝均过。当前main SHAca762aa562679728415c9c1877e8e7c8cedc5e894e921a19adc3e05c012d661a、lib cfa117da40d229a9b3348297eb2736259919ec7d3e98b740cc849ca4739fc4fa；target/p6-mac-final-verification-matrix-v3-20261027.json SHA2d8fc66d8ad7ac69c07a90dbc487d98833d2a6e4858382dab294fcf69476f02d链接原矩阵及v2，旧scope不倒写为新binary通过。target/p6-mac-current-cache-audit-v3-20261027.json重核当前六根1685单元、缺依赖0、可确认新增无用deps/fingerprint候选0，未删除有效输入和日志。Linuxround13仍在执行，P6等待全部结果、服务器清理和指定会话最终结论。
-
-指定会话turn `01a17aaf-21cd-7e40-ac84-14af936821c6` 已只读局部接受Mac v2五项修复/Source实际冷重建拒绝和v3两行Cpp增量，未发现新增阻塞，不计P6整体通过。为使两项运行绑定收据自包含，当前同binary仅补utility6父例和nativePython1父例（83.357秒均过，helper单列），现场捕获真实env/cwd/argv、主程序和测试程序、原资产manifest/三wheel/PBS的stat与SHA前后不变，源码含docs也前后一致；旧收据env/hash缺项保留不补写。新target/p6-mac-final-verification-matrix-v4-20261027.json SHA7227eb0cc0ce37b8d53fc9cbb5b1b17c239cb21bda600d745c6fb9028154913c，现场收据target/p6-mac-current-runtime-binding-process-20261027.json SHA5f9442d3513da0d1a4b1eb3f766adf8fc2fd382b6cde94e3f1ac207aed59d2d6，原/v2/v3矩阵字节不变。Mac全部验收已完成，余Linux实际Source/C++及清理继续。
-
-指定会话turn `01a17ac1-6093-76c1-92f8-97a2a6db45bb` 已核v4的17份关联文件、运行绑定/前后摘要/退出与父例计数，相关证据缺口关闭，不重复累计能力。Linux round13 main168.832秒/lib254.207秒均编译0、faf12c30源码前后一致；同GNU13输入的Source第二次在configure前被host LTO库链接逃出冻结根拒绝（test16.73秒/整组21.226秒），非实际构建通过。只读枚举确认34,246项/407链接中仅2条指向同一host /usr/libexec LTO文件，不是GDB插件。未删链接或放宽校验；新owned组合SDK按原静态164项及真实GNU开发布局、pkgconf和实际runtime链接目标准备，原输入/两次准备失败收据保留。最终1179个regular文件/217572019字节、链接完整、5覆盖根、真C/C++42、pkgconf独立RPATH及ELF检查通过，receipt SHA31427789cec62b74f78889322f6b94b84f4ca8f8c5252ae5dd3bf2c98002d5be。实际组合输入Source CLI父例已启动（target/p6-tencent-round13-combined-source-cli-20261027.log），未预记通过，结束后才串行Cpp最终父例。
-
-组合SDK Source实际通过官方configure，但make首对象因sh EINVAL失败（167.87秒行为/171.595秒整组），未计完整Source通过。真实同监督诊断确认GNU Make4.3的RESETIDS问题：外部有效UID/GID下spawn/spawnp均成功，native未映射namespace中普通flags12均成功，加RESETIDS的flags13均EINVAL22。仅Linux ignored诊断父例，不计新backend能力；未改gate/attrs/身份或隔离。官方GNU Make4.4.1归档SHA dd16fb1d67bfab79a72f5e8390735c49e3e8e70b4945a15ab1f81ddb78658fb3、GNU keyring验签通过，私有新Make字节SHA d64ec7984bf83115b3f8e7babdd98d6d3526c28cd888aaa619f59127bc268901，原4.3/构建命令与smoke夹具失败均保留。
-
-Linux两行去重后的Cpp仍在旧共享480秒的changedCC末尾失败（480.94秒/483.849秒），未计通过，不原样重跑。指定会话turn `01a17ada-e2f4-7871-9bf1-3b8e19adf6d3` 已认可固定私有Make4.4.1工具范围及真实独立请求夹具合同。仅native_tests.rs（SHA b3a638de989ebfae5f95a2f7d95e5d70257e67453535102aed0f79fc4b506a00）调整：原A/B/cold/common全验仍480并checkpoint，释放旧拥有对象后，尾部两次changedCC各重新完整取得Context/租约/锁/registry/预算，单次min(now+480,parent580)，父580始终不重置，末轮再完整核AB事实及实际导入。全部原拒绝/零HTTP/hook/锁/catalog断言保留，旧失败不改绿，不宣称旧共享480全流程完成。两平台增量lib与该完整父例正在验；Linux round14同步仅两测试文件，生产与main仍faf不变，随后新Make真实smoke/Source/Cpp串行。
-
-后续Linux新合同首次common472.855秒已过，tail因shim误用CXX而更换CC安装布局触SDK根错误，未过；仅四行测试改为委托原CC（a230f4bf…22423）保留单变量后，Mac v6已完整通过131.59秒并获指定turn `01a17b01-1428-7c43-b182-1a09d6a13cb0` 局部接受。Linux原a230父仍在控制层577.195秒超时：common477.023秒、with_zip=true精确门61.040秒通过，false未完成，完整仍失败。同期Source OS-ABI真实首次install386.081秒、七功能/全部扩展、B暖装/查询及引用拒删通过，物理回收尾部在577.193秒父限超时；后态3034项物理完成仅说明最终状态，不证明原父期限内完成，不改绿、不续跑旧tail。
-
-指定turn `01a17b21-e8c9-7213-8105-e4d9852861b9` 接受最窄已确定失败早拒及Source测试helper去重。现生产仅既有真实程序SHA与已验证expected同role必不等时返回原工具链错误，把SDK全量hash置后；None/match/missingrole保留完整SDK/config/NativeRecord/全部公开Runtime和提交校验，无新增hash/cache/权限/额度。Native适配代码与重编bootstrap导致新请求身份，旧epoch不倒写。Source helper只删除acquire_existing返回后立即重复的check_binding，该入口返回前已完整核验，同SH/FD及全部字段断言保留。
-
-新epoch Mac main49.930秒/lib52.901秒编译0，实际8短父例及完整Cpp1父例全部通过（Cpp118.82秒/整组231.178秒，两门约2秒准确拒绝）。target/p6-mac-final-verification-matrix-v7-20261027.json SHA bad80b4276a9ade25dbe5db24bd30ac67fb234fa67fa82186a6aaba1274291fc串联全部旧scope及失败，新main10d8c02f6a347ca46fbac120b683b6724226a134b9a416064bd1345334afe175；缓存六根只必要校核，未整删或改旧矩阵。Linux round16 source9aa7bb848232286a8864dca7b679ab52892f5cdd0a25e6bb54fafbdc9e6dbb63 main178.181秒/lib254.750秒编译0，相关6短父例实际全过（4.15秒/8.051秒整组），当前完整Cpp后Source按原预算串行，仍需两整父成功及服务器清理/指定最终通过。OSABI新SDK保全部1179regular/217572019B及原.a，仅新增四个指向已核/usr/lib实际发行版库的正常开发链接；不再无必要地重建四个PIC源，实际发布仍禁止SDK运行依赖并验证七功能/全部扩展。
-
-Mac现有完整矩阵 `target/p6-mac-final-verification-matrix-20261027.json`（SHA256 `5af5cc10a645c5d606317fcaae58d544816246ba7c5e3605938aa1b19ff2f242`）记录各批源码/二进制及旧失败，不合并为当前整树全绿。指定会话已核154份文件引用及Source逐条命令摘要相符。Mac六后端实际完整父例：setuptools C、CMake/Ninja C++、Meson/Ninja C、公开MarkupSafe3.0.2、maturin、setuptools-rust；Source新recipe2正例328.595秒，含必要标准库/全部已安装扩展/查询/同锁共享/引用拒删/forget/同一删除op续行至物理完成；缺OpenSSL负例184.893秒只在必要ssl功能校验失败且未发布。二者不替代仍缺的Source冷重建证据，后续修复也需明确新的源码对应关系。
-
-本轮新增代码尚未整体验收：独立NativeBuildSession（Linux PID namespace、Mac SID会话）、精确只读执行池/E-R登记及compiler wrapper、一次冻结工具链/SDK、native recipe2及schema4双codec、Cargo固定输入、6个真实后端父例，以及源码CPython来源/锁/语言库接线。原recipe1驱动字节保留。
-
-2026-10-27接续实测：Mac执行门的真实posix_spawn递归已修正，2个实际gate/wrapper组件父例通过；native model/Cargo固定输入等10个数据父例通过，主程序/lib已编译。Linux真实后端仍未通过：测试umask、缺C++及私有SDK断链问题已分别定位并修正输入；随后发现GCC实际LTO插件在库搜索目录之外，已按编译器报告的确切文件补冻结，待复验，未放宽目录准入。Mac首个setuptools在仅对测试进程排除本地代理后已进入build_wheel，但钩子失败，待取得有界错误输出；CPython实际源码首例16.08秒在configure写/dev/null被拒绝，正在修正native worker的精确设备权限。两项均不计通过。Mac私有源码SDK以现有系统SDK的COW副本加现有OpenSSL/xz静态开发文件准备，未改系统SDK或安装全局软件。组件通过不代替真实后端、源码语言生命周期或P6整体通过。
-
-最新进展：指定会话只读预审提出的7项已实现修复，尚待真实行为和正式复审。Mac主程序/lib已重新编译，工具链5例、完整source pin、source commit、来源切换overlay、运行库策略共9个定向数据父例通过；overlay首失败是测试误用Table显示遗漏子表，改用与生产相同DocumentMut后原完整断言通过，未放松生产。Linux同一批main/lib编译通过，工具链4例及source pin/commit/运行库策略共7例通过，overlay待合入测试修正。
-
-真实reflink产品父例已在腾讯云独立btrfs挂载中通过1例（4秒、0ignored），覆盖recipe3、真实ELF运行、A/B共享与独立副本；使用synthetic受管runtime和系统Python，不扩称受管CPython。此前两次权限拒绝及一次ptrace诊断零例均保留；确定sudo重置umask后，在实际测试入口设077才通过。远端专属reflink-run已清理393315959逻辑字节，已卸载且无host mount泄漏，镜像仍随总job最终清理。证据target/p6-tencent-product-reflink-20261027/summary.json。
-
-真实pure setuptools两平台现均实际通过（各1父例、导入42、missing CC、recipe1/native=None）：Mac日志target/p6-mac-setuptools-pure-normal-import-20261027.log，Linux日志target/p6-tencent-round4-pure-setuptools-20261027.log。此前-I屏蔽布局PYTHONPATH及Mac测试项目/var别名两项夹具错误均已修正，未改生产布局或P2符号链接锁门。
-
-Mac真实setuptools C扩展完整父例已通过，169.88秒/1父例/0ignored：实际编译与导入42、A/B同完整锁共享及暖恢复HTTP0、nonce造成冷重建输出变化时拒绝且保留原锁/选择；日志target/p6-mac-setuptools-native-c-locked-warm-20261027.log。此前B未持原锁属于新项目显式解析，不能把元数据请求当暖恢复失败；已改B复制完整锁并保留严格零HTTP及AB锁字节不变断言。Linux C及其他五后端尚未通过。
-
-随后Mac Meson/Ninja真实父例97.50秒及公开MarkupSafe 3.0.2源码父例97.11秒通过，均实际导入/调用42、A/B同锁共享与暖HTTP0，日志target/p6-mac-backend-{meson,public}-fixed-20261027.log。目前Mac原生后端通过3项；C++已修CMake4.4实际share/cmake目录和Mac探测helper、Rust已修固定TLS配置和真实Maturin WHEEL标签入口，待完整复验。
-
-原始Maturin 1.8.6公开轮采用压缩WHEEL Tag（规范原要求expanded），指定审查turn01a1797f-ea3f-7513-885c-608a27ce27ef接受非专属的有界等价入口兼容：保留原字节/摘要/CRC/RECORD/预算、展开前乘积及跨行累计工作检查、最终全集与文件名严格相等。实际wheel组54个父例通过，含原36MB universal2脚本与压缩/非法/超限回归；旧PyYAML ignored用例因未提供其专属输入失败，整组退出101，不宣称55例全绿。日志target/p6-mac-wheel-compatible-suite-20261027.log。
-
-普通生成程序重复输出实际复现两项问题，已最小修复：producer仅解除本session sealed pool的原输出alias，保持pool只读；watcher改为session HashSet保留所有实际owned历史digest，未知pool仍拒。Mac组件先5过/1个150ms启动前测试刺激失败，修正有界就绪/人工deadline后该父例单独通过；Linux utility overlay整组59.834秒、6父例通过/1专属helper ignored。未改产品、600秒、FD或stack额度。另Linux实际argv0对照2.714秒证明GCC用cc基名会从wrapper目录算错builtin头路径，已仅传实际compiler argv0，未加-I掩缺项。
-
-Linux59d77ff3源码的完整nativeC用例在原480秒operation截止失败：A实际GCC编译、导入42及recipe2/schema4核验已完成，B严格暖恢复未结束，cold未进入；父例480.90秒，整组484.761秒，不计完整通过，不提高截止。正审计同持有lease是否重复完整inventory校验。证据target/p6-tencent-round6-native-setuptools-20261027.log。
-
-源码CPython已确认C编译/执行成功，并越过diff修正后的sed检查；新有界诊断实际指出缺rmdir及Mac sw_vers，按确切helper补齐中，不广放目录。Source发布验证另按指定审查要求加载所有已安装lib-dynload扩展后才观察实际动态库，不能以find_spec冒称可选扩展已加载。完整源码语言生命周期与P6最终通过仍未取得。
-
-源码CPython已进一步实际完成configure、解释器/标准库编译及staged安装/import（241.67秒），发布前因LLVM otool调用未登记otool-classic而拒绝；已按真实同目录程序精确绑定classic，原-L对照0且输出相同，待完整重验。已修MacMake选择层：xcrun固定真实gnumake而非make selector；仅允许官方已校验raw源码内固定install-sh执行，不广放工作目录。Mac新接手执行者按同一target继续此正例及剩3后端；P8/P9未进入。
-
-最新Mac Source新full已在原580秒组内实际完成A安装301.914秒、B严格暖复用15.549秒、7必要功能/所有已安装原生扩展、pydoc与idle、同inode、只读快照、引用拒删、forget与prune-dryrun；完整父例402.073秒因指定uninstall原30秒deadline失败，未计通过。已绑定旧op状态证实仅第二次EX库存核验阶段、尚未撤Ready/删除。P4库存回调逐项重开全store控制面已最小分离为held FD/EX guard，完整store/manifest/root入口出口、删除/WAL/cursor/fsync不变；指定预审cursor41静态接受。整个受影响Mac reclaim组8父例通过/2专属helper ignored（81.98秒），含durable退出、恢复及三类损坏拒绝；实际大Source卸载仍待新full，不以小例替代。
-
-Mac C++完整父例155.482秒通过，覆盖CMake try_run、同锁共享/warm0HTTP、已有语言下确定性包冷重建及changed-CC两种ZIP状态拒绝；目前Mac六原生后端通过4项。Rust已越过真实Cargo与registry编译，发现本机Rust1.97 strip=debuginfo产物LINKEDIT损坏；独立rustc对照1.12秒确认strip=none可实际dlopen，Mac Cargo环境固定此输入且记录portable配置，不改原输入/安全边界。SecureTransport选择经同样禁网/拒etc读的Cargo实际0.014秒对照通过；两个Rust全行为待统一刷新复验。
-
-Linux最新去重已让nativeC原480秒内完成A/B严格共享/双导入42/暖0HTTP/锁字节保持，包冷重放仍触截止，未算nonce拒绝通过。指定cursor42接受下一层最窄内部去重：registry循环和Source session checkpoint持同一SH能力时检查原manifest/保护/目录绑定，完整prepare入口、Completed输出/缓存/发布复核和最终commit保留，无新cache/Token/开关或资源提升。已补2个计数/损坏/取消回归，Mac/Linux统一编译与完整行为复验中。
-
-后续Linux完整C在原480/580内通过（474.37/478.162秒），公开MarkupSafe完整364.25秒及Meson完整363.29秒通过，Linux六native已有3项完整通过；C++实际重建指纹已精确相等，冷交接末尾因deadline被旧BuildMismatch包装而失败，未称产物不确定。指定cursor46接受紧邻handoff两处最窄复验去重，最终公共输出/into_parts完整检查保持；已补原cause及回归。LinuxRust版本LLD首行括号内绝对路径漏归一已修入口，validator不放宽；新epoch正编译/执行剩3。
-
-Source旧含自身回归套件配方完整组577.011秒被原controller硬截止（0父例过）：同一公开op实际恢复到6487/8322，未物理完成，原日志/失败状态保留。原30秒和组580/600均未增加。指定审查cursor48明确P6只承诺运行时、未承诺CPython自身回归套件，接受正式默认新版本化配方使用官方`--disable-test-modules`，普通stdlib与unittest/mock/doctest/七必要功能均须保留并实测，查询展示配方事实，旧记录不重新解释。此为产物配置调整，不冒称透明perf或旧8322对象回收通过。新配方代码/新旧记录兼容及正负完整行为由MacAgent实施复验，P6仍未通过。
-
-实际验证：腾讯云utility冷编译4分28秒成功，初始worker exec拒绝；对照确认Linux需对真实ELF PT_INTERP也授Execute，已按精确路径修复，无目录放权。复验`target/p6-tencent-util-recheck-20261026.log`：5父例通过、1专属helper ignored，46.88秒整组；Mac初组3过/1网络测试断言失败，socket创建并不等于联网，改成有正常监听者的实际TCP/Unix连接拒绝后该父例复验通过（`target/p6-mac-native-isolation-recheck-20261026.log`）。这仅utility component，不计6个真实包后端或P6通过。
-
-测试准备全部位于腾讯云专用目录：Rust1.97/RUSTUP_HOME/CARGO_HOME、仅下载解包的sysdeps、当前source/target、native-inputs-linux、runtime-inputs；无apt install/update或全局profile修改。Linux真实PBS输入为`cpython-3.13.16+20261013-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz`，35099487字节/SHA256 `d0080766b6b74aeb81e1949ef0d9a20e6c17f7b160fb295a69b936ccb17660be`，已同时核对GitHub API digest与SHA256SUMS。Mac固定输入在`target/p6-native-inputs-macos-20261026-v2`；v1 Cargo workspace误归属失败日志保留，两Rust模板已显式空workspace，v2准备完成。服务器专用目录结束必须全部清理，不得留下编译进程或SDK/缓存。
-
-为覆盖原先未验的reflink，利用服务器已有btrfs内核/工具，在专用目录创建512MiB稀疏镜像，以sudo的独立mount namespace临时挂载（不改分区/宿主挂载）；kernel FICLONE真实成功、不同inode/nlink1、改副本不改原输入，原始探针`target/p6-tencent-real-reflink-probe-20261026.json`。已退出namespace卸载；镜像仍在专用目录供后续实际Pakro layout用例，最终随目录清理。当前只计文件系统原语，不计产品reflink通过。
-
-- P6.1 Linux独立复制投影与P6.6有界ZIP/raw XZ归档本批实现已完成局部验证和指定审查，阶段范围仍未全部通过。保持原mac recipe1/2兼容、仅新增实际投影方法配方；原hook.py/recipe1请求ID字节语义不改。新增编译协议必须独立版本化并进入两侧codec/预算/缓存同门，不能把路径当portable输出身份。
-- 监督核对发现本机Darwin27 SDK与Apple公开XNU均明确NOTE_TRACK/TRACKERR/CHILD不支持（自10.5），filt_procattach返回ENOTSUP；START_SUSPENDED只暂停直接spawn，不能补后续fork归属。现有bounded执行只有process-group/Drop killpg，无父SIGKILL可信后代清理。因此仍保持no-fork，不开放native配方。官方依据：[event.h](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/event.h)、[kern_event.c](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_event.c)。macOS27 `es_new_descendants_client` 实际探针返回 `ERR_NOT_ENTITLED`（3）；当前主程序及探针均无ES entitlement。探针未订阅事件、未派生子进程、未修改签名或安装服务；179秒完整原始证据及摘要见 `target/p6-es-descendants-probe-20261026-030020/summary.json`，探针退出0只表示检查完成，能力不可用。
-- Agent已启动原先停止的Docker Desktop，仅创建本轮带所有权label的隔离容器，不改Docker镜像代理或用户容器。Docker Hub实际访问超时后，改用官方Alpine 3.24.3 arm64 minirootfs；SHA256/SHA512双核对输入和导入镜像记录在 `target/p6-linux-inputs/verification.json`。Linux 7.0.14隔离环境仅用于Linux验证，不能代替macOS原生监督证据。P6仍待可信监督、编译配方/解释器构建和实际平台证据，P8/P9未启动。
-- 指定“架构设计与代码审查”会话已独立确认当前监督缺口是P6合同阻塞（审查turn `01a1747d-1f1c-73c0-8127-945a8a470985`，完整结论 `target/p6-designated-architecture-blocker-20261026.json`）：ES授权本身也不足以保证监督者死亡后的全部后代清理；目前没有确认到无需额外Apple授权、同时不降低合同的本机方案，但不能据此声称macOS绝对不可能或ES是唯一方案。P6.2及依赖它的P6.3/P6.4/P6.5保持阻塞；P6.1与P6.6可独立继续验收，P6整体不通过，P8/P9不进入。
-- 后续可信Darwin `PT_TRACE_ME`直接子探针通过normal、owner SIGKILL及注册失败注入三种情况（167秒，`target/p6-darwin-traced-child-probe-20261026/summary.json`）。这只是叶子生命周期候选：普通fork不继承P_LTRACED，exec/SIP/hardened及抗调试未验证；所有工具no-fork时，Python subprocess代理也不能承接Ninja/CMake/Cargo/rustc内部原生spawn/wait。缺少版本化的原生工具执行适配及完整归属证据，不能据此开放既定后端；分析与官方源码位置见 `target/p6-native-broker-assessment-20261026.json`。
-- P6.1/P6.6本批生产改动：原mac recipe1/2保持；新增Linux实际reflink recipe3/独立核验复制recipe4，只有明确能力错误才受控丢弃整个未发布布局并全图复制；增加有界ZIP sdist的索引/锁/解包，raw TAR.XZ独立入口使用64MiB硬解码内存上限，未授予语言发布能力，原hook.py/recipe1请求身份不变。
-- 本批源码候选 `target/p6-final-source-20261026.json` SHA256 `6171fbf73d89eb313160330e209be08b7970694a0669b3512309ca63246e7afa`。Mac行为对应前一快照 `b4a05b8dd6b7142fadba7a8d654fcb5ba0996b6c9bee23e37868eea218114391`，与最终快照仅差Linux专属测试两处参数借用；Mac组前后源码一致，Linux实际容器源码核对最终快照无差异，不能混称一次全套绿灯。
-- Mac定向组 `target/p6-mac-final-unit-20261026.log`：22通过、0失败、1ignored（423.94秒行为，加本次编译仍小于600秒），含旧投影、原TAR及新增ZIP递归输入/严格冷暖/暖零HTTP与零build/nonce实际输出变化拒绝。ignored的官方CPython 3.13.16 raw用例已另行明确执行，`target/p6-real-cpython-raw-20261026.log` 1通过/0ignored，3.02秒；索引组 `target/p6-index-unit-20261026.log` 只有1个实际库用例计通过，零例的集成binary不计通过。
-- Linux原始组 `target/p6-linux-unit-libclang-20261026.log`：编译3分31秒，14通过/2夹具失败；缺libclang的首次构建、/usr/bin/sed脚本夹具失败及新增Linux测试借用编译错误均保留原日志。修正只涉及测试夹具，不放松生产musl ELF/loader检查。最终 `target/p6-linux-layout-borrow-fix-20261026.log` 3通过/1ignored，实际方法VerifiedCopy；另显式运行ignored真实ELF单例 `target/p6-linux-elf-layout-20261026.log` 1通过/0ignored，核邻接依赖拆分失败、真实bootstrap导入/ctypes返回42、两项目catalog共用布局及独立inode。实际解释器为容器系统Python 3.14.8，受管runtime为明确的协议ELF夹具，只证明Linux musl arm64布局，不能算源码扩展或受管Python验收。
-- Linux官方CPython raw归档 `target/p6-linux-real-cpython-raw-20261026.log` 1通过/0ignored（2.68秒），索引 `target/p6-linux-index-20261026.log` 1通过。官方原归档固定23225704字节/SHA256 `f4b1bfb3c79b5bb11b8d228a12504163b4c0dab4d679828d8f5f26b6cb6ab35d`，两平台均经实际入口解包5272项并核关键源码/私有清理，未运行configure或发布语言。真实reflink成功路径、其他Linux文件系统/架构及完整P6编译后端仍未覆盖，不推断通过。
-- 为消除Docker默认高句柄上限的证据缺口，最终在同一Linux源码/实际binary上把nofile软硬上限均降至256、未设RUST_MIN_STACK，以完整输入显式include ignored执行全部当前P6定向父例：`target/p6-linux-final-bounded-20261026.log` **18通过/0失败/0ignored，3.18秒**。这只是该Linux配置的P6定向组通过，不是全工程或P6阶段通过。主程序及CLI测试分别47.38秒、43.65秒编译成功，日志/各轮失败/源码对应及产物SHA归集 `target/p6-scoped-verification-20261026.json`。
-- Mac也将nofile软硬上限降至256，单独复验复制/旧新投影/归档及真实raw输入，`target/p6-mac-final-bounded-20261026.log` 21通过/0ignored，8.48秒；已通过的两个长冷暖用例未重复执行，也不把本次限额覆盖扩大到它们。另按用户要求核对并删除7个不含现行必需直接xz2依赖的过期根库编译文件，释放675152403字节，保留两份当前依赖图、全部binary/有效输入/原始证据；逐文件SHA/uid/inode/模式/时间及指纹核对见 `target/p6-obsolete-build-cleanup-20261026.json`。
-- Linux必要的3份可信C输入已按原字节保存到 `tests/support/fixtures/p6_linux/`，准备脚本 `tests/scripts/p6-linux-fixtures.py` 仅串行编译这3个输入到全新私有目录，整组120秒，不安装工具/不运行产品worker/不覆盖现有目录。实际准备0.125秒成功，3产物SHA均复现原输入；现有目录拒绝退出1且18个原条目不变、未执行编译器；消费该脚本JSON/env的真实ELF单例再次通过。日志见 `target/p6-linux-portable-fixture-{prep,refusal,elf}-20261026.*`。准备命令形态为 `python3 tests/scripts/p6-linux-fixtures.py <不存在的绝对目录> --cc <已安装cc> --expect-projection-method verified-copy|linux-reflink`；方法参数只是调用者的测试断言，不猜测TempDir文件系统。
-- 本批提交局部审查的最终快照为 `target/p6-review-source-20261026.json` SHA256 `13cc1852e87e4053731908caf257fb2bc39074f3740769e6cd0691e209a8943e`：较已编译核心6171只新增上述4个测试支持文件，Rust/Cargo/生产字节未变；Host前后快照及Linux实际3119项源码核对一致。Darwin候选探针按审查建议另存v2，仅加SIGKILL退出事件断言并只复验kill模式，22秒通过，未覆盖v1；`target/p6-darwin-traced-child-probe-20261026/summary-v2.json`。仍不代表P6.2或阶段通过。
-- 指定审查途中因压缩上下文误用旧Git授权而生成的本地提交已纠正：HEAD/索引恢复到原 `3acf1a9912d02cd0eda1f257026ce747090ef840`，3123项工作文件内容/模式/mtime完全保留，源码快照仍为13cc；原提交 `9368d8e55` 可由ORIG_HEAD/reflog恢复，未删除Git对象。审计 `target/p6-unrequested-commit-recovery-20261026.json`。本轮仍无Git提交/推送授权；Git提交结果不作为局部审查结论。
-- 指定会话随后完成实际局部审查，并纠正旧Git授权误判。审查turn `01a174a4-ff59-7692-88cf-d71a2883392c`、复核/更正turn `01a174a8-8801-7d52-a95b-33e298645bbd` 明确接受本批独立复制布局/ZIP/冷暖/raw XZ实现，未发现确定阻塞，核对13cc全部3119项和验证摘要一致；原结论及更正见 `target/p6-designated-limited-review{,-details}-20261026.json`。明确不把真实reflink、受管Linux CPython、原生扩展或P6阶段算作通过，不能跳P8/P9。
-- 审查完成后，保留全部日志、源码/输入摘要及小型真实ELF证据，销毁仅本轮所有权label/实际ID绑定的Docker容器和精确镜像tag，清除6303379456字节容器可写层；未操作其他容器/镜像/volume，清理后各类计数均为0。审计 `target/p6-owned-docker-cleanup-20261026.json`，可信夹具小归档 `target/p6-linux-portable-products-20261026.tar`。Docker停止命令退出0，后续daemon socket不存在且backend/UI进程无匹配，已恢复原停止状态；单次Desktop状态查询10秒超时不计为成功状态响应。不把容器逻辑清理字节等同宿主稀疏磁盘即时缩减。
+- 后端：setuptools C、scikit-build-core/CMake/Ninja C++、meson-python/Meson/Ninja C、公开 MarkupSafe、maturin、setuptools-rust。
+- 源码 CPython 默认配方用 `--disable-test-modules`，保留普通标准库、unittest/mock/doctest 及 SSL/hashlib/SQLite/ctypes/zlib/bz2/lzma 七项必要功能。
+- 用户批准的查询/删除调整：本地查询 30 秒，显式删除/回收 300 秒；查询只核对 Ready 清单、物理绑定与解释器入口，安装/发布/物化/删除保留完整内容验证。
+- round19：Mac Source 生命周期 309.499 秒、Linux 526.831 秒，均 1 父例通过、0 失败、0 ignored、一次删除完成未走 resume。
+- 后续删除优化（复用父目录 fd、用已持有对象校验、移除重复哈希）晚于 P6 提交，已取得 9 定向父例通过并刷新主程序；Mac 完整 Source 补验 310.92 秒通过。
+- 期望证据入口：`target/p6-mac-final-verification-matrix-v9-20261027.json`、`target/p6-tencent-round17-18-validation-results-20261027.json`、`target/p6-round19-delta-20261028.json`。各批只覆盖对应源码，不混称整树一次全绿。
+- 已知限制：reflink 夹具用受管协议 runtime 加系统 Python，只证明布局；Mac 冷重建输出变化负例已实测拒绝，不能同时算作输出匹配的冷恢复正例。
 
 **用户得到的结果：** 没有现成包时，Pakro能在明确支持的构建条件下自行组织构建，并继续共享、锁定和恢复结果。
 
@@ -507,6 +473,25 @@ Python构建依赖由Pakro准备；编译器、SDK和系统开发库由用户准
 
 ### P8：直接管理Conda资源及与PyPI组合使用
 
+**实施状态（2026-11-09）：前两批及本机纯 Conda 生命周期通过，P8 整体仍未完成。** 平台包布局、混合 PyPI、显式 update-lock 和本轮限定脚本范围已完成相应验证；混装完整用例的最后回收按用户决定延后，依赖环联合安装与多包环境脚本另行决定。循环拒绝报错已显示包名，未把拒绝行为写成联合安装完成。
+
+各批实际验证（按时间顺序，均保留原始结果）：
+
+- 第一批：首次编译失败（两处 `PackageName` 类型错误）；修复后 81 通过 / 0 失败（声明 18、锁 45、请求 11、求解 7），主程序构建 exit 0。证据 `target/p8-batch1-repair-results-20261029.json`。同时关闭严格源优先、固定候选绕过 channel、锁缺项三个问题。
+- 第二批：纯 Conda 最小路径接线；17 条编译诊断修复后库与主程序编译成功，短组 75 过 / 1 失败（测试漏传原 PBS 路径，补后通过）；CLI 解析测试修后 3 通过。
+- 真实 Conda 安装 run1–run6 连续失败：run1–run2 下载连接被关闭；run3 在 metadata 阶段失败；run4 被 native 锁解析器拒绝 `install="conda"`；run5 在 idna 下载超时；run6 测试 HTTP 服务响应体提前 EOF。逐一修复的是**测试侧**问题（socket 未置阻塞、错误被吞、系统代理未隔离、native 锁 roundtrip fixture 写错路径），未提高任何额度、未关闭 TLS 校验、未加自动重试。
+- 网络诊断排除项：官方制品 curl 单次 HTTP 200；TLS/代理 4 组合均正常；已确认真实缺陷是每包新建下载 client/连接池，已改为共用 transport。
+- **run7 完整通过**：`target/p8-real-conda-run7-20261029-result.json`，485.12 秒 / exit 0 / 1 过 0 失败 0 ignored。公开 metadata 16 records 与原输入一致；initial/cold 各 16 次精确 HTTP 获取；warm 外网与镜像均 0 请求；cold 外网 0 且锁不变；A/B 同语言实例、idna 实际导入、声明失败保原事实、预览不变、引用拒删、forget/prune 全部完成；manager 调用 0、无残留进程。范围为 macOS arm64 纯 Conda。
+
+第三批（混合 PyPI）现状（2026-11-09）：
+
+- 真实输入：Conda numpy 2.3.3/py313h9771d21_0/osx-arm64（普通 GIL）、PyPI numpy-financial 1.0.0、SciPy 1.14.1（要求 `numpy>=1.23.5,<2.3`，构成真实冲突负例）。完整输入 `target/p8-complete-mixed-conda-inputs-20261029/inputs.json`，26 真实 records 加真实 osx-arm64 virtual 包。
+- 已实现：mixed/conda_update、固定元数据与严格回放；不造假 wheel；恢复时在 registry 获取前拒绝重复 Conda 分发与同名 registry 替换；补齐 libblas/libcblas/liblapack 正常相对链接支持。
+- 短例已过：A10 26 例、A11 32 真实例、batch5 库 27 例加 CLI 2 例，main 构建 0。
+- 2026-10-29 的完整 mixed 父例 run1–run3 均失败（run3 为 415.77 秒），当时更新卡在损坏的 SciPy wheel；该历史失败记录保留。后续改用完好的 macOS 14 wheel，独立的真实冲突、失败保持和最终回收已于 11 月 4 日通过。第二轮完整用例使用保存原锁严格安装，首装、暖共享、冷恢复、真实 SciPy 冲突、锁与 catalog 保持、撤回声明、拒删及 forget A 后 B 正常运行均通过原断言；最后一次回收在 600 秒截止时未返回，按用户决定留到删除简化后验证，完整父用例不计通过。最新结果和原始输出位置见前文第 3、4 步记录。
+- 限定 post-link、单包单对 `.sh` 激活/撤销、环境差分、fish/csh 提示、固定 60 秒及脚本失败/超时/SIGINT 路径均已验证。依赖环联合安装与恢复推迟，本轮只补循环拒绝中的包名。单个 Conda 包对应多个 Python 分发有映射与图投影的单元覆盖，未宣称独立完成真实多分发生命周期验证。
+- run2–run7 测试 root 已按 owner 清理（`target/p8-fixture-cleanup-20261029.json`，删除 388,648,524B，无残留），原配置/锁/catalog 证据字节与 SHA 保全。
+
 **用户得到的结果：** 无需安装Conda工具，也能使用Conda包源中的配套Python、原生库和Python包。
 
 #### P8.1 来源与独立求解语义
@@ -543,14 +528,55 @@ Python构建依赖由Pakro准备；编译器、SDK和系统开发库由用户准
 
 #### P8.4 受控包脚本
 
+- 第二轮现行范围：保留一个项目最多一个包的一对 POSIX `.sh` 激活/撤销脚本，不开放多包环境脚本，也不补 GDAL 四种新写法。环境脚本处理方式以后单独设计。
+- 激活脚本与 post-link 同时出现继续拒绝。post-link 保持现有独立项目包、无其他包依赖、无 PyPI 混装的窄范围；本轮不允许调用受管 Python 和包内程序，未来是否在正式位置执行脚本另行决定。
+- 拒绝 pre-link、卸载类脚本、不成对或缺少 `.sh`、激活与 post-link 组合、post-link 超出窄范围时，错误应包含包名、脚本名和原因。每个脚本执行任务固定最多 60 秒，不开放配置项、环境变量或测试缩时开关；用户取消和更早的整体截止时间优先。
+- pre-link 和卸载脚本不在本轮范围，遇到必须执行这些脚本的包明确报告不支持及原因。
+- 同时提供 `.sh` 和 fish/csh 的包使用 `.sh` 正常安装，并明确提示其他 shell 版本不执行；只有不支持格式、无法完成必要环境设置的包才拒绝。
 - 安装脚本只能在本次拥有的私有准备布局中运行。
 - 禁止联网、修改其他项目、共享原件或未授权宿主位置。
 - 脚本新增和修改的文件进入所有权与结果核验。
 - 激活脚本在准备阶段受控求取环境变化，保存为可应用的环境描述。
 - 进入项目目录应用已有环境描述；离开时用现有环境差分恢复。
 - 不在每次进入目录时重新执行任意包脚本。
-- 依赖交互、秘密状态、外部写入或无法表示的动态行为明确拒绝。
+- 需要用户交互、读取秘密状态、外部写入或无法表示的动态行为明确拒绝。
 - 不允许脚本调用Conda/Mamba等管理器补装依赖。
+
+本轮核验的 `libxml2-16 2.15.4 heb56d2d_1` 只有 `etc/conda/activate.d/libxml2-split_activate.sh`，没有撤销脚本。其原始内容如下；当前实现不支持这些语法，包含该包的项目会明确拒绝。
+
+```sh
+#!/bin/sh
+
+if test -n "${XML_CATALOG_FILES:-}"; then
+    xml_catalog_files_libxml2="${XML_CATALOG_FILES}"
+    XML_CATALOG_FILES="${XML_CATALOG_FILES} "
+else
+    xml_catalog_files_libxml2=""
+    XML_CATALOG_FILES=""
+fi
+
+
+# Replace space with '%20'; equivalent to
+# conda_catalog_files=${CONDA_PREFIX// /%20}, except trailing space is
+# ignored.
+conda_catalog_files=""
+ifs_libxml2="${IFS}"
+IFS=" "
+rem="${CONDA_PREFIX}"
+for pre in ${rem}; do
+    while test "${rem#"${pre}"}" = "${rem}"; do
+	conda_catalog_files="${conda_catalog_files}%20"
+	rem=${rem#" "}
+    done
+    conda_catalog_files="${conda_catalog_files}${pre}"
+    rem=${rem#"${pre}"}
+done
+IFS="${ifs_libxml2}"
+
+conda_catalog_files="file://${conda_catalog_files}/etc/xml/catalog file:///etc/xml/catalog"
+export XML_CATALOG_FILES="${XML_CATALOG_FILES}${conda_catalog_files}"
+unset conda_catalog_files ifs_libxml2 rem
+```
 
 #### P8.5 统一锁、恢复和回收
 
@@ -567,6 +593,25 @@ Python构建依赖由Pakro准备；编译器、SDK和系统开发库由用户准
 纯Conda项目、noarch包、原生扩展、Conda与PyPI混合项目；无第二份Python；多个公开源与build歧义；错误摘要、平台不符和脚本越界拒绝；中断恢复；A/B隔离；指定删除与无根环回收。用管理器哨兵证明没有委托Conda、Mamba、pip或uv安装。
 
 ### P9：Python功能收尾与完整验收
+
+**实施状态（2026-10-29）：基本未开始，P9 整体未通过。**
+
+唯一的完整父例 `p9_pbs_wheel_single_platform_lifecycle` 只跑了 5.63 秒就失败（`target/p9-macos-arm64-311-run2-20261029-result.json`）：
+
+- 已确认通过的两项：显式选择 `install_only_stripped` 发行、schema7 冷启动不读 Simple。
+- 失败点：测试代理没有提供 `https://api.github.com/repos/astral-sh/python-build-standalone/attestations/sha256:<digest>?per_page=30` 这条路由，代理按设计拒绝了未知请求（拒绝型正向控制本身通过）。这是**夹具缺口，不是产品缺陷**。
+- 因此后面全部未验：packaging 导入、A/B 同实例共享、暖恢复零请求、冷恢复固定制品、引用拒删、forget A 保留 B、forget B 后回收。
+
+第一次尝试 run1 失败原因不同：未显式选 stripped 而落到默认 `install_only`，已修测试配置。
+
+材料准备（未执行，不能计通过）：
+
+- ISAT：61 索引页、81 制品（352MB）已核对原清单，`target/p9-isat-input-check-20261028.json`。旧验收脚本需去掉过时 binary/路径/私有代理，并补真正冷恢复与回收。
+- PBS 归档：官方维护系列 3.11–3.15，六目标 30 候选记录在 `target/p9-pbs-assets-20261028.json`。Mac arm64、Mac x86_64、Linux glibc arm64、musl arm64 均已 5/5；Linux glibc x86_64 仍在准备。Rosetta 只能记翻译执行，不能算 Intel 原生。
+- 已编译但 0 行为的主要平台：GNU ARM64（AArch64 ELF，96.108 秒）、Alpine musl ARM64（musl ELF，180.591 秒）。Mac x86_64 与 Linux x86_64 仅部分完成。**编译成功不等于平台验收通过。**
+- 网络条件：系统代理开着，工具输入用代理、产品走默认路径会有差异；已按动态观测处理，未改系统配置。
+
+全部工作结束后必须清理：服务器 `/tmp/pakro-p8p9-20261029.9s8q6qb_`、`/tmp/pakro-inputs-20261028.tn43o9ph`；本机两个 owner 容器及其精确镜像 tag（清单 `target/p9-docker-environments-20261029.json`），并恢复 Docker Desktop 为停止。
 
 #### P9.1 查询和合理报错
 
@@ -622,7 +667,7 @@ Python构建依赖由Pakro准备；编译器、SDK和系统开发库由用户准
 | 正常使用 | 实际安装后能导入、执行；目录选择与查询一致。 |
 | 共享 | A/B共用实际实例，选择隔离，改变A不破坏B。 |
 | 锁 | 普通恢复不重解；显式更新保留兼容旧结果；来源和产物不被静默替换。 |
-| 提交 | 准备失败不切换；并发和外部编辑不会覆盖他人修改；中断可恢复。 |
+| 提交 | 准备失败不切换；并发与他方提交不互相覆盖（项目 revision 与会话/guard 保护）；项目锁文件的安装期间外部内容变化不触发重选或拒绝（见"安装固定锁输入"边界）；中断可恢复。 |
 | 删除 | 仍被引用或使用时不删；无人使用的对象、布局及依赖环可显式回收。 |
 | 构建 | 实际编译结果可运行，工具及输入明确，无隐藏依赖下载或管理器委托。 |
 | Conda | 配套解释器唯一，混合冲突明确，脚本受控，冷暖恢复与回收闭合。 |
@@ -633,12 +678,12 @@ Python构建依赖由Pakro准备；编译器、SDK和系统开发库由用户准
 
 - 只运行本批变更和受影响路径需要的测试，不每次重跑全部历史测试。
 - 每个宣称完成的能力必须有实际行为证据；零测试、全ignored、只编译成功均不算功能通过。
-- 长构建与长验证继续由用户终端执行；自动多进程运行器保持禁用。
+- 本轮代码编写、长构建和验证由实施主会话亲自执行，check 只读审核；自动多进程运行器保持禁用。
 - 同一批使用既定target、features和构建配置，遵守每组600秒规则。
 - 日志放`target/`，记录命令、输入、源码对应关系、实际退出码、用例数和未覆盖项。
 - 不能以增加无关测试数量替代关键失败场景。
 
-**本轮范围止于P6。** P3、P4、P6的保留范围已全部完成并有实际证据；P8（Conda直接管理）与P9（Python收尾与完整平台矩阵）用户已明确不在本轮实施，不构成当前完成条件。已取消内容不再成为完成条件；缺少平台或输入证据时保持待验，不推断通过。
+本轮只执行用户指定的第二轮六步，按用户接续决定完成第 5、6 步。P9 的跨平台、真实项目和其他后续检查不在本轮范围；历史完成结论不扩大，缺少平台或输入结果时保持待验证。
 
 ## 五、实施Agent与审查Agent的交接规则
 
@@ -646,14 +691,14 @@ Python构建依赖由Pakro准备；编译器、SDK和系统开发库由用户准
 
 - 按依赖顺序实施上述工作，不恢复已取消功能。
 - 复用现有生产内核，删除被替代且没有消费者的旧实现。
-- 每完成一批，在PLAN中记录：完成内容、实际验证、尚未解决的问题。
+- 每完成一批，向审查会话提供完成内容、变更文件和仍需验证的问题；由实施主会话统一更新PLAN。
 - 提交审查时提供对应代码差异、实际命令、完整日志位置和真实结果。
 - 遇到无法满足合同的技术问题，应报告具体阻塞，不自行降低保护、偷偷换来源或扩大产品范围。
 - 不新建HANDOFF、TESTS、FILES、开发日志或平行计划；不自动提交或推送Git。
 
-### 本会话负责审查
+### 审查会话负责验证与协调
 
-- 只读核对代码差异、实际调用链和原始验证证据，不把实施Agent的总结直接当作结论。
+- 本轮只读核对代码差异、实际调用关系与原始测试输出，不运行测试、不改写源码；需要补充验证时通过消息交给实施主会话执行。
 - 重点检查范围是否扩大、旧路径是否回流、共享与引用是否正确、锁是否被静默改写，以及失败和恢复是否真实成立。
 - 明确区分阻塞问题、普通建议和未覆盖证据。
 - 修复交回实施Agent；审查依据发生变化后，只复核受影响部分。

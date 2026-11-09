@@ -80,6 +80,15 @@ pakro installs ls
 
 这些本地查询不会偷偷下载或安装。`where`看Python实际安装根，`which`看当前命令入口；语言存在不代表项目全部包都已就绪。
 
+查看包的远端版本时，明确指定包名和来源：
+
+```sh
+pakro ls-remote --package requests --source pypi
+pakro ls-remote --package numpy --source conda --channel conda-forge
+```
+
+查询只读取来源元数据，不下载包或修改项目。Conda 默认查询已配置的渠道，也可用 `--channel` 限定其中一个；结果覆盖当前平台和 `noarch`。加 `--json` 可获得结构化结果；离线模式不能使用远端查询。
+
 只删除明确指定的安装对象，例如：
 
 ```sh
